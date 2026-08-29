@@ -8961,3 +8961,50 @@ Realize failures. No completion gate or work limit changes here.
   Parent application `d6f2ad/0`, strict lint and contracts `303cbd/0` passed.
   These added messages have not yet been compiled or executed. All nine
   original completion gates remain open, with the original goal unchanged.
+
+### Ninth integration: material inside content blur, 2026-08-29
+
+- The reviewed material feature now joins the compiler-corrected native/List
+  foundation after `6a74ab564862774db34fd25171647e3b58f4b103`. It preserves the
+  original goal, all previous execution records, and all nine open gates.
+  Source origin is `d295472355928e72fb87381c5a3acea2efcf1578`, based on `cdd5fd2`;
+  the actual integrated commit and future execution must be recorded separately.
+- Material-dependent content blur now carries an explicit isolated backdrop
+  input through retained painting, scene replay, the CPU rasterizer, and D3D11.
+  It filters premultiplied foreground and replacement coverage separately, then
+  composites them against the live destination at each image occurrence.
+  Transparent padding and empty groups therefore do not import an entire
+  backdrop rectangle, and translucent material alpha is not mistaken for
+  replacement coverage. Nested namespaces and presentation order remain explicit.
+- The D3D11 path uses real texture copies and shader passes, with per-occurrence
+  scratch targets and explicit cleanup. Material-free content retains its
+  independent cached bitmap route. These are implementation facts pending
+  execution; no GPU pass, live-window result, or native SwiftUI parity is
+  inferred from CPU code or source inspection.
+- Admission retains the existing 1,024-source, depth-32, 4,194,304-pixel
+  per-source and 16,777,216 cumulative ceilings. Each dependent occurrence
+  reserves eight times its area, so an isolated source is limited to 2,097,152
+  pixels by that cumulative allowance. The GPU uses at most six full-size local
+  planes per active isolation. These structural limits are not a bound on all
+  process allocations, GPU work, or qualified frame time.
+- The feature adds 52 async methods: 15 scene/admission contracts, 21 retained
+  and CPU cases, and 16 D3D11 cases. The existing historical stripe fixture keeps
+  its exact identity, 100-by-100 input and inline/group smoothing bounds. Its
+  known-bug content-blur assertion becomes the same positive smoothing bound,
+  and the unconditional skip is removed. No other existing assertion, visual
+  baseline, pixel tolerance, or font selection changes.
+- Parent intake preserves the reviewed 350,974-byte patch, SHA-256
+  `a635193574f03690974c1e071f74bd406ea314e2daee5e343bc07e359bbb4bd6`, under
+  `artifacts/goal-ninth-material-cdd-source-intake-v1`. Parent application
+  `4fcf74/0` passed without conflicts and matched all fourteen reviewed Swift
+  postimages exactly. The delta is nineteen feature paths: ten production,
+  four test, and five documentation files. Runtime, List/state, native host,
+  Package and existing label fixes are outside that delta.
+- Strict lint on all fourteen Swift files and architecture contracts passed
+  (`a7bf77/0`). Independent composition review also found no production/test
+  overlap with FilePreview or NativeSmoke; their only shared path contains
+  disjoint Testing documentation hunks. This commit is still uncompiled and
+  unrun. The upcoming serial run must verify the 52 new cases and the existing
+  render-pass regression class. Native modifier-edge semantics, general clip/
+  blend/color composition, Canvas integration, hardware timing, recovery and
+  reference comparisons remain open to their original acceptance requirements.

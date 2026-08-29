@@ -699,12 +699,13 @@ public struct GPUIScene: Equatable, Sendable {
     @discardableResult
     public mutating func registerImageRenderPass(
         _ scene: GPUIScene, size: IntSize, colorEffects: [SceneColorEffect] = [],
-        input: GPUISceneImageRenderPassInput = .independent
+        input: GPUISceneImageRenderPassInput = .independent, contentBlurRadius: Int32 = 0
     ) -> Int32 {
         let textureID = nextImageTextureID
         imageRenderPasses.append(
             GPUISceneImageRenderPass(
-                textureID: textureID, scene: scene, size: size, colorEffects: colorEffects, input: input))
+                textureID: textureID, scene: scene, size: size, colorEffects: colorEffects, input: input,
+                contentBlurRadius: contentBlurRadius))
         return textureID
     }
 
@@ -920,7 +921,8 @@ public struct GPUIScene: Equatable, Sendable {
         // Image IDs are local to a scene. Replaying old bindings wholesale
         // could overwrite a newly painted sibling which reused an old ID.
         // Copy only referenced sources, remapping conflicts on the image
-        // primitive as well as its binding. Pass children keep their own IDs.
+        // primitive as well as its binding. Pass children keep their own IDs;
+        // copying the whole descriptor retains input and content-blur metadata.
         var replayedImageIDs: [Int32: Int32] = [:]
 
         for record in previousScene.paintRecords[range] {

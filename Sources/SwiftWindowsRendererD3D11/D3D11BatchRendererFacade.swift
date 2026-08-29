@@ -153,6 +153,13 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     internal var blurDegradedForTesting: Bool { kernel.blurDegradedForTesting }
     internal var liveCOMObjectCountForTesting: Int { kernel.liveCOMObjectCountForTesting }
     internal var blurEngineOwnsResourcesForTesting: Bool { kernel.blurEngineOwnsResourcesForTesting }
+    internal var isolatedBlurPipelineCreationCountForTesting: UInt64 {
+        kernel.isolatedBlurPipelineCreationCountForTesting
+    }
+    internal var isolatedBlurPipelineHasTargetsForTesting: Bool { kernel.isolatedBlurPipelineHasTargetsForTesting }
+    internal var isolatedBlurPipelineOwnsResourcesForTesting: Bool {
+        kernel.isolatedBlurPipelineOwnsResourcesForTesting
+    }
     internal var deviceAddressForTesting: UInt { kernel.deviceAddressForTesting }
     internal var cachedResourcesForTesting: CachedResources { kernel.cachedResourcesForTesting }
     internal var imageTextureCacheCountForTesting: Int { kernel.imageTextureCacheCountForTesting }
@@ -169,6 +176,11 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     internal var failBlurredQuadsForTesting: Bool {
         get { kernel.failBlurredQuadsForTesting }
         set { kernel.failBlurredQuadsForTesting = newValue }
+    }
+
+    internal var failIsolatedCoverageForTesting: Bool {
+        get { kernel.failIsolatedCoverageForTesting }
+        set { kernel.failIsolatedCoverageForTesting = newValue }
     }
 
     internal var createsDebugDeviceForTesting: Bool {

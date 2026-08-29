@@ -488,6 +488,57 @@ MaterialPSOutput psMain(VSOutput input)
 }
 """#
 
+// A material replaces its geometric coverage independently of tint alpha.
+// Keep its coverage draw on the same quad vertex stage, rounded geometry,
+// clip derivatives and gradient-segment ownership as the material draw.
+// The isolated pass writes this alpha into a separate coverage target with
+// ONE / INV_SRC_ALPHA blending; no backdrop or tint is sampled here.
+let batchMaterialCoverageShaderSource = batchQuadShaderSharedSource + "\n" + #"""
+float4 psMain(VSOutput input) : SV_Target
+{
+    float clipAlpha = 1.0;
+    if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
+    {
+        if (input.pixelPosition.x < input.clipRect.x || input.pixelPosition.y < input.clipRect.y ||
+            input.pixelPosition.x >= input.clipRect.x + input.clipRect.z ||
+            input.pixelPosition.y >= input.clipRect.y + input.clipRect.w)
+        {
+            discard;
+        }
+
+        if (input.clipRadius > 0.0)
+        {
+            float2 clipLocalPosition = input.pixelPosition - input.clipRect.xy;
+            float clipDistance = roundedRectDistance(
+                clipLocalPosition, input.clipRect.zw,
+                float4(input.clipRadius, input.clipRadius, input.clipRadius, input.clipRadius));
+            float clipAA = max(fwidth(clipDistance), 0.75);
+            clipAlpha = saturate(0.5 - clipDistance / clipAA);
+            if (clipAlpha <= 0.0)
+            {
+                discard;
+            }
+        }
+    }
+
+    float distance = roundedRectDistance(input.localPosition, input.size, input.cornerRadii);
+    float aa = max(fwidth(distance), 0.75);
+    float alpha = saturate(0.5 - distance / aa);
+    float gradientT = gradientProgress(input);
+    if (input.gradientSegment.z > 0.5)
+    {
+        bool isFinalSegment = input.gradientSegment.z > 1.5;
+        if (gradientT < input.gradientSegment.x ||
+            gradientT > input.gradientSegment.y ||
+            (!isFinalSegment && gradientT >= input.gradientSegment.y))
+        {
+            discard;
+        }
+    }
+    return float4(0.0, 0.0, 0.0, alpha * clipAlpha);
+}
+"""#
+
 // MARK: - Separable Gaussian Blur Shader (fullscreen triangle, source t0)
 //
 // One pass of the two-pass separable Gaussian used for Material backdrop
@@ -567,6 +618,87 @@ float4 psMain(VSOutput input) : SV_Target
         sum += blurSource.Sample(blurSampler, clamp(uv - offset, uvMin, uvMax)) * weight;
     }
     return sum;
+}
+"""#
+
+// Restore an isolated foreground or coverage image after the shared blur
+// schedule. Mapping and clamp are separate: an odd source extent is not an
+// integer multiple of the reduced extent, so scaling by reduced/output size
+// would move the sample positions. Pixel p samples (p + 0.5) / factor, while
+// the bounds describe only the reduced texels that were actually written.
+let batchIsolatedBlurUpsampleShaderSource = #"""
+cbuffer IsolatedBlurUpsampleParams : register(b0)
+{
+    float4 sourceUVScale;
+    float4 sourceUVBounds;
+};
+
+Texture2D filteredTexture : register(t0);
+SamplerState filteredSampler : register(s0);
+
+struct VSOutput
+{
+    float4 position : SV_Position;
+    float2 uv : TEXCOORD0;
+};
+
+VSOutput vsMain(uint vertexID : SV_VertexID)
+{
+    float2 pos = float2((vertexID << 1) & 2, vertexID & 2);
+    VSOutput output;
+    output.position = float4(pos.x * 2.0 - 1.0, 1.0 - pos.y * 2.0, 0.0, 1.0);
+    output.uv = pos;
+    return output;
+}
+
+float4 psMain(VSOutput input) : SV_Target
+{
+    float2 uv = clamp(input.uv * sourceUVScale.xy, sourceUVBounds.xy, sourceUVBounds.zw);
+    return filteredTexture.Sample(filteredSampler, uv);
+}
+"""#
+
+// Material reads see the current isolated foreground over the frozen
+// immediate parent. Integer loads preserve the local F/C texels, including
+// content outside the parent's valid intersection. Only D is clamped into
+// its actual copy bounds; an empty parent intersection supplies transparent
+// D. This draw replaces its separate scratch target with blending off.
+let batchIsolatedBackdropComposeShaderSource = #"""
+cbuffer IsolatedBackdropParams : register(b0)
+{
+    // xy = inclusive minimum, zw = exclusive maximum, in child texels.
+    int4 backdropBounds;
+};
+
+Texture2D foregroundTexture : register(t0);
+Texture2D coverageTexture : register(t1);
+Texture2D backdropTexture : register(t2);
+
+struct VSOutput
+{
+    float4 position : SV_Position;
+};
+
+VSOutput vsMain(uint vertexID : SV_VertexID)
+{
+    float2 pos = float2((vertexID << 1) & 2, vertexID & 2);
+    VSOutput output;
+    output.position = float4(pos.x * 2.0 - 1.0, 1.0 - pos.y * 2.0, 0.0, 1.0);
+    return output;
+}
+
+float4 psMain(VSOutput input) : SV_Target
+{
+    int2 pixel = (int2)input.position.xy;
+    float4 foreground = foregroundTexture.Load(int3(pixel, 0));
+    float coverage = coverageTexture.Load(int3(pixel, 0)).a;
+    float4 backdrop = float4(0.0, 0.0, 0.0, 0.0);
+    if (backdropBounds.z > backdropBounds.x && backdropBounds.w > backdropBounds.y)
+    {
+        int2 backdropPixel = clamp(pixel, backdropBounds.xy, backdropBounds.zw - int2(1, 1));
+        backdrop = backdropTexture.Load(int3(backdropPixel, 0));
+    }
+    return foreground + (1.0 - coverage) * backdrop;
 }
 """#
 
@@ -798,6 +930,74 @@ ImageReplacementPSOutput psMain(VSOutput input)
     output.color = imageTexture.Sample(imageSampler, input.uv) * coverage;
     output.coverage = float4(0.0, 0.0, 0.0, coverage);
     return output;
+}
+"""#
+
+// These two isolation shaders use the unchanged image instance layout and
+// vertex stage. Admission requires the legacy, full-UV identity mapping;
+// foreground and coverage always sample the same texel coordinates.
+private let batchImageIsolationClipShaderSource = #"""
+float isolatedImageClipAlpha(VSOutput input)
+{
+    float clipAlpha = 1.0;
+    if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
+    {
+        if (input.pixelPosition.x < input.clipRect.x || input.pixelPosition.y < input.clipRect.y ||
+            input.pixelPosition.x >= input.clipRect.x + input.clipRect.z ||
+            input.pixelPosition.y >= input.clipRect.y + input.clipRect.w)
+        {
+            discard;
+        }
+
+        if (input.clipRadius > 0.0)
+        {
+            float clipDistance = imageClipDistance(
+                input.pixelPosition - input.clipRect.xy, input.clipRect.zw, input.clipRadius);
+            float clipAA = max(fwidth(clipDistance), 0.75);
+            clipAlpha = saturate(0.5 - clipDistance / clipAA);
+            if (clipAlpha <= 0.0)
+            {
+                discard;
+            }
+        }
+    }
+    return clipAlpha;
+}
+"""#
+
+// F has not been composited over D; its independently filtered coverage C
+// determines how much D survives. Dual-source blending performs
+// p * F + (1 - p * C) * D for every premultiplied color channel and alpha.
+let batchImageIsolatedReplacementShaderSource =
+    batchImageShaderSharedSource + "\n" + batchImageIsolationClipShaderSource + "\n" + #"""
+Texture2D coverageTexture : register(t2);
+
+struct IsolatedImagePSOutput
+{
+    float4 color : SV_Target0;
+    float4 coverage : SV_Target1;
+};
+
+IsolatedImagePSOutput psMain(VSOutput input)
+{
+    float opacity = input.opacity * isolatedImageClipAlpha(input);
+    IsolatedImagePSOutput output;
+    output.color = imageTexture.Sample(imageSampler, input.uv) * opacity;
+    output.coverage = float4(0.0, 0.0, 0.0,
+        coverageTexture.Sample(imageSampler, input.uv).a * opacity);
+    return output;
+}
+"""#
+
+// For a nested isolated image the parent coverage target receives the
+// child's coverage, not its color alpha. The child's coverage is bound at
+// t1 and accumulates with the ordinary ONE / INV_SRC_ALPHA blend rule.
+let batchImageIsolatedCoverageShaderSource =
+    batchImageShaderSharedSource + "\n" + batchImageIsolationClipShaderSource + "\n" + #"""
+float4 psMain(VSOutput input) : SV_Target
+{
+    float opacity = input.opacity * isolatedImageClipAlpha(input);
+    return float4(0.0, 0.0, 0.0, imageTexture.Sample(imageSampler, input.uv).a * opacity);
 }
 """#
 

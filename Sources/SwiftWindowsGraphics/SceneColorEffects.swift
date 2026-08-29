@@ -148,6 +148,10 @@ public enum GPUISceneImageRenderPassInput: Equatable, Sendable {
     /// Copy the current enclosing target at this image occurrence, then replace
     /// destination coverage with the composed result, including its alpha.
     case currentTarget
+    /// Read the current enclosing target while drawing foreground color and
+    /// replacement coverage into separate transparent targets. Content blur
+    /// filters those targets, never the untouched enclosing backdrop.
+    case isolatedBackdrop
 }
 
 /// A renderer-neutral image source drawn from another scene. The image ID
@@ -160,16 +164,18 @@ public struct GPUISceneImageRenderPass: Equatable, Sendable {
     public var size: IntSize
     public var colorEffects: [SceneColorEffect]
     public var input: GPUISceneImageRenderPassInput
+    public var contentBlurRadius: Int32
 
     public init(
         textureID: Int32, scene: GPUIScene, size: IntSize, colorEffects: [SceneColorEffect] = [],
-        input: GPUISceneImageRenderPassInput = .independent
+        input: GPUISceneImageRenderPassInput = .independent, contentBlurRadius: Int32 = 0
     ) {
         self.textureID = textureID
         self.scene = scene
         self.size = size
         self.colorEffects = colorEffects.map(\.sanitized)
         self.input = input
+        self.contentBlurRadius = contentBlurRadius
     }
 
     /// Checked before allocation by both renderers. Invalid sources remain
@@ -210,7 +216,7 @@ public struct GPUISceneImageRenderPass: Equatable, Sendable {
         guard colorEffects.isEmpty else {
             return "current-target sources do not support post-filter chains"
         }
-        return nil
+        return contentBlurRadiusDefect
     }
 
     /// Checks the mapping without pretending that structural validation knows
@@ -249,7 +255,9 @@ public struct GPUISceneImageRenderPass: Equatable, Sendable {
 /// each actual realization before allocating it. Reusing an independent
 /// resolved CPU image spends nothing. Current-target sources realize and
 /// spend again at every occurrence on both backends.
-/// This accounts source pixels, not filter outputs or total process memory.
+/// Ordinary sources account source pixels, not filter outputs or total process
+/// memory. Backdrop isolation also reserves its bounded pass-local scratch
+/// planes, including nested current-target sources that return coverage.
 public struct GPUISceneImageRenderPassBudget: Sendable {
     public private(set) var remainingPasses: Int
     public private(set) var remainingPixels: Int64
@@ -275,6 +283,26 @@ public struct GPUISceneImageRenderPassBudget: Sendable {
         else { return false }
         remainingPasses -= 1
         remainingPixels -= pixels
+        return true
+    }
+
+    /// Reserve the dependent pass's color, coverage and bounded scratch planes
+    /// before any allocation. Independent children reset the isolation context;
+    /// a current-target child inside isolation must return a color/coverage pair.
+    /// Every actual dependent occurrence pays again, even for a repeated ID.
+    public mutating func consume(
+        _ pass: GPUISceneImageRenderPass, inBackdropIsolation: Bool = false
+    ) -> Bool {
+        guard pass.input == .isolatedBackdrop || (pass.input == .currentTarget && inBackdropIsolation) else {
+            return consume(size: pass.size)
+        }
+        guard pass.hasValidExtent else { return false }
+        let pixels = Int64(pass.size.width) * Int64(pass.size.height)
+        let (reservedPixels, overflow) = pixels.multipliedReportingOverflow(
+            by: Int64(GPUISceneBackdropIsolationLimits.scratchPlaneCount))
+        guard !overflow, remainingPasses > 0, reservedPixels <= remainingPixels else { return false }
+        remainingPasses -= 1
+        remainingPixels -= reservedPixels
         return true
     }
 }

@@ -271,6 +271,11 @@ final class D3D11BatchKernel {
     private var imagePS: UnsafeMutablePointer<ID3D11PixelShader>?
     private var imageColorEffectPS: UnsafeMutablePointer<ID3D11PixelShader>?
     private var imageReplacementPS: UnsafeMutablePointer<ID3D11PixelShader>?
+    private var imageIsolatedReplacementPS: UnsafeMutablePointer<ID3D11PixelShader>?
+    private var imageIsolatedCoveragePS: UnsafeMutablePointer<ID3D11PixelShader>?
+    private var isolatedBackdropComposeVS: UnsafeMutablePointer<ID3D11VertexShader>?
+    private var isolatedBackdropComposePS: UnsafeMutablePointer<ID3D11PixelShader>?
+    private var isolatedBackdropBoundsBuffer: UnsafeMutablePointer<ID3D11Buffer>?
     private var colorEffectUniformBuffer: UnsafeMutablePointer<ID3D11Buffer>?
     private var glyphVS: UnsafeMutablePointer<ID3D11VertexShader>?
     private var glyphPS: UnsafeMutablePointer<ID3D11PixelShader>?
@@ -282,6 +287,7 @@ final class D3D11BatchKernel {
     private var frameUniformBuffer: UnsafeMutablePointer<ID3D11Buffer>?
     private var blendState: UnsafeMutablePointer<ID3D11BlendState>?
     private var imageReplacementBlendState: UnsafeMutablePointer<ID3D11BlendState>?
+    private var isolatedCoverageBlendState: UnsafeMutablePointer<ID3D11BlendState>?
     private var rasterizerState: UnsafeMutablePointer<ID3D11RasterizerState>?
     private var samplerState: UnsafeMutablePointer<ID3D11SamplerState>?
 
@@ -416,6 +422,55 @@ final class D3D11BatchKernel {
             releaseCOM(&texture)
         }
     }
+
+    /// Borrowed views into targets owned by one synchronous image occurrence.
+    /// A material reads `foreground + (1 - coverage) * backdrop`; the frozen
+    /// backdrop never becomes part of the foreground outside actual coverage.
+    /// The four targets and this occurrence's two blur targets fit inside the
+    /// shared eight-plane execution reservation. Nothing enters a frame cache.
+    private final class BackdropIsolationState {
+        let foreground: ImageRenderPassTarget
+        let coverage: ImageRenderPassTarget
+        let backdrop: ImageRenderPassTarget
+        let composed: ImageRenderPassTarget
+        let size: IntSize
+        let validBackdropRegion: SubTextureRegion?
+        var blurEngine: D3D11BackdropBlurEngine?
+
+        init(
+            foreground: ImageRenderPassTarget, coverage: ImageRenderPassTarget,
+            backdrop: ImageRenderPassTarget, composed: ImageRenderPassTarget,
+            size: IntSize, validBackdropRegion: SubTextureRegion?
+        ) {
+            self.foreground = foreground
+            self.coverage = coverage
+            self.backdrop = backdrop
+            self.composed = composed
+            self.size = size
+            self.validBackdropRegion = validBackdropRegion
+        }
+    }
+
+    private struct IsolatedImageRenderPassResult {
+        var foreground: ImageRenderPassTarget
+        var coverage: ImageRenderPassTarget
+    }
+
+    private var backdropIsolation: BackdropIsolationState?
+    /// A generation-scoped pipeline template with no pixel targets. Scratch
+    /// engines retain its shaders and fully re-upload shared mutable buffers
+    /// on every synchronous use, while owning their own A/B textures.
+    private var isolatedBlurPipeline: D3D11BackdropBlurEngine?
+    internal private(set) var isolatedBlurPipelineCreationCountForTesting: UInt64 = 0
+    internal var isolatedBlurPipelineHasTargetsForTesting: Bool {
+        isolatedBlurPipeline?.hasAllocatedBlurTargetsForTesting ?? false
+    }
+    internal var isolatedBlurPipelineOwnsResourcesForTesting: Bool { isolatedBlurPipeline != nil }
+
+    /// Exercises unwind after F has changed and local blur targets exist,
+    /// before C is updated. It is confined to dependent isolation and cannot
+    /// switch ordinary materials into their persistent degradation policy.
+    internal var failIsolatedCoverageForTesting = false
 
     /// The image-effect cbuffer is a float4 count followed by one eight-float
     /// stage per supported effect, exactly as in the image-effect HLSL.
@@ -626,8 +681,8 @@ final class D3D11BatchKernel {
     /// property at a time. `detach()` must bring this to zero; a new field
     /// that forgets to release itself shows up here rather than as a leak
     /// nobody can see. The blur engine and the path cache report their own
-    /// holdings through `blurEngineOwnsResourcesForTesting` and
-    /// `pathCacheEntryCountForTesting`.
+    /// holdings through `blurEngineOwnsResourcesForTesting`,
+    /// `isolatedBlurPipelineOwnsResourcesForTesting` and `pathCacheEntryCountForTesting`.
     internal var liveCOMObjectCountForTesting: Int {
         var count = 0
         func tally(_ pointer: UnsafeMutableRawPointer?) {
@@ -649,6 +704,11 @@ final class D3D11BatchKernel {
         tally(imagePS.map(UnsafeMutableRawPointer.init))
         tally(imageColorEffectPS.map(UnsafeMutableRawPointer.init))
         tally(imageReplacementPS.map(UnsafeMutableRawPointer.init))
+        tally(imageIsolatedReplacementPS.map(UnsafeMutableRawPointer.init))
+        tally(imageIsolatedCoveragePS.map(UnsafeMutableRawPointer.init))
+        tally(isolatedBackdropComposeVS.map(UnsafeMutableRawPointer.init))
+        tally(isolatedBackdropComposePS.map(UnsafeMutableRawPointer.init))
+        tally(isolatedBackdropBoundsBuffer.map(UnsafeMutableRawPointer.init))
         tally(colorEffectUniformBuffer.map(UnsafeMutableRawPointer.init))
         tally(glyphVS.map(UnsafeMutableRawPointer.init))
         tally(glyphPS.map(UnsafeMutableRawPointer.init))
@@ -658,6 +718,7 @@ final class D3D11BatchKernel {
         tally(frameUniformBuffer.map(UnsafeMutableRawPointer.init))
         tally(blendState.map(UnsafeMutableRawPointer.init))
         tally(imageReplacementBlendState.map(UnsafeMutableRawPointer.init))
+        tally(isolatedCoverageBlendState.map(UnsafeMutableRawPointer.init))
         tally(rasterizerState.map(UnsafeMutableRawPointer.init))
         tally(samplerState.map(UnsafeMutableRawPointer.init))
 
@@ -800,12 +861,12 @@ final class D3D11BatchKernel {
 
         imageRenderPassBitmapKeys.removeAll(keepingCapacity: true)
         var budget = GPUISceneImageRenderPassBudget()
-        func collectImageRenderPassBitmapKeys(in namespace: GPUIScene, depth: Int) {
+        func collectImageRenderPassBitmapKeys(in namespace: GPUIScene, depth: Int, inBackdropIsolation: Bool) {
             // Match validation's depth-first namespace order. Count values at
             // every occurrence; shared child arrays do not make sources free.
             var textureIDs = Set(namespace.imageResources.map(\.textureID))
             for pass in namespace.imageRenderPasses {
-                guard budget.consume(size: pass.size) else { return }
+                guard budget.consume(pass, inBackdropIsolation: inBackdropIsolation) else { return }
                 guard pass.textureID >= 0, textureIDs.insert(pass.textureID).inserted,
                     pass.colorEffects.count <= GPUISceneLimits.maxColorEffects,
                     depth < GPUISceneLimits.maxImageRenderPassDepth
@@ -813,12 +874,15 @@ final class D3D11BatchKernel {
                 for binding in pass.scene.imageResources {
                     imageRenderPassBitmapKeys.insert(binding.bitmap.contentKey)
                 }
-                collectImageRenderPassBitmapKeys(in: pass.scene, depth: depth + 1)
+                let childIsolation =
+                    pass.input == .isolatedBackdrop || (pass.input == .currentTarget && inBackdropIsolation)
+                collectImageRenderPassBitmapKeys(
+                    in: pass.scene, depth: depth + 1, inBackdropIsolation: childIsolation)
             }
         }
         // Binding precedes validation. Stop each rejected namespace walk;
         // makeRenderPlan will report its invalid scene before any drawing.
-        collectImageRenderPassBitmapKeys(in: scene, depth: 0)
+        collectImageRenderPassBitmapKeys(in: scene, depth: 0, inBackdropIsolation: false)
     }
 
     /// Releases the GPU side of every cached image and forgets the
@@ -1180,6 +1244,9 @@ final class D3D11BatchKernel {
 
         blurEngine?.detach()
         blurEngine = nil
+        isolatedBlurPipeline?.detach()
+        isolatedBlurPipeline = nil
+        backdropIsolation = nil
         releaseAllCachedPaths()
         releaseAllImageResources()
 
@@ -1203,8 +1270,10 @@ final class D3D11BatchKernel {
         releaseCOM(&rasterizerState)
         releaseCOM(&blendState)
         releaseCOM(&imageReplacementBlendState)
+        releaseCOM(&isolatedCoverageBlendState)
         releaseCOM(&frameUniformBuffer)
         releaseCOM(&colorEffectUniformBuffer)
+        releaseCOM(&isolatedBackdropBoundsBuffer)
 
         releaseCOM(&shadowPS)
         releaseCOM(&shadowVS)
@@ -1214,6 +1283,10 @@ final class D3D11BatchKernel {
         releaseCOM(&imageVS)
         releaseCOM(&imageColorEffectPS)
         releaseCOM(&imageReplacementPS)
+        releaseCOM(&imageIsolatedReplacementPS)
+        releaseCOM(&imageIsolatedCoveragePS)
+        releaseCOM(&isolatedBackdropComposeVS)
+        releaseCOM(&isolatedBackdropComposePS)
         releaseCOM(&quadPS)
         releaseCOM(&quadVS)
 
@@ -1547,6 +1620,24 @@ final class D3D11BatchKernel {
             case .images(let layerIndex, let range, let textureID):
                 let layer = finishedScene.layers[layerIndex]
                 if let pass = imagePasses[textureID] {
+                    if pass.input == .isolatedBackdrop || (pass.input == .currentTarget && backdropIsolation != nil) {
+                        // The backdrop belongs to this exact occurrence in the
+                        // presentation order. A repeated ID must not reuse its
+                        // earlier foreground, coverage or frozen parent pixels.
+                        for index in range {
+                            var result = try renderIsolatedImageRenderPass(
+                                pass, consumingImage: layer.images[index], deviceContext: deviceContext,
+                                depth: imageRenderPassDepth + 1)
+                            defer {
+                                releaseImageRenderPassTarget(&result.coverage)
+                                releaseImageRenderPassTarget(&result.foreground)
+                            }
+                            try renderIsolatedImage(
+                                layer.images, index: index, result: result,
+                                deviceContext: deviceContext, surfaceSize: surfaceSize)
+                        }
+                        continue
+                    }
                     if pass.input == .currentTarget {
                         // Even adjacent consumers of one ID have different
                         // placement or scene-so-far dependencies. Realize each
@@ -1644,7 +1735,7 @@ final class D3D11BatchKernel {
         // Charge each realization, including repeated noncontiguous image
         // runs. This bounds nominal source payload, not driver or total GPU
         // memory; a filtered source also needs one same-size output target.
-        guard imageRenderPassExecutionBudget.consume(size: pass.size) else {
+        guard imageRenderPassExecutionBudget.consume(pass) else {
             throw BatchRendererError(
                 operation: "Execute image render pass", hresult: batchHresultInvalidArgument,
                 details: "The frame exceeds the shared image-pass source-count or cumulative source-pixel budget.",
@@ -1678,6 +1769,7 @@ final class D3D11BatchKernel {
         let parentBindings = imageBindings
         let parentGlyphAtlas = glyphAtlas
         let parentPixelGlyphAtlas = pixelGlyphAtlas
+        let parentIsolation = backdropIsolation
 
         // Sharing is safe only when the atlas protocol says the child would
         // upload nothing. A different atlas gets a separate slot, so returning
@@ -1701,6 +1793,7 @@ final class D3D11BatchKernel {
             renderTargetKind = parentTargetKind
             offscreenTexture = parentOffscreenTexture
             targetPixelSize = parentSize
+            backdropIsolation = parentIsolation
             parentStateRestored = true
             defer { bindFramePipelineState(deviceContext: deviceContext, surfaceSize: parentSize) }
             // The same buffer object served the smaller target, so restoring
@@ -1717,6 +1810,9 @@ final class D3D11BatchKernel {
         renderTargetKind = .offscreen
         offscreenTexture = target.texture
         targetPixelSize = pass.size
+        // An independent child owns its own backdrop. In particular a Canvas
+        // or color-filter source must never inherit a grandparent implicitly.
+        backdropIsolation = nil
         imageBindings = Dictionary(
             pass.scene.imageResources.map { ($0.textureID, $0.bitmap) },
             uniquingKeysWith: { _, latest in latest })
@@ -1748,6 +1844,199 @@ final class D3D11BatchKernel {
         try restoreParentState()
         transfersFilteredTarget = true
         return filtered
+    }
+
+    /// Executes a transparent foreground/coverage pair while keeping the
+    /// enclosing backdrop separate. Four full-size targets plus one local
+    /// two-target blur engine are bounded by the shared eight-plane charge.
+    private func renderIsolatedImageRenderPass(
+        _ pass: GPUISceneImageRenderPass,
+        consumingImage: ImagePrimitive,
+        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
+        depth: Int
+    ) throws -> IsolatedImageRenderPassResult {
+        guard pass.hasValidExtent, depth <= GPUISceneLimits.maxImageRenderPassDepth else {
+            throw BatchRendererError(
+                operation: "Validate isolated-backdrop image pass", hresult: batchHresultInvalidArgument,
+                details: "The isolated image exceeds the shared source extent or nesting limit.",
+                failureKind: .sceneContent)
+        }
+
+        let parentIsolation = backdropIsolation
+        var parentTexture: UnsafeMutablePointer<ID3D11Texture2D>? = try acquireBackBuffer()
+        defer { releaseCOM(&parentTexture) }
+        guard let actualParentTexture = parentTexture else {
+            throw BatchRendererError(operation: "Resolve isolated-backdrop parent", hresult: batchHresultHandle)
+        }
+        var parentDescriptor = D3D11_TEXTURE2D_DESC()
+        actualParentTexture.pointee.lpVtbl.pointee.GetDesc(actualParentTexture, &parentDescriptor)
+        guard parentDescriptor.Width <= UINT(GPUISceneLimits.maxSurfaceDimension),
+            parentDescriptor.Height <= UINT(GPUISceneLimits.maxSurfaceDimension),
+            parentDescriptor.Format == DXGI_FORMAT_B8G8R8A8_UNORM,
+            parentDescriptor.MipLevels == 1, parentDescriptor.ArraySize == 1,
+            parentDescriptor.SampleDesc.Count == 1
+        else {
+            throw BatchRendererError(
+                operation: "Validate isolated-backdrop parent", hresult: batchHresultInvalidArgument,
+                details: "The actual parent must be a bounded single-sample BGRA8 surface.",
+                failureKind: .sceneContent)
+        }
+        let actualParentSize = IntSize(
+            width: Int32(parentDescriptor.Width), height: Int32(parentDescriptor.Height))
+        var isolatedDescriptor = pass
+        if pass.input == .currentTarget {
+            // A plain group nested in F/C returns a pair too, but its original
+            // fully-contained, even-origin contract is not broadened by that.
+            guard parentIsolation != nil,
+                pass.currentTargetRegion(for: consumingImage, parentSize: actualParentSize) != nil
+            else {
+                throw BatchRendererError(
+                    operation: "Validate nested current-target image pass", hresult: batchHresultInvalidArgument,
+                    details: "A nested current-target image must retain its original 1:1 contained mapping.",
+                    failureKind: .sceneContent)
+            }
+            isolatedDescriptor.input = .isolatedBackdrop
+            isolatedDescriptor.contentBlurRadius = 0
+        }
+        guard
+            let mapping = isolatedDescriptor.isolatedBackdropMapping(
+                for: consumingImage, parentSize: actualParentSize)
+        else {
+            throw BatchRendererError(
+                operation: "Validate isolated-backdrop image pass", hresult: batchHresultInvalidArgument,
+                details:
+                    "The isolated source requires a transparent, unfiltered scene and an admitted 1:1 image mapping.",
+                failureKind: .sceneContent)
+        }
+        // This is one atomic source-count and eight-plane pixel reservation,
+        // performed before any child target or local blur engine is allocated.
+        guard imageRenderPassExecutionBudget.consume(pass, inBackdropIsolation: parentIsolation != nil) else {
+            throw BatchRendererError(
+                operation: "Execute isolated-backdrop image pass", hresult: batchHresultInvalidArgument,
+                details: "The frame exceeds the shared image-pass source-count or reserved-pixel budget.",
+                failureKind: .sceneContent)
+        }
+        try ensureBackdropIsolationPipeline()
+
+        if let parentIsolation {
+            // S is fully defined across the immediate parent's own canvas.
+            // Its D-only clamp has already been applied; do not carry a
+            // narrower grandparent rectangle into this child's read policy.
+            try composeIsolationBackdrop(parentIsolation, deviceContext: deviceContext)
+            releaseCOM(&parentTexture)
+            parentTexture = parentIsolation.composed.texture
+            if let parentTexture { retainCOM(parentTexture) }
+        }
+
+        var foreground = try createImageRenderPassTarget(size: pass.size)
+        var transfersPair = false
+        defer { if !transfersPair { releaseImageRenderPassTarget(&foreground) } }
+        var coverage = try createImageRenderPassTarget(size: pass.size)
+        defer { if !transfersPair { releaseImageRenderPassTarget(&coverage) } }
+        var backdrop = try createImageRenderPassTarget(size: pass.size)
+        defer { releaseImageRenderPassTarget(&backdrop) }
+        var composed = try createImageRenderPassTarget(size: pass.size)
+        defer { releaseImageRenderPassTarget(&composed) }
+        for target in [foreground, coverage, backdrop, composed] {
+            clearImageRenderPassTarget(target, color: .clear, deviceContext: deviceContext)
+        }
+
+        if let copyRegion = mapping.parentCopyRegion {
+            guard let sourceTexture = parentTexture, let destinationTexture = backdrop.texture else {
+                throw BatchRendererError(operation: "Copy isolated-backdrop parent", hresult: batchHresultHandle)
+            }
+            var box = D3D11_BOX(
+                left: UINT(copyRegion.originX), top: UINT(copyRegion.originY), front: 0,
+                right: UINT(copyRegion.maxX), bottom: UINT(copyRegion.maxY), back: 1)
+            let source = UnsafeMutableRawPointer(sourceTexture).assumingMemoryBound(to: ID3D11Resource.self)
+            let destination = UnsafeMutableRawPointer(destinationTexture).assumingMemoryBound(to: ID3D11Resource.self)
+            deviceContext.pointee.lpVtbl.pointee.CopySubresourceRegion(
+                deviceContext, destination, 0, UINT(mapping.childOffsetX), UINT(mapping.childOffsetY), 0,
+                source, 0, &box)
+        }
+
+        let isolation = BackdropIsolationState(
+            foreground: foreground, coverage: coverage, backdrop: backdrop, composed: composed,
+            size: pass.size, validBackdropRegion: mapping.validChildRegion)
+        defer { isolation.blurEngine?.detach() }
+        let parentTargetView = renderTargetView
+        let parentTargetKind = renderTargetKind
+        let parentOffscreenTexture = offscreenTexture
+        let parentSize = targetPixelSize
+        let parentBindings = imageBindings
+        let parentGlyphAtlas = glyphAtlas
+        let parentPixelGlyphAtlas = pixelGlyphAtlas
+        let sharesGlyphAtlas =
+            glyphAtlas.srv != nil
+            && pass.scene.glyphAtlas?.uploadDecision(for: glyphAtlas.state) == .skip
+        let sharesPixelGlyphAtlas =
+            pixelGlyphAtlas.srv != nil
+            && pass.scene.pixelGlyphAtlas?.uploadDecision(for: pixelGlyphAtlas.state) == .skip
+
+        var parentStateRestored = false
+        func restoreParentState() throws {
+            guard !parentStateRestored else { return }
+            if !sharesGlyphAtlas { glyphAtlas.release() }
+            if !sharesPixelGlyphAtlas { pixelGlyphAtlas.release() }
+            glyphAtlas = parentGlyphAtlas
+            pixelGlyphAtlas = parentPixelGlyphAtlas
+            imageBindings = parentBindings
+            renderTargetView = parentTargetView
+            renderTargetKind = parentTargetKind
+            offscreenTexture = parentOffscreenTexture
+            targetPixelSize = parentSize
+            backdropIsolation = parentIsolation
+            parentStateRestored = true
+            unbindIsolationShaderResources(deviceContext: deviceContext)
+            defer { bindFramePipelineState(deviceContext: deviceContext, surfaceSize: parentSize) }
+            try updateFrameUniforms(surfaceSize: parentSize)
+        }
+        defer { if !parentStateRestored { try? restoreParentState() } }
+
+        renderTargetView = foreground.view
+        renderTargetKind = .offscreen
+        offscreenTexture = foreground.texture
+        targetPixelSize = pass.size
+        backdropIsolation = isolation
+        imageBindings = Dictionary(
+            pass.scene.imageResources.map { ($0.textureID, $0.bitmap) },
+            uniquingKeysWith: { _, latest in latest })
+        if !sharesGlyphAtlas { glyphAtlas = AtlasTextureSlot() }
+        if !sharesPixelGlyphAtlas { pixelGlyphAtlas = AtlasTextureSlot() }
+
+        var childScene = pass.scene
+        childScene.finish()
+        try validateBoundImageSampling(in: childScene)
+        let plan = try Self.makeRenderPlan(for: childScene, cachedResources: cachedResourcesForTesting)
+        bindFramePipelineState(deviceContext: deviceContext, surfaceSize: pass.size)
+        try updateFrameUniforms(surfaceSize: pass.size)
+        try renderSceneContents(
+            childScene, renderPlan: plan, deviceContext: deviceContext,
+            surfaceSize: pass.size, imageRenderPassDepth: depth)
+
+        if isolatedDescriptor.contentBlurRadius > 0 {
+            let engine = try ensureIsolatedBlurEngine(isolation)
+            let targetDescriptor = currentRenderTargetDescriptor
+            guard let foregroundTexture = foreground.texture, let foregroundView = foreground.view,
+                let coverageTexture = coverage.texture, let coverageView = coverage.view
+            else {
+                throw BatchRendererError(operation: "Filter isolated image pair", hresult: batchHresultHandle)
+            }
+            try engine.filterTextureInPlace(
+                deviceContext: deviceContext, texture: foregroundTexture, renderTargetView: foregroundView,
+                target: targetDescriptor, radius: Int(isolatedDescriptor.contentBlurRadius))
+            if failIsolatedCoverageForTesting {
+                throw BatchRendererError(
+                    operation: "Filter isolated coverage", hresult: batchHresultOutOfMemory,
+                    details: "Injected failure after filtering isolated foreground (test seam).")
+            }
+            try engine.filterTextureInPlace(
+                deviceContext: deviceContext, texture: coverageTexture, renderTargetView: coverageView,
+                target: targetDescriptor, radius: Int(isolatedDescriptor.contentBlurRadius))
+        }
+        try restoreParentState()
+        transfersPair = true
+        return IsolatedImageRenderPassResult(foreground: foreground, coverage: coverage)
     }
 
     private func createImageRenderPassTarget(size: IntSize) throws -> ImageRenderPassTarget {
@@ -2007,6 +2296,255 @@ final class D3D11BatchKernel {
         imageReplacementBlendState = replacementBlend
         shader = nil
         replacementBlend = nil
+    }
+
+    /// Lazy resources belong to the renderer/device; pixels belong only to
+    /// the current isolation. Ordinary image and material pipelines are not
+    /// changed by enabling this path.
+    private func ensureBackdropIsolationPipeline() throws {
+        if imageIsolatedReplacementPS != nil, imageIsolatedCoveragePS != nil,
+            isolatedBackdropComposeVS != nil, isolatedBackdropComposePS != nil,
+            isolatedCoverageBlendState != nil, isolatedBackdropBoundsBuffer != nil
+        {
+            return
+        }
+        try ensureImageReplacementPipeline()
+        guard let device else {
+            throw BatchRendererError(operation: "Create backdrop-isolation pipeline", hresult: batchHresultHandle)
+        }
+        var replacementPS: UnsafeMutablePointer<ID3D11PixelShader>?
+        var coveragePS: UnsafeMutablePointer<ID3D11PixelShader>?
+        var unusedImageVS: UnsafeMutablePointer<ID3D11VertexShader>?
+        var composeVS: UnsafeMutablePointer<ID3D11VertexShader>?
+        var composePS: UnsafeMutablePointer<ID3D11PixelShader>?
+        var coverageBlend: UnsafeMutablePointer<ID3D11BlendState>?
+        var boundsBuffer: UnsafeMutablePointer<ID3D11Buffer>?
+        defer {
+            releaseCOM(&replacementPS)
+            releaseCOM(&coveragePS)
+            releaseCOM(&unusedImageVS)
+            releaseCOM(&composeVS)
+            releaseCOM(&composePS)
+            releaseCOM(&coverageBlend)
+            releaseCOM(&boundsBuffer)
+        }
+        try createShaderPair(
+            device: device, source: batchImageIsolatedReplacementShaderSource,
+            vs: &unusedImageVS, ps: &replacementPS, label: "isolated image replacement")
+        releaseCOM(&unusedImageVS)
+        try createShaderPair(
+            device: device, source: batchImageIsolatedCoverageShaderSource,
+            vs: &unusedImageVS, ps: &coveragePS, label: "isolated image coverage")
+        try createShaderPair(
+            device: device, source: batchIsolatedBackdropComposeShaderSource,
+            vs: &composeVS, ps: &composePS, label: "isolated backdrop composition")
+
+        var descriptor = D3D11_BLEND_DESC()
+        descriptor.AlphaToCoverageEnable = false
+        descriptor.IndependentBlendEnable = false
+        descriptor.RenderTarget.0.BlendEnable = true
+        descriptor.RenderTarget.0.SrcBlend = D3D11_BLEND_ONE
+        descriptor.RenderTarget.0.DestBlend = D3D11_BLEND_INV_SRC_ALPHA
+        descriptor.RenderTarget.0.BlendOp = D3D11_BLEND_OP_ADD
+        descriptor.RenderTarget.0.SrcBlendAlpha = D3D11_BLEND_ONE
+        descriptor.RenderTarget.0.DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA
+        descriptor.RenderTarget.0.BlendOpAlpha = D3D11_BLEND_OP_ADD
+        descriptor.RenderTarget.0.RenderTargetWriteMask = UINT8(D3D11_COLOR_WRITE_ENABLE_ALPHA.rawValue)
+        let blendHR = makeCOM(into: &coverageBlend) { value in
+            device.pointee.lpVtbl.pointee.CreateBlendState(device, &descriptor, &value)
+        }
+        try throwIfFailed(blendHR, operation: "ID3D11Device.CreateBlendState(isolated coverage)")
+        var bufferDescriptor = D3D11_BUFFER_DESC()
+        bufferDescriptor.ByteWidth = 16
+        bufferDescriptor.Usage = D3D11_USAGE_DEFAULT
+        bufferDescriptor.BindFlags = UINT(D3D11_BIND_CONSTANT_BUFFER.rawValue)
+        let bufferHR = makeCOM(into: &boundsBuffer) { value in
+            device.pointee.lpVtbl.pointee.CreateBuffer(device, &bufferDescriptor, nil, &value)
+        }
+        try throwIfFailed(bufferHR, operation: "ID3D11Device.CreateBuffer(isolated backdrop bounds)")
+
+        releaseCOM(&imageIsolatedReplacementPS)
+        releaseCOM(&imageIsolatedCoveragePS)
+        releaseCOM(&isolatedBackdropComposeVS)
+        releaseCOM(&isolatedBackdropComposePS)
+        releaseCOM(&isolatedCoverageBlendState)
+        releaseCOM(&isolatedBackdropBoundsBuffer)
+        imageIsolatedReplacementPS = replacementPS
+        imageIsolatedCoveragePS = coveragePS
+        isolatedBackdropComposeVS = composeVS
+        isolatedBackdropComposePS = composePS
+        isolatedCoverageBlendState = coverageBlend
+        isolatedBackdropBoundsBuffer = boundsBuffer
+        replacementPS = nil
+        coveragePS = nil
+        composeVS = nil
+        composePS = nil
+        coverageBlend = nil
+        boundsBuffer = nil
+    }
+
+    private func ensureIsolatedBlurEngine(_ isolation: BackdropIsolationState) throws -> D3D11BackdropBlurEngine {
+        if let engine = isolation.blurEngine { return engine }
+        guard let device else {
+            throw BatchRendererError(operation: "Create isolated blur engine", hresult: batchHresultHandle)
+        }
+        if isolatedBlurPipeline?.matches(deviceGeneration: deviceGeneration) != true {
+            isolatedBlurPipeline?.detach()
+            isolatedBlurPipeline = nil
+            let pipeline = D3D11BackdropBlurEngine()
+            do {
+                try pipeline.attach(device: device, generation: deviceGeneration)
+                try pipeline.prepareIsolatedPipeline()
+            } catch {
+                pipeline.detach()
+                throw error
+            }
+            isolatedBlurPipeline = pipeline
+            isolatedBlurPipelineCreationCountForTesting &+= 1
+        }
+        guard let pipeline = isolatedBlurPipeline else {
+            throw BatchRendererError(operation: "Resolve isolated blur pipeline", hresult: batchHresultHandle)
+        }
+        let engine = try pipeline.makeIsolatedScratchEngine()
+        isolation.blurEngine = engine
+        return engine
+    }
+
+    private func unbindIsolationShaderResources(deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>) {
+        var resources: [UnsafeMutablePointer<ID3D11ShaderResourceView>?] = [nil, nil, nil]
+        resources.withUnsafeMutableBufferPointer { values in
+            deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 0, 3, values.baseAddress)
+        }
+        var noInstance: UnsafeMutablePointer<ID3D11ShaderResourceView>?
+        deviceContext.pointee.lpVtbl.pointee.VSSetShaderResources(deviceContext, 0, 1, &noInstance)
+        var constants: [UnsafeMutablePointer<ID3D11Buffer>?] = [nil, nil]
+        constants.withUnsafeMutableBufferPointer { values in
+            deviceContext.pointee.lpVtbl.pointee.PSSetConstantBuffers(deviceContext, 0, 2, values.baseAddress)
+        }
+    }
+
+    /// Produces a material read source without importing backdrop pixels into
+    /// F or C. Only D is clamped at a cropped viewport boundary; all local
+    /// foreground and coverage in the transparent filter halo remain intact.
+    private func composeIsolationBackdrop(
+        _ isolation: BackdropIsolationState,
+        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>
+    ) throws {
+        guard let composeVS = isolatedBackdropComposeVS, let composePS = isolatedBackdropComposePS,
+            let boundsBuffer = isolatedBackdropBoundsBuffer, let targetView = isolation.composed.view,
+            let foregroundSRV = isolation.foreground.srv, let coverageSRV = isolation.coverage.srv,
+            let backdropSRV = isolation.backdrop.srv
+        else {
+            throw BatchRendererError(operation: "Compose isolated backdrop", hresult: batchHresultHandle)
+        }
+        defer {
+            unbindIsolationShaderResources(deviceContext: deviceContext)
+            bindFramePipelineState(deviceContext: deviceContext, surfaceSize: isolation.size)
+        }
+        unbindIsolationShaderResources(deviceContext: deviceContext)
+        var view: UnsafeMutablePointer<ID3D11RenderTargetView>? = targetView
+        deviceContext.pointee.lpVtbl.pointee.OMSetRenderTargets(deviceContext, 1, &view, nil)
+        let factors: [FLOAT] = [0, 0, 0, 0]
+        factors.withUnsafeBufferPointer { values in
+            deviceContext.pointee.lpVtbl.pointee.OMSetBlendState(
+                deviceContext, nil, values.baseAddress, UINT.max)
+        }
+        var viewport = D3D11_VIEWPORT(
+            TopLeftX: 0, TopLeftY: 0,
+            Width: FLOAT(isolation.size.width), Height: FLOAT(isolation.size.height),
+            MinDepth: 0, MaxDepth: 1)
+        deviceContext.pointee.lpVtbl.pointee.RSSetViewports(deviceContext, 1, &viewport)
+        deviceContext.pointee.lpVtbl.pointee.RSSetState(deviceContext, rasterizerState)
+        deviceContext.pointee.lpVtbl.pointee.IASetInputLayout(deviceContext, nil)
+        deviceContext.pointee.lpVtbl.pointee.IASetPrimitiveTopology(
+            deviceContext, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST)
+        let bounds: [Int32]
+        if let valid = isolation.validBackdropRegion {
+            bounds = [Int32(valid.originX), Int32(valid.originY), Int32(valid.maxX), Int32(valid.maxY)]
+        } else {
+            bounds = [0, 0, 0, 0]
+        }
+        let resource = UnsafeMutableRawPointer(boundsBuffer).assumingMemoryBound(to: ID3D11Resource.self)
+        bounds.withUnsafeBytes { bytes in
+            deviceContext.pointee.lpVtbl.pointee.UpdateSubresource(
+                deviceContext, resource, 0, nil, bytes.baseAddress, 0, 0)
+        }
+        var constants: UnsafeMutablePointer<ID3D11Buffer>? = boundsBuffer
+        deviceContext.pointee.lpVtbl.pointee.PSSetConstantBuffers(deviceContext, 0, 1, &constants)
+        deviceContext.pointee.lpVtbl.pointee.VSSetShader(deviceContext, composeVS, nil, 0)
+        deviceContext.pointee.lpVtbl.pointee.PSSetShader(deviceContext, composePS, nil, 0)
+        var inputs: [UnsafeMutablePointer<ID3D11ShaderResourceView>?] = [foregroundSRV, coverageSRV, backdropSRV]
+        inputs.withUnsafeMutableBufferPointer { values in
+            deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 0, 3, values.baseAddress)
+        }
+        noteDrawCall(instanceCount: 1)
+        deviceContext.pointee.lpVtbl.pointee.Draw(deviceContext, 3, 0)
+    }
+
+    /// A pair composites with coverage, not foreground alpha. A parent pair
+    /// receives the same coverage through a second, alpha-only image draw.
+    private func renderIsolatedImage(
+        _ images: [ImagePrimitive], index: Int, result: IsolatedImageRenderPassResult,
+        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>, surfaceSize: IntSize
+    ) throws {
+        defer {
+            unbindIsolationShaderResources(deviceContext: deviceContext)
+            bindFramePipelineState(deviceContext: deviceContext, surfaceSize: surfaceSize)
+        }
+        guard let replacementPS = imageIsolatedReplacementPS, let coveragePS = imageIsolatedCoveragePS,
+            let replacementBlend = imageReplacementBlendState, let coverageBlend = isolatedCoverageBlendState,
+            let foregroundSRV = result.foreground.srv, let coverageSRV = result.coverage.srv
+        else {
+            throw BatchRendererError(operation: "Composite isolated image pair", hresult: batchHresultHandle)
+        }
+        let factors: [FLOAT] = [0, 0, 0, 0]
+        factors.withUnsafeBufferPointer { values in
+            deviceContext.pointee.lpVtbl.pointee.OMSetBlendState(
+                deviceContext, replacementBlend, values.baseAddress, UINT.max)
+        }
+        var coverageInput: UnsafeMutablePointer<ID3D11ShaderResourceView>? = coverageSRV
+        deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 2, 1, &coverageInput)
+        try renderImageBatch(
+            images, range: index..<(index + 1), deviceContext: deviceContext, textureSRV: foregroundSRV,
+            pixelShader: replacementPS, mirrorsIsolationCoverage: false)
+
+        if let isolation = backdropIsolation {
+            var view = isolation.coverage.view
+            deviceContext.pointee.lpVtbl.pointee.OMSetRenderTargets(deviceContext, 1, &view, nil)
+            factors.withUnsafeBufferPointer { values in
+                deviceContext.pointee.lpVtbl.pointee.OMSetBlendState(
+                    deviceContext, coverageBlend, values.baseAddress, UINT.max)
+            }
+            try renderImageBatch(
+                images, range: index..<(index + 1), deviceContext: deviceContext, textureSRV: coverageSRV,
+                pixelShader: coveragePS, mirrorsIsolationCoverage: false)
+        }
+    }
+
+    /// Repeat only the prepared GPU draw, not source resolution or path
+    /// rasterization. Every ordinary family's alpha is its coverage, so the
+    /// exact same PS, sampler and resources produce C with alpha-only writes.
+    private func drawPreparedInstances(
+        instanceCount: Int,
+        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
+        mirrorsIsolationCoverage: Bool = true
+    ) throws {
+        noteDrawCall(instanceCount: instanceCount)
+        deviceContext.pointee.lpVtbl.pointee.DrawInstanced(deviceContext, 6, UINT(instanceCount), 0, 0)
+        guard mirrorsIsolationCoverage, let isolation = backdropIsolation else { return }
+        guard let coverageBlend = isolatedCoverageBlendState, let coverageView = isolation.coverage.view else {
+            throw BatchRendererError(operation: "Accumulate isolated coverage", hresult: batchHresultHandle)
+        }
+        defer { bindFramePipelineState(deviceContext: deviceContext, surfaceSize: isolation.size) }
+        var view: UnsafeMutablePointer<ID3D11RenderTargetView>? = coverageView
+        deviceContext.pointee.lpVtbl.pointee.OMSetRenderTargets(deviceContext, 1, &view, nil)
+        let factors: [FLOAT] = [0, 0, 0, 0]
+        factors.withUnsafeBufferPointer { values in
+            deviceContext.pointee.lpVtbl.pointee.OMSetBlendState(
+                deviceContext, coverageBlend, values.baseAddress, UINT.max)
+        }
+        noteDrawCall(instanceCount: instanceCount)
+        deviceContext.pointee.lpVtbl.pointee.DrawInstanced(deviceContext, 6, UINT(instanceCount), 0, 0)
     }
 
     /// Binds every piece of pipeline state the batched draws assume: the
@@ -2409,13 +2947,18 @@ final class D3D11BatchKernel {
             (batchImageShaderSource, "vsMain", "psMain"),
             (batchImageColorEffectShaderSource, "vsMain", "psMain"),
             (batchImageReplacementShaderSource, "vsMain", "psMain"),
+            (batchImageIsolatedReplacementShaderSource, "vsMain", "psMain"),
+            (batchImageIsolatedCoverageShaderSource, "vsMain", "psMain"),
+            (batchIsolatedBackdropComposeShaderSource, "vsMain", "psMain"),
             (batchShadowShaderSource, "vsMain", "psMain"),
             (
                 GlyphPipelineResources.vertexShaderSource,
                 GlyphPipelineResources.vertexShaderEntryPoint, GlyphPipelineResources.pixelShaderEntryPoint
             ),
             (batchMaterialQuadShaderSource, "vsMain", "psMain"),
+            (batchMaterialCoverageShaderSource, "vsMain", "psMain"),
             (batchBackdropBlurShaderSource, "vsMain", "psMain"),
+            (batchIsolatedBlurUpsampleShaderSource, "vsMain", "psMain"),
         ]
         for shader in shaders {
             for (entryPoint, profile) in [(shader.vertex, "vs_5_0"), (shader.pixel, "ps_5_0")] {
@@ -3300,8 +3843,8 @@ final class D3D11BatchKernel {
             deviceContext.pointee.lpVtbl.pointee.PSSetSamplers(deviceContext, 0, 1, &samplerPtr)
         }
 
-        noteDrawCall(instanceCount: instanceCount)
-        deviceContext.pointee.lpVtbl.pointee.DrawInstanced(deviceContext, 6, UINT(instanceCount), 0, 0)
+        try drawPreparedInstances(
+            instanceCount: instanceCount, deviceContext: deviceContext)
 
         var nullSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = nil
         deviceContext.pointee.lpVtbl.pointee.VSSetShaderResources(deviceContext, 0, 1, &nullSRV)
@@ -3350,8 +3893,8 @@ final class D3D11BatchKernel {
 
         var samplerPtr: UnsafeMutablePointer<ID3D11SamplerState>? = samplerState
         deviceContext.pointee.lpVtbl.pointee.PSSetSamplers(deviceContext, 0, 1, &samplerPtr)
-        noteDrawCall(instanceCount: instanceCount)
-        deviceContext.pointee.lpVtbl.pointee.DrawInstanced(deviceContext, 6, UINT(instanceCount), 0, 0)
+        try drawPreparedInstances(
+            instanceCount: instanceCount, deviceContext: deviceContext)
 
         var nullSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = nil
         deviceContext.pointee.lpVtbl.pointee.VSSetShaderResources(deviceContext, 0, 1, &nullSRV)
@@ -3363,7 +3906,8 @@ final class D3D11BatchKernel {
         range: Range<Int>,
         deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
         textureSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>,
-        pixelShader: UnsafeMutablePointer<ID3D11PixelShader>? = nil
+        pixelShader: UnsafeMutablePointer<ID3D11PixelShader>? = nil,
+        mirrorsIsolationCoverage: Bool = true
     ) throws {
         let instanceCount = range.count
         guard instanceCount > 0 else {
@@ -3401,8 +3945,9 @@ final class D3D11BatchKernel {
 
         var samplerPtr: UnsafeMutablePointer<ID3D11SamplerState>? = samplerState
         deviceContext.pointee.lpVtbl.pointee.PSSetSamplers(deviceContext, 0, 1, &samplerPtr)
-        noteDrawCall(instanceCount: instanceCount)
-        deviceContext.pointee.lpVtbl.pointee.DrawInstanced(deviceContext, 6, UINT(instanceCount), 0, 0)
+        try drawPreparedInstances(
+            instanceCount: instanceCount, deviceContext: deviceContext,
+            mirrorsIsolationCoverage: mirrorsIsolationCoverage)
 
         var nullSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = nil
         deviceContext.pointee.lpVtbl.pointee.VSSetShaderResources(deviceContext, 0, 1, &nullSRV)
@@ -3726,6 +4271,42 @@ final class D3D11BatchKernel {
         )
     }
 
+    /// Reads the current virtual composition, but replaces only the local
+    /// foreground and coverage. A failure propagates so a dependent pass can
+    /// never be cached or presented as an accidentally independent bitmap.
+    private func renderIsolatedMaterialQuad(
+        _ quad: QuadPrimitive, isolation: BackdropIsolationState,
+        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>, surfaceSize: IntSize
+    ) throws {
+        defer {
+            unbindIsolationShaderResources(deviceContext: deviceContext)
+            bindFramePipelineState(deviceContext: deviceContext, surfaceSize: surfaceSize)
+        }
+        if failBlurredQuadsForTesting {
+            throw BatchRendererError(
+                operation: "Draw isolated material quad", hresult: batchHresultOutOfMemory,
+                details: "Injected isolated material failure (test seam).")
+        }
+        try composeIsolationBackdrop(isolation, deviceContext: deviceContext)
+        let engine = try ensureIsolatedBlurEngine(isolation)
+        guard let readTexture = isolation.composed.texture, let foregroundView = isolation.foreground.view,
+            let coverageView = isolation.coverage.view
+        else {
+            throw BatchRendererError(operation: "Resolve isolated material targets", hresult: batchHresultHandle)
+        }
+        let descriptor = currentRenderTargetDescriptor
+        try engine.drawBlurredQuad(
+            deviceContext: deviceContext, backBuffer: readTexture, backBufferRTV: foregroundView,
+            target: descriptor, quad: quad)
+        if failIsolatedCoverageForTesting {
+            throw BatchRendererError(
+                operation: "Draw isolated material coverage", hresult: batchHresultOutOfMemory,
+                details: "Injected failure after drawing isolated foreground (test seam).")
+        }
+        try engine.drawMaterialCoverage(
+            deviceContext: deviceContext, coverageRTV: coverageView, target: descriptor, quad: quad)
+    }
+
     /// Draws one Material quad, preferring the real backdrop blur and
     /// degrading to the plain quad path when the blur cannot run.
     ///
@@ -3747,6 +4328,11 @@ final class D3D11BatchKernel {
         deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
         surfaceSize: IntSize
     ) throws {
+        if let isolation = backdropIsolation {
+            try renderIsolatedMaterialQuad(
+                quads[index], isolation: isolation, deviceContext: deviceContext, surfaceSize: surfaceSize)
+            return
+        }
         if !blurDegraded {
             do {
                 try renderBlurredMaterialQuad(

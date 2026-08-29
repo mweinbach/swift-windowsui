@@ -131,6 +131,13 @@ swift run swift-windowsui
 
 `GPUIScene` -> `D3D11BatchRenderer` is the default demo presentation path. It keeps replayable scene paint records plus a per-layer `paintOperations` stream that is the source of truth for visible presentation order. Typed primitive families and ordered batches remain optimization surfaces, but CPU screenshots and D3D11 presentation consume the paint stream so mixed primitive families preserve retained-runtime order. The scene path also carries semantic content masks on typed primitives, assigns Zed-style bounds-based draw orders from masked bounds inside each scene layer, caches logical native text layout per runtime, reuses cached subtree layout/measurement state plus frame/scene ranges when bounds and inherited paint context stay stable, collects deferred subtree prepaint work and deferred paint records into runtime-owned queues shared by the frame and scene paths, stores rerunnable deferred payloads plus cached output ranges, reuses runtime-owned prepaint dispatch metadata for hit testing, focus traversal, scroll targeting, and draggable ancestor lookup, remaps deferred priorities when clean subtrees are reused, replays cached deferred frame and scene ranges after the deferred prepaint phase has rebuilt its dispatch metadata, only attaches atlas snapshots to freshly-built scenes, and uploads typed primitive ranges without materializing per-operation slice arrays. It follows GPUI-style inherited opacity propagation instead of inventing a save-layer opacity model.
 
+Material-dependent content blur has a bounded scene-backed foreground/coverage
+path, so its material reads the current parent without storing backdrop pixels
+in a subtree bitmap. Material-free blur retains its bitmap cache. The new CPU
+and GPU regression sources are uncompiled and unrun; native edge, modifier-order,
+opacity and performance qualification remain open. See
+[the rendering contract](docs/GPURenderingPipeline.md#material-in-content-blur-foreground-and-replacement-coverage).
+
 ## WinSwiftUI Coverage
 
 The current `WinSwiftUI` surface is intentionally a subset. It is designed to cover the demo and common dashboard-style composition patterns first. The per-API safety matrix (Implemented / Partial / Shim / Placeholder) lives in [`docs/CompatibilityStatus.md`](docs/CompatibilityStatus.md); prefer it over scanning public symbols.

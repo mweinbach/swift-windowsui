@@ -80,9 +80,10 @@ public enum GPUISceneLimits {
     /// the main window. Requests above these limits are explicit scene defects.
     public static let maxImageRenderPassPixels = 4_194_304
     /// Cumulative source pixels across one scene graph or render execution.
-    /// At BGRA8 this is 64 MiB of source payload, not a total-memory bound:
-    /// filter outputs, CPU conversion scratch and other renderer resources
-    /// have separate lifetimes and are not included in this count.
+    /// Backdrop isolation additionally reserves its bounded scratch planes.
+    /// At BGRA8 this is 64 MiB of accounted pixel payload, not a total-memory
+    /// bound: ordinary filter outputs, CPU conversion scratch and other
+    /// renderer resources have separate lifetimes outside this count.
     public static let maxImageRenderPassTotalPixels = 16_777_216
     public static let maxImageRenderPassDepth = 32
     /// Also bound branching graphs: a shallow value graph can share child
@@ -685,11 +686,13 @@ extension GPUIScene {
     /// `sceneContent` failure can.
     public func validate() -> [SceneDefect] {
         var imageRenderPassBudget = GPUISceneImageRenderPassBudget()
-        return validate(imageRenderPassDepth: 0, imageRenderPassBudget: &imageRenderPassBudget)
+        return validate(
+            imageRenderPassDepth: 0, imageRenderPassBudget: &imageRenderPassBudget, inBackdropIsolation: false)
     }
 
     private func validate(
-        imageRenderPassDepth: Int, imageRenderPassBudget: inout GPUISceneImageRenderPassBudget
+        imageRenderPassDepth: Int, imageRenderPassBudget: inout GPUISceneImageRenderPassBudget,
+        inBackdropIsolation: Bool
     ) -> [SceneDefect] {
         var defects: [SceneDefect] = []
 
@@ -771,13 +774,13 @@ extension GPUIScene {
         }
 
         var imageIDs = Set(imageResources.map(\.textureID))
-        var currentTargetSources: [Int32: GPUISceneImageRenderPass] = [:]
+        var dependentBackdropSources: [Int32: GPUISceneImageRenderPass] = [:]
         for pass in imageRenderPasses {
             // Charge each declared namespace independently, even when its
             // value arrays share storage with another branch. Stop rejected
             // extents as well as exhausted budgets so invalid declarations
             // cannot turn this into an unbounded diagnostic walk.
-            let admitted = imageRenderPassBudget.consume(size: pass.size)
+            let admitted = imageRenderPassBudget.consume(pass, inBackdropIsolation: inBackdropIsolation)
             let reason: String?
             if !pass.hasValidExtent {
                 reason = "extent exceeds the offscreen pixel budget or has no pixels"
@@ -792,6 +795,10 @@ extension GPUIScene {
                 reason = "effect chain exceeds \(GPUISceneLimits.maxColorEffects) operations"
             } else if let inputDefect = pass.currentTargetSourceDefect {
                 reason = inputDefect
+            } else if let inputDefect = pass.isolatedBackdropSourceDefect {
+                reason = inputDefect
+            } else if let radiusDefect = pass.contentBlurRadiusDefect {
+                reason = radiusDefect
             } else if imageRenderPassDepth >= GPUISceneLimits.maxImageRenderPassDepth {
                 reason = "nesting exceeds \(GPUISceneLimits.maxImageRenderPassDepth) passes"
             } else {
@@ -801,21 +808,32 @@ extension GPUIScene {
                 defects.append(SceneDefect(kind: .invalidImageRenderPass(textureID: pass.textureID, reason: reason)))
                 if !admitted { break }
             } else {
-                if pass.input == .currentTarget { currentTargetSources[pass.textureID] = pass }
+                let childIsInBackdropIsolation: Bool
+                switch pass.input {
+                case .independent:
+                    childIsInBackdropIsolation = false
+                case .currentTarget:
+                    dependentBackdropSources[pass.textureID] = pass
+                    childIsInBackdropIsolation = inBackdropIsolation
+                case .isolatedBackdrop:
+                    dependentBackdropSources[pass.textureID] = pass
+                    childIsInBackdropIsolation = true
+                }
                 defects.append(
                     contentsOf: pass.scene.validate(
                         imageRenderPassDepth: imageRenderPassDepth + 1,
-                        imageRenderPassBudget: &imageRenderPassBudget))
+                        imageRenderPassBudget: &imageRenderPassBudget,
+                        inBackdropIsolation: childIsInBackdropIsolation))
             }
         }
 
         // The dictionary contains only admitted sources, so an invalid graph
         // cannot bypass the traversal budget by requesting mapping diagnostics.
-        if !currentTargetSources.isEmpty {
+        if !dependentBackdropSources.isEmpty {
             for layer in layers {
                 for image in layer.images {
-                    if let pass = currentTargetSources[image.textureID],
-                        let reason = pass.currentTargetImageDefect(image)
+                    if let pass = dependentBackdropSources[image.textureID],
+                        let reason = pass.currentTargetImageDefect(image) ?? pass.isolatedBackdropImageDefect(image)
                     {
                         defects.append(
                             SceneDefect(kind: .invalidImageRenderPass(textureID: pass.textureID, reason: reason)))

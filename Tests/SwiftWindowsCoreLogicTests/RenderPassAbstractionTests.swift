@@ -399,47 +399,25 @@ final class RenderPassAbstractionTests: XCTestCase {
         )
     }
 
-    // MARK: - Residual: a Material inside an offscreen pass has no backdrop
+    // MARK: - Material backdrop across group and content-blur boundaries
 
-    /// An offscreen subtree pass clears to transparent, and a Material is a
-    /// *backdrop* effect: it samples what is already painted under it. Inside
-    /// a `.drawingGroup()` that is nothing at all, so the material composites
-    /// its tint over emptiness and the group's bitmap then lands over the
-    /// wallpaper unblurred — the stripes under the panel stay razor sharp
-    /// where they should have been smeared.
+    /// This historical name identifies the original transparent-offscreen bug.
+    /// The a2cad235 source asserted >100 contrast for content blur and skipped;
+    /// that source remains pre-change evidence, not a passing result.
     ///
-    /// The render-pass vocabulary did not change this and was wrongly
-    /// documented as having done so. It holds for **every** offscreen pass,
-    /// not just `.drawingGroup()`: the `.blur(radius:)` isolation pass clears
-    /// to transparent for the same reason (that transparent margin is what
-    /// lets a blur fade out instead of smearing a neighbour), so a Material
-    /// inside a blurred subtree has no backdrop either. Both cases are
-    /// asserted below.
-    ///
-    /// Closing it was investigated and is not a local change; three things
-    /// have to give, and they are recorded in
-    /// `docs/GPURenderingPipeline.md` under the same heading:
-    ///
-    /// 1. the backdrop pixels do not exist at group paint time — the outer
-    ///    `scene` is a paint-record stream, and turning it into pixels means a
-    ///    full-surface CPU rasterization per group per frame, on a path
-    ///    (D3D11) that otherwise never rasterizes on the CPU at all;
-    /// 2. the group bitmap is cached on the node's paint key plus a clean
-    ///    subtree — both subtree-local — so a baked-in backdrop would go
-    ///    stale the moment anything *outside* the group moved;
-    /// 3. the composite is source-over, and only source-over, so a bitmap
-    ///    that already contained the backdrop would draw it twice wherever
-    ///    the group is not fully opaque.
-    ///
-    /// So this test states what happens today and skips the assertion that
-    /// will hold when it is closed.
+    /// Both group inputs now read their immediate parent at the image occurrence.
+    /// Content blur keeps separate foreground and replacement coverage so its
+    /// transparent halo does not import the stripes around the material. The
+    /// existing inline/group oracles remain unchanged; content blur deliberately
+    /// strengthens its known-bug assertion to the same positive smoothing bound.
+    /// These are Windows rendering contracts, not native SwiftUI qualification.
     func testMaterialInsideADrawingGroupBlursNothing() async throws {
         let size = IntSize(width: 100, height: 100)
 
         enum Isolation {
             case none
             case compositingGroup
-            /// `.blur(radius:)` — the other offscreen pass, same clear colour.
+            /// `.blur(radius:)` — transparent foreground with an explicit backdrop input.
             case contentBlur
         }
 
@@ -481,19 +459,10 @@ final class RenderPassAbstractionTests: XCTestCase {
             groupedContrast, 20,
             "inside an admitted compositing group the material reads the enclosing backdrop "
                 + "and smooths the same stripes as the inline material")
-        XCTAssertGreaterThan(
-            blurredContrast, 100,
-            "and inside a `.blur()` isolation pass too: the pass clears to transparent for its own "
-                + "reasons, and the material finds nothing under it there either")
-
-        throw XCTSkip(
-            "Residual (documented in docs/GPURenderingPipeline.md, 'a Material inside an offscreen pass "
-                + "has no backdrop'): an offscreen sub-scene — `.drawingGroup()`, `.compositingGroup()` or "
-                + "the `.blur(radius:)` isolation pass — clears to transparent, so a Material inside one "
-                + "composites its tint over nothing and blurs nothing. Closing it needs the sub-scene "
-                + "seeded with the already-painted backdrop (which the painter does not have, and which "
-                + "would go stale in the group bitmap cache and be composited twice by a source-over "
-                + "blend), or the pass run as a real GPU pass.")
+        XCTAssertLessThan(
+            blurredContrast, 20,
+            "inside content blur the material reads the current parent, then foreground and "
+                + "replacement coverage are blurred without importing the whole backdrop")
     }
 
     /// Largest channel step between neighbouring pixels in a window of the

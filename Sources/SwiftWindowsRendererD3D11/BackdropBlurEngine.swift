@@ -72,6 +72,10 @@ final class D3D11BackdropBlurEngine {
     static let regionParamsFloatCount = 8
 
     private var device: UnsafeMutablePointer<ID3D11Device>?
+    /// Ordinary attachment borrows the renderer's device. A scratch engine
+    /// retains it independently with the shared pipeline so releasing the
+    /// template cannot invalidate the child's device pointer.
+    private var ownedDeviceReference: UnsafeMutablePointer<ID3D11Device>?
 
     /// The owning renderer's device generation these resources belong to.
     /// `0` means "not keyed to any generation", which never matches.
@@ -81,6 +85,10 @@ final class D3D11BackdropBlurEngine {
     private var blurPS: UnsafeMutablePointer<ID3D11PixelShader>?
     private var materialVS: UnsafeMutablePointer<ID3D11VertexShader>?
     private var materialPS: UnsafeMutablePointer<ID3D11PixelShader>?
+    // Only dependent isolation asks for these resources. Creating them on
+    // first use leaves attachment and ordinary material draws unchanged.
+    private var materialCoveragePS: UnsafeMutablePointer<ID3D11PixelShader>?
+    private var isolatedUpsamplePS: UnsafeMutablePointer<ID3D11PixelShader>?
 
     private var blurParamsBuffer: UnsafeMutablePointer<ID3D11Buffer>?
     private var frameUniformBuffer: UnsafeMutablePointer<ID3D11Buffer>?
@@ -90,6 +98,7 @@ final class D3D11BackdropBlurEngine {
 
     private var samplerState: UnsafeMutablePointer<ID3D11SamplerState>?
     private var blendState: UnsafeMutablePointer<ID3D11BlendState>?
+    private var coverageBlendState: UnsafeMutablePointer<ID3D11BlendState>?
     private var rasterizerState: UnsafeMutablePointer<ID3D11RasterizerState>?
 
     private var textureA: UnsafeMutablePointer<ID3D11Texture2D>?
@@ -102,6 +111,14 @@ final class D3D11BackdropBlurEngine {
     /// Grow-only ping-pong target size; regions always render into the
     /// textures' top-left corner.
     private(set) var textureCapacity: (width: Int, height: Int) = (0, 0)
+
+    /// Includes partially created targets, not only a complete A/B pair. A
+    /// renderer-owned pipeline template must keep this false across frames.
+    internal var hasAllocatedBlurTargetsForTesting: Bool {
+        textureA != nil || rtvA != nil || srvA != nil
+            || textureB != nil || rtvB != nil || srvB != nil
+            || textureCapacity.width != 0 || textureCapacity.height != 0
+    }
 
     init() {}
 
@@ -195,6 +212,7 @@ final class D3D11BackdropBlurEngine {
         textureCapacity = (0, 0)
 
         releaseCOM(&rasterizerState)
+        releaseCOM(&coverageBlendState)
         releaseCOM(&blendState)
         releaseCOM(&samplerState)
         releaseCOM(&quadInstanceSRV)
@@ -202,17 +220,88 @@ final class D3D11BackdropBlurEngine {
         releaseCOM(&regionBuffer)
         releaseCOM(&frameUniformBuffer)
         releaseCOM(&blurParamsBuffer)
+        releaseCOM(&isolatedUpsamplePS)
+        releaseCOM(&materialCoveragePS)
         releaseCOM(&materialPS)
         releaseCOM(&materialVS)
         releaseCOM(&blurPS)
         releaseCOM(&blurVS)
         device = nil
+        releaseCOM(&ownedDeviceReference)
         deviceGeneration = 0
     }
 
     // No deinit-based release: COM teardown must happen explicitly on the
     // renderer's owner, matching D3D11BatchKernel's teardown protocol.
     // The owning renderer calls detach() when its device changes.
+
+    /// Prepares the shaders and state needed by dependent isolation without
+    /// allocating any blur textures. The renderer keeps one attached template
+    /// per device generation and uses it only to create scratch engines.
+    /// Repeated calls reuse the existing pipeline, including after a partial
+    /// preparation failure that left an already compiled shader available.
+    func prepareIsolatedPipeline() throws {
+        guard let device,
+            blurVS != nil, blurPS != nil, materialVS != nil, materialPS != nil,
+            blurParamsBuffer != nil, frameUniformBuffer != nil, regionBuffer != nil,
+            quadInstanceBuffer != nil, quadInstanceSRV != nil,
+            samplerState != nil, blendState != nil, rasterizerState != nil
+        else {
+            throw BatchRendererError(
+                operation: "Prepare isolated blur pipeline",
+                hresult: blurHresultHandle,
+                details: "Backdrop blur engine is not attached to a complete device pipeline.")
+        }
+        try ensureMaterialCoverageResources(device: device)
+        try ensureIsolatedUpsampleResource(device: device)
+        guard materialCoveragePS != nil, coverageBlendState != nil, isolatedUpsamplePS != nil else {
+            throw BatchRendererError(
+                operation: "Prepare isolated blur pipeline",
+                hresult: blurHresultHandle,
+                details: "Isolated blur pipeline resources are unavailable.")
+        }
+    }
+
+    /// Creates a fresh owner of the prepared pipeline references, without
+    /// attaching or compiling again. A/B textures, views, SRVs and capacity
+    /// are deliberately not copied: each consuming image occurrence starts
+    /// with zero scratch pixels and releases its own pair in `detach()`.
+    ///
+    /// The instance and constant buffers are shared safely because every
+    /// helper runs synchronously on one serialized renderer execution owner
+    /// and immediate context, uploading its complete quad, frame, region and
+    /// blur parameters before drawing. No draw retains
+    /// partially uploaded parameters for a later helper call or an `await`.
+    /// D3D11 preserves the submitted order of the uploads and draws.
+    func makeIsolatedScratchEngine() throws -> D3D11BackdropBlurEngine {
+        try prepareIsolatedPipeline()
+
+        func retained<T>(_ pointer: UnsafeMutablePointer<T>?) -> UnsafeMutablePointer<T>? {
+            if let pointer { retainCOM(pointer) }
+            return pointer
+        }
+
+        let scratch = D3D11BackdropBlurEngine()
+        scratch.ownedDeviceReference = retained(device)
+        scratch.device = scratch.ownedDeviceReference
+        scratch.deviceGeneration = deviceGeneration
+        scratch.blurVS = retained(blurVS)
+        scratch.blurPS = retained(blurPS)
+        scratch.materialVS = retained(materialVS)
+        scratch.materialPS = retained(materialPS)
+        scratch.materialCoveragePS = retained(materialCoveragePS)
+        scratch.isolatedUpsamplePS = retained(isolatedUpsamplePS)
+        scratch.blurParamsBuffer = retained(blurParamsBuffer)
+        scratch.frameUniformBuffer = retained(frameUniformBuffer)
+        scratch.regionBuffer = retained(regionBuffer)
+        scratch.quadInstanceBuffer = retained(quadInstanceBuffer)
+        scratch.quadInstanceSRV = retained(quadInstanceSRV)
+        scratch.samplerState = retained(samplerState)
+        scratch.blendState = retained(blendState)
+        scratch.coverageBlendState = retained(coverageBlendState)
+        scratch.rasterizerState = retained(rasterizerState)
+        return scratch
+    }
 
     // MARK: - Blur + Composite
 
@@ -528,7 +617,280 @@ final class D3D11BackdropBlurEngine {
         deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 1, 1, &nullSRV)
     }
 
+    /// Accumulates only a material quad's geometric/clip coverage into C.
+    /// Tint alpha, opaque-material metadata and the sampled backdrop do not
+    /// affect replacement coverage. The foreground draw uses the ordinary
+    /// material shader separately, with the same quad and target extent.
+    ///
+    /// Like `drawBlurredQuad`, this binds its own pipeline state. The caller
+    /// restores the frame pipeline after the draw. No texture is allocated.
+    func drawMaterialCoverage(
+        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
+        coverageRTV: UnsafeMutablePointer<ID3D11RenderTargetView>,
+        target: RenderTargetDescriptor,
+        quad: QuadPrimitive
+    ) throws {
+        guard
+            !target.isEmpty,
+            min(GPUISceneValue.int(quad.blurRadius), Self.maxBlurRadius) > 0
+        else { return }
+        guard
+            let device, let materialVS, let frameUniformBuffer,
+            let quadInstanceBuffer, let quadInstanceSRV, let rasterizerState
+        else {
+            throw BatchRendererError(
+                operation: "Draw isolated material coverage",
+                hresult: blurHresultHandle,
+                details: "Backdrop blur engine is not attached to a device.")
+        }
+        try ensureMaterialCoverageResources(device: device)
+        guard let materialCoveragePS, let coverageBlendState else {
+            throw BatchRendererError(
+                operation: "Draw isolated material coverage",
+                hresult: blurHresultHandle,
+                details: "Material coverage resources are unavailable.")
+        }
+
+        try uploadQuadInstance(deviceContext: deviceContext, buffer: quadInstanceBuffer, quad: quad)
+        let uniforms: [Float] = [Float(target.width), Float(target.height), 0, 0]
+        try uniforms.withUnsafeBytes { bytes in
+            try updateSubresource(deviceContext: deviceContext, buffer: frameUniformBuffer, bytes: bytes)
+        }
+
+        unbindIsolationResources(deviceContext: deviceContext)
+        defer { unbindIsolationResources(deviceContext: deviceContext) }
+        var targetView: UnsafeMutablePointer<ID3D11RenderTargetView>? = coverageRTV
+        deviceContext.pointee.lpVtbl.pointee.OMSetRenderTargets(deviceContext, 1, &targetView, nil)
+        var viewport = D3D11_VIEWPORT(
+            TopLeftX: 0, TopLeftY: 0,
+            Width: FLOAT(target.width), Height: FLOAT(target.height),
+            MinDepth: 0, MaxDepth: 1)
+        deviceContext.pointee.lpVtbl.pointee.RSSetViewports(deviceContext, 1, &viewport)
+        deviceContext.pointee.lpVtbl.pointee.IASetInputLayout(deviceContext, nil)
+        deviceContext.pointee.lpVtbl.pointee.IASetPrimitiveTopology(
+            deviceContext, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST)
+        deviceContext.pointee.lpVtbl.pointee.RSSetState(deviceContext, rasterizerState)
+
+        let blendFactor: [FLOAT] = [0, 0, 0, 0]
+        blendFactor.withUnsafeBufferPointer { factor in
+            deviceContext.pointee.lpVtbl.pointee.OMSetBlendState(
+                deviceContext, coverageBlendState, factor.baseAddress, UINT.max)
+        }
+        deviceContext.pointee.lpVtbl.pointee.VSSetShader(deviceContext, materialVS, nil, 0)
+        deviceContext.pointee.lpVtbl.pointee.PSSetShader(deviceContext, materialCoveragePS, nil, 0)
+        var frameCBuffer: UnsafeMutablePointer<ID3D11Buffer>? = frameUniformBuffer
+        deviceContext.pointee.lpVtbl.pointee.VSSetConstantBuffers(deviceContext, 0, 1, &frameCBuffer)
+        var instanceSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = quadInstanceSRV
+        deviceContext.pointee.lpVtbl.pointee.VSSetShaderResources(deviceContext, 0, 1, &instanceSRV)
+        deviceContext.pointee.lpVtbl.pointee.DrawInstanced(deviceContext, 6, 1, 0, 0)
+    }
+
+    /// Gaussian-filters a premultiplied foreground or alpha-only coverage
+    /// texture without CPU pixels or readback. The owning isolated occurrence
+    /// reserves the source and its two scratch textures before calling here;
+    /// it uses a pass-local engine, so grow-only A/B never exceed that source.
+    /// `renderTargetView` must address mip zero of `texture`.
+    ///
+    /// The halving plan, kernel, intermediate BGRA8 format and texel-centre
+    /// clamps match the material path. A separate final upsample preserves
+    /// `(pixel + 0.5) / factor` even when a halving drops an odd trailing texel.
+    /// A zero radius or empty target is a no-op. Once rendering starts, both
+    /// success and failure leave the input RTV bound at its full viewport and
+    /// remove this helper's resource bindings; the caller restores other state.
+    func filterTextureInPlace(
+        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
+        texture: UnsafeMutablePointer<ID3D11Texture2D>,
+        renderTargetView: UnsafeMutablePointer<ID3D11RenderTargetView>,
+        target: RenderTargetDescriptor,
+        radius: Int
+    ) throws {
+        guard radius > 0, !target.isEmpty else { return }
+        let width = target.width
+        let height = target.height
+        guard
+            width <= GPUISceneLimits.maxSurfaceDimension,
+            height <= GPUISceneLimits.maxSurfaceDimension,
+            width <= GPUISceneLimits.maxImageRenderPassPixels / height
+        else {
+            throw BatchRendererError(
+                operation: "Filter isolated texture",
+                hresult: blurHresultInvalidArgument,
+                details: "Isolated texture exceeds the admitted source extent.")
+        }
+        var textureDescriptor = D3D11_TEXTURE2D_DESC()
+        texture.pointee.lpVtbl.pointee.GetDesc(texture, &textureDescriptor)
+        guard
+            Int(textureDescriptor.Width) == width,
+            Int(textureDescriptor.Height) == height,
+            textureDescriptor.Format == DXGI_FORMAT_B8G8R8A8_UNORM,
+            textureDescriptor.MipLevels == 1,
+            textureDescriptor.ArraySize == 1,
+            textureDescriptor.SampleDesc.Count == 1
+        else {
+            throw BatchRendererError(
+                operation: "Filter isolated texture",
+                hresult: blurHresultInvalidArgument,
+                details: "Input must be a BGRA8 single-sample texture matching the isolated target.")
+        }
+        guard
+            let device, let blurVS, let blurPS, let blurParamsBuffer,
+            let regionBuffer, let samplerState, let rasterizerState
+        else {
+            throw BatchRendererError(
+                operation: "Filter isolated texture",
+                hresult: blurHresultHandle,
+                details: "Backdrop blur engine is not attached to a device.")
+        }
+        try ensureIsolatedUpsampleResource(device: device)
+        try ensurePingPongTargets(device: device, width: width, height: height)
+        guard let textureA, let rtvA, let srvA, let rtvB, let srvB, let isolatedUpsamplePS else {
+            throw BatchRendererError(
+                operation: "Filter isolated texture",
+                hresult: blurHresultHandle,
+                details: "Isolated blur resources are unavailable.")
+        }
+
+        unbindIsolationResources(deviceContext: deviceContext)
+        deviceContext.pointee.lpVtbl.pointee.OMSetRenderTargets(deviceContext, 0, nil, nil)
+        defer {
+            unbindIsolationResources(deviceContext: deviceContext)
+            var restoredTarget: UnsafeMutablePointer<ID3D11RenderTargetView>? = renderTargetView
+            deviceContext.pointee.lpVtbl.pointee.OMSetRenderTargets(deviceContext, 1, &restoredTarget, nil)
+            var restoredViewport = D3D11_VIEWPORT(
+                TopLeftX: 0, TopLeftY: 0,
+                Width: FLOAT(width), Height: FLOAT(height),
+                MinDepth: 0, MaxDepth: 1)
+            deviceContext.pointee.lpVtbl.pointee.RSSetViewports(deviceContext, 1, &restoredViewport)
+        }
+
+        var copyBox = D3D11_BOX(
+            left: 0, top: 0, front: 0,
+            right: UINT(width), bottom: UINT(height), back: 1)
+        let destinationResource = UnsafeMutableRawPointer(textureA).assumingMemoryBound(to: ID3D11Resource.self)
+        let sourceResource = UnsafeMutableRawPointer(texture).assumingMemoryBound(to: ID3D11Resource.self)
+        deviceContext.pointee.lpVtbl.pointee.CopySubresourceRegion(
+            deviceContext, destinationResource, 0, 0, 0, 0, sourceResource, 0, &copyBox)
+        deviceContext.pointee.lpVtbl.pointee.IASetInputLayout(deviceContext, nil)
+        deviceContext.pointee.lpVtbl.pointee.IASetPrimitiveTopology(
+            deviceContext, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST)
+        deviceContext.pointee.lpVtbl.pointee.RSSetState(deviceContext, rasterizerState)
+
+        let plan = BlurPassPlan(
+            radius: min(radius, Self.maxBlurRadius), regionWidth: width, regionHeight: height)
+        var currentRegion = SubTextureRegion(
+            originX: 0, originY: 0, width: width, height: height,
+            textureWidth: textureCapacity.width, textureHeight: textureCapacity.height)
+        var sourceIsA = true
+        var nullSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
+        for _ in 0..<plan.halvingPassCount {
+            let halved = currentRegion.halved
+            try uploadBlurParams(
+                deviceContext: deviceContext, buffer: blurParamsBuffer,
+                direction: (0, 0), region: currentRegion.halvingSource,
+                radius: 0, kernel: [1])
+            var halvedViewport = D3D11_VIEWPORT(
+                TopLeftX: 0, TopLeftY: 0,
+                Width: FLOAT(halved.width), Height: FLOAT(halved.height),
+                MinDepth: 0, MaxDepth: 1)
+            try runBlurPass(
+                deviceContext: deviceContext,
+                target: sourceIsA ? rtvB : rtvA, source: sourceIsA ? srvA : srvB,
+                blurVS: blurVS, blurPS: blurPS,
+                paramsBuffer: blurParamsBuffer, sampler: samplerState,
+                viewport: &halvedViewport)
+            deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 0, 1, &nullSRV)
+            sourceIsA.toggle()
+            currentRegion = halved
+        }
+
+        let kernel = gaussianBlurKernel(radius: plan.reducedRadius)
+        var regionViewport = D3D11_VIEWPORT(
+            TopLeftX: 0, TopLeftY: 0,
+            Width: FLOAT(currentRegion.width), Height: FLOAT(currentRegion.height),
+            MinDepth: 0, MaxDepth: 1)
+        for direction in [
+            (1 / Float(textureCapacity.width), Float(0)),
+            (Float(0), 1 / Float(textureCapacity.height)),
+        ] {
+            try uploadBlurParams(
+                deviceContext: deviceContext, buffer: blurParamsBuffer,
+                direction: direction, region: currentRegion,
+                radius: plan.reducedRadius, kernel: kernel)
+            try runBlurPass(
+                deviceContext: deviceContext,
+                target: sourceIsA ? rtvB : rtvA, source: sourceIsA ? srvA : srvB,
+                blurVS: blurVS, blurPS: blurPS,
+                paramsBuffer: blurParamsBuffer, sampler: samplerState,
+                viewport: &regionViewport)
+            deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 0, 1, &nullSRV)
+            sourceIsA.toggle()
+        }
+
+        // The shared blur VS already supplies this shader's fullscreen UVs.
+        // The two float4s fit the existing 32-byte region buffer; old blur
+        // uniforms and their 268-float ABI are not changed.
+        let upsampleParameters: [Float] = [
+            Float(width) / Float(textureCapacity.width * plan.downsampleFactor),
+            Float(height) / Float(textureCapacity.height * plan.downsampleFactor),
+            0, 0,
+            currentRegion.uvMinU, currentRegion.uvMinV,
+            currentRegion.uvMaxU, currentRegion.uvMaxV,
+        ]
+        try upsampleParameters.withUnsafeBytes { bytes in
+            try updateSubresource(deviceContext: deviceContext, buffer: regionBuffer, bytes: bytes)
+        }
+        var outputViewport = D3D11_VIEWPORT(
+            TopLeftX: 0, TopLeftY: 0,
+            Width: FLOAT(width), Height: FLOAT(height),
+            MinDepth: 0, MaxDepth: 1)
+        try runBlurPass(
+            deviceContext: deviceContext,
+            target: renderTargetView, source: sourceIsA ? srvA : srvB,
+            blurVS: blurVS, blurPS: isolatedUpsamplePS,
+            paramsBuffer: regionBuffer, sampler: samplerState,
+            viewport: &outputViewport)
+    }
+
     // MARK: - Resource Management
+
+    private func ensureIsolatedUpsampleResource(device: UnsafeMutablePointer<ID3D11Device>) throws {
+        guard isolatedUpsamplePS == nil else { return }
+        isolatedUpsamplePS = try Self.compilePixelShader(
+            device: device, source: batchIsolatedBlurUpsampleShaderSource, label: "isolated blur upsample")
+    }
+
+    private func ensureMaterialCoverageResources(device: UnsafeMutablePointer<ID3D11Device>) throws {
+        if materialCoveragePS != nil, coverageBlendState != nil { return }
+        if materialCoveragePS == nil {
+            materialCoveragePS = try Self.compilePixelShader(
+                device: device, source: batchMaterialCoverageShaderSource, label: "isolated material coverage")
+        }
+        var descriptor = D3D11_BLEND_DESC()
+        descriptor.AlphaToCoverageEnable = false
+        descriptor.IndependentBlendEnable = false
+        descriptor.RenderTarget.0.BlendEnable = true
+        descriptor.RenderTarget.0.SrcBlend = D3D11_BLEND_ONE
+        descriptor.RenderTarget.0.DestBlend = D3D11_BLEND_INV_SRC_ALPHA
+        descriptor.RenderTarget.0.BlendOp = D3D11_BLEND_OP_ADD
+        descriptor.RenderTarget.0.SrcBlendAlpha = D3D11_BLEND_ONE
+        descriptor.RenderTarget.0.DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA
+        descriptor.RenderTarget.0.BlendOpAlpha = D3D11_BLEND_OP_ADD
+        descriptor.RenderTarget.0.RenderTargetWriteMask = UINT8(D3D11_COLOR_WRITE_ENABLE_ALPHA.rawValue)
+        let hr = device.pointee.lpVtbl.pointee.CreateBlendState(device, &descriptor, &coverageBlendState)
+        try Self.throwIfFailed(hr, operation: "ID3D11Device.CreateBlendState(isolated material coverage)")
+    }
+
+    /// All texture slots used by isolation helpers. Clearing the source
+    /// slots before changing RTVs prevents F/C/backdrop read-write aliases;
+    /// clearing the quad SRV also permits the next instance-buffer update.
+    private func unbindIsolationResources(deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>) {
+        let nullResources: [UnsafeMutablePointer<ID3D11ShaderResourceView>?] = [nil, nil, nil]
+        nullResources.withUnsafeBufferPointer { resources in
+            deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 0, 3, resources.baseAddress)
+        }
+        var nullSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
+        deviceContext.pointee.lpVtbl.pointee.VSSetShaderResources(deviceContext, 0, 1, &nullSRV)
+    }
 
     private func ensurePingPongTargets(
         device: UnsafeMutablePointer<ID3D11Device>,
@@ -886,3 +1248,4 @@ final class D3D11BackdropBlurEngine {
 }
 
 private let blurHresultHandle: HRESULT = HRESULT(bitPattern: 0x8007_0006)
+private let blurHresultInvalidArgument: HRESULT = HRESULT(bitPattern: 0x8007_0057)

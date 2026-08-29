@@ -154,18 +154,30 @@ public enum GPUIRawSceneRasterizer {
             case .image:
                 for index in run.range {
                     let textureID = layer.images[index].textureID
-                    if imageBindings[textureID] == nil, let pass = passes[textureID], pass.input == .currentTarget {
-                        rasterizeCurrentTargetImage(
-                            layer.images[index], pass: pass, target: &target,
-                            imageRenderPassDepth: imageRenderPassDepth,
-                            imageRenderPassBudget: &imageRenderPassBudget)
-                        continue
+                    if imageBindings[textureID] == nil, let pass = passes[textureID] {
+                        switch pass.input {
+                        case .currentTarget:
+                            rasterizeCurrentTargetImage(
+                                layer.images[index], pass: pass, target: &target,
+                                imageRenderPassDepth: imageRenderPassDepth,
+                                imageRenderPassBudget: &imageRenderPassBudget)
+                            continue
+                        case .isolatedBackdrop:
+                            rasterizeIsolatedBackdropImage(
+                                layer.images[index], pass: pass, target: &target,
+                                imageRenderPassDepth: imageRenderPassDepth,
+                                imageRenderPassBudget: &imageRenderPassBudget)
+                            continue
+                        case .independent:
+                            break
+                        }
                     }
                     if resolvedImages[textureID] == nil, let pass = passes[textureID] {
                         if pass.hasValidExtent,
                             pass.colorEffects.count <= GPUISceneLimits.maxColorEffects,
+                            pass.contentBlurRadiusDefect == nil,
                             imageRenderPassDepth < GPUISceneLimits.maxImageRenderPassDepth,
-                            imageRenderPassBudget.consume(size: pass.size)
+                            imageRenderPassBudget.consume(pass)
                         {
                             let bitmap = rasterize(
                                 pass.scene, size: pass.size, imageRenderPassDepth: imageRenderPassDepth + 1,
@@ -198,15 +210,34 @@ public enum GPUIRawSceneRasterizer {
     ) {
         let parentSize = IntSize(width: Int32(target.width), height: Int32(target.height))
         guard let region = pass.currentTargetRegion(for: image, parentSize: parentSize),
-            imageRenderPassDepth < GPUISceneLimits.maxImageRenderPassDepth,
-            imageRenderPassBudget.consume(size: pass.size)
+            imageRenderPassDepth < GPUISceneLimits.maxImageRenderPassDepth
         else {
-            // Preserve the software reference's visible rejection diagnostic,
-            // without caching a result whose input belongs to one occurrence.
-            let diagnostic = BitmapSurface(
-                width: 2, height: 2, bytesPerRow: 8,
-                pixels: Data([255, 0, 255, 255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 0, 255, 255]))
-            target.drawImage(image, bitmap: diagnostic)
+            drawRejectedImage(image, target: &target)
+            return
+        }
+
+        if target.isBackdropIsolated {
+            // Preserve the original current-target placement restrictions. Only
+            // its result representation changes inside a dependent isolation:
+            // seeding the foreground would make the whole rectangle participate
+            // in an enclosing content blur, including untouched parent pixels.
+            var isolatedPass = pass
+            isolatedPass.input = .isolatedBackdrop
+            isolatedPass.contentBlurRadius = 0
+            guard let mapping = isolatedPass.isolatedBackdropMapping(for: image, parentSize: parentSize),
+                imageRenderPassBudget.consume(pass, inBackdropIsolation: true)
+            else {
+                drawRejectedImage(image, target: &target)
+                return
+            }
+            rasterizeBackdropIsolation(
+                image, pass: isolatedPass, mapping: mapping, target: &target,
+                imageRenderPassDepth: imageRenderPassDepth, imageRenderPassBudget: &imageRenderPassBudget)
+            return
+        }
+
+        guard imageRenderPassBudget.consume(pass) else {
+            drawRejectedImage(image, target: &target)
             return
         }
 
@@ -220,6 +251,52 @@ public enum GPUIRawSceneRasterizer {
             in: pass.scene, target: &child, imageBindings: bindings,
             imageRenderPassDepth: imageRenderPassDepth + 1, imageRenderPassBudget: &imageRenderPassBudget)
         target.replaceImage(image, with: child, in: region)
+    }
+
+    private static func rasterizeIsolatedBackdropImage(
+        _ image: ImagePrimitive, pass: GPUISceneImageRenderPass,
+        target: inout RasterTarget, imageRenderPassDepth: Int,
+        imageRenderPassBudget: inout GPUISceneImageRenderPassBudget
+    ) {
+        let parentSize = IntSize(width: Int32(target.width), height: Int32(target.height))
+        guard let mapping = pass.isolatedBackdropMapping(for: image, parentSize: parentSize),
+            imageRenderPassDepth < GPUISceneLimits.maxImageRenderPassDepth,
+            imageRenderPassBudget.consume(pass, inBackdropIsolation: target.isBackdropIsolated)
+        else {
+            drawRejectedImage(image, target: &target)
+            return
+        }
+
+        rasterizeBackdropIsolation(
+            image, pass: pass, mapping: mapping, target: &target,
+            imageRenderPassDepth: imageRenderPassDepth, imageRenderPassBudget: &imageRenderPassBudget)
+    }
+
+    /// Mapping and all source/scratch reservations have succeeded before this
+    /// function creates any child planes. Every occurrence owns a fresh frozen
+    /// backdrop and its child's resource namespace; none enters resolvedImages.
+    private static func rasterizeBackdropIsolation(
+        _ image: ImagePrimitive, pass: GPUISceneImageRenderPass,
+        mapping: GPUISceneBackdropIsolationMapping, target: inout RasterTarget,
+        imageRenderPassDepth: Int, imageRenderPassBudget: inout GPUISceneImageRenderPassBudget
+    ) {
+        var child = RasterTarget(isolating: target, mapping: mapping)
+        let bindings = Dictionary(
+            pass.scene.imageResources.map { ($0.textureID, $0.bitmap) }, uniquingKeysWith: { _, latest in latest })
+        rasterizeLayerOperations(
+            in: pass.scene, target: &child, imageBindings: bindings,
+            imageRenderPassDepth: imageRenderPassDepth + 1, imageRenderPassBudget: &imageRenderPassBudget)
+        let result = child.finishBackdropIsolation(radius: Int(pass.contentBlurRadius))
+        target.compositeIsolatedImage(image, result: result, mapping: mapping)
+    }
+
+    private static func drawRejectedImage(_ image: ImagePrimitive, target: inout RasterTarget) {
+        // The software reference cannot throw through its historical API. Keep
+        // rejection visible without caching a parent-dependent diagnostic.
+        let diagnostic = BitmapSurface(
+            width: 2, height: 2, bytesPerRow: 8,
+            pixels: Data([255, 0, 255, 255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 0, 255, 255]))
+        target.drawImage(image, bitmap: diagnostic)
     }
 }
 /// One axis of a bilinear tap, matching `D3D11_FILTER_MIN_MAG_MIP_LINEAR`
@@ -344,10 +421,25 @@ private struct RasterPathGradient {
     }
 }
 
+/// A completed dependent subtree. Foreground is premultiplied; coverage says
+/// how much of the immediate parent it replaces and may exceed foreground
+/// alpha for a material over a translucent backdrop.
+private struct RasterIsolatedImage {
+    var width: Int
+    var height: Int
+    var premultipliedPixels: [UInt8]
+    var coverage: [UInt8]
+}
+
 private struct RasterTarget {
     var width: Int
     var height: Int
     var pixels: [UInt8]
+    private var backdropPixels: [UInt8] = []
+    private var replacementCoverage: [UInt8] = []
+    private var validBackdropRegion: SubTextureRegion?
+
+    var isBackdropIsolated: Bool { !replacementCoverage.isEmpty }
 
     init(width: Int, height: Int, clearColor: Color) {
         self.width = width
@@ -375,6 +467,81 @@ private struct RasterTarget {
             pixels.replaceSubrange(
                 destination..<(destination + rowBytes), with: parent.pixels[source..<(source + rowBytes)])
         }
+    }
+
+    /// The mapping was admitted against this actual parent and its reservation
+    /// paid before entry. Copy only available pixels; material reads clamp D to
+    /// this region without making the transparent foreground halo opaque.
+    init(isolating parent: RasterTarget, mapping: GPUISceneBackdropIsolationMapping) {
+        width = Int(mapping.size.width)
+        height = Int(mapping.size.height)
+        pixels = Array(repeating: 0, count: width * height * 4)
+        backdropPixels = Array(repeating: 0, count: width * height * 4)
+        replacementCoverage = Array(repeating: 0, count: width * height)
+        validBackdropRegion = mapping.validChildRegion
+
+        guard let region = mapping.parentCopyRegion else { return }
+        for row in 0..<region.height {
+            for column in 0..<region.width {
+                // An isolated parent's virtual composition is defined over its
+                // whole canvas, including earlier local drawing in its halo.
+                // Its child must not inherit a narrower grandparent rectangle.
+                let color = parent.premultipliedColor(x: region.originX + column, y: region.originY + row)
+                let destination = ((mapping.childOffsetY + row) * width + mapping.childOffsetX + column) * 4
+                backdropPixels[destination] = byte(color.blue)
+                backdropPixels[destination + 1] = byte(color.green)
+                backdropPixels[destination + 2] = byte(color.red)
+                backdropPixels[destination + 3] = byte(color.alpha)
+            }
+        }
+    }
+
+    mutating func finishBackdropIsolation(radius: Int) -> RasterIsolatedImage {
+        var coverage = replacementCoverage
+        replacementCoverage = []
+        backdropPixels = []
+        validBackdropRegion = nil
+
+        // D is no longer needed. Convert F in place, then use exactly the same
+        // byte-quantized Gaussian plan for color and replacement coverage.
+        for offset in stride(from: 0, to: pixels.count, by: 4) {
+            let alpha = Float(pixels[offset + 3]) / 255
+            pixels[offset] = byte(Float(pixels[offset]) / 255 * alpha)
+            pixels[offset + 1] = byte(Float(pixels[offset + 1]) / 255 * alpha)
+            pixels[offset + 2] = byte(Float(pixels[offset + 2]) / 255 * alpha)
+        }
+        if radius > 0 {
+            PremultipliedImageBlur.blur(&pixels, width: width, height: height, radius: radius)
+            var expandedCoverage = [UInt8](repeating: 0, count: width * height * 4)
+            for index in coverage.indices { expandedCoverage[index * 4 + 3] = coverage[index] }
+            PremultipliedImageBlur.blur(&expandedCoverage, width: width, height: height, radius: radius)
+            for index in coverage.indices { coverage[index] = expandedCoverage[index * 4 + 3] }
+        }
+        return RasterIsolatedImage(
+            width: width, height: height, premultipliedPixels: pixels, coverage: coverage)
+    }
+
+    /// F + (1 - C)D is the virtual immediate-parent surface. Clamp only D:
+    /// local foreground and coverage at an out-of-parent pixel still belong to
+    /// that pixel, and must not disappear when another material reads them.
+    private func premultipliedColor(x: Int, y: Int) -> RasterColor {
+        let offset = pixelOffset(x: x, y: y)
+        let alpha = Float(pixels[offset + 3]) / 255
+        var color = RasterColor(
+            red: Float(pixels[offset + 2]) / 255 * alpha,
+            green: Float(pixels[offset + 1]) / 255 * alpha,
+            blue: Float(pixels[offset]) / 255 * alpha,
+            alpha: alpha)
+        guard isBackdropIsolated, let region = validBackdropRegion, !region.isEmpty else { return color }
+        let backdropX = clamp(x, lower: region.originX, upper: region.maxX - 1)
+        let backdropY = clamp(y, lower: region.originY, upper: region.maxY - 1)
+        let backdropOffset = pixelOffset(x: backdropX, y: backdropY)
+        let retained = 1 - Float(replacementCoverage[y * width + x]) / 255
+        color.blue += Float(backdropPixels[backdropOffset]) / 255 * retained
+        color.green += Float(backdropPixels[backdropOffset + 1]) / 255 * retained
+        color.red += Float(backdropPixels[backdropOffset + 2]) / 255 * retained
+        color.alpha += Float(backdropPixels[backdropOffset + 3]) / 255 * retained
+        return color
     }
 
     mutating func drawQuad(_ quad: QuadPrimitive) {
@@ -553,6 +720,7 @@ private struct RasterTarget {
                 pixels[destinationOffset + 2] = byte(
                     (compositedRed * mask + Float(pixels[destinationOffset + 2]) / 255 * retainedAlpha) * unpremultiply)
                 pixels[destinationOffset + 3] = byte(outputAlpha)
+                accumulateReplacementCoverage(mask, x: x, y: y)
             }
         }
     }
@@ -638,14 +806,27 @@ private struct RasterTarget {
             param2: quad.effectParam2, param3: quad.effectParam3, param4: quad.effectParam4)
     }
 
-    /// Copies the framebuffer under `bounds` into a premultiplied BGRA
-    /// buffer — the convention the GPU's ping-pong targets hold, since
-    /// they are a `CopySubresourceRegion` of a premultiplied render
-    /// target.
+    /// Copies the visible surface under `bounds` into premultiplied BGRA.
+    /// An isolation contributes its virtual F + (1 - C)D surface; ordinary
+    /// targets keep the original framebuffer conversion. The full material
+    /// scan window is blurred in either case, not just the valid D rectangle.
     private func premultipliedRegion(_ bounds: PixelBounds) -> [UInt8] {
         let regionWidth = bounds.width
         let regionHeight = bounds.height
         var region = [UInt8](repeating: 0, count: regionWidth * regionHeight * 4)
+        if isBackdropIsolated {
+            for y in bounds.y0..<bounds.y1 {
+                for x in bounds.x0..<bounds.x1 {
+                    let color = premultipliedColor(x: x, y: y)
+                    let destination = ((y - bounds.y0) * regionWidth + (x - bounds.x0)) * 4
+                    region[destination] = byte(color.blue)
+                    region[destination + 1] = byte(color.green)
+                    region[destination + 2] = byte(color.red)
+                    region[destination + 3] = byte(color.alpha)
+                }
+            }
+            return region
+        }
         for y in bounds.y0..<bounds.y1 {
             for x in bounds.x0..<bounds.x1 {
                 let source = pixelOffset(x: x, y: y)
@@ -873,6 +1054,55 @@ private struct RasterTarget {
             return nil
         }
         return Double(atlas.pixels[offset + 3]) / 255.0
+    }
+
+    /// Composite the filtered pair as pF + (1 - pC)D. In another isolation D
+    /// here is that parent's foreground, while its own C receives pC over C.
+    /// Output opacity and clipping act after both filters, never on the frozen
+    /// backdrop or transparent foreground margin that fed them.
+    mutating func compositeIsolatedImage(
+        _ image: ImagePrimitive, result: RasterIsolatedImage, mapping: GPUISceneBackdropIsolationMapping
+    ) {
+        guard let region = mapping.parentCopyRegion,
+            !GPUIClipEncoding.isEmpty(
+                clipX: image.clipX, clipY: image.clipY, clipWidth: image.clipWidth,
+                clipHeight: image.clipHeight)
+        else { return }
+        let opacity = clamp(image.opacity, lower: 0, upper: 1)
+        guard opacity > 0 else { return }
+        let clip = GPUIClipRegion(
+            x: image.clipX, y: image.clipY, width: image.clipWidth, height: image.clipHeight,
+            cornerRadius: image.clipCornerRadius)
+        for row in 0..<region.height {
+            let y = region.originY + row
+            let sourceY = mapping.childOffsetY + row
+            for column in 0..<region.width {
+                let x = region.originX + column
+                let sourceIndex = sourceY * result.width + mapping.childOffsetX + column
+                let weight = opacity * Float(clip.alpha(atPixelX: x, y: y))
+                let coverage = weight * Float(result.coverage[sourceIndex]) / 255
+                // Preserve empty content byte for byte, including hidden RGB
+                // in a transparent destination. The parent copy is only input.
+                guard coverage > 0 else { continue }
+                let source = sourceIndex * 4
+                let destination = pixelOffset(x: x, y: y)
+                let sourceAlpha = Float(result.premultipliedPixels[source + 3]) / 255
+                let retainedAlpha = Float(pixels[destination + 3]) / 255 * (1 - coverage)
+                let outputAlpha = sourceAlpha * weight + retainedAlpha
+                let unpremultiply: Float = outputAlpha > 0 ? 1 / outputAlpha : 0
+                pixels[destination] = byte(
+                    (Float(result.premultipliedPixels[source]) / 255 * weight
+                        + Float(pixels[destination]) / 255 * retainedAlpha) * unpremultiply)
+                pixels[destination + 1] = byte(
+                    (Float(result.premultipliedPixels[source + 1]) / 255 * weight
+                        + Float(pixels[destination + 1]) / 255 * retainedAlpha) * unpremultiply)
+                pixels[destination + 2] = byte(
+                    (Float(result.premultipliedPixels[source + 2]) / 255 * weight
+                        + Float(pixels[destination + 2]) / 255 * retainedAlpha) * unpremultiply)
+                pixels[destination + 3] = byte(outputAlpha)
+                accumulateReplacementCoverage(coverage, x: x, y: y)
+            }
+        }
     }
 
     /// The source already includes the admitted parent crop. Its alpha is not
@@ -1155,6 +1385,18 @@ private struct RasterTarget {
         pixels[offset + 2] = byte(
             (color.red * sourceAlpha + destinationRed * destinationAlpha * (1 - sourceAlpha)) / outputAlpha)
         pixels[offset + 3] = byte(outputAlpha)
+        accumulateReplacementCoverage(sourceAlpha, x: x, y: y)
+    }
+
+    /// Ordinary drawing supplies source alpha; material drawing supplies its
+    /// geometric/clip coverage. These differ when the replacement contains a
+    /// translucent backdrop. Independent targets carry no coverage plane.
+    private mutating func accumulateReplacementCoverage(_ amount: Float, x: Int, y: Int) {
+        guard isBackdropIsolated else { return }
+        let mask = clamp(amount, lower: 0, upper: 1)
+        let index = y * width + x
+        let previous = Float(replacementCoverage[index]) / 255
+        replacementCoverage[index] = byte(mask + previous * (1 - mask))
     }
 
     /// The pixel-scan window for `rect` turned by `rotation` about its own

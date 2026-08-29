@@ -729,7 +729,9 @@ that scene into an offscreen `BitmapSurface` and composite it as one
 `ImagePrimitive`. An admitted group containing a backdrop reader instead
 retains a current-target scene source, described below. `offscreenPassBuffer`
 — shared with the content-blur isolation pass — decides whether either
-route can size its buffer:
+route can size its buffer. These rules describe ordinary groups; dependent
+groups nested in the new foreground/coverage isolation use the aligned,
+bounded source mapping described below.
 
 - the group's frame is **clamped to the effective clip** before sizing —
   pixels outside it could not survive the clip anyway, and sizing from the
@@ -2301,10 +2303,12 @@ not imply identical cache behavior or unrestricted backend parity.
 This is the `GPUIScene` route, not new legacy `RenderFrame` filter support.
 Custom shader modifiers, animated effect parameters, full drawing-group
 colour modes and blend semantics, native Apple colour-space conformance,
-and physical-GPU performance qualification remain incomplete. Existing
-CPU drawing-group and content-blur isolation routes are unchanged.
+and physical-GPU performance qualification remain incomplete. Independent
+filter isolation does not implicitly import an enclosing backdrop; the new
+material-dependent content-blur input is a separate contract below.
 
-**Blend modes.** The contract is **source-over, and only source-over**.
+**Blend modes.** Ordinary drawing uses **source-over, and only source-over**;
+material and dependent-image replacement are separate coverage operations.
 `QuadPrimitive.blendMode` used to be honoured by the CPU rasterizer's
 `blend` (five separable modes) and ignored by the HLSL, which declares
 `float blendMode;` and never reads it against a fixed
@@ -2758,9 +2762,11 @@ backdrop reader. It releases their bitmap cache and preserves their source
 records for clean-subtree and ancestor replay. Neither backend caches a
 current-target result by texture ID: repeated uses observe their own current
 prefix, and replayed groups therefore follow outside-only changes without
-global invalidation. Groups inside independent content-blur, color-effect,
-or Canvas captures keep their existing route; those captures can later be
-cropped or rebased and do not implicitly gain an enclosing-window backdrop.
+global invalidation. Groups inside independent color-effect or Canvas captures
+keep their existing route; those captures can later be cropped or rebased and
+do not implicitly gain an enclosing-window backdrop. Material-dependent
+content blur uses the distinct foreground/coverage input described below;
+material-free content blur retains its independent bitmap route.
 
 Scene cache keys also include the current device-target `surfaceSize`. This
 matters for deferred subtrees: prepaint can carry no inherited clip, so a
@@ -2805,26 +2811,122 @@ performance qualification. The original source freeze and failed capacity
 oracle run remain recorded separately, not relabeled as passing. The corrected
 capacity oracle independently builds the same 1,024 small quads as the GPU
 prefix and checks its CPU pixels before applying the unchanged GPU tolerance.
-The historical `RenderPassAbstractionTests.testMaterialInsideADrawingGroupBlursNothing`
-keeps its name and remaining skip, but now requires the admitted plain-group
-arm to satisfy the existing `<20` contrast oracle. Its inline arm and
-content-blur defect arm are unchanged.
+At the `a2cad235` source preceding the content-blur change, the historical
+`RenderPassAbstractionTests.testMaterialInsideADrawingGroupBlursNothing`
+required the inline and admitted plain-group arms to satisfy the existing
+`<20` contrast oracle, while its content-blur arm asserted the known `>100`
+defect and then skipped. That source and the earlier execution record remain
+historical evidence; they are not results for the implementation below.
 
 The joined local Windows Full run at `a2cad23` subsequently passed all 29
 top-level stages, including the complete CoreLogic shards, portable tests,
 release build and all 85 gallery comparisons. Its closed archive is
-`artifacts/goal-eighth-full-a2cad23-archive-v1`. The existing content-blur case
-still executes its assertions and then skips; this is not a native-reference,
-hardware-performance or complete offscreen-effect qualification. The reviewed
-legacy frame screenshots also retain visible corner and material differences
-from the scene screenshots. See `goal.md` for the exact run and evidence limits.
+`artifacts/goal-eighth-full-a2cad23-archive-v1`. At that source snapshot, the
+existing content-blur case executed its assertions and then skipped; this is
+not a native-reference, hardware-performance or complete offscreen-effect
+qualification. The reviewed legacy frame screenshots also retain visible
+corner and material differences from the scene screenshots. See `goal.md`
+for the exact run and evidence limits. This historical Full result does not
+qualify the new content-blur implementation below.
 
-Content blur still needs a transparent margin to fade the subtree out instead
-of importing a neighbour. Material access through that isolation or an
-independent post-filter pass remains unresolved, as do rotated, odd/fractional
-origin, off-surface, and resampled group mappings. Drawing-group opaque and
-color-mode options, arbitrary blend modes, general clip semantics, and full
-SwiftUI/native fidelity remain separate open work.
+### Material in content blur: foreground and replacement coverage
+
+Material-dependent `.blur(radius:)` now records an `isolatedBackdrop` image
+source. Each occurrence receives the immediate parent's current pixels at its
+position in `GPUIScene.presentationOrder()`. It does not store those pixels
+in the retained node or its replayed scene. The ordinary `.currentTarget`
+input keeps its original mapping and no-post-filter contract; this is a
+distinct input, with a bounded content radius in `0...256`. Radius zero is
+used for a dependent plain group nested in the new isolation.
+
+A transparent foreground `F` and scalar replacement coverage `C` start at
+zero. The frozen parent copy is `D`. Material reads the virtual composition
+`S = F + (1 - C)D`, including earlier local drawing. Ordinary source-over
+updates `C` with source alpha; a material updates it with geometric and clip
+coverage. Material can contain a translucent backdrop, so its alpha is not
+its replacement coverage. The final Gaussian filters `F` and `C` separately,
+then output opacity and clip coverage `p` produce, in premultiplied RGBA:
+
+```text
+output = p * Gaussian(F) + (1 - p * Gaussian(C)) * D
+```
+
+For ordinary drawing `C` equals foreground alpha. An empty subtree has zero
+foreground and coverage, so it leaves every destination pixel unchanged.
+Nested dependent groups return the same pair, rather than importing their
+entire parent-filled rectangle into an outer blur. A nested ordinary
+current-target source keeps its original stricter mapping checks before it
+is executed as a pair in this context. Independent image sources reset the
+context and do not gain implicit access to their grandparent.
+
+The source buffer includes the content filter's transparent halo. Its origin
+is rounded outward to an even device pixel, including negative coordinates
+at a viewport edge. The physical parent copy is only the intersection with
+the actual parent texture, with an explicit destination offset. Only reads
+of `D` clamp to that valid copied rectangle; an empty copy contributes zero.
+The local `F` and `C` at an out-of-parent pixel still belong to that pixel.
+Material filters use their normal scan window over `S`, not a window that
+discards earlier local drawing outside the parent's rectangle. A nested
+source copies the fully defined immediate-parent `S`; it does not inherit a
+narrower grandparent rectangle. Output clipping happens after filtering.
+This is an explicit Windows boundary rule, not measured native behavior.
+
+CPU execution uses the existing byte-quantized Gaussian plan and a separate
+coverage plane. D3D11 uses bounded texture copies and real shader passes:
+parent, foreground, coverage and composed-read targets plus two local blur
+targets, at most six full-size planes per active isolation. Foreground and
+coverage are filtered sequentially through the same kernel/halving schedule.
+Ordinary prepared draws mirror their alpha to coverage without resolving
+images or rasterizing paths a second time. Shader and constant-buffer
+resources are shared within one device generation; each occurrence owns its
+scratch textures, and detach releases the template as well. This path does
+not read back or software-rasterize the live window.
+
+The unchanged source-count/depth/extent ceilings still apply. Structural
+validation and every actual isolated realization atomically reserve one
+source and **eight times its pixel area** from the existing 16,777,216-pixel
+ceiling, conservatively covering the additional planes. A current-target
+source inside this context receives the same reservation; outside it the
+original accounting is unchanged. Thus one isolated source can occupy at
+most 2,097,152 pixels under that cumulative reservation, even though the
+shared per-source extent limit remains 4,194,304. Nested live planes are
+charged separately. Rejection occurs before allocation, produces the CPU's
+visible diagnostic or a D3D scene-content error, and does not become a cached
+backdrop bitmap. Earlier completed draws are not rolled back after a late
+execution failure. These bounds do not claim to cover all process or driver
+memory.
+
+Retained recording keeps material-free bitmap reuse. Dependency selection
+uses the same clamped Float radius as emitted primitives. Claimed deferred
+content is rebased into a temporary queue before ordinary children record,
+so nested blur/group boundaries can claim it at the correct level; unclaimed
+entries drain afterward in their original priority order. Deferred clips are
+rebuilt from the capture's own retained ancestors, starting without the
+output clip, using the same transform/placement rules as inline painting.
+This preserves source-local clips without baking a merged viewport clip into
+the Gaussian. Replay claims the same descendants without reusing backdrop pixels. Material-free groups do
+not consume the dependent-source count merely because their parent blurs.
+The frame's atlas snapshot and each child's image namespace retain their
+existing owners. GPU unwinding restores parent targets, bindings, dimensions,
+frame uniforms and blend state on success and failure.
+
+`MaterialContentBlurContractTests`, `MaterialContentBlurTests` and
+`D3D11MaterialContentBlurTests` contain source regression oracles for mapping,
+accounting, alpha, halos, nested/deferred sources, order, replay, resize,
+resource ownership and failure recovery. The historical test keeps its
+identity and both original positive assertions; its known-bug assertion is
+intentionally replaced by positive content-blur smoothing and its skip is
+removed. These additions are **uncompiled and unrun in the source-only
+candidate**. Existing tolerances and baseline images are unchanged. Neither
+CPU/GPU agreement nor the analytic alpha checks establish native SwiftUI
+modifier order, edge behavior or opacity semantics.
+
+Independent color-effect/Canvas capture boundaries, unsupported rotated or
+resampled group mappings, drawing-group opaque/color-mode options, general
+blend/clip semantics and native-reference qualification remain open. The
+content-blur opaque hint remains metadata. Cold/warm performance also remains
+unmeasured: the shared blur cost model and existing draw counters exclude
+some helper/upsample work and are not total GPU-work measurements.
 
 ### `SubTextureRegion`: one clamp, and the stale-texel class
 
@@ -2874,7 +2976,9 @@ composited a blurred copy of `a` and `c` across a 10-point band of each,
 and `.blur()` on a view that painted nothing at all still smeared its
 neighbours.
 
-`ScenePainter.appendIsolatedContentBlur` is the lowering that holds:
+`ScenePainter.appendIsolatedContentBlur` keeps the following lowering for
+material-free content. Backdrop readers take the separate foreground/coverage
+route above; they do not bake a parent-filled rectangle into this bitmap.
 
 1. size an `.offscreen` pass over the node's painted frame outset by the
    (capped, device-space) radius, clamped to the clip and to the offscreen
@@ -2907,24 +3011,25 @@ node itself — and stays sharp above its blurred content.) It claims them
 on the frames it *reuses* its bitmap too: those entries are already
 inside those pixels, and a claim tied to the rasterization would put a
 sharp copy back on top from the second frame onwards. For the same
-reason a content-blur node never replays its outer paint-record range —
-replay is the one path that skips the isolation branch, and a replayed
-bitmap with unclaimed descendants is exactly that sharp copy; the bitmap
-cache below, not scene replay, is what makes an unchanged blurred
-subtree cheap. The `isDrawnInline` flag is reset at the top of every
+reason a content-blur node cannot bypass the isolation branch through generic
+outer-range replay. A replayed bitmap with unclaimed descendants is exactly
+that sharp copy. The material-free bitmap cache below makes an unchanged
+subtree cheap; the new dependent path replays source records only after
+claiming the descendants and still resolves fresh parent pixels. The `isDrawnInline` flag is reset at the top of every
 paint attempt, because the deferred list outlives the frame (it carries
 the replay ranges) and the decision does not. The frame path's own
 deferred drain ignores the flag entirely; it has no isolation pass, so
 it must still draw everything.
 
-**Cost.** One CPU rasterization plus one Gaussian when the subtree
-changes, and nothing at all when it does not: the bitmap is cached on the
+**Material-free cost.** One CPU rasterization plus one Gaussian when the
+subtree changes, and nothing at all when it does not: the bitmap is cached on the
 node's paint key, which includes the radius and the display scale.
 `ScenePaintMetrics.contentBlurPasses` / `contentBlurPassesReused` report
 which happened.
 
-**Fallback.** When the buffer cannot be sized — a non-finite frame, or an
-outset area past the offscreen budget — `appendContentBlurPass` still
+**Material-free fallback.** When the independent buffer cannot be sized —
+a non-finite frame, or an outset area past the offscreen budget —
+`appendContentBlurPass` still
 emits the backdrop quad, now over the **un-outset** frame. It blurs the
 backdrop under the subtree rather than the subtree alone and ends at a
 hard edge, which is a visible approximation; the outset that would soften

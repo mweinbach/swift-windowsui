@@ -995,10 +995,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   across its threshold, still honouring the radius, and agreeing across
   backends at the suite parity floor both at quarter resolution and over
   an odd (5 device pixel) region. Rotated clipping has active coverage.
-  `testMaterialInsideADrawingGroupBlursNothing` retains its historical name
-  and remaining `XCTSkip`: the plain compositing-group arm now requires
-  the existing positive `<20` contrast oracle, while the unchanged
-  content-blur arm still records the unresolved enclosing-backdrop defect.
+  `testMaterialInsideADrawingGroupBlursNothing` retains its historical name,
+  fixture, and inline/plain-group `<20` contrast assertions. The new material
+  content-blur implementation intentionally replaces its documented-bug
+  `>100` assertion with the same positive `<20` smoothing oracle and removes
+  its skip. That migration is uncompiled and unrun in this source candidate;
+  the earlier skip remains part of the recorded `7359e463` evidence below.
 - `MaterialDrawingGroupBackdropTests` — 16 cases for
   admitted plain groups, public Material fixtures at aligned 1×/2× scales,
   independent premultiplied-alpha oracles, clipping, per-occurrence order,
@@ -1019,9 +1021,34 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   and 14 Swift Testing passes plus the one named content-blur skip across
   214 selected cases. Independent reconciliation checked every selected
   lifecycle and all 5,486 generated XCTest registrations. Joined-root
-  execution remains pending. The pixel tolerances and remaining skip are
-  unchanged; the capacity oracle now constructs the same 1,024 small quads
-  independently on the CPU and checks their expected pixels first.
+  execution remains pending for that recorded packet. Its pixel tolerances
+  were unchanged, and the capacity oracle constructs the same 1,024 small
+  quads independently on the CPU and checks their expected pixels first.
+- `MaterialContentBlurContractTests` — 15 source oracles for the separate
+  `isolatedBackdrop` input, even/negative halo origins, actual-parent copy
+  intersection and offsets, unchanged `currentTarget` admission, radius and
+  clear/effect restrictions, nested context, and atomic eight-plane budget
+  accounting. These are not rendering or native-reference evidence.
+- `MaterialContentBlurTests` — 21 retained painter and CPU oracles for the
+  historical edge-touching stripes, independent premultiplied alpha and
+  replacement coverage, empty/noise/hidden-RGB preservation, Gaussian halo
+  boundaries, earlier local foreground outside the viewport, nested/deferred
+  sources, order, replay, resize, image/glyph namespaces, and material-free
+  cache/count preservation. Deferred clip cases use real prepaint payloads
+  and distinguish source-local clipping from the final enclosing clip.
+- `D3D11MaterialContentBlurTests` — 16 GPU execution fixtures for the same
+  foreground/coverage semantics, parent-texture edges, nested dependent and
+  independent sources, fractional output coverage, repeated IDs, glyph/image
+  namespaces, shader-resource reuse/detach, and injected failure recovery.
+  Device absence may skip only the device probe; attachment, shader, and
+  post-probe setup errors must fail. Existing parity tolerances are retained.
+  All 52 new methods are MainActor async XCTest methods; no Swift Testing
+  methods were added. All three classes and the historical assertion migration
+  are **uncompiled and unrun** in this source-only packet. Future serial filters
+  are their exact class names above, together with `RenderPassAbstractionTests`,
+  `ContentBlurRenderPassTests`, and both material drawing-group classes.
+  A CPU/GPU pass will still not qualify native modifier order, edge behavior,
+  opacity, or cold/warm performance.
 - `ContentBlurRenderPassTests` — `.blur()` as an **isolated** content
   blur: one pass over 50 backgrounded rows rather than 50 backdrop blurs,
   a Material background that does not frost the cards inside it, nested

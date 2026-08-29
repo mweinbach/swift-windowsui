@@ -6659,3 +6659,183 @@ Public List construction is still eager; the separate lazy state/activity bridge
 and animated deferred-focus completion are unfinished. Root Quick and Full
 validation, fresh gallery/backend evidence, and the grouped push remain pending.
 The original scope, acceptance targets, and earlier failed evidence are unchanged.
+
+### Follow-up: completed List evidence, fresh Quick/Full, and bounded CI image findings
+
+This adds evidence to the existing destination and checkpoints. It does not
+change sections 1–9, remove a gap, relax a comparison threshold, or close any of
+the nine original completion gates. Source-only proposals and owned-checkout
+results below remain distinct from integrated root validation.
+
+The corrected List keyboard-navigation slice was committed as
+`ed07d34ef5eb851dacae3fc2f34c7d6c570dc013`; its tree
+`600b31ffc36f21d525a02171f2f7387ac8ce7a98` is the staged tree exercised by the
+previously recorded successful focused95-v2 run. Commit `5ba24a2` recorded that
+run and its preserved failures, and `060f5c3c689980c5b2156c12d81a571c094a0d89`
+linked the behavior document from the README and compatibility table. The latter
+tree is `e89279c044a43ea84de63997375ef3165a697a3a`; only the three documentation
+paths differ from the tested List tree. These later commit IDs do not replace
+the focused run's original `d8bfc276` HEAD and staged-tree identity.
+
+- The focused95-v2 passive reconciliation subsequently ran once and closed
+  naturally with actual tool `b9a551/0`. It matched all 5,479 XCTest declarations
+  to generated registrations and async adapters: 5,462 Core and 17 Portable,
+  with 5,127 async and 352 synchronous declarations. The six exact focused
+  scopes contained 95 starts and 95 passing terminals, zero framing/lifecycle
+  issues, no failures/skips/unrun suffix, and six valid zero-Swift-Testing
+  envelopes. This is stronger than inferring success from exit 0 or a count.
+  The result is
+  `artifacts/goal-seventh-root-list-focus95-v2-audit-v1/audit-result.json`
+  (6,352,016 bytes, SHA-256
+  `2c37a7c70d6ac76c67ae3d8eae7d9d00bb3cfab1ef45fba5750ecf3f2076a3c8`);
+  its summary hash is
+  `607f261bef76541b233e1862a990a6516c9b038844f234cef9d9869581c85e0c`.
+  Parent closure `40590e/0` binds the actual closed audit. No PE, current index,
+  live build directory, or active broad-validation output was read by it.
+  The original93 failure and first95 compile failure remain unchanged.
+- Root Quick-v3 ran on the unchanged, clean `060f5c3c` source/index and closed
+  `ab012d/session88919 -> 58c8ee/0`, with retained PS5 PID 32544 and 954.078
+  seconds elapsed. The observed stream has 2,651 complete XCTest pairs:
+  2,650 passing and the existing
+  `RenderPassAbstractionTests.testMaterialInsideADrawingGroupBlursNothing`
+  skip. It has nine passing Swift Testing pairs across 167 invocation
+  envelopes; all archived invocation multiplicities match and no duplicate
+  XCTest pair was observed. The known skip remains a gap, not a pass.
+  The successful archive was created by `7fa281/0` at
+  `artifacts/goal-seventh-root-quick-v3-archive/validation-quick.json`
+  (1,216,326 bytes, SHA-256
+  `3d861039e92e98b8e865c27be0833e47f481c0634b425dcbcde60a272efc2e9f`).
+  Parent closure and all 12 supplemental compiled/source copies were preserved
+  before starting another SwiftPM command. The supplemental manifest hash is
+  `6762c13c461576d3516849f7d7974ae64f3c9e5f0b0c88338b4fc90a39db9ec5`.
+  Its PE and four generated Swift files match the focused95-v2 copies byte for
+  byte; that identity alone is not complete build or loaded-image provenance.
+  Complete current-Quick source membership and quoted Swift Testing alias
+  reconciliation are separate work, not implied by the archive's pass flag.
+- Root Full-v3 then ran once on the same clean `060f5c3c` source and index,
+  closing `0820d3/session74926 -> 8db70a/0`, retained PS5 PID 21576, after
+  1,354.375 seconds. No timeout, termination, cleanup requirement, source/index
+  change, or metadata error was reported. Its archived stream contains 5,479
+  complete, distinct XCTest pairs: 5,478 passing and the same known material
+  skip. The common portable step accounts for 17 cases; the 277 CoreLogic
+  shards account for 5,462. All 278 invocation multiplicities match, and the
+  stream contains 134 Swift Testing starts and passing terminals with footer
+  total 134. The source-bound full case/alias audit remains separate; neither
+  aggregate totals nor generated registration counts substitute for it.
+  Full also passed its CoreLogic evidence-completeness step, debug and release
+  builds, five retained screenshots, and the gallery gate. Archive `4e3ec5/0`
+  produced 193 files with no missing inputs or issues, at
+  `artifacts/goal-seventh-root-full-v3-archive/validation-full.json`
+  (2,506,246 bytes, SHA-256
+  `ec2a2c3d96985a033dcfbf90aa07f52dbfb720f49e95fd6c4a78b427d0447ade`).
+  Read-only pixel recomputation found all 85 comparisons within the unchanged
+  limits: 84 have identical RGBA pixels; `state-toggle-hover` has maximum
+  channel delta 8 and no pixels exceeding the channel tolerance. This is not
+  85 exact matches. The five 1280-by-720 retained images were opened and
+  reviewed: outputs are nonblank and readable, with lower content clipped at
+  the viewport edge. Frame/debug output visibly differs in rounded corners and
+  material rendering; reviewing it does not establish equivalence with scenes,
+  native presentation, interaction, Narrator, or hardware pacing.
+  Supplemental copy `e8319e/0` preserved 568 files before another SwiftPM run:
+  nine compiled artifacts, three source files, and 556 journal JSON files.
+  Its manifest SHA-256 is
+  `9f15eb8d4ab0030b172235699e1ec3630bee7d2dbbd2bfc1db3eb967af97df03`.
+  The journal stores 5,462 distinct CoreLogic rows (5,461 pass, one skip, no
+  failed/unfinished/repeated rows); copied arithmetic is not independent proof
+  of the expected session or raw case identity. Parent review is recorded in
+  `artifacts/goal-seventh-root-full-v3-parent-review-v1.json`, SHA-256
+  `1faf19cb1c5daea7f55fda1d58a69a90daa1b74d2e0235b90753485ed3ee727a`.
+  The first supplemental admission (`a8b0e6/1`) rejected a parent-authored
+  multi-token tool-receipt field before copying anything. That input and refusal
+  are preserved; only that field was corrected to actual tool ID `8db70a`.
+  A later report-only assertion (`29f798/1`) incorrectly expected all 85 pixel
+  pairs to be exact and stopped before writing. The corrected report retains
+  the observed 84-exact/one-delta-8 distinction. Neither event reran validation,
+  changed an image/threshold, nor rewrote a failed workload outcome.
+- The proposed quoted Swift Testing name resolver passed 87 finite pure
+  fixtures once (`912495/0`), including all 240 expected-field comparisons,
+  complete legacy alias maps, ambiguous/unsupported names, and full lifecycle
+  records. Failed and skipped synthetic outcomes cannot acquire a passing
+  decision. The helper joins all 134 bound declarations before adding exact
+  quoted names; an unknown, escaped, interpolated, or inconsistent label in
+  any peer withholds all added quoted aliases. It does not infer names from
+  observed logs or normalize their spelling. Candidate hash
+  `f9171ef8d4b5f66c335107ae959fbfcad4ef88d8a7bce1195058e870fe090e02`
+  and all five fixture inputs were unchanged after actual closure. The result
+  hash is `3b523e95ffc5ed87d6f5cea65c819acbcad6f78eeadd3c9f8d07c2921b8f499e`;
+  parent receipt is
+  `artifacts/goal-seventh-quoted-label-fixtures87-parent-closure-v1.json`.
+  These are pure checker controls, not a historical audit rerun, Swift Testing
+  macro-registration proof, native behavior result, or current-Quick verdict.
+- A passive follow-up on hosted C7 run `33195239563`, attempt 1, independently
+  reproduced ten selected image comparisons from existing PNG bytes. The
+  archived result is still 18 passing and 67 failing of 85 at the original
+  thresholds. For those ten pairs, HTML baseline pixels match immutable C7 Git
+  baselines and HTML current pixels match the archived current PNGs. This is
+  neither an 85-pair recomputation nor a new render or complete test census.
+  The proven two-fixture identity is hosted normal C7 output equals hosted C7
+  V1 diagnostic output for `stepper` and `symbol-palette`. It is not a local
+  MDL2 reproduction. The older local `1ce6b9a` V1 records identify Fluent Icons;
+  hosted V1 associates MDL2 with particular bitmap/scene references, without
+  proving final visible-pixel ownership or ordinary-text faces.
+  Stepper's maximum delta 242 is in its label; 48 label and 31 chevron pixels
+  exceed tolerance. Symbol-palette has 1,429 text and 494 icon-cell pixels over
+  tolerance; its sparkle and globe cells are identical. Sparkline differences
+  are confined to its header, while its chart, the gradient-path fixture,
+  slider, divider strip, and disabled-toggle switch regions are unchanged.
+  The donut is explicitly not glyph-only: its ring mask has 983 differing
+  pixels, 874 over tolerance. A one-pixel horizontal comparison leaves 185
+  differences, including 26 over tolerance; this is not exact translation or
+  evidence that fonts caused the displacement. Earlier classic-override and
+  local diagnostic cohorts remain separate and cannot supply C7 causality.
+  The frozen 66-payload report packet is
+  `swau-c7-font-region-analysis-x5blpk9l` under the OS temporary directory;
+  its manifest SHA-256 is
+  `404202d916e0ac17745a3df4c48070e60a41daaad9642eeab4dcd370ebd9283f`.
+  Fresh exact-HEAD comparisons are required before any further diagnostic.
+  No baseline, font installation, threshold, or workflow was changed.
+
+The separate image cap/stretch/tile proposal completed one owned product-only
+debug build (`1444a3/session37792 -> 392ccf/0`, retained PS5 PID 52784). Its
+production tree is `70377826efa25a8c1ad9ac35a50cacd0468a4456`, with all 170
+source files and the private index preserved; the compiler reported 148.86
+seconds and the enclosing caller 152.234 seconds. This build did not type or
+run tests, compile HLSL, launch the app, or verify GPU pixels. The proposed next
+selection is 71 methods: 61 CPU, two non-skipping checks compiling the exact
+production SM5/SM4 strings, and eight GPU methods which must not skip. It covers
+50 added and three changed test methods plus 18 unchanged guards/regressions.
+The existing WARP helper can convert attachment or shader failures into skips;
+those cannot count as GPU/shader coverage. Legacy shader compilation and pure
+route checks would still not prove legacy attachment, presentation, or pixels.
+The 128-byte image primitive and admitted integer-cap subset remain owned source,
+not integrated root support or native SwiftUI conformance.
+
+Independent source review also read all 18 proposed dashboard loader tests and
+their helpers. It found no additional confirmed API, ownership, preservation,
+or vacuous-hover defect, but retained an important native boundary: the current
+blocking Win32 message loop does not service arbitrary Swift MainActor tasks,
+and the candidate starts its loader in a MainActor Task. The nil-HWND test
+fallback therefore cannot establish native load/retry/cancel usability. This
+is a source-inferred limitation, not a reproduced native failure or a test run.
+Existing observed-model repaint and close-specific posted-message paths do not
+supply a general async service delivery bridge. That gap stays open under the
+state/task and working-template requirements; no Windows-only demo workaround
+or private executor hook has been introduced.
+
+The separate pure245 preservation controls ran once and failed naturally:
+caller `3561f0/1`, child PID 56492, child exit 1 after 2.838275 seconds, complete
+stdout/stderr closure, and no timeout or termination request. The observed
+result is 244 passing controls and one failed postcondition,
+`sample-qpc-6999999999-just-below-cutoff`: acceptance was true as expected, but
+`remainingSeconds` did not match its expected value. The failure is not replaced
+by the earlier accepted pure279 cohort. No DATA writer, preserver, final writer,
+native collector, compiler, or previously denied sealer was invoked afterward.
+The original 60-second clock expired; subsequent authorized preservation is
+passive, explicitly late, and cannot qualify that original phase. The exact
+numeric cause still requires review before any source or fixture correction.
+
+These completed local gates do not qualify the unrun owned-source proposals,
+native service delivery, macOS conformance, timing targets, or the remaining
+baseline API surface. The grouped push and fresh exact-commit hosted CI result
+are still pending at this checkpoint. All nine original completion gates remain
+open; later evidence must be appended without replacing these historical facts.

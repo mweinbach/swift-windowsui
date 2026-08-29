@@ -1,4 +1,5 @@
 import CUIAInterop
+import Foundation
 import SwiftWindowsCore
 import Synchronization
 import WinSDK

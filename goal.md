@@ -7504,3 +7504,26 @@ acceptance threshold changed. Contracts and strict lint passed after this fix;
 the corrected combined source still requires fresh compiler/test/render
 validation. The failed run is not counted as a partial release pass, and every
 original completion gate remains open.
+
+### Eighth validation pass: explicit import and a separate publication failure
+
+The next Full attempt, on `f20b4bf`, stopped after six preliminary tooling
+stages: the synthetic audit's second directory publication returned access
+denied (`IOException`, `0x80070005`). Its failure-only diagnostic recorded a
+real directory at staging and parent, and a destination attribute read with
+`FileNotFoundException`, `0x80070002`. The diagnostic does not establish an
+open-handle owner, antivirus interference, or another cause. Both processes
+returned 1 naturally after 26.453 seconds; no SwiftPM or XCTest work began.
+The six-payload failure capsule is
+`artifacts/goal-eighth-full-f20b4bf-publication-failure-v1`. Existing single
+publication, cleanup, error propagation, and test criteria were not changed.
+
+A separate focused pointer run then found the missing Foundation import in
+the preceding correction. The earlier ledger sentence saying Win32Host already
+imported both modules was incorrect: that file imported WinSDK but not
+Foundation. It now explicitly imports Foundation as well as qualifying all
+four UUID references. This focused attempt returned 1 after 6.078 seconds,
+before any XCTest case, with source/index preserved; its original records and
+failure receipt remain in
+`artifacts/goal-eighth-pointer-f20b4bf-d52a5681ea4e444fbcf17f4122eae120`.
+Fresh focused execution and the full release checks are still required.

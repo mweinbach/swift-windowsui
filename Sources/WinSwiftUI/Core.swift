@@ -17674,8 +17674,7 @@ final class ScrollViewProxyStorage {
         // realization all spend the same retained element/round allowance.
         runtime.withLazyListResolutionBudget {
             for request in queuedRequests {
-                @MainActor @Sendable
-                func isCurrent() -> Bool {
+                let isCurrent: @MainActor @Sendable () -> Bool = { [self] in
                     observedIdentity != nil && latestRequestIdentity === observedIdentity
                         && attachmentIdentity === observedAttachment
                         && self.runtime === runtime && runtime.permitsRetainedActionInvocation

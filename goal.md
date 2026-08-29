@@ -8356,3 +8356,36 @@ The combined six-file correction preserves all existing test files and their
 oracles. Source review, contracts and strict formatting passed. Compilation,
 the requested portable cases and the larger native/List cohort still require
 a fresh run. No original completion gate or compatibility requirement changes.
+
+### Ninth validation pass: explicit closure values for host construction (2026-08-29)
+
+The compile at `481448d37aa0fcbe417bb02641e4141ca008f182`
+reached two remaining WinSwiftUI diagnostics before any test started. Swift
+rejected the explicit Sendable attribute on the synchronous MainActor local
+function, and reported that it could not produce a diagnostic for the host's
+ViewBuildContext initializer expression. Its direct child exited naturally
+with code 1 after 52.734 seconds, without timeout or termination. Source and
+index endpoints were unchanged. The 5,902-byte log has SHA-256
+`59e36d53742991d58dc1691def534927c3086bfc70837911251fa3eaff2871ae`.
+The preceding formatting/source review was not compiler qualification.
+
+The scroll-current predicate is now an explicitly typed MainActor/Sendable
+closure value rather than an attributed local function. Its Boolean expression
+is unchanged, and an explicit self capture retains the original strong capture.
+The host constructs the optional native-dialog owner callback in a separately
+typed local value, then passes it to the same context initializer. The existing
+native-presentation condition, weak host capture, pending-owner callback and
+all other context arguments remain. Standalone contexts still receive nil.
+Neither correction adds an actor hop, fallback, global state or mutable native
+handle access.
+
+The host patch has SHA-256
+`ff5df6f2bdf646925d5f8e1fe2fdc21701ff4d97a2c84712867700462ff500b2`.
+The selector only reads the immutable native-presentation factory. The existing
+lazy coordinator initialization constructs framework state and stores callbacks
+without invoking them; extracting this callback does not run authored work.
+
+Contracts, strict formatting and narrow-diff checks passed for these source
+corrections. All test source remains unchanged. The opaque host expression
+diagnostic and the local-function rejection are retained; fresh compilation
+and test execution remain required. No original completion gate is changed.

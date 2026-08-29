@@ -4476,11 +4476,18 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
     }
 
     private var buildContext: ViewBuildContext {
-        ViewBuildContext(
+        let nativeDialogOwnerRequest: (@MainActor (@escaping @MainActor (NativeDialogSession) -> Void) -> Void)?
+        if usesNativePresentation {
+            nativeDialogOwnerRequest = { [weak self] request in
+                self?.requestNativeDialogOwner(request)
+            }
+        } else {
+            nativeDialogOwnerRequest = nil
+        }
+        return ViewBuildContext(
             stateMountCoordinator: stateMountCoordinator,
             nativeDialogSession: nativeDialogSession,
-            nativeDialogOwnerRequest: usesNativePresentation
-                ? { [weak self] request in self?.requestNativeDialogOwner(request) } : nil,
+            nativeDialogOwnerRequest: nativeDialogOwnerRequest,
             canvasSizeProvider: { [weak self] in
                 self?.runtime.root.frame.size
                     ?? Size(

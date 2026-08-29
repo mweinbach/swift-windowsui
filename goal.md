@@ -6335,3 +6335,66 @@ evidence, gallery comparison, grouped push and exact-commit hosted validation
 remain pending at this checkpoint. This correction does not add feature scope
 or relax any acceptance requirement. Original sections1-9, all nine unchecked
 completion gates and all earlier evidence boundaries remain unchanged.
+
+### Seventh validation batch: Quick reaches a deferred-List focus failure
+
+The next serial root Quick run used commit
+`91df15c6959b13f0b48cd3529bacb943d05c394b`, tree
+`6f86f0624a603200d0664883e8aad85031610195`. Unlike the earlier
+memory-isolation fixture failure, this run passed that fixture's 333 assertions
+and reached XCTest execution. It did not pass Quick, and Full and the grouped
+push remain pending.
+
+- The reviewed runner was invoked once as `-Quick`. Its direct PowerShell 5
+  child, PID 24112, exited naturally with code 1. Actual tool launch `6dbf07`,
+  session 8151, closed as `a2911f` with code 1. The recorded child-wait and
+  cleanup interval was 841.844 seconds. There was no timeout or termination
+  attempt; source and index endpoint preservation passed. These facts do not
+  prove descendant-process or native-resource closure.
+- The failure is
+  `ListVirtualizationTests.testKeyboardSelectionCanRevealADeferredFarAwayRow`,
+  at the existing assertion that runtime focus is the target row. Selection
+  reached 900 and the scroll offset exceeded 20,000, but focus was not on row
+  900 before the next render. The later explicit render realized that row,
+  and the subsequent Up selection/focus checks passed. No test assertion was
+  removed, weakened, or converted to a skip.
+- Source inspection explains the ordering: List requests focus while its
+  target is still deferred; ordinary focus admission rejects that target;
+  the subsequent scroll changes the offset without synchronously realizing
+  the row. A fix is being developed around List-owned reveal, bounded layout
+  settlement, and the existing focus admission. Global focus and UI Automation
+  availability checks must remain intact. This is a diagnosis and source-work
+  direction, not a tested fix.
+- The failed run is retained at
+  `artifacts/goal-seventh-root-quick-v2-e52f0fac232e41608df78a800e08f475`.
+  Its 862,076-byte raw log has SHA256
+  `5ec361d4b618a42f58a4457891948ceff2fc31216966de1c5a4974823e52ee04`.
+  The failure archive completed with its expected nonzero result, actual
+  `efdb7a/1`; its 12-payload manifest is
+  `artifacts/goal-seventh-root-quick-failed-v2/failure.json`, SHA256
+  `707c14b2250c7ffb6cec2f522cd4a15297ae51fb3a644b3357fd0548578ca668`.
+  A complete failure archive does not make the validation successful.
+- Before another SwiftPM invocation, one passive capture copied the exact
+  test PE, eight fixed generated/build text files, and three supporting source
+  files. Reviewed control v3, SHA256
+  `7d637436100b74521219753458407b09a3255b9a16bedd0b8783bb48d15d942b`,
+  ran with isolated, unoptimized Python and closed as actual `8e83b1/0`.
+  Its manifest is
+  `artifacts/goal-seventh-root-quick-failed-v2/compiled-failure/manifest.json`,
+  SHA256 `50c2bcbac0b22be8c541e9a89fa24e2fd9521e35867e652917375b50c0f3a3cf`.
+  The copied PE is 440,354,816 bytes, SHA256
+  `046831875d0ac941ede14c6337ab295570045cbf24682a10b61952582d21c143`.
+  Nothing in that capture invoked the PE, a fixture, a build, or a test listing.
+  Its source/index checks establish endpoint preservation, not continuous
+  immutability or complete compiler provenance.
+- Capture controls v1 and v2 remain preserved and uninvoked. Review corrected
+  archive-sidecar binding, child Git environment/timeouts, and bounded
+  same-buffer reads before the single v3 capture. These preparation findings
+  are distinct from the actual List test failure. Subsequent source/generated
+  registry and raw-case reconciliation will use the preserved copies; that
+  independent reconciliation is still pending at this entry.
+
+The earlier failed run and the later successful fixture-only checks retain
+their separate outcomes. No current-root Full, hosted exact-commit CI,
+macOS reference, native interaction, or hardware timing qualification follows
+from this failed Quick. All nine original completion gates remain open.

@@ -1750,6 +1750,7 @@ private final class ViewNodeDropHandlers {
 @MainActor
 private final class ViewNodeLifecycleHandlers {
     var layout: ((Rect) -> Void)?
+    var layoutWithNode: ((ViewNode, Rect) -> Void)?
     var absoluteChildFrame: ((ViewNode, Rect) -> Rect)?
     var appearWithNode: ((ViewNode) -> Void)?
     var disappearWithNode: ((ViewNode) -> Void)?
@@ -3526,6 +3527,17 @@ public final class ViewNode {
         get { lifecycleHandlers?.layout }
         set { setLifecycleHandler(newValue, at: \.layout) }
     }
+    /// Updates geometry on the live retained node after the legacy layout callback.
+    /// Taking the node as an argument avoids capturing a temporary node produced
+    /// while rebuilding components and later discarded during reconciliation.
+    package var onLayoutWithNode: ((ViewNode, Rect) -> Void)? {
+        get { lifecycleHandlers?.layoutWithNode }
+        set {
+            guard newValue != nil || lifecycleHandlers?.layoutWithNode != nil else { return }
+            setLifecycleHandler(newValue, at: \.layoutWithNode)
+            invalidateRuntime(.layout)
+        }
+    }
     /// Places each live child of an absolute container in the container's
     /// resolved bounds. The returned frame is layout output, not an authored
     /// sizing input: it never replaces the child's intrinsic frame or queues
@@ -4902,11 +4914,12 @@ public final class ViewNode {
     }
 
     /// Everything that happens to a node before its children are placed:
-    /// the layout callback, `.position()`'s re-centring, and the scroll offset
+    /// the layout callbacks, `.position()`'s re-centring, and the scroll offset
     /// a descendant `.lazyStack` will resolve its viewport against.
     @inline(never)
     private func beginLayoutPass() {
         onLayout?(resolvedFrame)
+        onLayoutWithNode?(self, resolvedFrame)
 
         if let position = position {
             let size = resolvedFrame.size

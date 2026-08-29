@@ -5616,3 +5616,86 @@ artifacts/goal-seventh-observer-completion-intake-v1/intake.json, SHA256
 were verified and 136 copied; the sealed test PE was verified externally rather than copied again.
 All 786 tracked source files and the physical index were freshly verified unchanged before
 this ledger addition. This is endpoint preservation, not continuous monitoring or native descendant proof.
+
+### Seventh batch: shape paint producers and 330 root regression cases
+
+Shape paint now reaches TrimmedShape's own leaf and the recognized paint owner behind
+erased, inset and transform wrappers. A failed owner lookup does not fall back to painting
+the wrapper root. Fill, stroke, fill-rule and gradient descriptors travel together;
+rounded inset owners retain their already adjusted absolute radius without a second inset.
+Passive delegation and the existing typed component/State installation path remain intact.
+Arc keeps its construction paint during layout, and geometry updates target the live
+retained node through a sparse package callback. Legacy layout runs first; reconciliation
+copies or clears the callback, and replacement uses the existing publish-before-release rule.
+
+The six changed paths are `Sources/WinSwiftUI/Views.swift`,
+`Sources/SwiftWindowsUI/Runtime.swift`, `Sources/SwiftWindowsUI/ComponentHost.swift`,
+`Tests/SwiftWindowsCoreLogicTests/ShapePaintProducerTests.swift`,
+`docs/CompatibilityStatus.md` and `docs/GPURenderingPipeline.md`.
+The source packet adds only the 16-method producer test file; all 466 prior Tests files
+remain unchanged. Its original source-only/330-unrun wording remains a pre-run record.
+
+The integrated run used root HEAD `a487c70aaa1e0949a98728c74306f2f0f277d299`,
+staged tree `e3d48d41b4fac3130927a740d431d65144a56c77`, with index SHA256
+`09424da2f599794d436e81a0d3cfbb9170c18872670ec129da58f5b1437cb273`.
+The copied static receipt `76fad08a0d33d550cc0741bff4802ee18f1cfddbe4040b758b04b05c818a27b7`
+records contracts and strict lint for the four changed Swift files at actual exit 0,
+with no SwiftPM invocation and all 787 inputs unchanged.
+
+The later run passed exactly 330 cases once: 299 XCTest and 31 Swift Testing, comprising
+the preserved prior 286 cases, 16 new producer cases and 28 existing lifecycle controls.
+All 18 serial stock NONSharded calls and retained direct PS5 exits were 0, with no failed,
+skipped, missing, duplicate or incomplete selected case. The parent observed natural outer
+closure at exit 0 in `55de31`; no finalization-overrun marker was present at capture.
+The 440.265-second reading was after preservation checks and before final serialization,
+not a separate measurement of the complete process or audit lifetime.
+
+The independent raw and compiled evidence is retained under
+`C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-shape330-outcome-audit-8oj7mvl9`.
+The final `SEAL.json` is SHA256 `dc18776c51bc7974aa7e3ef9f6cc1cb2edacb562ecc1684e57f9092c64facaef`.
+It reconciles all 5,423 generated XCTest IDs with source: 5,071 async and 352 sync.
+The selected 299 XCTest cases comprise 223 async and 76 sync; the other 31 actual passes
+are Swift Testing. The full 134 Swift Testing source declarations do not have a full
+compiled listing or full-run qualification. The runner records all 787 source inputs,
+ten tools and index preserved; the auditor independently checks the 13 closed copies.
+Native test OS exits and descendant closure remain unknown.
+
+Partial trims and trim.inset geometry, repeated InsetShape.inset paint loss, Arc bounds
+double-scaling, first-stop shape gradients and omitted legacy dash/phase remain unresolved.
+The result does not resolve antialiasing, general clipShape/fill rules, custom multi-node
+ownership, transformed path(in:), exact strokeBorder layering or native shape parity.
+The later stock raw retained-runtime demo snapshot also completed: PS5 PID 44132 and
+outer tool `0922b6` returned 0, with all 787 source inputs and index preserved. Its
+8.797-second observation includes preflight and precedes final serialization.
+The 1,280-by-720 dark dashboard PNG and 32-bit BMP match the prior Canvas image bytes
+exactly according to the separate parent inspection. Header, navigation, cards and chart
+remain intact; lower Activity content continues below the fixed viewport as before.
+The result and inspection are retained in `artifacts/goal-seventh-shape-producers-demo-v1`.
+This single retained CPU scene is not Shape-specific pixel, gallery, hardware or native
+parity evidence; its D3D11 badge does not prove the rendering backend. Older Full/Quick
+results remain historical and do not qualify this tree.
+All nine original completion gates remain unchanged and open.
+
+The parent completion intake, `artifacts/goal-seventh-shape330-completion-intake-v1/intake.json`,
+verified 107 mandatory files and copied 106; the separately sealed test image was
+verified in place. All 787 source files and the physical index remained unchanged.
+Its SHA256 is `10a57d3acbe7c6e0fe87c0938d91bad784a32456e125d7b13d6accf9000c5dd0`.
+The earlier parent intake SHA transcription refusal and two audit inventory-reader
+refusals remain recorded as metadata preparation failures. Their corrections did
+not change product source or consume another test attempt.
+
+### Seventh batch: P7 watchdog/catalog preparation only
+
+P7 copied the existing 114,176-byte watchdog unchanged and created the 692-byte observer
+catalog with the three approved substitutions. The copy, seal and final receipt-write
+tool exits were 0. The owner's final tool observation reports 1.991 seconds within the
+original 60-second phase; the sealed receipt's earlier checkpoint is 1.454 seconds.
+These are distinct observations. The final 1.991-second report is retained in the tool
+transcript, not a second post-write value inside the earlier sealed receipt.
+
+The eight-member preparation manifest is
+`C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-native-supervisor-prototype-1787957738753/copy-watchdog-catalog-1787963533571/frozen-copy-catalog-preparation-manifest.json`,
+SHA256 `8fa2d250bcf1029ca078d1c727cd39c34ab3ca9df67fa5a00825412a2500f612`.
+Preservation records account for 741 prior inputs plus the two outputs. No F9 payload
+staging, native executable, DLL load, validator invocation or runtime authority follows.
+Earlier P6/F9 failures remain unchanged.

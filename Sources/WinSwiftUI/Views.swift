@@ -2221,11 +2221,9 @@ public struct Arc: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        let fill = fillStyle ?? context.foregroundStyle
-        let stroke = lineWidth > 0 ? (strokeStyle ?? context.foregroundStyle) : ForegroundStyle.color(.clear)
-        let lineWidth = lineWidth
-        let strokeLineStyle = strokeLineStyle
-        let fillRuleStyle = fillRuleStyle
+        let paint = ResolvedShapePaint(
+            fillStyle: fillStyle, fillRuleStyle: fillRuleStyle, strokeStyle: strokeStyle,
+            lineWidth: lineWidth, strokeLineStyle: strokeLineStyle, foregroundStyle: context.foregroundStyle)
         let startAngle = startAngle
         let endAngle = endAngle
         let clockwise = clockwise
@@ -2237,8 +2235,8 @@ public struct Arc: View {
                 isHitTestVisible: false
             )
             node.layoutFillAxes = .both
-            node.onLayout = { [weak node] bounds in
-                guard let node else { return }
+            paint.apply(to: ShapePaintOwner(node: node))
+            node.onLayoutWithNode = { node, bounds in
                 var path = Path()
                 let center = Point(x: bounds.midX, y: bounds.midY)
                 let radius = max(0, min(bounds.size.width, bounds.size.height) * 0.5)
@@ -2249,16 +2247,6 @@ public struct Arc: View {
                     center: center, radius: radius, startAngle: startAngle.radians, endAngle: endAngle.radians,
                     clockwise: clockwise)
                 node.backgroundPath = RenderPath(path: path)
-                let fillResolved = resolvedFill(from: fill)
-                node.backgroundColor = fillResolved.color
-                node.backgroundGradient = fillResolved.gradient
-                let strokeResolved = resolvedFill(from: stroke)
-                node.borderColor = strokeResolved.color
-                node.borderGradient = strokeResolved.gradient
-                node.borderWidth = lineWidth
-                node.borderStrokeStyle =
-                    lineWidth > 0 ? (strokeLineStyle ?? StrokeStyle(lineWidth: lineWidth, dashPattern: [])) : nil
-                node.clipFillStyle = fillRuleStyle
             }
             return node
         }
@@ -2641,6 +2629,7 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
     public typealias Body = Never
 
     private let buildComponent: (ViewBuildContext) -> Component
+    private let resolvePaintOwner: (ViewNode) -> ShapePaintOwner?
     private let buildPath: (Rect) -> Path
     private let clipShapeStyle: RetainedClipShapeStyle
     private let contentShapeStyle: SwiftWindowsUI.RetainedContentShapeStyle
@@ -2654,6 +2643,7 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
         self.buildComponent = { context in
             makeViewComponent(shape, context: context)
         }
+        self.resolvePaintOwner = { node in resolveShapePaintOwner(for: shape, in: node) }
         self.buildPath = { rect in shape.path(in: rect) }
         self.clipShapeStyle = (shape as? any RetainedClipShape)?.retainedClipShapeStyle ?? .rectangle
         self.contentShapeStyle = resolvedRetainedContentShapeStyle(for: shape)
@@ -2686,21 +2676,15 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
             return buildComponent(context)
         }
 
-        let fill = fillStyle ?? context.foregroundStyle
-        let stroke = lineWidth > 0 ? (strokeStyle ?? context.foregroundStyle) : .color(.clear)
-        let fillResult = resolvedFill(from: fill)
-        let strokeResult = resolvedFill(from: stroke)
+        let paint = ResolvedShapePaint(
+            fillStyle: fillStyle, fillRuleStyle: fillRuleStyle, strokeStyle: strokeStyle,
+            lineWidth: lineWidth, strokeLineStyle: strokeLineStyle, foregroundStyle: context.foregroundStyle)
         let inner = buildComponent(context)
         return Component(key: inner.key) { runtime in
             let node = inner.makeNode(runtime: runtime)
-            node.backgroundColor = fillResult.color
-            node.backgroundGradient = fillResult.gradient
-            node.borderColor = strokeResult.color
-            node.borderGradient = strokeResult.gradient
-            node.borderWidth = lineWidth
-            node.clipFillStyle = fillRuleStyle
-            node.borderStrokeStyle =
-                lineWidth > 0 ? (strokeLineStyle ?? StrokeStyle(lineWidth: lineWidth, dashPattern: [])) : nil
+            if let owner = resolvePaintOwner(node) {
+                paint.apply(to: owner)
+            }
             return node
         }
     }
@@ -2930,26 +2914,14 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
         if fillStyle == nil && fillRuleStyle == nil && strokeStyle == nil && strokeLineStyle == nil && lineWidth <= 0 {
             renderedComponent = buildComponent(context)
         } else {
-            let fill = fillStyle ?? context.foregroundStyle
-            let stroke = lineWidth > 0 ? (strokeStyle ?? context.foregroundStyle) : .color(.clear)
-            let fillResult = resolvedFill(from: fill)
-            let strokeResult = resolvedFill(from: stroke)
+            let paint = ResolvedShapePaint(
+                fillStyle: fillStyle, fillRuleStyle: fillRuleStyle, strokeStyle: strokeStyle,
+                lineWidth: lineWidth, strokeLineStyle: strokeLineStyle, foregroundStyle: context.foregroundStyle)
             let inner = buildComponent(context)
             renderedComponent = Component(key: inner.key) { runtime in
                 let node = inner.makeNode(runtime: runtime)
-                node.backgroundColor = fillResult.color
-                node.backgroundGradient = fillResult.gradient
-                node.borderColor = strokeResult.color
-                node.borderGradient = strokeResult.gradient
-                node.borderWidth = lineWidth
-                node.clipFillStyle = fillRuleStyle
-                node.borderStrokeStyle =
-                    lineWidth > 0 ? (strokeLineStyle ?? StrokeStyle(lineWidth: lineWidth, dashPattern: [])) : nil
-                switch adjustedClipShapeStyle {
-                case .roundedRectangle(let radius):
-                    node.cornerRadius = radius
-                case .rectangle, .capsule:
-                    break
+                if let owner = contentPaintOwner(in: node) {
+                    paint.apply(to: owner)
                 }
                 return node
             }
@@ -3186,22 +3158,17 @@ public struct TrimmedShape<Content: Shape>: Shape, RetainedClipShape, RetainedCo
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        let fill = context.foregroundStyle
-        let fillColor: Color
-        switch fill {
-        case .color(let c): fillColor = c
-        case .linearGradient(let g): fillColor = g.startColor
-        case .radialGradient(let g): fillColor = g.stops.first?.color ?? .clear
-        case .conicGradient(let g): fillColor = g.stops.first?.color ?? .clear
-        case .materialFill(let tint, _): fillColor = tint
-        }
+        let paint = ResolvedShapePaint(
+            fillStyle: fillStyle, fillRuleStyle: fillRuleStyle, strokeStyle: strokeStyle,
+            lineWidth: lineWidth, strokeLineStyle: strokeLineStyle, foregroundStyle: context.foregroundStyle)
         let unitPath = self.path(in: Rect(x: 0, y: 0, width: 1, height: 1))
         return Component { _ in
             let node = Controls.panel(
-                backgroundColor: fillColor,
+                backgroundColor: .clear,
                 isHitTestVisible: false
             )
             node.layoutFillAxes = .both
+            paint.apply(to: ShapePaintOwner(node: node))
             var segments: [RenderPath.Segment] = []
             for element in unitPath.elements {
                 switch element {
@@ -3674,6 +3641,119 @@ extension ContainerRelativeShape: InsettableShape, RetainedClipShape {
         .capsule
     }
 }
+/// Resolved only while constructing a component; never stored on a retained node.
+/// Known wrappers can direct paint to their shape without decorating layout nodes.
+@MainActor
+fileprivate struct ShapePaintOwner {
+    let node: ViewNode
+    var cornerRadius: Double? = nil
+}
+
+@MainActor
+fileprivate protocol ShapePaintOwnerProvider {
+    func shapePaintOwner(in root: ViewNode) -> ShapePaintOwner?
+}
+
+@MainActor
+private func resolveShapePaintOwner<S: Shape>(for shape: S, in root: ViewNode) -> ShapePaintOwner? {
+    if let provider = shape as? any ShapePaintOwnerProvider {
+        // A failed known route must not fall back to painting its layout root.
+        return provider.shapePaintOwner(in: root)
+    }
+    return ShapePaintOwner(node: root)
+}
+
+extension AnyShape: ShapePaintOwnerProvider {
+    fileprivate func shapePaintOwner(in root: ViewNode) -> ShapePaintOwner? {
+        resolvePaintOwner(root)
+    }
+}
+
+extension InsetShape: ShapePaintOwnerProvider {
+    fileprivate func shapePaintOwner(in root: ViewNode) -> ShapePaintOwner? {
+        if amount == 0 {
+            return contentPaintOwner(in: root)
+        }
+        // State installation may return a placeholder instead of our wrapper.
+        // Descend only through the padded stack this producer actually builds.
+        guard case .stack(let layout) = root.layoutMode,
+            layout == .vertical(padding: EdgeInsets.all(amount), alignment: .stretch),
+            root.children.count == 1
+        else { return nil }
+        return contentPaintOwner(in: root.children[0])
+    }
+
+    private func contentPaintOwner(in root: ViewNode) -> ShapePaintOwner? {
+        guard var owner = resolveShapePaintOwner(for: content, in: root) else { return nil }
+        if case .roundedRectangle(let radius) = adjustedClipShapeStyle {
+            // The absolute value preserves each nested inset's clamping and
+            // avoids subtracting twice when another erasure applies paint.
+            owner.cornerRadius = radius
+        }
+        return owner
+    }
+}
+
+extension RotatedShape: ShapePaintOwnerProvider {
+    fileprivate func shapePaintOwner(in root: ViewNode) -> ShapePaintOwner? {
+        resolveShapePaintOwner(for: shape, in: root)
+    }
+}
+
+extension ScaledShape: ShapePaintOwnerProvider {
+    fileprivate func shapePaintOwner(in root: ViewNode) -> ShapePaintOwner? {
+        resolveShapePaintOwner(for: shape, in: root)
+    }
+}
+
+extension OffsetShape: ShapePaintOwnerProvider {
+    fileprivate func shapePaintOwner(in root: ViewNode) -> ShapePaintOwner? {
+        resolveShapePaintOwner(for: shape, in: root)
+    }
+}
+
+extension TransformedShape: ShapePaintOwnerProvider {
+    fileprivate func shapePaintOwner(in root: ViewNode) -> ShapePaintOwner? {
+        resolveShapePaintOwner(for: shape, in: root)
+    }
+}
+
+@MainActor
+private struct ResolvedShapePaint {
+    let fill: (color: Color, gradient: GradientType?)
+    let stroke: (color: Color, gradient: GradientType?)
+    let lineWidth: Double
+    let strokeLineStyle: StrokeStyle?
+    let fillRuleStyle: RetainedClipFillStyle?
+
+    init(
+        fillStyle: ForegroundStyle?, fillRuleStyle: RetainedClipFillStyle?, strokeStyle: ForegroundStyle?,
+        lineWidth: Double, strokeLineStyle: StrokeStyle?, foregroundStyle: ForegroundStyle
+    ) {
+        fill = resolvedFill(from: fillStyle ?? foregroundStyle)
+        stroke = resolvedFill(from: lineWidth > 0 ? (strokeStyle ?? foregroundStyle) : .color(.clear))
+        self.lineWidth = lineWidth
+        self.strokeLineStyle =
+            lineWidth > 0 ? (strokeLineStyle ?? StrokeStyle(lineWidth: lineWidth, dashPattern: [])) : nil
+        self.fillRuleStyle = fillRuleStyle
+    }
+
+    func apply(to owner: ShapePaintOwner) {
+        let node = owner.node
+        // Active outer styling replaces the whole bundle, including nil values.
+        node.backgroundColor = fill.color
+        node.backgroundGradient = fill.gradient
+        node.borderColor = stroke.color
+        node.borderGradient = stroke.gradient
+        node.borderWidth = lineWidth
+        node.clipFillStyle = fillRuleStyle
+        node.borderStrokeStyle = strokeLineStyle
+        if let radius = owner.cornerRadius {
+            node.cornerRadius = radius
+        }
+    }
+}
+
 @MainActor
 private func shapeComponent(
     fillStyle: ForegroundStyle,

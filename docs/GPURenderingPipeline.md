@@ -2385,11 +2385,31 @@ composite with a **single blend per pixel**. Four things that buys:
   foreground paint, direct inset builders, placement, rectangular clipping,
   frame degradation and software-adapter cache alternation. Shape-path
   gradients keep their existing first-stop fallback; strokes, promotion,
-  draw order, antialiasing and pixel tolerances are unchanged. Producer gaps
-  remain separate: `TrimmedShape` ignores stored fill/stroke fields, erased
-  inset shapes can style a padding root, and erased Arc styles can be
-  overwritten during layout. Those combinations, trim geometry and general
-  shape clipping are not qualified by this propagation.
+  draw order, antialiasing and pixel tolerances are unchanged. This propagation
+  consumes local paint metadata; it does not discover or style shape producers.
+- **Shape paint ownership.** `TrimmedShape` assigns its complete stored or
+  inherited paint bundle to its path leaf. Active `AnyShape` and `InsetShape`
+  builders resolve the owner through known erasure/inset/transform wrappers,
+  preserving normal typed construction and identity. A nonzero inset descends
+  only through its own single-child padded stack; a missing expected wrapper
+  declines the route instead of painting a placeholder or unrelated root.
+  The route carries an optional absolute rounded radius, preserving each
+  inset's existing clamping without subtracting again on repeated erasure.
+  Passive wrappers do not change paint; active outer paint assigns all fields,
+  including nil gradient/rule/stroke values, to avoid stale retained state.
+  Arc now sets paint at construction and only updates geometry during layout.
+  A package callback in sparse lifecycle storage receives the live `ViewNode`;
+  reconciliation copies or clears it, and replacement invalidates layout even
+  at unchanged dimensions. The legacy callback retains its order and behavior.
+  `ShapePaintProducerTests` adds fourteen public producer regressions and two
+  receiver controls; these source additions await compiled/runtime validation.
+  No renderer, promotion, ordering, shader ABI or tolerance changes are part
+  of this producer work. Partial trim and Arc coordinate normalization remain
+  open: Arc's existing actual-bounds path is still scaled as normalized data.
+  Full stroke metadata reaches the leaf, but legacy background-path emission
+  omits dash/phase while the scene route expands dashes into geometry. Gradient
+  first-stop fallback, antialiasing, general clipping, arbitrary custom shape
+  component trees and native geometry/paint parity remain unqualified.
 
 ## 8. Stress / robustness invariants
 

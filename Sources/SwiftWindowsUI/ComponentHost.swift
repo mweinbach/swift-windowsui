@@ -1800,6 +1800,9 @@ public final class ComponentHost {
 
         if target.hasAllocatedLifecycleHandlers || source.hasAllocatedLifecycleHandlers {
             if target.onLayout != nil || source.onLayout != nil { target.onLayout = source.onLayout }
+            if target.onLayoutWithNode != nil || source.onLayoutWithNode != nil {
+                target.onLayoutWithNode = source.onLayoutWithNode
+            }
             if target.absoluteChildFrame != nil || source.absoluteChildFrame != nil {
                 target.absoluteChildFrame = source.absoluteChildFrame
             }

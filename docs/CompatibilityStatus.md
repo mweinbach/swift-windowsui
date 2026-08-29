@@ -110,7 +110,7 @@ limits still apply; this is not the completed product in `goal.md`.
 | Basic shapes (`Rectangle`, `RoundedRectangle`, `Capsule`, `Circle`, `Ellipse`, …) | **Implemented** | Fill/stroke/border through retained primitives |
 | `LinearGradient` | **Partial** | Axis-aligned shape fills preserve authored intermediate colors, nonuniform stop positions, duplicate-position hard stops, transparent stops, and reversed endpoints on CPU, the D3D11 scene path, and both live frame-fallback presenters; promoted rectangular Canvas fills additionally preserve diagonal, inset, transformed, and rounded gradient vectors on the CPU and D3D11 scene paths |
 | `RadialGradient`, `AngularGradient` | **Partial** | Retained shape fills preserve authored multistop colors, hard stops, opacity, unit-space centers, radial start/end radii, angular start/end angles and signed partial or reversed sweeps on CPU snapshots and native D3D11 GPU quads, including rounded/transformed/clipped surfaces; the legacy frame fallback degrades to a solid base color, and Canvas radial/conic path shading remains unavailable |
-| `StrokeStyle` on any outline | **Implemented** | `lineWidth`, `lineCap`, `lineJoin`, `miterLimit`, `dashPattern`, `dashOffset` reach both stroke routes. Rect and rounded-rect borders resolve dashes through `BorderSegments`; every other outline (custom `Shape`, trimmed shape, `Canvas` `strokePath`) through `PathDashing`. A miter sharper than 4 half-widths degrades to a bevel so the drawn spike cannot exceed the raster sized for it |
+| `StrokeStyle` on any outline | **Partial** | Retained shape producers preserve authored width, cap, join, miter, dash and phase metadata. The scene route resolves border dashes through `BorderSegments` and custom-path dashes through `PathDashing`; legacy background-path commands preserve width/cap/join/miter but currently omit dash/phase. Exact `strokeBorder`, trim geometry and native parity remain unqualified |
 | `UnevenRoundedRectangle` | **Implemented** | Per-corner radii end-to-end (RTL-aware); uniform-only consumers (shadow/outline/clip) fall back to max radius |
 | `Canvas` + `GraphicsContext` | **Partial** | Scene-path drawing; `Path(_:)` / `Path(roundedRect:cornerRadius:)` / `Path(ellipseIn:)` build a fillable path without a `Shape`, and a convex fill is emitted as one unbroken span per row. Multistop linear-gradient path fills **and strokes** preserve authored stops, inset or diagonal endpoint vectors, and context transforms on the CPU and D3D11 scene paths; rectangle and rounded-rectangle gradient fills promote directly to instanced GPU quads while retaining diagonal/inset/transformed endpoints, rounded coverage, hard stops, transparency, and clips. Complex fills and gradient strokes retain the bounded cached CPU-path lane; the legacy `RenderFrame` fallback uses the first stop for gradient-shaded paths. Tagged `symbols:` resolve in the inherited environment and draw through scene-backed images; copied contexts share draw order with independent graphics state, and authored symbol affine placement is retained. See [Canvas symbols](CanvasSymbols.md) for bounds and unqualified native semantics. Full blend/filter/layer behavior, `withCGContext`, and radial/conic path gradients remain unsupported |
 | `ContentUnavailableView` | **Implemented** | Retained empty-state chrome |
@@ -127,11 +127,23 @@ shapes, leaf `AnyShape` wrappers and direct inset builders use the same scene,
 CPU, cached D3D11 and legacy frame fill-rule routes. Ancestor `clipShape` style
 metadata does not override the child's fill rule. Shape-path gradients still
 use their existing first-stop color fallback; antialiasing is unchanged.
-Three producer defects remain open: `TrimmedShape` ignores its stored fill and
-stroke fields, `AnyShape(InsetShape(...)).fill(...)` styles the padding root
-instead of the path child, and `AnyShape(Arc(...)).fill(...)` can be overwritten
-by Arc layout. This fill-rule propagation does not qualify those combinations,
-general path clipping, trim geometry or native rendering parity.
+The producer follow-up assigns the complete fill/stroke bundle for
+`TrimmedShape`, and routes active `AnyShape`/`InsetShape` paint through known
+inset, erasure and transform wrappers to the shape owner. Padding remains
+unpainted; the existing absolute inset-radius adjustment applies to that owner.
+Unstyled wrappers still delegate, and active outer styling clears obsolete
+gradient, rule and stroke fields. Arc assigns paint during construction and
+updates geometry through a layout callback receiving the live retained node,
+so layout does not restore captured inner paint or target a discarded node.
+`ShapePaintProducerTests` adds public paint/ownership and callback controls;
+this source slice has not yet received compiled or runtime qualification.
+
+Partial trim fractions and trim-inset geometry are still unimplemented. Arc's
+layout path uses actual coordinates that the painter scales again; the producer
+tests check paint and live-node delivery, not correct Arc geometry or pixels.
+Inset's existing `.inset(by:)` reconstruction can discard stored styling.
+General path clipping, arbitrary custom component paint ownership, shape-path
+gradient fidelity, antialiasing and native rendering parity remain separate.
 
 ### Controls — Implemented / Partial
 

@@ -207,10 +207,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   Positive starts acknowledge the actual probe record with a bounded XCTest
   expectation; a fixed number of cooperative yields is not a readiness barrier.
   Negative deferral and exactly-once assertions remain separate.
-  They execute under a cooperative test executor. They do not qualify task
-  progress inside the native Win32 message loop, which currently leaves the
-  installed Swift 6.3 MainActor queue unserviced. The separate native loop
-  experiments and Unicode failure are recorded in `goal.md`.
+  They execute under a cooperative test executor, including nil-HWND host
+  fixtures. They do not qualify progress of `.task` or model-owned `Task`
+  loaders on the native `App` path, or the proposed dashboard's live
+  load/retry/cancel workflow.
+  Observed-model changes already published on the UI thread have a native
+  invalidation/frame-flush path; this is not MainActor job execution.
+  The Win32-loop/MainActor queue integration gap and the earlier Unicode
+  failure are recorded in `goal.md`. Native pump/probe work is not an
+  implemented fix.
   The batch host cases do not prime lifecycle by rendering a fallback frame first.
   Quick also runs `RuntimeDirtyFlagIntegrityTests`: a Canvas callback changes
   an already-painted sibling, while a separate appearance callback changes it

@@ -7140,3 +7140,102 @@ native performance collector, or product qualification follows from this pass.
 No baseline, font, visual threshold, API baseline, original requirement, or
 completion gate changed. All nine original gates remain open. Each later
 integration and result must add its own source and validation evidence.
+
+### 2026-08-29: completed geometry audits and a successful native scheduling probe
+
+This checkpoint adds evidence to the preceding checkpoint; it does not replace
+the original requirements, erase failed attempts, or close any completion gate.
+The root is `9984a1022306b78cd1637584981fa3ff02e4d46f`, with documentation
+following the tested geometry implementation at `3fb9e55abe65a2d1dd615b7d360374dc384deb25`.
+
+#### Current Quick and geometry evidence is now fully reconciled
+
+- The one current Quick audit closed successfully at `a609c7/0`. Its saved
+  evidence contains 2,650 passed XCTest cases, the one known material skip,
+  and nine passed Swift Testing cases. All 5,499 generated XCTest registrations
+  match the frozen source, including 5,147 async and 352 direct registrations.
+  All 92 ordered script steps and 167 evidence scopes reconcile. The 20 newly
+  added Arc/stroke tests were outside Quick's selection and are covered by the
+  separate run below; unselected cases are not counted as runtime passes.
+- The independent copy-only geometry audit closed at `e5d3bf/0`: all 350
+  selected cases passed exactly once, comprising 319 XCTest and 31 Swift
+  Testing cases across 20 successful serial script calls. There were no
+  failed, skipped, missing, duplicate, or unrun cases in that selection. The
+  full generated registration also matches all 5,499 frozen XCTest identities
+  and their async/direct flags. Capture postchecks preserved all 97 captured
+  members and all 92 files bound to the audit. Sealing closed at `be5933/0`.
+- These results remain attributed to source `3fb9e55` and tree `8bca339`.
+  Subsequent documentation does not retag them as tests of a different code
+  revision. They do not establish full-suite execution, image parity, native
+  interaction, hardware frame pacing, or the identity of a loaded binary.
+  The earlier 342-case failure remains a failure of its own source/attempt.
+- Durable local references include
+  `artifacts/goal-eighth-root-quick-v1-audit-parent-acceptance-v1.json`,
+  `artifacts/goal-eighth-root-quick-v1-audit-v1/summary.json`, and the sealed
+  `audit-results-v1` directory beside the previously recorded Arc350 capture.
+
+#### Public dispatchMain can service MainActor work beside a native window loop
+
+- The corrected standalone compiler attempt, already described above, was
+  followed by exactly one native execution: `b23104/0`, with direct native
+  process 28568 exiting naturally with zero. Its complete fixed capture closed
+  at `fafeed/0`; parent verification of the capture and four saved outputs
+  closed at `46a650/0`. No timeout, termination, cleanup error, or finalization
+  overrun occurred, and all 19 fixed inputs plus two controller anchors stayed
+  unchanged.
+- The 20-row trace satisfies all 14 required causal markers: creation of a
+  hidden native window, two native-message/continuation round trips, resumption
+  after `Task.sleep`, resumption after an external worker completion, window
+  destruction, checked native-thread join, and the final success marker.
+  The existing first compiler failure remains separately preserved.
+- In this run the entry thread was 55816, the native HWND owner was 22796,
+  the MainActor markers used thread 31292, and the external worker was 44408.
+  Every MainActor marker reported `Thread.isMainThread == false`. Therefore
+  checking the process's main-thread identity cannot substitute for checking
+  Swift actor isolation. The observed single actor thread is not a promise
+  that all future actor work uses that same OS thread.
+- This proves the scheduling premise for the standalone probe only. The
+  application host has not adopted this loop arrangement. Input delivery,
+  synchronous UI Automation results, IME caret queries, modal operations,
+  renderer ownership, and close/destroy acknowledgements still need an
+  integrated design and validation. The trace's unchanged echo count across
+  awaits does not prove complete message-loop or CPU idleness.
+- The capture is under
+  `Temp/native-mainactor-run-capture-v1-3fcdf14-20260829-84c12e`;
+  `artifacts/goal-eighth-native-probe-parent-acceptance-v1.json` records the
+  parent's copied-output verification. Native `.task`, AsyncImage phase
+  publication, and live model-loading behavior remain unqualified until the
+  real App path is fixed and exercised.
+
+#### The corrected image source reached linking but did not produce a test executable
+
+- The image test-typing successor closed at `dc9a12/1` after 605.109 seconds,
+  following launch `ace7f0/session70641`. The stock PowerShell child exited
+  naturally with one. The copied log reports `lld-link` failing to open the
+  generated `swift_windowsuiPackageDiscoveredTests.swiftmodule.o` with
+  `invalid argument`, followed by the linker command failing. This is a new
+  link-stage failure, distinct from the earlier two fixture type-check errors.
+- All 740 frozen source files remained unchanged. The raw Git index changed
+  from its recorded initial hash, so the controller's strict after-check also
+  failed. The original raw index bytes were not saved; only the initial hash
+  and the actual after-index are available. Its changed field and cause are
+  therefore unknown. Neither a source mutation nor a harmless metadata-only
+  change is inferred from the hash mismatch.
+- Fixed capture `2e918a/0` preserved all eight requested generated/metadata
+  texts, 52 text/control copies, and the actual index. The test executable was
+  absent. All 71 selected runtime cases remain unrun. The capture and subsequent
+  preservation check are complete; no further reads of that live build are
+  needed.
+- The next proposed experiment changes only the private checkout prefix to a
+  shorter path while retaining the `repo` leaf, all source bytes, test selection,
+  flags, and rejection policy. Path measurements come from saved copies; path
+  length is a hypothesis to test, not a proven sole cause. The next admission
+  must save the actual before-index bytes as well as its hash. No OS long-path
+  setting, tolerance, baseline, or source behavior is changed to accept this
+  failed attempt.
+
+The next runtime work remains the corrected material oracle, date-picker
+fixture, and animated-list compilation, followed by source integration and
+combined validation. A private captured-pointer input slice has also passed
+contracts and formatting but has not been compiled or executed. None of these
+prepared changes is represented as shipped or as satisfying a release gate.

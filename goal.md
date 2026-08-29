@@ -8489,3 +8489,33 @@ The parent verified and retained every payload. No fonts, baseline images,
 tolerances, environment settings or workflows were changed by this diagnosis.
 These are results for the earlier pushed commit, not qualification of the
 new native/List integration. All original completion gates remain open.
+
+### Ninth validation pass: retained UIA test capability (2026-08-29)
+
+The compile at `be76daa842f3b41caa319f0d27a22272773d49f0`
+stopped before tests on the UIANativeRequestTests helper passing its optional
+opaque provider pointer into Mutex's sending initializer. The direct child
+exited naturally with code 1 after 50.203 seconds; there was no timeout or
+termination, and source/index endpoints were unchanged. The 979,476-byte raw
+log has SHA-256
+`637a45709e7f8e2eba343b848d16bd14cc48d6648ee6f7e071e3ee729324607f`.
+The earlier attempt's partial compile output did not qualify this helper.
+
+The previously reviewed, unapplied fixture patch now addresses that observed
+diagnostic. It stores a private Sendable integer capability for the retained
+C provider, rather than sending an opaque pointer through Mutex. The capability
+is non-owning: copying it does not AddRef. The existing handle still explicitly
+owns one permanent reference, acquires each query reference under the lock,
+and releases references outside the lock. Native name queries and all mutable
+C output remain outside the lock. Null query/release behavior is unchanged;
+this does not make arbitrary native pointers safe to share.
+
+The exact patch has SHA-256
+`52b2ed78bc099ea83535ce09bf33b977b5b8ed684b8fb47c76a36bbaf33668ad`.
+All 16 complete test bodies and headers remain byte-identical after newline
+normalization. Only their private provider holder changes. Contracts, strict
+formatting, exact postimage and whitespace checks passed. No production source,
+test selection, timeout, baseline or tolerance changes. The focused runner must
+now bind five changed selected fixtures, 86 existing methods, while preserving
+the other 17 selected files and 234 methods. Fresh compilation and execution
+remain required; all nine original completion gates remain open.

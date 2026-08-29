@@ -250,14 +250,30 @@ private func nativeRequestName(_ provider: UnsafeMutableRawPointer?) -> (Int32, 
     return (result, String(decoding: UnsafeBufferPointer(start: string, count: count), as: UTF16.self))
 }
 
-/// Only a retained native handle is shared with a worker. No actor fixture or
-/// mutable C output buffer crosses that boundary, and no lock spans a callback.
+/// A non-owning capability for this fixture's atomically retained C provider.
+/// Copying it does not AddRef; NativeRequestProviderHandle explicitly owns and
+/// balances the permanent reference and each temporary query reference.
+private struct NativeRequestProviderCapability: Sendable {
+    private let address: UInt
+
+    init(_ provider: UnsafeMutableRawPointer) { address = UInt(bitPattern: provider) }
+
+    private var pointer: UnsafeMutableRawPointer { UnsafeMutableRawPointer(bitPattern: address)! }
+
+    func retain() { SWU_UIAAddRefProvider(pointer) }
+    static func release(_ provider: Self?) { SWU_UIAReleaseProvider(provider?.pointer) }
+    static func name(_ provider: Self?) -> (Int32, String?) { nativeRequestName(provider?.pointer) }
+}
+
+/// Only a retained native capability is shared with a worker. No actor fixture
+/// or mutable C output buffer crosses that boundary, and no lock spans a callback.
 private final class NativeRequestProviderHandle: Sendable {
-    private let provider: Mutex<UnsafeMutableRawPointer?>
+    private let provider: Mutex<NativeRequestProviderCapability?>
 
     init(_ provider: UnsafeMutableRawPointer) {
-        SWU_UIAAddRefProvider(provider)
-        self.provider = Mutex(provider)
+        let retained = NativeRequestProviderCapability(provider)
+        retained.retain()
+        self.provider = Mutex(retained)
     }
 
     deinit {
@@ -266,16 +282,16 @@ private final class NativeRequestProviderHandle: Sendable {
             stored = nil
             return released
         }
-        if let released { SWU_UIAReleaseProvider(released) }
+        if let released { NativeRequestProviderCapability.release(released) }
     }
 
     func name() -> (Int32, String?) {
         let retained = provider.withLock { stored in
-            if let stored { SWU_UIAAddRefProvider(stored) }
+            if let stored { stored.retain() }
             return stored
         }
-        defer { SWU_UIAReleaseProvider(retained) }
-        return nativeRequestName(retained)
+        defer { NativeRequestProviderCapability.release(retained) }
+        return NativeRequestProviderCapability.name(retained)
     }
 }
 

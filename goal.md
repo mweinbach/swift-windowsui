@@ -7239,3 +7239,37 @@ fixture, and animated-list compilation, followed by source integration and
 combined validation. A private captured-pointer input slice has also passed
 contracts and formatting but has not been compiled or executed. None of these
 prepared changes is represented as shipped or as satisfying a release gate.
+
+### 2026-08-29: pointer scale and lifetime capture integrated, runtime checks pending
+
+The root now includes the reviewed four-file captured-pointer slice from private
+commit `f4ab758b37cbc914c51be80629b32cdb5409fdc6`, applied on `a722d66`.
+It changes `Win32Host.swift`, `App.swift`, and `PlatformArchitecture.md`, and
+adds `Win32CapturedPointerInputTests.swift`. All existing test files and the
+previous goal text are preserved.
+
+Native pointer move and left-button callbacks carry the coordinates and display
+scale captured at their existing delivery boundary. A per-window identity,
+close-lifetime identity, and sequence bind that value to one synchronous
+delivery. The retained host consumes it before callbacks can replay it; nested
+callbacks save and restore the enclosing frame, including its consumed state.
+Legacy and neutral delegates retain their synchronous physical-coordinate API.
+This does not move HWND ownership or change the application message loop.
+
+The 12 new async XCTest methods cover captured versus current DPI, press/release,
+fractional and invalid scale rules, nested callbacks before and after
+consumption, replay, stale or inactive contexts, wrong-window/host delivery,
+closed hosts, and legacy/neutral forwarding order. These tests are authored
+but remain unrun at this checkpoint. Real create/destroy, pre-capture native
+focus/capture reentry, cross-thread delivery, UIA, and IME remain separate work.
+
+Root contracts passed before intake (`171263/0`) and after intake together with
+strict formatting of all three Swift files (`1075a1/0`). Parent verification
+`76c24b/0` confirms byte-identical Swift source and identical canonical document
+content. Its receipt preserves the earlier data-check failure caused by the
+frozen document's mixed line endings; no implementation or test was changed to
+resolve that bookkeeping mismatch. The source receipt is
+`artifacts/goal-eighth-captured-pointer-intake-after-v2.json`.
+
+Compilation, focused pointer/host regressions, and combined validation are still
+required before pushing this source. No existing gate is marked complete.

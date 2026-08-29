@@ -52,6 +52,17 @@ second real platform also requires replacing that concrete host assumption
 and providing platform-native text, image, accessibility, dialogs, and
 presentation services.
 
+The native pointer-move and left-button delivery paths copy coordinates and
+effective display scale before entering the retained host. Their package-only
+context binds that value to the originating window lifetime and one synchronous
+delivery frame; nested callbacks keep their own context, and the retained host
+consumes each frame before invoking runtime callbacks. Public legacy and neutral
+delegates keep their synchronous API and physical-coordinate payloads. Other
+input families still use their existing callbacks. This boundary does not move
+HWND ownership, change the message pump, or service queued MainActor tasks;
+UI Automation, IME caret queries, modal dialogs, rendering, and close teardown
+retain their existing ownership and synchronous result requirements.
+
 ## Rendering-engine boundary
 
 `RenderBackendFactory` creates renderer-neutral implementations of:

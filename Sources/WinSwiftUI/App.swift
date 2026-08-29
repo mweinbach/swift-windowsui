@@ -2352,7 +2352,7 @@ enum WindowCloseWorkSubmission: Equatable {
 }
 
 @MainActor
-final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority {
+final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32CapturedPointerInputDelegate {
     private final class CloseParticipantIdentity {}
     private final class CloseReservation {}
 
@@ -3584,9 +3584,24 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority {
         _ = renderCurrentFrame(in: window)
     }
 
+    func window(_ window: Win32Window, capturedPointerInput input: Win32CapturedPointerInput) {
+        guard !hasTornDownWindow, self.window === window, window.consumeCapturedPointerInput(input) else { return }
+        switch input.kind {
+        case .moved:
+            routePointerMove(input.point, scaleFactor: input.scaleFactor, in: window)
+        case .leftDown:
+            routePointerDown(input.point, scaleFactor: input.scaleFactor, in: window)
+        case .leftUp:
+            routePointerUp(input.point, scaleFactor: input.scaleFactor, in: window)
+        }
+    }
+
     func window(_ window: Win32Window, pointerMovedTo point: Point) {
         guard !hasTornDownWindow else { return }
-        let scaleFactor = window.effectiveScaleFactor
+        routePointerMove(point, scaleFactor: window.effectiveScaleFactor, in: window)
+    }
+
+    private func routePointerMove(_ point: Point, scaleFactor: Double, in window: Win32Window) {
         let logicalPoint = logicalPoint(point, scaleFactor: scaleFactor)
         runtime.pointerMoved(to: logicalPoint)
         onInputEventRouted?(.pointerMoved(point: logicalPoint, scaleFactor: scaleFactor))
@@ -3630,7 +3645,10 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority {
 
     func window(_ window: Win32Window, leftMouseDownAt point: Point) {
         guard !hasTornDownWindow else { return }
-        let scaleFactor = window.effectiveScaleFactor
+        routePointerDown(point, scaleFactor: window.effectiveScaleFactor, in: window)
+    }
+
+    private func routePointerDown(_ point: Point, scaleFactor: Double, in window: Win32Window) {
         let logicalPoint = logicalPoint(point, scaleFactor: scaleFactor)
         runtime.pointerDown(at: logicalPoint)
         onInputEventRouted?(.pointerDown(point: logicalPoint, scaleFactor: scaleFactor))
@@ -3639,7 +3657,10 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority {
 
     func window(_ window: Win32Window, leftMouseUpAt point: Point) {
         guard !hasTornDownWindow else { return }
-        let scaleFactor = window.effectiveScaleFactor
+        routePointerUp(point, scaleFactor: window.effectiveScaleFactor, in: window)
+    }
+
+    private func routePointerUp(_ point: Point, scaleFactor: Double, in window: Win32Window) {
         let logicalPoint = logicalPoint(point, scaleFactor: scaleFactor)
         runtime.pointerUp(at: logicalPoint)
         onInputEventRouted?(.pointerUp(point: logicalPoint, scaleFactor: scaleFactor))

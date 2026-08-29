@@ -145,6 +145,42 @@ struct Win32UTF16TextInputDecoder {
     }
 }
 
+/// Copied at the existing native pointer-delivery boundary. The value owns no
+/// window and implements no executor hop; its origin opens a synchronous frame.
+package struct Win32CapturedPointerInput: Sendable {
+    package enum Kind: Sendable {
+        case moved
+        case leftDown
+        case leftUp
+    }
+
+    package let kind: Kind
+    package let point: Point
+    package let scaleFactor: Double
+    fileprivate let windowIdentity: UUID
+    fileprivate let lifetimeID: UUID?
+    fileprivate let sequence: UInt64
+
+    @MainActor
+    fileprivate func deliver(to delegate: any WindowDelegate, in window: Win32Window) {
+        if let receiver = delegate as? any Win32CapturedPointerInputDelegate {
+            receiver.window(window, capturedPointerInput: self)
+            return
+        }
+        switch kind {
+        case .moved: delegate.window(window, pointerMovedTo: point)
+        case .leftDown: delegate.window(window, leftMouseDownAt: point)
+        case .leftUp: delegate.window(window, leftMouseUpAt: point)
+        }
+    }
+}
+
+/// Package hosts opt in without changing the public synchronous delegate API.
+@MainActor
+package protocol Win32CapturedPointerInputDelegate: AnyObject {
+    func window(_ window: Win32Window, capturedPointerInput input: Win32CapturedPointerInput)
+}
+
 @MainActor
 public protocol WindowDelegate: AnyObject {
     func windowDidCreate(_ window: Win32Window)
@@ -248,7 +284,7 @@ extension WindowDelegate {
 /// delegate slot is weak, and removing the neutral host restores the original
 /// delegate instead of changing how the existing application is driven.
 @MainActor
-private final class Win32PlatformWindowHostAdapter: WindowDelegate {
+private final class Win32PlatformWindowHostAdapter: WindowDelegate, Win32CapturedPointerInputDelegate {
     weak var host: (any PlatformWindowHost)?
     weak var downstream: (any WindowDelegate)?
     private var lastReportedScaleFactor: Double
@@ -297,6 +333,22 @@ private final class Win32PlatformWindowHostAdapter: WindowDelegate {
     func window(_ window: Win32Window, pointerMovedTo point: Point) {
         downstream?.window(window, pointerMovedTo: point)
         emit(.pointerMoved(point), from: window)
+    }
+
+    func window(_ window: Win32Window, capturedPointerInput input: Win32CapturedPointerInput) {
+        guard window.isDeliveringCapturedPointerInput(input) else { return }
+        if let downstream { input.deliver(to: downstream, in: window) }
+        // A downstream callback may close/recreate this window. Nested input
+        // alone does not invalidate the enclosing synchronous delivery frame.
+        guard window.isDeliveringCapturedPointerInput(input) else { return }
+        switch input.kind {
+        case .moved:
+            emit(.pointerMoved(input.point), from: window)
+        case .leftDown:
+            emit(.pointerButton(MouseEvent(button: .left, position: input.point), phase: .down), from: window)
+        case .leftUp:
+            emit(.pointerButton(MouseEvent(button: .left, position: input.point), phase: .up), from: window)
+        }
     }
 
     func windowPointerDidLeave(_ window: Win32Window) {
@@ -571,6 +623,19 @@ public final class Win32Window: PlatformWindow {
     private var isHandlingCloseRequest: Bool { closeControl.isHandlingCloseRequest }
     private var hasDeliveredWillClose = false
     private var windowLifetimeGeneration: UInt64 = 0
+
+    private let pointerInputIdentity = UUID()
+    private var capturedPointerInputSequence: UInt64 = 0
+    private var deliveredPointerInputSequence: UInt64 = 0
+
+    private struct PointerInputDelivery {
+        let input: Win32CapturedPointerInput
+        var isConsumed = false
+
+        init(_ input: Win32CapturedPointerInput) { self.input = input }
+    }
+
+    private var pointerInputDelivery: PointerInputDelivery?
 
     // Size-move tracking
     private var isInSizeMove = false
@@ -1950,6 +2015,66 @@ public final class Win32Window: PlatformWindow {
         isHighResolutionTimerUnavailable = true
     }
 
+    // MARK: - Captured pointer delivery
+
+    /// The nil lifetime is limited to the window's initial, uncreated state,
+    /// which also lets no-HWND host tests use the production delivery path.
+    /// Every real create owns a distinct close-lifetime UUID, even if its HWND
+    /// or diagnostic generation is later reused. This reads no close approval.
+    private func permitsPointerInput(lifetimeID: UUID?) -> Bool {
+        guard !hasDeliveredWillClose, closeControl.lifetime?.id == lifetimeID else { return false }
+        guard let lifetime = closeControl.lifetime else { return hwnd == nil && !ownsRetainedSelfReference }
+        return !lifetime.destructionStarted && !lifetime.destructionCompleted && !lifetime.creationFailed
+    }
+
+    package func capturePointerInput(
+        _ kind: Win32CapturedPointerInput.Kind, at point: Point
+    ) -> Win32CapturedPointerInput? {
+        let lifetimeID = closeControl.lifetime?.id
+        guard permitsPointerInput(lifetimeID: lifetimeID), capturedPointerInputSequence < UInt64.max else {
+            return nil
+        }
+        let scaleFactor = effectiveScaleFactor
+        guard permitsPointerInput(lifetimeID: lifetimeID), capturedPointerInputSequence < UInt64.max else { return nil }
+        capturedPointerInputSequence += 1
+        return Win32CapturedPointerInput(
+            kind: kind, point: point, scaleFactor: scaleFactor,
+            windowIdentity: pointerInputIdentity, lifetimeID: lifetimeID, sequence: capturedPointerInputSequence)
+    }
+
+    /// Opens one synchronous frame, consuming delivery order before callbacks.
+    /// Consumed values cannot replay, and direct host calls require this frame.
+    package func deliverCapturedPointerInput(_ input: Win32CapturedPointerInput) {
+        guard input.windowIdentity == pointerInputIdentity, permitsPointerInput(lifetimeID: input.lifetimeID),
+            input.sequence > deliveredPointerInputSequence, input.sequence <= capturedPointerInputSequence
+        else { return }
+        deliveredPointerInputSequence = input.sequence
+        let previousDelivery = pointerInputDelivery
+        pointerInputDelivery = PointerInputDelivery(input)
+        defer { pointerInputDelivery = previousDelivery }
+        if let delegate { input.deliver(to: delegate, in: self) }
+    }
+
+    package func isDeliveringCapturedPointerInput(_ input: Win32CapturedPointerInput) -> Bool {
+        input.windowIdentity == pointerInputIdentity && permitsPointerInput(lifetimeID: input.lifetimeID)
+            && pointerInputDelivery?.input.sequence == input.sequence
+    }
+
+    /// The retained receiver claims the active frame before any runtime or user
+    /// callback. Saving/restoring the frame also preserves this bit on reentry.
+    package func consumeCapturedPointerInput(_ input: Win32CapturedPointerInput) -> Bool {
+        guard isDeliveringCapturedPointerInput(input), let delivery = pointerInputDelivery, !delivery.isConsumed else {
+            return false
+        }
+        pointerInputDelivery?.isConsumed = true
+        return true
+    }
+
+    private func deliverPointerInput(_ kind: Win32CapturedPointerInput.Kind, at point: Point) {
+        guard let input = capturePointerInput(kind, at: point) else { return }
+        deliverCapturedPointerInput(input)
+    }
+
     // MARK: - Message handling
 
     /// An early creation failure has no published handle or live close ticket.
@@ -2093,7 +2218,7 @@ public final class Win32Window: PlatformWindow {
 
         case UINT(WM_MOUSEMOVE):
             beginTrackingMouseLeaveIfNeeded()
-            delegate?.window(self, pointerMovedTo: Self.point(from: lParam))
+            deliverPointerInput(.moved, at: Self.point(from: lParam))
             return 0
 
         case UINT(WM_MOUSELEAVE):
@@ -2139,12 +2264,12 @@ public final class Win32Window: PlatformWindow {
         case UINT(WM_LBUTTONDOWN):
             SetFocus(hwnd)
             beginMouseCapture(for: .left, hwnd: hwnd)
-            delegate?.window(self, leftMouseDownAt: Self.point(from: lParam))
+            deliverPointerInput(.leftDown, at: Self.point(from: lParam))
             return 0
 
         case UINT(WM_LBUTTONUP):
             endMouseCapture(for: .left)
-            delegate?.window(self, leftMouseUpAt: Self.point(from: lParam))
+            deliverPointerInput(.leftUp, at: Self.point(from: lParam))
             return 0
 
         case UINT(WM_LBUTTONDBLCLK):
@@ -2155,7 +2280,7 @@ public final class Win32Window: PlatformWindow {
             // and draggable views all need the ordinary pointer-down path.
             SetFocus(hwnd)
             beginMouseCapture(for: .left, hwnd: hwnd)
-            delegate?.window(self, leftMouseDownAt: point)
+            deliverPointerInput(.leftDown, at: point)
             delegate?.windowDidReceiveDoubleClick(self, event: event)
             return 0
 

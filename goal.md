@@ -7711,3 +7711,49 @@ Those Quick/Full cases use synthetic stage stubs; they are not real Quick/Full,
 compiler, memory-workload, or rendering passes. Combined Full is restarted
 from its first stage after committing this correction. All original gates
 remain open.
+
+### Eighth implementation pass: observed bitmap fixture failures and narrower corrections (2026-08-29)
+
+The clean `0966b48ccc2bd54b8e9803c2debd4c364820e032` Full attempt
+(`goal-eighth-full-0966b48-433d11038828448bbae9e2f2c498f6e0`)
+stopped naturally with exit 1 after 1403.844 seconds. Its runner recorded
+unchanged tracked source and index endpoints, no timeout, and no termination.
+The log reports all 19 preceding top-level stages passing, followed by 245
+passing CoreLogic shards and a failure in shard 246 of 286. That shard ran 25
+XCTest methods: two new bitmap-resizing methods failed with five assertions
+each; the other 23 methods passed. The remaining 40 CoreLogic shards and later
+Full product, screenshot, and gallery stages were not run. This is failed
+partial validation, not a Full pass. Independent per-case reconciliation of
+the copied failed prefix is still pending at this entry.
+
+Before another compiler invocation, the closed failure was retained in
+`artifacts/goal-eighth-full-0966b48-failure-capture-v1`: its manifest records
+520 payloads totaling 9,802,869 bytes, including raw output, source pins,
+compiled discovery text, and the partial journal. `CAPTURE.json` SHA-256 is
+`46cb2c788aef594c23e13a004b501c9993d9419644e968023f74375c89686816`.
+The executable was streamed for identity only, not copied or executed by this
+capture. This evidence remains bound to the failing source, even after fixes.
+
+The two corrections change only existing methods in
+`WinSwiftUIBitmapResizingTests.swift`. The invalid-cap test previously required
+full alpha at the bottom-right corner of a separately antialiased rectangle;
+the renderer's quad coverage gives fractional coverage there. The replacement
+oracle compares every output pixel with an independently rendered sibling-only
+scene and retains opaque-color checks at two interior pixels. It does not
+adopt the observed corner alpha as an expected value or change the 1/255 color
+tolerance. The tile-phase boundary test previously used a helper whose 24-point
+frame clamped both nominal 4096- and 4097-point images. It now supplies a real
+4097-by-4-point snapshot viewport, verifies actual retained dimensions, and
+checks acceptance at 4096 and rejection at 4097, along with the unchanged
+4-byte source bitmap, resource/command records, and legacy stretch behavior.
+No destination rasterization is requested by that boundary test.
+
+The reviewed fixture patch SHA-256 is
+`e62ac633272933a64ed9adc9377dd5ef9caad5b3428f9d5f2067d61a3097c1fb`.
+Root contracts before and after applying it and strict formatting of the one
+changed Swift file passed. The corrected fixture methods have not yet been
+executed at this entry; focused bitmap tests and a new Full attempt are next.
+No production sampler, layout implementation, phase limit, ABI, baseline,
+existing test identity, or original acceptance gate changed. Fixed-frame
+overflow, broader aspect-ratio proposals, and native pixel parity remain
+separate open work. All nine original completion gates remain open.

@@ -274,6 +274,13 @@ final class WinSwiftUIBitmapResizingTests: XCTestCase {
     }
 
     func testInvalidCapsSkipOnlyTheImageAndRecordTypedFailures() async throws {
+        let siblingOnly = snapshot(
+            ZStack(alignment: .topLeading) {
+                Rectangle().fill(Self.colors[2]).frame(width: 8, height: 6)
+            })
+        let siblingPixels = raster(siblingOnly)
+        try assertPixel(siblingPixels, x: 1, y: 1, color: Self.colors[2])
+        try assertPixel(siblingPixels, x: 6, y: 4, color: Self.colors[2])
         let invalid: [(EdgeInsets, Double, ImageSamplingFailure)] = [
             (EdgeInsets(top: 0, leading: .nan, bottom: 0, trailing: 0), 8, .nonfiniteCapInsets),
             (EdgeInsets(top: 0, leading: -1, bottom: 0, trailing: 0), 8, .negativeCapInsets),
@@ -296,8 +303,11 @@ final class WinSwiftUIBitmapResizingTests: XCTestCase {
             XCTAssertTrue(bitmaps(in: result.frame).isEmpty)
             XCTAssertTrue(result.scene.validate().isEmpty)
             let pixels = raster(result)
-            try assertPixel(pixels, x: 0, y: 0, color: Self.colors[2])
-            try assertPixel(pixels, x: 7, y: 5, color: Self.colors[2])
+            // Compare every sibling pixel, including its antialiased boundary,
+            // with an independently rendered scene containing no invalid image.
+            XCTAssertEqual(pixels.pixels, siblingPixels.pixels)
+            try assertPixel(pixels, x: 1, y: 1, color: Self.colors[2])
+            try assertPixel(pixels, x: 6, y: 4, color: Self.colors[2])
         }
     }
 
@@ -362,25 +372,52 @@ final class WinSwiftUIBitmapResizingTests: XCTestCase {
         let source = bitmap(width: 1, colors: [Self.colors[1]])
         let limit = Double(ImageSamplingPlan.maximumTilePhase)
         XCTAssertEqual(limit, 4096)
-        // Inspect records only: no rasterization of this large destination.
-        let accepted = snapshot(
-            Image(bitmap: source).resizable(resizingMode: .tile).frame(width: limit, height: 4))
+        // The ordinary helper proposes only 24 points. Give all three cases
+        // enough logical space to reach the requested sampling boundary.
+        // Inspect records only: no rasterization of these large destinations.
+        let canvasSize = IntSize(width: Int32(limit + 1), height: 4)
+        let accepted = WinSwiftUIRendererSnapshotter.snapshot(
+            of: Image(bitmap: source).resizable(resizingMode: .tile).frame(width: limit, height: 4),
+            size: canvasSize, clearColor: .clear)
+        let acceptedNode = try imageNode(in: accepted.runtime)
+        XCTAssertEqual(acceptedNode.resolvedFrame.size, Size(width: limit, height: 4))
+        XCTAssertNil(acceptedNode.imageSamplingFailure)
         let image = try primitive(in: accepted.scene)
         XCTAssertEqual(image.screenW, Float(limit))
+        XCTAssertEqual(image.screenH, 4)
         XCTAssertEqual(image.sampling.centerRepeatX, Float(limit))
+        XCTAssertEqual(image.sampling.centerRepeatY, 4)
         XCTAssertEqual(accepted.scene.imageResources.first?.bitmap.contentKey, source.contentKey)
-        XCTAssertNil(try imageNode(in: accepted.runtime).imageSamplingFailure)
+        XCTAssertEqual(accepted.scene.imageResources.first?.bitmap.pixels.count, 4)
+        let acceptedCommands = bitmaps(in: accepted.frame)
+        XCTAssertEqual(acceptedCommands.count, 1)
+        XCTAssertEqual(acceptedCommands.first?.rect.size, Size(width: limit, height: 4))
+        XCTAssertEqual(acceptedCommands.first?.bitmap.contentKey, source.contentKey)
+        XCTAssertEqual(acceptedCommands.first?.sampling, image.sampling)
 
-        let rejected = snapshot(
-            Image(bitmap: source).resizable(resizingMode: .tile).frame(width: limit + 1, height: 4))
-        XCTAssertEqual(try imageNode(in: rejected.runtime).imageSamplingFailure, .phaseLimitExceeded)
+        let rejected = WinSwiftUIRendererSnapshotter.snapshot(
+            of: Image(bitmap: source).resizable(resizingMode: .tile).frame(width: limit + 1, height: 4),
+            size: canvasSize, clearColor: .clear)
+        let rejectedNode = try imageNode(in: rejected.runtime)
+        XCTAssertEqual(rejectedNode.resolvedFrame.size, Size(width: limit + 1, height: 4))
+        XCTAssertEqual(rejectedNode.imageSamplingFailure, .phaseLimitExceeded)
         XCTAssertTrue(rejected.scene.layers.flatMap(\.images).isEmpty)
+        XCTAssertTrue(rejected.scene.imageResources.isEmpty)
         XCTAssertTrue(rejected.scene.imageRenderPasses.isEmpty)
         XCTAssertTrue(bitmaps(in: rejected.frame).isEmpty)
 
-        let stretch = snapshot(Image(bitmap: source).resizable().frame(width: limit + 1, height: 4))
-        XCTAssertEqual(try primitive(in: stretch.scene).sampling, .legacy)
-        XCTAssertNil(try imageNode(in: stretch.runtime).imageSamplingFailure)
+        let stretch = WinSwiftUIRendererSnapshotter.snapshot(
+            of: Image(bitmap: source).resizable().frame(width: limit + 1, height: 4),
+            size: canvasSize, clearColor: .clear)
+        let stretchNode = try imageNode(in: stretch.runtime)
+        XCTAssertEqual(stretchNode.resolvedFrame.size, Size(width: limit + 1, height: 4))
+        XCTAssertNil(stretchNode.imageSamplingFailure)
+        let stretchedImage = try primitive(in: stretch.scene)
+        XCTAssertEqual(stretchedImage.screenW, Float(limit + 1))
+        XCTAssertEqual(stretchedImage.screenH, 4)
+        XCTAssertEqual(stretchedImage.sampling, .legacy)
+        XCTAssertEqual(stretch.scene.imageResources.first?.bitmap.contentKey, source.contentKey)
+        XCTAssertEqual(stretch.scene.imageResources.first?.bitmap.pixels.count, 4)
     }
 
     func testCappedImageSceneMatchesD3D11AtFractionalDisplayScales() async throws {

@@ -7940,3 +7940,31 @@ methods, actual bundle relocation, new retained PNGs, macOS execution and
 joined Quick/Full remain unrun at this entry. Copying a resource bundle alone
 is not a complete executable package or clean-machine deployment proof.
 All original completion gates remain open.
+
+### Ninth implementation pass: text editor content layout settlement (2026-08-29)
+
+TextEditor now requests a targeted follow-up layout when its content is
+replaced or its chrome is cleared during layout. The request uses the
+runtime's existing bounded after-layout queue and checks attachment and
+controller/content ownership both when queued and when delivered. Weak
+captures and a guarded parent-chain walk keep a retired, replaced, moved or
+closed editor from invalidating its former runtime. This path does not
+reveal the caret or reset the user's scroll position or selection.
+
+The separate reviewed editor patch has SHA-256
+`bafffe92749bb880bc551f77692db370b96b0800e9dbfe842620d9c7ed7b0008`.
+It contains three Views.swift hunks and five MainActor async XCTest methods.
+The tests cover first-layout settlement without an extra paint, retained
+selection/scroll and an ancestor animation, unfocused and empty content,
+stale ownership, and refusal to report settlement for continuously changing
+geometry. The existing TextField changes are preserved. The separate file
+preview template has not been imported with this patch.
+
+On the integrated root, contracts passed before and after application, both
+changed Swift files passed strict formatting, and the staged diff passed
+whitespace checks. The five new methods are still unrun at this entry. The
+next focused selection contains 64 async XCTest methods across finite bitmap
+fit, bitmap resources, editor settlement, the two existing bitmap sizing
+suites and responsive gallery coverage; 32 of these methods are new in this
+integration branch. Compilation, runtime outcomes and retained visual review
+will be recorded separately after they occur. All original gates remain open.

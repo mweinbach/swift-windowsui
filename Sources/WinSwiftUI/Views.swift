@@ -15750,6 +15750,43 @@ private func textEditorViewport(in node: ViewNode) -> ViewNode? {
     return node.children.first(where: { $0.scrollAxis == .vertical })
 }
 
+@MainActor
+private func textEditorIsInRuntime(_ node: ViewNode, runtime: RetainedViewRuntime) -> Bool {
+    guard runtime.root.parent == nil else { return false }
+    var ancestor: ViewNode? = node
+    var visited = Set<ObjectIdentifier>()
+    while let candidate = ancestor, visited.insert(ObjectIdentifier(candidate)).inserted {
+        if candidate === runtime.root { return true }
+        guard let parent = candidate.parent, parent.children.contains(where: { $0 === candidate }) else { return false }
+        ancestor = parent
+    }
+    return false
+}
+
+@MainActor
+private func queueTextEditorContentLayout(controller: TextInputInteractionController, content: ViewNode) {
+    guard controller.current === controller, controller.isAttached, let node = controller.node,
+        let runtime = controller.undoRuntime, runtime.isLayoutInProgress, runtime.permitsRetainedActionInvocation,
+        let viewport = textEditorViewport(in: node), viewport.parent === node,
+        viewport.children.first === content, content.parent === viewport,
+        textEditorIsInRuntime(node, runtime: runtime)
+    else { return }
+    // Replacing chrome children during layout needs the runtime's existing
+    // bounded follow-up pass. It must not reveal a caret the user scrolled
+    // away from, or replace the separate caret-reveal action for this editor.
+    runtime.scheduleAfterLayout(key: "text-editor-content-layout-\(ObjectIdentifier(node))") {
+        [weak controller, weak runtime, weak node, weak content] in
+        guard let controller, let runtime, let node, let content,
+            controller.current === controller, controller.node === node, controller.isAttached,
+            controller.undoRuntime === runtime, runtime.permitsRetainedActionInvocation,
+            let viewport = textEditorViewport(in: node), viewport.parent === node,
+            viewport.children.first === content, content.parent === viewport,
+            textEditorIsInRuntime(node, runtime: runtime)
+        else { return }
+        runtime.invalidateTextInputLayout(for: node, controller: controller)
+    }
+}
+
 private func textEditorSelectionAffinity(_ affinity: RetainedTextSelectionAffinity) -> TextSelectionAffinity {
     switch affinity {
     case .automatic: .automatic
@@ -15843,8 +15880,16 @@ private func updateTextEditorChrome(
     state.renderSignature = signature
     state.renderedContent = content
     guard let layout = state.layout else {
-        if !content.children.isEmpty { content.removeAllChildren() }
-        if content.preferredSize != .zero { content.preferredSize = .zero }
+        var changedLayout = false
+        if !content.children.isEmpty {
+            content.removeAllChildren()
+            changedLayout = true
+        }
+        if content.preferredSize != .zero {
+            content.preferredSize = .zero
+            changedLayout = true
+        }
+        if changedLayout { queueTextEditorContentLayout(controller: controller, content: content) }
         return
     }
 
@@ -15900,6 +15945,7 @@ private func updateTextEditorChrome(
     content.absoluteChildFrame = { child, _ in child.frame }
     content.removeAllChildren()
     for child in children { content.addChild(child) }
+    queueTextEditorContentLayout(controller: controller, content: content)
 }
 
 /// Mutable bookkeeping for `updateTextInputEditingChrome` so repeated layout

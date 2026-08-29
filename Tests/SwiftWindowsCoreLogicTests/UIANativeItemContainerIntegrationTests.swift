@@ -262,13 +262,29 @@ private func nativeItemName(_ provider: UnsafeMutableRawPointer?) -> (status: In
     return (status, String(decodingCString: text, as: UTF16.self))
 }
 
-private func nativeItemFindPattern(in provider: UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer? {
+private func nativeItemNavigate(
+    _ provider: UnsafeMutableRawPointer, direction: Int32, firstFailure: inout String?
+) -> UnsafeMutableRawPointer? {
+    var result: UnsafeMutableRawPointer?
+    let status = SWU_UIAProviderNavigateResult(provider, direction, &result)
+    if status < 0, firstFailure == nil { firstFailure = "Navigate(\(direction)) HRESULT \(status)" }
+    return result
+}
+
+private func nativeItemFindPattern(
+    in provider: UnsafeMutableRawPointer?, firstFailure: inout String?
+) -> UnsafeMutableRawPointer? {
     guard let provider else { return nil }
-    if let pattern = SWU_UIAProviderGetItemContainerPattern(provider) { return pattern }
-    var next = SWU_UIAProviderNavigate(provider, Int32(SWU_UIA_NAV_FIRST_CHILD))
+    var pattern: UnsafeMutableRawPointer?
+    let status = SWU_UIAProviderGetPatternResult(provider, Int32(SWU_UIA_PATTERN_ITEM_CONTAINER), &pattern)
+    if status < 0, firstFailure == nil { firstFailure = "GetPatternProvider(ItemContainer) HRESULT \(status)" }
+    if let pattern { return pattern }
+    var next = nativeItemNavigate(provider, direction: Int32(SWU_UIA_NAV_FIRST_CHILD), firstFailure: &firstFailure)
     while let child = next {
-        let pattern = nativeItemFindPattern(in: child)
-        next = pattern == nil ? SWU_UIAProviderNavigate(child, Int32(SWU_UIA_NAV_NEXT_SIBLING)) : nil
+        let pattern = nativeItemFindPattern(in: child, firstFailure: &firstFailure)
+        next =
+            pattern == nil
+            ? nativeItemNavigate(child, direction: Int32(SWU_UIA_NAV_NEXT_SIBLING), firstFailure: &firstFailure) : nil
         SWU_UIAReleaseProvider(child)
         if let pattern { return pattern }
     }
@@ -309,12 +325,30 @@ private final class NativeItemRuntimeFixture {
         XCTAssertNotNil(host.layout())
         native = try NativeItemFixture(source: source)
         do {
-            itemContainer = try XCTUnwrap(nativeItemFindPattern(in: native.root))
+            var firstFailure: String?
+            itemContainer = try XCTUnwrap(
+                nativeItemFindPattern(in: native.root, firstFailure: &firstFailure),
+                itemContainerFailureDetails(firstFailure: firstFailure))
         } catch {
             native.close()
             host.close()
             throw error
         }
+    }
+
+    /// Evaluated only by a failed unwrap. These reads do not project, settle
+    /// layout, enumerate logical rows, or invoke authored callbacks.
+    private func itemContainerFailureDetails(firstFailure: String?) -> String {
+        let lists = host.lists
+        let adapters = lists.map { node in
+            guard let adapter = node.retainedLazyListAdapter else { return "missing adapter" }
+            let managedCurrent = adapter.managedLogicalDescriptorBinding.map { $0.isCurrent }
+            return "logicalCurrent=\(adapter.hasCurrentLogicalSnapshot), "
+                + "managedCurrent=\(String(describing: managedCurrent))"
+        }
+        return "ItemContainer discovery failed: firstNativeFailure=\(String(describing: firstFailure)), "
+            + "lastNativeFailure=\(String(describing: native.bridge?.lastNativeFailure)), "
+            + "lists=\(lists.count), factories=\(rows.factories.count), adapters=\(adapters)"
     }
 
     func close() {

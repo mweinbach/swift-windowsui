@@ -8519,3 +8519,94 @@ test selection, timeout, baseline or tolerance changes. The focused runner must
 now bind five changed selected fixtures, 86 existing methods, while preserving
 the other 17 selected files and 234 methods. Fresh compilation and execution
 remain required; all nine original completion gates remain open.
+
+### Ninth validation pass: compiled registrations and first executed cohorts (2026-08-29)
+
+At `cdd5fd2c80bffc2b0ca0db7ddd064d5b022a9e04`, production and test
+compilation succeeded. The portable window-owner run exited naturally with
+code 0 after 235.203 seconds, including compilation. All ten expected XCTest
+identities started and passed once, with no failure or skip; the separate
+Swift Testing run explicitly reported zero tests. Source/index endpoints
+were unchanged. Its 5,059-byte log has SHA-256
+`715ff4e30cbf85171b5c44bb28c341458029ef3b8b0472b398037399aabf2e95`.
+
+Before another build, the generated discovery files and current source were
+captured and joined against the immutable 771-case native/List inventory.
+All 765 expected asyncTest wrappers and six direct registrations are present
+exactly once. The six direct entries all belong to the non-MainActor
+NativeHostPresentationQueueTests class. The separate 31 bitmap and three menu
+methods also have their expected async wrappers: 805 registrations in total.
+All 59 current source files match their committed text and expected method
+headers. This is registration evidence, not execution of the other cases.
+
+The retained capture is
+`artifacts/goal-ninth-cdd5-test-registration-capture-v1`; its 66-payload
+manifest has SHA-256
+`a17cd4e46d8e5e439a06c7e27b29e9188ee4f057ac55a975a2f2d63b564351bb`.
+The observed linked test output is 540,614,656 bytes with SHA-256
+`11bcf57d42b8ba38e51f9e2b05cec4db7cde584d50dd24f2da6a4c336e7358d7`.
+That association does not supply an embedded revision or independent evidence
+of the loaded image. An unrelated old debug executable was not substituted.
+
+Two further serial focused runs at the same clean commit passed. The new
+bitmap-placement/menu cohort passed all 34 identities with no skip or failure
+in 4.968 seconds. It covers admission, CPU placement, actual text services and
+menu state bits; it does not execute a native window, real menu or GPU draw.
+The image/editor/responsive-layout cohort passed all 64 identities without skip
+or failure in 13.828 seconds, including its two actual offscreen D3D11
+comparison methods. Both runs preserved source/index endpoints and explicitly
+reported zero Swift Testing cases. Their raw logs are 11,711 and 19,040 bytes,
+with SHA-256 `23bb444b8032c4c6fca063371c0b96f797023e504f038d63dee2406b1eaa67c2`
+and `dbf0d36792b3fdfa6da7973d0d6e5b084f0dd8e50490ae20e7ebcfb58d71c242`.
+
+The three retained bitmap gallery fixtures were rendered again and inspected
+at original resolution. Cap insets, tiling and aspect fit retain exactly the
+same encoded PNG bytes as their earlier reviewed captures. The actual generated
+resource bundle was copied and both PNG asset hashes remained exact. This run
+is retained at `artifacts/goal-ninth-bitmap-gallery-cabcf97cec0d4f7fae525842c00a30cf`.
+Neither the 85 reviewed baselines nor tolerances changed. These three CPU
+fixtures and copied resources do not establish native presentation, a relocated
+executable, macOS parity or clean-machine deployment.
+
+These 108 executed cases and the larger registration inventory do not replace
+the remaining native/List tests, combined Full validation, actual native-window
+checks or any other original completion gate.
+
+### Ninth validation pass: retain UIA discovery failures and improve diagnostics (2026-08-29)
+
+The first 320-case native/runtime selection at the same `cdd5fd2` commit
+stopped at its eighth class. Seven preceding classes passed all 136 cases.
+UIANativeItemContainerIntegrationTests then ran ten cases: seven passed and
+three failed while unwrapping the initially discovered ItemContainer provider.
+Its runtime-backed geometry, pending-replacement and deleted-token cases did
+not reach their later behavior assertions. In total, 146 cases ran, 143 passed,
+three failed and none skipped; 174 selected cases in 14 classes remain unrun.
+
+The runner returned 1 naturally after 70.969 seconds. All observed direct
+children exited, with no timeout or termination; source/index and required
+input endpoints were unchanged. All ten executed SwiftPM invocations have
+explicit Swift Testing start/zero-footer observations. The failed class's
+5,251-byte log has SHA-256
+`d004541c2db20ad4bf5560da9cbf45c3c4cda138ed5bb99ca1b071447ed31a17`.
+The partial run and per-class records remain under
+`artifacts/goal-ninth-native-core-0142f0cbf24c`; this is not a complete Core pass
+or independent full-journal audit.
+
+A separate 402-case List invocation compiled but did not start any XCTest.
+Windows process launch reported NSCocoaErrorDomain 258 with underlying error
+206; the script returned 1 naturally after 4.750 seconds. The small authored
+regex did not bound SwiftPM's expanded XCTest identifiers. Its 3,414-byte log
+has SHA-256 `909e8d7c30fc9acbf12b15c391b9bf2380da358528733ac57525879bf347645c`.
+The observed zero-case Swift Testing run is recorded separately and cannot
+turn this launch failure into a test pass. The existing exact-class/method
+sharding must be used for this larger selection.
+
+The UIA fixture now records the HRESULTs already produced by its existing
+pattern and navigation calls. Its recursive order, pointer branches and
+release positions are unchanged. A failed unwrap reports the first native
+failure, bridge failure, retained List and row-factory counts, and passive
+logical/managed currency flags. The failure message does not run on success,
+project snapshots, settle layout or invoke authored callbacks. All ten complete
+test bodies and their assertions remain unchanged. Contracts, strict formatting
+and exact postimage checks passed. This diagnostic addition does not claim a
+product fix; the three provider-discovery failures still require investigation.

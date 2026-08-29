@@ -8828,3 +8828,32 @@ passed. The patch has SHA-256
 The unchanged large-list cases must still be rerun to measure the combined
 repairs. No fixture size, deadline or acceptance threshold was relaxed, and
 the original hardware performance gate remains open.
+
+### Ninth validation pass: keep checked prefetch output beside its candidate predecessor (2026-08-29)
+
+Two public accessibility cases reached their layout setup but could not find
+prefetched row 3, despite its factory having run. Another case reconstructed
+optional rows after an empty result. Preparation checked only previously
+accepted predecessor summaries, so it discarded optional rows whose immediate
+predecessor was already present in the same new candidate. Missing optional
+prefetch did not itself request another resolution pass.
+
+Preparation now tracks current candidate records by native source ordinal
+after they pass capacity and duplicate-node checks. An optional row can remain
+when its preceding boundary is supplied by those earlier checked records,
+including a contiguous empty candidate chain. The check revalidates the prior
+record and reads its current node summary; it does not reuse a summary across
+later application callbacks. Carried records and discarded predecessors do not
+gain this authority. The scan advances through distinct earlier candidate
+entries and is bounded by the physical record allowance.
+
+This changes candidate retention only. Accepted boundary publication, measured
+extents, adoption, generation checks and settlement remain on their existing
+paths. Four new async cases cover ordinary and empty-chain prefetch, an
+oversized discarded predecessor, and source revocation during construction.
+The two raw-adapter cases establish candidate selection, not native adoption.
+All existing tests are unchanged. Exact composition with the count repair,
+strict formatting, contracts and source review passed. The patch has SHA-256
+`7df9b57bfd48ee8818172b11bf0eedbfe8428527255d1fedb3dcfa4e1f67a0f6`.
+Runtime validation remains pending, including the separate default-budget
+Realize failures. No work budget or original completion requirement changes.

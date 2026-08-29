@@ -1313,6 +1313,7 @@ package final class RetainedLazyListRuntimeAdapter {
         let originalActualProofs = Array(originalProofs.values)
         var carriedRecordProofs: [RetainedLazyListRowToken: CarriedRecordProof] = [:]
         var records: [Record] = []
+        var preparedRecordIndices: [Int: Int] = [:]
         var acceptedIdentityProofs: [RetainedLazyListViewIdentityProof] = []
         var acceptedRoots: [ViewNode] = []
         var leafCount = 0
@@ -1400,7 +1401,11 @@ package final class RetainedLazyListRuntimeAdapter {
             } else {
                 guard recordIsCurrent(record) else { return .obsolete }
             }
-            if !isRequired, token != boundaryProbe, hasUnresolvedLeadingGap(record) { continue }
+            if !isRequired, token != boundaryProbe, hasUnresolvedLeadingGap(record),
+                !hasPreparedGapPredecessor(for: record, records: records, indices: preparedRecordIndices)
+            {
+                continue
+            }
             if record.nodes.count > remainingLeaves {
                 if isRequired { return .unsupported }
                 continue
@@ -1410,6 +1415,9 @@ package final class RetainedLazyListRuntimeAdapter {
                 guard leafIdentities.insert(ObjectIdentifier(node)).inserted else { return .unsupported }
             }
             records.append(record)
+            if !carriesOriginal, let position = positions[token] {
+                preparedRecordIndices[position] = records.count - 1
+            }
             acceptedRoots.append(contentsOf: record.nodes)
             acceptedIdentityProofs.append(contentsOf: record.identityProofs)
         }
@@ -2480,6 +2488,34 @@ package final class RetainedLazyListRuntimeAdapter {
         else { return false }
         if case .unknown = gapPredecessor(before: position) { return true }
         return false
+    }
+
+    /// A preceding row in this checked candidate can retain later prefetch
+    /// output, but cannot publish a boundary or measurement before adoption.
+    /// Inspect its current nodes again after later factories; a cached summary
+    /// could outlive authored changes to an earlier candidate. Empty records
+    /// advance only through exact prepared entries, never unknown source rows.
+    private func hasPreparedGapPredecessor(
+        for record: Record, records: [Record], indices: [Int: Int]
+    ) -> Bool {
+        guard var position = positions[record.request.token] else { return false }
+        while position > 0 {
+            switch gapPredecessor(before: position) {
+            case .beginning, .row:
+                return true
+            case .unknown(let previous):
+                guard previous >= 0, previous < position,
+                    let index = indices[previous], records.indices.contains(index)
+                else { return false }
+                let prepared = records[index]
+                guard recordIsCurrent(prepared), let summary = gapSummary(of: prepared.nodes) else { return false }
+                if summary.last != nil { return true }
+                // Each step consumes a distinct earlier candidate entry, so
+                // this scan is bounded by the physical record allowance.
+                position = previous
+            }
+        }
+        return true
     }
 
     /// One unknown predecessor per pass, using ordinary caps and factory

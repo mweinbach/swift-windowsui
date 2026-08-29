@@ -18653,16 +18653,18 @@ public struct Picker<SelectionValue: Hashable>: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let selection = selection
-        let currentLabelContext = context.withTextAlignment(.trailing).withLineLimit(1)
-        guard let labelViews = materializedDeferredViewList(label, context: context),
+        let labelContext = context.withViewIdentityRole(.label)
+        let currentLabelContext = context.withViewIdentityRole(.value).withTextAlignment(.trailing).withLineLimit(1)
+        let contentContext = context.withViewIdentityRole(.content)
+        guard let labelViews = materializedDeferredViewList(label, context: labelContext),
             let currentValueLabelViews = materializedDeferredViewList(currentValueLabel, context: currentLabelContext),
-            let contentViews = materializedDeferredViewList(content, context: context)
+            let contentViews = materializedDeferredViewList(content, context: contentContext)
         else {
             return rejectedRetainedViewComponent()
         }
         let labelComponent = composeComponent(
             from: labelViews,
-            context: context,
+            context: labelContext,
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
             isHitTestVisible: false
         )
@@ -18678,7 +18680,7 @@ public struct Picker<SelectionValue: Hashable>: View {
             let selectedAnyValue = AnyHashable(selectedValue)
             let options: [Option] = contentViews.enumerated().map { index, option in
                 let representedValue = Self.selectionValue(for: option, fallbackIndex: index)
-                let optionNode = option.makeComponent(context: context).makeNode(runtime: runtime)
+                let optionNode = option.makeComponent(context: contentContext).makeNode(runtime: runtime)
                 return Option(value: representedValue, node: optionNode)
             }
 
@@ -20270,25 +20272,28 @@ public struct Slider: View {
         let range = bounds
         let step = step
         let onEditingChanged = onEditingChanged
-        guard let labelViews = materializedDeferredViewList(label, context: context),
-            let minimumLabelViews = materializedDeferredViewList(minimumValueLabel, context: context),
-            let maximumLabelViews = materializedDeferredViewList(maximumValueLabel, context: context)
+        let labelContext = context.withViewIdentityRole(.label)
+        let minimumLabelContext = context.withViewIdentityRole(.minimumValueLabel)
+        let maximumLabelContext = context.withViewIdentityRole(.maximumValueLabel)
+        guard let labelViews = materializedDeferredViewList(label, context: labelContext),
+            let minimumLabelViews = materializedDeferredViewList(minimumValueLabel, context: minimumLabelContext),
+            let maximumLabelViews = materializedDeferredViewList(maximumValueLabel, context: maximumLabelContext)
         else { return rejectedRetainedViewComponent() }
         let labelComponent = composeComponent(
             from: labelViews,
-            context: context,
+            context: labelContext,
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
             isHitTestVisible: false
         )
         let minimumLabelComponent = composeComponent(
             from: minimumLabelViews,
-            context: context,
+            context: minimumLabelContext,
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
             isHitTestVisible: false
         )
         let maximumLabelComponent = composeComponent(
             from: maximumLabelViews,
-            context: context,
+            context: maximumLabelContext,
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
             isHitTestVisible: false
         )
@@ -20472,14 +20477,12 @@ public struct ProgressView: View {
     private let label: [AnyView]
     private let currentValueLabel: [AnyView]
     private var primitiveStyle: ProgressViewStyleProfile? = nil
-    private var usesConfigurationLabelIdentity = false
 
     public init(_ configuration: ProgressViewStyleConfiguration) {
         self.value = configuration.retainedValue
         self.total = configuration.retainedTotal
         self.label = configuration.label?.retainedViews ?? []
         self.currentValueLabel = configuration.currentValueLabel?.retainedViews ?? []
-        self.usesConfigurationLabelIdentity = true
     }
 
     init(_ configuration: ProgressViewStyleConfiguration, primitiveStyle: ProgressViewStyleProfile) {
@@ -20613,13 +20616,13 @@ public struct ProgressView: View {
                 value: value, total: total, label: label, currentValueLabel: currentValueLabel)
             return installation.makeComponent(configuration: configuration, context: context)
         }
-        let labelContext = usesConfigurationLabelIdentity ? context.withViewIdentityRole(.label) : context
-        let currentLabelContext = usesConfigurationLabelIdentity ? context.withViewIdentityRole(.value) : context
+        let labelContext = context.withViewIdentityRole(.label)
+        let currentLabelContext = context.withViewIdentityRole(.value)
         guard let labelViews = materializedDeferredViewList(label, context: labelContext),
             let currentValueLabelViews = materializedDeferredViewList(currentValueLabel, context: currentLabelContext)
         else { return rejectedRetainedViewComponent() }
-        // Configuration has two independent label roles even when their
-        // source arrays contain the same concrete stateful view type.
+        // Every progress view has independent label roles, including the
+        // ordinary primitive and delegation from a style configuration.
         let labelComponent = composeComponent(
             from: labelViews,
             context: labelContext,
@@ -20909,39 +20912,44 @@ public struct Gauge: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let accessoryLabelContext = context.withFont(.caption).withForegroundColor(.secondary)
-        guard let labelViews = materializedDeferredViewList(label, context: context),
-            let currentValueLabelViews = materializedDeferredViewList(currentValueLabel, context: context),
-            let minimumLabelViews = materializedDeferredViewList(minimumValueLabel, context: accessoryLabelContext),
-            let maximumLabelViews = materializedDeferredViewList(maximumValueLabel, context: accessoryLabelContext),
-            let markedLabelViews = materializedDeferredViewList(markedValueLabels, context: accessoryLabelContext)
+        let labelContext = context.withViewIdentityRole(.label)
+        let currentLabelContext = context.withViewIdentityRole(.value)
+        let minimumLabelContext = accessoryLabelContext.withViewIdentityRole(.minimumValueLabel)
+        let maximumLabelContext = accessoryLabelContext.withViewIdentityRole(.maximumValueLabel)
+        let markedLabelContext = accessoryLabelContext.withViewIdentityRole(.markedValueLabels)
+        guard let labelViews = materializedDeferredViewList(label, context: labelContext),
+            let currentValueLabelViews = materializedDeferredViewList(currentValueLabel, context: currentLabelContext),
+            let minimumLabelViews = materializedDeferredViewList(minimumValueLabel, context: minimumLabelContext),
+            let maximumLabelViews = materializedDeferredViewList(maximumValueLabel, context: maximumLabelContext),
+            let markedLabelViews = materializedDeferredViewList(markedValueLabels, context: markedLabelContext)
         else { return rejectedRetainedViewComponent() }
         let labelComponent = composeComponent(
             from: labelViews,
-            context: context,
+            context: labelContext,
             fallbackLayout: .stack(.vertical(spacing: 0, alignment: .leading)),
             isHitTestVisible: false
         )
         let currentValueLabelComponent = composeComponent(
             from: currentValueLabelViews,
-            context: context,
+            context: currentLabelContext,
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
             isHitTestVisible: false
         )
         let minimumValueLabelComponent = composeComponent(
             from: minimumLabelViews,
-            context: accessoryLabelContext,
+            context: minimumLabelContext,
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .leading)),
             isHitTestVisible: false
         )
         let maximumValueLabelComponent = composeComponent(
             from: maximumLabelViews,
-            context: accessoryLabelContext,
+            context: maximumLabelContext,
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .trailing)),
             isHitTestVisible: false
         )
         let markedValueLabelsComponent = composeComponent(
             from: markedLabelViews,
-            context: accessoryLabelContext,
+            context: markedLabelContext,
             fallbackLayout: .stack(.horizontal(spacing: 8, alignment: .center)),
             isHitTestVisible: false
         )

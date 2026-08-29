@@ -8764,3 +8764,34 @@ has SHA-256 `66b040032d73b65dbdda3bc93d510b68720d779be515dbe74a4dfcfa9126f86b`.
 The separate count repair remains intact. Compilation and execution of the
 combined repairs are still pending, so the previously recorded failures remain
 open evidence until their unchanged assertions pass.
+
+### Ninth validation pass: independent control-label identities (2026-08-29)
+
+The failing nonempty deferred-label case exposed shared retained identities
+between a control's independent label builders. Picker, Slider, ordinary
+ProgressView and Gauge reused the same identity context for their main,
+current-value or bound labels. Matching local occurrence paths then selected
+the same State owner under different descriptor attributions. The existing
+ownership guard correctly rejected that candidate, leaving the initial root
+empty. Static and deferred trees could therefore compare equal while the
+separate positive root/text assertions failed. Single-label DatePicker and
+ColorPicker cases did not have this collision.
+
+Each affected consumer now uses stable distinct role contexts consistently for
+both materialization and component construction. Picker options also use their
+content role. ProgressView's configuration-label paths are unchanged, and the
+ordinary primitive uses those same main/current roles. Three explicit Core
+identity roles distinguish minimum, maximum and marked-value label builders.
+Clients that exhaustively switch over the public Core Role enum may need to
+handle the added cases; retained identities are not a persisted file format.
+
+Global composition timing, descriptor rejection and lazy structural expansion
+are unchanged. Four new async tests place the same stateful custom view type
+in each label slot and require visible text, independent State owners/values,
+the same owners after reload, and rejected writes after host closure. All
+existing deferred-label and structural-composition tests are preserved.
+Strict formatting, contracts, exact postimages and independent source review
+passed. The three-file source patch has SHA-256
+`ab14afd97e8036781f89501a7c67946376fab16864388e2e6589ea6c866fe57f`.
+Runtime results for this repair are pending; it does not qualify complete
+control behavior, appearance or native SwiftUI parity.

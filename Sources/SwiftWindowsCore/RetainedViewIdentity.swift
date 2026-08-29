@@ -147,6 +147,9 @@ public struct RetainedViewIdentity: Hashable {
         case description
         case label
         case value
+        case minimumValueLabel
+        case maximumValueLabel
+        case markedValueLabels
         case actions
         case background
         case overlay

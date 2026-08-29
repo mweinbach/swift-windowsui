@@ -8264,3 +8264,37 @@ and after the change and whitespace checks passed. The private negative
 control using the old selector failed as expected on the first collision.
 Compiler repairs and fresh test execution remain pending. All nine original
 completion gates remain open and unchanged.
+
+### Ninth implementation pass: native lifetime capabilities and close-menu state (2026-08-29)
+
+The three diagnosed native compiler boundaries now have narrow source repairs.
+File recycling reads WindowsBool.boolValue while retaining the existing shell
+operation error and cancellation results. Close-menu updates use the real
+Boolean success results of GetMenuItemInfoW and SetMenuItemInfoW with MIIM_STATE,
+instead of treating EnableMenuItem's imported Bool as integer flags. Only the
+disabled/grayed bits change; checks, highlighting, default status and unrelated
+state bits remain. Native close policy, absent-menu handling and DrawMenuBar
+error reporting are unchanged.
+
+UIA session and call-lease mutexes now contain private, type-specific Sendable
+capabilities with immutable integer identities. These values do not own or
+release C references when copied. The existing session and full-call lease
+remain the owners: admission retains before locking, expected identities are
+checked under the lock, temporary pins are acquired before unlocking, and
+revocation/final release remain outside the Swift mutex. C atomics, complete
+native method lifetime, drain wake, marshalling and callback release hooks are
+unchanged. No unchecked Sendable conformance, isolation bypass or new C target
+was introduced.
+
+The reviewed five-file patch has SHA-256
+`30dbed1c28bba682d780d96695439e5f4d5d9d809f9da70d2a9ab69fa066bbef`.
+Root contracts before and after integration, strict lint of all five Swift
+files and whitespace checks passed. Every postimage matches the source packet;
+all existing test files are unchanged. Three additional MainActor async menu
+state tests cover preserving unrelated bits, all prior disabled states and
+idempotent updates. They are a separate, still unexecuted cohort.
+
+The initial failed compile remains recorded above. This repair still requires
+fresh compilation, all affected tests, and actual native menu/UIA behavior;
+source review alone closes none of those requirements. The original nine
+completion gates and the original compatibility destination remain unchanged.

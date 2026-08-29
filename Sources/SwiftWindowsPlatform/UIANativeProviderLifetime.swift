@@ -55,12 +55,51 @@ final class UIANativeDiagnostics: Sendable {
     }
 }
 
+/// A type-specific, non-owning capability for C's atomically retained context.
+/// Copying this value does not retain it. UIANativeProviderSession owns the
+/// reference and explicitly balances every temporary pin after unlocking.
+/// Only the inspected thread-safe C operations reconstruct the pointer.
+private struct UIANativeContextCapability: Sendable, Equatable {
+    private let address: UInt
+
+    init(_ context: OpaquePointer) { address = UInt(bitPattern: context) }
+
+    private var pointer: OpaquePointer { OpaquePointer(bitPattern: address)! }
+
+    func retain() { SWU_UIARetainProviderContext(pointer) }
+    func release() { SWU_UIAReleaseProviderContext(pointer) }
+    func revoke() { SWU_UIARevokeProviderContext(pointer) }
+    var isAvailable: Bool { SWU_UIAProviderContextIsAvailable(pointer) != 0 }
+}
+
+/// The call lease, not this copyable value, owns the C retain. The C token pins
+/// its context until the complete native method and retained actor work finish.
+/// No raw pointer or mutable native storage is shared as Swift state.
+private struct UIANativeCallCapability: Sendable {
+    private let address: UInt
+
+    init(_ call: OpaquePointer) { address = UInt(bitPattern: call) }
+
+    private var pointer: OpaquePointer { OpaquePointer(bitPattern: address)! }
+
+    func retain() { SWU_UIARetainCall(pointer) }
+    func release() { SWU_UIAReleaseCall(pointer) }
+    func revokeOwner() { SWU_UIACallRevokeOwner(pointer) }
+    func fail(_ hresult: Int32) { SWU_UIACallFail(pointer, hresult) }
+    var isAvailable: Bool { SWU_UIACallStatus(pointer) >= 0 }
+
+    func callbackContext() -> UIANativeCallbackContext? {
+        guard let context = SWU_UIACallOwnerContext(pointer) else { return nil }
+        return Unmanaged<UIANativeCallbackContext>.fromOpaque(context).takeUnretainedValue()
+    }
+}
+
 /// A checked Sendable owner for the revocation capability, not for an HWND or a
 /// COM provider. Pointer access is protected by one short lock. Temporary C
 /// references are retained under that lock and released after unlocking.
 final class UIANativeProviderSession: Sendable {
-    private struct State {
-        var context: OpaquePointer?
+    private struct State: Sendable {
+        var context: UIANativeContextCapability?
         var installed = false
         var revoked = false
     }
@@ -84,15 +123,15 @@ final class UIANativeProviderSession: Sendable {
             return context
         }
         if let context {
-            SWU_UIARevokeProviderContext(context)
-            SWU_UIAReleaseProviderContext(context)
+            context.revoke()
+            context.release()
         }
     }
 
     var isAvailable: Bool {
         state.withLock { stored in
             guard !stored.revoked, let context = stored.context else { return false }
-            return SWU_UIAProviderContextIsAvailable(context) != 0
+            return context.isAvailable
         }
     }
 
@@ -106,41 +145,43 @@ final class UIANativeProviderSession: Sendable {
     /// The attachment already owns the factory's initial reference. The
     /// session takes a separate reference for local, nonblocking revocation.
     func bind(_ context: OpaquePointer) throws {
-        SWU_UIARetainProviderContext(context)
+        let retainedContext = UIANativeContextCapability(context)
+        retainedContext.retain()
         let failure: NativeWindowOwnerFailure? = state.withLock { stored in
             if stored.revoked { return .closing }
             if stored.installed { return .duplicateAttachment(attachmentID) }
             stored.installed = true
-            stored.context = context
+            stored.context = retainedContext
             return nil
         }
         if let failure {
-            SWU_UIAReleaseProviderContext(context)
+            retainedContext.release()
             throw failure
         }
     }
 
     func releaseContext(_ expected: OpaquePointer) {
+        let expectedContext = UIANativeContextCapability(expected)
         let context = state.withLock { stored in
-            guard stored.context == expected else { return Optional<OpaquePointer>.none }
+            guard stored.context == expectedContext else { return Optional<UIANativeContextCapability>.none }
             let context = stored.context
             stored.context = nil
             stored.revoked = true
             return context
         }
-        if let context { SWU_UIAReleaseProviderContext(context) }
+        if let context { context.release() }
     }
 
     func revoke() {
         let context = state.withLock { stored in
             stored.revoked = true
-            guard let context = stored.context else { return Optional<OpaquePointer>.none }
-            SWU_UIARetainProviderContext(context)
+            guard let context = stored.context else { return Optional<UIANativeContextCapability>.none }
+            context.retain()
             return context
         }
         if let context {
-            SWU_UIARevokeProviderContext(context)
-            SWU_UIAReleaseProviderContext(context)
+            context.revoke()
+            context.release()
         }
     }
 
@@ -171,13 +212,15 @@ final class UIANativeProviderSession: Sendable {
 
 /// The C method and the Swift request each own a reference to the same heap
 /// token. Its final release, after both actor work and C marshalling, drains the
-/// full native call. No raw token escapes the lock protecting this owner.
+/// full native call. Only retained capabilities escape this owner's lock;
+/// their revocation and final release execute after unlocking.
 final class UIANativeCallLease: Sendable {
-    private let call: Mutex<OpaquePointer?>
+    private let call: Mutex<UIANativeCallCapability?>
 
     init(retaining call: OpaquePointer) {
-        SWU_UIARetainCall(call)
-        self.call = Mutex(call)
+        let retainedCall = UIANativeCallCapability(call)
+        retainedCall.retain()
+        self.call = Mutex(retainedCall)
     }
 
     deinit {
@@ -186,40 +229,39 @@ final class UIANativeCallLease: Sendable {
             stored = nil
             return result
         }
-        if let released { SWU_UIAReleaseCall(released) }
+        if let released { released.release() }
     }
 
     var isAvailable: Bool {
         call.withLock { stored in
             guard let stored else { return false }
-            return SWU_UIACallStatus(stored) >= 0
+            return stored.isAvailable
         }
     }
 
     func fail(_ hresult: Int32) {
         call.withLock { stored in
-            if let stored { SWU_UIACallFail(stored, hresult) }
+            if let stored { stored.fail(hresult) }
         }
     }
 
     func revokeOwner() {
         let retained = call.withLock { stored in
-            guard let stored else { return Optional<OpaquePointer>.none }
-            SWU_UIARetainCall(stored)
+            guard let stored else { return Optional<UIANativeCallCapability>.none }
+            stored.retain()
             return stored
         }
         if let retained {
             // Revocation can signal the native drain wake. Neither that signal
             // nor a final release runs while the Swift token lock is held.
-            SWU_UIACallRevokeOwner(retained)
-            SWU_UIAReleaseCall(retained)
+            retained.revokeOwner()
+            retained.release()
         }
     }
 
     func callbackContext() -> UIANativeCallbackContext? {
         call.withLock { stored in
-            guard let stored, let context = SWU_UIACallOwnerContext(stored) else { return nil }
-            return Unmanaged<UIANativeCallbackContext>.fromOpaque(context).takeUnretainedValue()
+            stored?.callbackContext()
         }
     }
 }

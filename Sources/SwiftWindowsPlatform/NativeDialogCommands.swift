@@ -281,7 +281,7 @@ private enum Win32NativeDialogOperations {
             guard result == 0 else {
                 return .failed(.native(operation: "SHFileOperationW", code: UInt32(bitPattern: result)))
             }
-            guard !operation.fAnyOperationsAborted else { return .failed(.operationAborted) }
+            guard !operation.fAnyOperationsAborted.boolValue else { return .failed(.operationAborted) }
             return .recycled
         }
     }

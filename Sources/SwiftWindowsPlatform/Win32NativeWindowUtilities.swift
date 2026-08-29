@@ -22,6 +22,13 @@ enum Win32NativeCreationCleanup: Equatable {
 /// Native-only helpers shared by the owner window implementation. None calls
 /// the MainActor Win32Window's legacy helpers or its injectable UI state.
 enum Win32NativeWindowUtilities {
+    /// Only the disabled/grayed state changes. Check marks, highlighting,
+    /// default-item status, and any other existing state bits are preserved.
+    static func menuItemState(_ previous: UINT, enabled: Bool) -> UINT {
+        let disabledMask = UINT(MFS_DISABLED)
+        return (previous & ~disabledMask) | (enabled ? UINT(MFS_ENABLED) : disabledMask)
+    }
+
     static func windowStyle(
         titleBarVisibility: WindowTitleBarVisibility, configuration: Win32WindowConfiguration
     ) -> DWORD {

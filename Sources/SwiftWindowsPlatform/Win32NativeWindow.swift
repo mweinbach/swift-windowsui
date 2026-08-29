@@ -1303,11 +1303,19 @@ final class Win32NativeWindowState: NativeWindowOwnerContext {
             // A hidden title bar has no system menu. Its policy still guards
             // native close even though there is no menu affordance to update.
             if let menu = GetSystemMenu(handle, false) {
-                let previous = EnableMenuItem(
-                    menu, UINT(SC_CLOSE), UINT(MF_BYCOMMAND | (enabled ? MF_ENABLED : MF_GRAYED)))
-                guard previous != UINT.max else {
-                    throw NativeWindowOwnerFailure.execution(
-                        "EnableMenuItem could not update the native close affordance")
+                // WinSDK imports EnableMenuItem's BOOL result as Bool, which
+                // loses its distinct previous-state and -1 failure values.
+                // Read and update only the state field instead; these APIs
+                // have actual boolean success results.
+                var item = MENUITEMINFOW()
+                item.cbSize = UINT(MemoryLayout<MENUITEMINFOW>.size)
+                item.fMask = UINT(MIIM_STATE)
+                guard GetMenuItemInfoW(menu, UINT(SC_CLOSE), false, &item) else {
+                    throw nativeFailure("GetMenuItemInfoW(SC_CLOSE)")
+                }
+                item.fState = Win32NativeWindowUtilities.menuItemState(item.fState, enabled: enabled)
+                guard SetMenuItemInfoW(menu, UINT(SC_CLOSE), false, &item) else {
+                    throw nativeFailure("SetMenuItemInfoW(SC_CLOSE)")
                 }
                 if !DrawMenuBar(handle) { throw nativeFailure("DrawMenuBar") }
             }

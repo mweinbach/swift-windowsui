@@ -7968,3 +7968,30 @@ fit, bitmap resources, editor settlement, the two existing bitmap sizing
 suites and responsive gallery coverage; 32 of these methods are new in this
 integration branch. Compilation, runtime outcomes and retained visual review
 will be recorded separately after they occur. All original gates remain open.
+
+### Ninth implementation pass: first combined test run and directory URL fixture (2026-08-29)
+
+The first combined focused run compiled the root at
+`f029fff1387139653fc8c44baf60b094885d0df4` and executed all 64 selected async
+XCTest methods. Sixty-three passed, one failed, none skipped, and Swift Testing
+executed zero tests. Both existing bitmap GPU comparison methods, all nineteen
+finite-fit methods and all five editor-settlement methods passed. This was a
+failed run, not a successful focused or Full result.
+
+The sole failure was the copied-bundle test's exact URL equality: Bundle
+returned the owned directory with a trailing slash while the expected URL was
+constructed without a directory hint. Its following resource-containment and
+decoded-image equality assertions reported no failures. The fixture now marks
+that expected path as a directory when constructing it. It retains the exact
+standardized URL equality and both image-loading assertions; no production
+code, rendering tolerance, expected pixels or suite selection changed.
+
+The child exited naturally with code 1 after 336.579 seconds. Source and index
+endpoint checks passed, with no timeout or operator cleanup required. The raw
+log is retained under
+`artifacts/goal-ninth-image-editor-f029fff-550ff6582d0a407b895e833df7de63fe`;
+its SHA-256 is
+`d6af7b12112db1a2586cd0af2cbaa64802ae5ca3a6ae308cefd175dc652b46b7`.
+The separate failure reconciliation matches all 64 started/completed IDs to
+the selected source methods. A fresh run of the unchanged 64-case selection
+is required after this fixture correction. All original gates remain open.

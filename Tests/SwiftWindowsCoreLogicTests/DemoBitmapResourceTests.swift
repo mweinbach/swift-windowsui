@@ -173,7 +173,7 @@ final class DemoBitmapResourceTests: XCTestCase {
         }
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: false)
         defer { try? FileManager.default.removeItem(at: temporary) }
-        let copiedURL = temporary.appendingPathComponent(original.bundleURL.lastPathComponent)
+        let copiedURL = temporary.appendingPathComponent(original.bundleURL.lastPathComponent, isDirectory: true)
         try FileManager.default.copyItem(at: original.bundleURL, to: copiedURL)
         let copied = try XCTUnwrap(Bundle(url: copiedURL))
         XCTAssertEqual(copied.bundleURL.standardizedFileURL, copiedURL.standardizedFileURL)

@@ -255,6 +255,7 @@ try {
         $node -is [Management.Automation.Language.StringConstantExpressionAst] -and $node.Value.EndsWith(".ps1", [StringComparison]::Ordinal)
     }, $true) | ForEach-Object { $_.Value } | Sort-Object -Unique)
     Assert-MemoryIsolationFixture ($stageScriptNames -ccontains "test-swiftui-api-audit-memory.ps1") "the runner references the actual memory fixture"
+    Assert-MemoryIsolationFixture ($stageScriptNames -ccontains "test-copy-demo-resources.ps1") "the resource-copy stage receives a stub in every copied checkout"
     foreach ($scriptName in $stageScriptNames) {
         Assert-MemoryIsolationFixture ([IO.Path]::GetFileName($scriptName) -ceq $scriptName) "every stage reference stays inside the copied scripts directory"
     }
@@ -336,6 +337,13 @@ try {
     foreach ($mode in @("Quick", "Full")) {
         $case = Invoke-MemoryIsolationFixture -Name ($mode.ToLowerInvariant() + "-success") -RunnerArguments @("-" + $mode)
         Assert-MemoryIsolationFixture ($case.exitCode -eq 0) "$mode succeeds when the child succeeds"
+        $resourceCalls = @($case.calls | Where-Object script -CEQ "test-copy-demo-resources.ps1")
+        Assert-MemoryIsolationFixture ($resourceCalls.Count -eq 1 -and $resourceCalls[0].pid -eq $case.runnerPid -and @($resourceCalls[0].arguments).Count -eq 0) "$mode runs the resource-copy stub once in the original host without arguments"
+        Assert-MemoryIsolationFixture ($case.calls.Count -ge 4 -and
+            $case.calls[0].script -ceq "check-contracts.ps1" -and
+            $case.calls[1].script -ceq "test-checkout-metadata.ps1" -and
+            $case.calls[2].script -ceq "test-copy-demo-resources.ps1" -and
+            $case.calls[3].script -ceq "test-lint-paths.ps1") "$mode keeps resource copying between checkout metadata and lint path fixtures"
         $memoryCalls = @($case.calls | Where-Object script -CEQ "test-swiftui-api-audit-memory.ps1")
         $before = @($case.calls | Where-Object script -CEQ "test-swiftui-api-audit.ps1")
         $after = @($case.calls | Where-Object script -CEQ "test-swiftui-api-audit-workflow.ps1")
@@ -369,6 +377,8 @@ try {
     foreach ($mode in @("Quick", "Full")) {
         foreach ($outcome in @("exit", "throw", "missing")) {
             $case = Invoke-MemoryIsolationFixture -Name ($mode.ToLowerInvariant() + "-" + $outcome) -RunnerArguments @("-" + $mode) -MemoryOutcome $outcome
+            $resourceCalls = @($case.calls | Where-Object script -CEQ "test-copy-demo-resources.ps1")
+            Assert-MemoryIsolationFixture ($resourceCalls.Count -eq 1) "$mode reaches a $outcome memory child after the new resource-copy stub"
             if ($outcome -ceq "exit") {
                 Assert-MemoryIsolationFixture ($case.exitCode -eq 37) "$mode preserves the child's exact nonzero exit"
             } else {

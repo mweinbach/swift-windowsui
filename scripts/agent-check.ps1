@@ -85,6 +85,10 @@ Invoke-Step "checkout metadata fixtures" {
     & (Join-Path $PSScriptRoot "test-checkout-metadata.ps1")
 }
 
+Invoke-Step "demo resource bundle copy fixtures (synthetic only)" {
+    & (Join-Path $PSScriptRoot "test-copy-demo-resources.ps1")
+}
+
 Invoke-Step "lint explicit-path fixtures (synthetic only)" {
     & (Join-Path $PSScriptRoot "test-lint-paths.ps1")
 }

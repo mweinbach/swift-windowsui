@@ -106,7 +106,8 @@ var targets: [Target] = [
         ),
         .target(
             name: "SwiftWindowsDemo",
-            dependencies: ["WinSwiftUI"]
+            dependencies: ["WinSwiftUI"],
+            resources: [.process("Resources")]
         ),
         // The Windows composition root is the only target that pairs the
         // renderer-neutral WinSwiftUI facade with the D3D11 GPU backend.
@@ -173,7 +174,10 @@ var targets: [Target] = [
     ]
 
     targets += [
-        .target(name: "SwiftWindowsDemo"),
+        .target(
+            name: "SwiftWindowsDemo",
+            resources: [.process("Resources")]
+        ),
         .executableTarget(
             name: "swift-windowsui",
             dependencies: ["SwiftWindowsDemo"]

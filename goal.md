@@ -7903,3 +7903,40 @@ RTL, interpolation and native pixel/filtering conformance remain original
 requirements. Preserving older Windows fallback behavior does not establish
 native conformance. Legacy frame bitmap placement and the separate resource
 samples still need their own integration. All nine original gates remain open.
+
+### Ninth implementation pass: bundled bitmap examples and resource copying (2026-08-29)
+
+Two small owned PNG resources and a shared-source bitmap sample now demonstrate
+capped stretch, partial tile repeats, and capped aspect fit through ordinary
+Image APIs. Both Windows and macOS SwiftWindowsDemo targets declare the
+resource directory. The gallery adds a bitmap card and three deterministic
+128-by-128 fixtures. The catalog now contains 147 entries: 104 base examples,
+16 interaction states and 27 light variants. The reviewed baseline set remains
+85; these three new examples have not silently become accepted baselines.
+
+The source patch from private `ff2c0bcbbea987d7e0c9a67c575fed5e4dee4177`
+has SHA-256
+`50dc1dfbcfa19f5a79b6274c93d06083604d44309f50501b9caf7d425f03e940`.
+All seventeen staged postimages match that reviewed patch. Its eight new
+MainActor async XCTest methods cover actual generated bundle resources,
+named-image decoding, source/cap/repeat preservation, finite aspect fit,
+accessible names, gallery search, and an explicitly copied bundle. The
+aspect sample depends on the preceding retained fit implementation; it does
+not add a demo-specific sizing API or substitute a rendered expected bitmap.
+
+The resource-copy helper takes an explicit generated bundle path and preserves
+its whole basename, files and empty directories. It rejects replacement,
+redirection and source changes rather than guessing a SwiftPM output location.
+The Quick/Full ladder now includes its synthetic checks after checkout metadata
+and before lint. The separate memory-isolation harness retains its prior
+failure/timeout cases and verifies that this new stage executes once, in order.
+
+On the integrated root, all 28 synthetic resource-copy assertions and all 360
+memory-isolation assertions passed; the latter use stub stages, not real
+Quick/Full or memory workloads. Logs and retained fixtures are under
+`artifacts/goal-ninth-resource-source-checks-v1`. Root contracts and strict
+formatting of all seven changed Swift files also passed. The eight new XCTest
+methods, actual bundle relocation, new retained PNGs, macOS execution and
+joined Quick/Full remain unrun at this entry. Copying a resource bundle alone
+is not a complete executable package or clean-machine deployment proof.
+All original completion gates remain open.

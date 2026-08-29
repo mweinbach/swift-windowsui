@@ -24,7 +24,7 @@ struct DemoGalleryVisualShowcase: View {
                         .foregroundStyle(.primary)
                         .lineLimit(1)
 
-                    Text("Gradients, materials, motion, and typography")
+                    Text("Images, gradients, materials, motion, and type")
                         .font(DemoType.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -68,6 +68,8 @@ struct DemoGalleryVisualShowcase: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
+
+            DemoBitmapResizingShowcase()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

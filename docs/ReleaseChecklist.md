@@ -39,6 +39,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/demo-screenshot.ps1 
       (`artifacts/demo-screenshot.png`,
       `artifacts/demo-screenshot-frame.png`) and attached to the release or
       linked CI run
+- [ ] Shared demo resource bundle staged intact with every distributed demo,
+      snapshot, or gallery executable. Use the actual generated bundle path
+      and keep its basename/internal paths; do not copy only the PNGs or infer
+      the directory name from the executable. The explicit resource-copy
+      helper and required relocation checks are documented in
+      [`DemoBitmapResources.md`](DemoBitmapResources.md).
 
 ## 2. Manual release smoke
 
@@ -49,6 +55,13 @@ the result. Launch the demo with `scripts/run-demo.ps1` (or
 - [ ] **Core interaction:** launch `swift-windowsui`; resize the window,
       scroll all four demo tabs, tab through keyboard focus, activate
       buttons with keyboard and mouse
+- [ ] **Relocated bitmap resources:** launch the staged demo from an unrelated
+      working directory on a machine without the original build tree. Confirm
+      the Gallery's cap-inset, tile, and aspect-fit examples load the staged
+      bundle, and record its resolved URL inside the package. A missing-bundle
+      negative control must fail qualification, not use a build-directory
+      fallback. The resource helper does not stage the executable or Swift
+      runtime DLLs; those deployment checks remain required separately.
 - [ ] **Multi-window open/close:** settings tab → "Open Second Window"
       (`openWindow(id:)`); confirm the second window renders independently,
       dismiss it, and confirm the primary window is unaffected; close all

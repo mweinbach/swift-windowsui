@@ -67,7 +67,7 @@ enum DemoGalleryCategory: String, CaseIterable, Hashable {
         case .controls:
             return "Buttons, text input, toggles, pickers, sliders, and progress"
         case .visuals:
-            return "Gradients, materials, motion, typography, color, and surfaces"
+            return "Images, gradients, materials, motion, typography, color, and surfaces"
         case .presentations:
             return "Sheets, popovers, alerts, confirmation dialogs, and menus"
         }
@@ -113,6 +113,7 @@ enum DemoGalleryCategory: String, CaseIterable, Hashable {
                 "visual", "render", "rendering", "gpu", "software", "gradient", "linear", "radial",
                 "angular", "glass", "material", "blur", "shape", "animation", "motion", "font",
                 "type", "typography", "swatch", "color", "clip", "surface", "transform",
+                "image", "bitmap", "resource", "resizable", "cap insets", "tile", "tiling", "aspect fit",
             ]
         case .presentations:
             return [

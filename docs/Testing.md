@@ -1157,11 +1157,40 @@ current scroll geometry remains usable without another layout pass.
 
 `scripts/gallery-compare.ps1` turns the `swift-windowsui-gallery` tool into a visual regression gate for Supported-tier controls.
 
-- The full gallery contains **144** rendered examples; the gate covers a fixed
+- The full gallery contains **147** renderable examples; the gate covers a fixed
   subset of **85** reviewed entries across three tiers. The roster lives at the
   top of `scripts/gallery-compare.ps1`.
   Time-dependent entries (e.g. indeterminate progress) are deliberately
   excluded because their renders are not frame-stable.
+
+The three additional bitmap entries are `bitmap-cap-insets`, `bitmap-tile`,
+and `bitmap-aspect-fit` (128 by 128 canvases). They reuse the same
+`DemoBitmapResizingSample` as the live Gallery and add no reviewed baselines.
+The catalog now has 104 base entries, 16 interaction entries, and 27 derived
+light entries. Their source declaration is not evidence of a successful
+render. In particular, the aspect-fit entry and its geometry test depend on
+the finite-proposal bitmap layout implementation; keep them unqualified until
+that combined source is compiled, tested, and rendered.
+
+`DemoBitmapResourceTests` adds eight async cases for the real demo module's
+named PNG lookup, decoded pattern pixels, cap/tile geometry and sampling,
+finite aspect fit, accessibility labels, search terms, and an explicitly
+supplied copied bundle. The copied-bundle case does not launch a relocated
+executable or exercise its generated resource accessor. Run it with the
+bitmap resize/fit suites and inspect the three retained gallery PNGs after
+the runtime join. The existing responsive Gallery test also requires the
+new Bitmap images card.
+
+Quick and Full run `scripts/test-copy-demo-resources.ps1`, whose synthetic
+filesystem cases exercise the resource staging helper without SwiftPM,
+native image loading, or a demo process. They check complete recursive
+copying, exact source/destination bytes, preserved metadata/empty directories,
+and refusal of missing or ambiguous resources, existing bundles, and invalid
+destinations. These checks do not qualify executable or Swift DLL deployment;
+see [`DemoBitmapResources.md`](DemoBitmapResources.md).
+The copied agent-check process fixtures also require the new stage to be
+stubbed exactly once between checkout metadata and lint fixtures. Their
+existing failed/missing memory-child stopping rules and timeouts remain intact.
 
 | Tier | Entries | What it pins |
 | --- | --- | --- |

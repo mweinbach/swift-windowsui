@@ -293,7 +293,7 @@ final class DemoGalleryResponsiveTests: XCTestCase {
             XCTAssertNotNil(textNode(in: root, title), "the live component workbench should contain \(title)")
         }
 
-        for title in ["Gradient lab", "Glass & materials", "Motion studio", "Type & color"] {
+        for title in ["Gradient lab", "Glass & materials", "Motion studio", "Type & color", "Bitmap images"] {
             XCTAssertNotNil(textNode(in: root, title), "the rendering showcase should contain \(title)")
         }
 

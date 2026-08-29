@@ -1,5 +1,6 @@
 import Foundation
 import SwiftWindowsCore
+import SwiftWindowsDemo
 import SwiftWindowsGraphics
 import SwiftWindowsUI
 import WinSDK
@@ -1090,6 +1091,18 @@ struct SwiftWindowsUIGalleryTool {
                     .frame(width: 290, height: 204, alignment: .leading)
                 ),
                 size: IntSize(width: 320, height: 240)),
+            GallerySpec(
+                id: "bitmap-cap-insets", title: "Bitmap Fixed Cap Insets",
+                view: AnyView(DemoBitmapResizingSample(.cappedStretch).padding(16)),
+                size: IntSize(width: 128, height: 128)),
+            GallerySpec(
+                id: "bitmap-tile", title: "Bitmap Repeating Tiles",
+                view: AnyView(DemoBitmapResizingSample(.tile).padding(16)),
+                size: IntSize(width: 128, height: 128)),
+            GallerySpec(
+                id: "bitmap-aspect-fit", title: "Capped Bitmap Aspect Fit",
+                view: AnyView(DemoBitmapResizingSample(.aspectFit).padding(16)),
+                size: IntSize(width: 128, height: 128)),
             GallerySpec(
                 id: "status-badges", title: "Semantic Status Badges",
                 view: AnyView(

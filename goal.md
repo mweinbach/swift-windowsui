@@ -6601,3 +6601,61 @@ controls likewise do not inherit qualification from the earlier279 pure checks.
 All original sections1-9, all nine open completion gates and the exact
 38e855d goal prefix are preserved. No failed, unrun, unsupported or
 source-only result is promoted to completion by this entry.
+
+### 2026-08-29: corrected List keyboard focus passes the focused runtime suite
+
+The seven-path List change is committed as `ed07d34ef5eb851dacae3fc2f34c7d6c570dc013`.
+Its tree is exactly `600b31ffc36f21d525a02171f2f7387ac8ce7a98`, the staged tree
+tested against parent commit `d8bfc27631d29f1e67e97c7f7786d505796fb897`.
+The change keeps the original keyboard handler's physical attachment and runtime
+authority through a synchronous rebuild, then uses a single prepared layout
+receipt to reveal and focus a retained deferred row. Reentrant changes to that
+receipt, focus, attachment, or geometry reject stale follow-up work. Ordinary
+focus and UI Automation keep their existing admission rules.
+
+The corrected focused run `goal-seventh-root-list-focus95-v2` closed naturally
+with exit zero (`3aed29`, session `49992`, completion `6fa361/0`). All six stock
+serial invocations passed. A separate raw-log check found 95 unique starts and
+95 matching terminals in the same order, all PASS, with no skipped or failed
+case. This includes the original far-row keyboard selection regression, the
+synchronous host rebuild, stale-handler rejection, and same-geometry layout
+receipt supersession. The run preserved all 798 tracked regular source files,
+the staged tree, and the physical index; it needed no timeout or intervention.
+Contracts and strict formatting checks had passed before this run. The two-line
+test repair uses the existing internal runtime identity accessor and changes
+neither the assertion's meaning nor production access control.
+
+Before another root SwiftPM command, a separate copy-only capture preserved the
+four run files, index, three source inputs, test executable, four generated Swift
+files, and four build metadata files: 17 payloads, with nine compiled artifacts.
+It closed as `5d8c30/0`; the manifest is
+`artifacts/goal-seventh-root-list-focus95-postrun-v2/manifest.json`
+(7,790 bytes, SHA256 `10b56697c065ebb813332bd11b4faaad075609653685e9e5838089cae4a855b2`).
+The compiled CoreLogic registry changed to the corrected build. Full comparison
+against the 5,479 source XCTest declarations and exact stock selection remains
+a separate copied-input audit at this checkpoint. The executable was copied,
+not invoked by the capture. Endpoint hashes and a retained direct-child exit do
+not establish continuous immutability or complete descendant/build provenance.
+
+The earlier focused93 failure has now been independently reconciled without
+rerunning tests (`4145a3/0`). Its 5,477 generated XCTest identities and adapter
+flags match that earlier source. Exactly 18 cases started and terminated:
+17 PASS and the one recorded synchronous-rebuild assertion FAIL. The remaining
+75 cases in five invocations were unrun. There were no framing or lifecycle
+ambiguities, and the failed stop boundary matched the preserved closure.
+The metadata audit's exit zero does not replace the original test exit one.
+The failed95 compile attempt likewise remains a distinct zero-test failure;
+neither failure packet is overwritten or counted as passing coverage.
+
+The DatePicker successor's corrected metadata admission also closed successfully
+(`92f717`, session `59694`, `b48824/0`). All 64 recorded Git calls exited zero;
+the source/index, 96 fixed input pins, 72 reserved output names, and the planned
+175-case selection matched. This follows the separately preserved admission
+failure and the narrow, tested Windows executable-mode comparison correction.
+It is metadata evidence only: all 175 runtime cases remain unrun.
+
+This checkpoint does not close any of the original nine completion gates.
+Public List construction is still eager; the separate lazy state/activity bridge
+and animated deferred-focus completion are unfinished. Root Quick and Full
+validation, fresh gallery/backend evidence, and the grouped push remain pending.
+The original scope, acceptance targets, and earlier failed evidence are unchanged.

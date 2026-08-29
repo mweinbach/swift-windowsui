@@ -13012,7 +13012,7 @@ public final class RetainedViewRuntime {
                 lazyListUnsupportedThisPass = true
                 continue
             }
-            if update.extentChanged {
+            if update.requiresLayout {
                 // Invalidate the old geometry before capturing this owned
                 // anchor correction. Active input, authored anchors, and
                 // explicit requests retain priority over its later range clamp.

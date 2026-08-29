@@ -9049,3 +9049,37 @@ Realize failures. No completion gate or work limit changes here.
   media grid/list behavior, asynchronous thumbnails, image preview and outgoing
   drag remain original requirements; this text-preview slice does not replace
   them. The unchanged original goal and all nine completion gates remain open.
+
+### Ninth integration: distinguish measured metadata from changed geometry, 2026-08-29
+
+- The List adapter now distinguishes `extentChanged` bookkeeping from a
+  `requiresLayout` signal. Publishing the first actual leaf-count/vector no
+  longer invalidates geometry when that record's exact measured total equals
+  its estimate and the runtime has already placed its actual leaves. This
+  removes a redundant layout round without refunding any work already spent.
+- The exception is per record and uses exact equality. A one-ULP size change,
+  redistribution of already-known leaf heights, or opposing changes in two
+  records still requires layout. Unknown leading gaps still withhold measurement
+  and settlement. Existing metadata updates, anchors for changed geometry,
+  attachment/visit/generation checks and callback ordering remain intact.
+  Production element/round limits and existing test assertions are unchanged.
+- Eight new async `LazyListMeasurementLayoutTests` cover five raw signal
+  boundaries and three actual managed-runtime cases: exact two-round settlement,
+  one-round exhaustion, and shorter rows that expose more work after two rounds.
+  These are additional tests, not a replacement for the failed UIA realization
+  cases or their four/eight/sixteen-round diagnostics.
+- Source origin is `e15af9729e6dd327a6fb8c1ce92812627e8acb31` on exact `f7d055f`.
+  The 14,632-byte patch has SHA-256
+  `5c8dd4e3ac68450fee6ff2d579703977ca0bc4cbaeda887dc039d01580884e36`.
+  Parent intake `e55a7f/0` verified twelve passive payloads totaling 2,265,608
+  bytes. Its manifest uses the explicit `payloadFiles` list; the first helper
+  call rejected that schema before copying or changing source. The preserved
+  original manifest was then read with that explicitly selected list key.
+- Parent application `feea27/0` matched all three postimages exactly on the
+  material/FilePreview composition. Strict lint and contracts passed
+  (`362f3a/0`); source review found no blocker. The new tests and implementation
+  remain uncompiled/unrun at this commit. Default-four-round `Realize` is not
+  claimed fixed: its existing preparation, target, gap and reveal phases still
+  need a separately checked continuation design. Fractional-spacing/large-prefix
+  cases and complete original goal qualification remain open. All prior goal
+  text and all nine completion gates are preserved.

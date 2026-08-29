@@ -133,6 +133,7 @@ package final class RetainedLazyListRuntimeAdapter {
 
     package struct MeasurementUpdate {
         package let extentChanged: Bool
+        package let requiresLayout: Bool
         package let anchorAdjustedOffset: Double?
     }
 
@@ -1682,6 +1683,7 @@ package final class RetainedLazyListRuntimeAdapter {
         var updates: [ExtentUpdate] = []
         var heights: [RetainedLazyListRowToken: [Double]] = [:]
         var changed = false
+        var requiresLayout = false
         for (token, values) in measured {
             guard values.allSatisfy({ $0 != nil }) else { return nil }
             guard let record = mounted[token], recordIsCurrent(record) else { return nil }
@@ -1692,7 +1694,16 @@ package final class RetainedLazyListRuntimeAdapter {
             else { return nil }
             heights[token] = complete
             updates.append(ExtentUpdate(token: token, previous: previous, next: next))
-            changed = changed || previous != next || mounted[token]?.extents != complete
+            let recordChanged = previous != next || record.extents != complete
+            changed = changed || recordChanged
+            // Runtime already placed this first actual leaf batch using its
+            // measured local heights. Publishing confidence alone does not
+            // move a record boundary. Compare each record exactly: opposing
+            // changes to two records still move their intervening boundary.
+            let firstMeasurementPreservesGeometry =
+                previous.measuredLeafCount == nil && record.extents == nil
+                && previous.totalExtent == next.totalExtent
+            requiresLayout = requiresLayout || (recordChanged && !firstMeasurementPreservesGeometry)
         }
         let anchor = extentIndex?.captureAnchor(at: viewport.offset)
         guard applyExtentUpdates(updates, context: viewport.context) else { return nil }
@@ -1707,7 +1718,8 @@ package final class RetainedLazyListRuntimeAdapter {
         } else {
             unresolvedWork = true
         }
-        return MeasurementUpdate(extentChanged: changed, anchorAdjustedOffset: adjustedOffset)
+        return MeasurementUpdate(
+            extentChanged: changed, requiresLayout: requiresLayout, anchorAdjustedOffset: adjustedOffset)
     }
 
     /// Revoke before an external structural mutation or attachment change.

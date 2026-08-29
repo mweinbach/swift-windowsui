@@ -196,7 +196,8 @@ internal struct CanvasSymbolFrameRenderer {
                 commands.append(
                     .drawBitmap(
                         DrawBitmapCommand(
-                            rect: transformed, bitmap: bitmap, opacity: min(1, opacity), clipRect: clipRect)))
+                            rect: transformed, bitmap: bitmap, opacity: min(1, opacity), clipRect: clipRect,
+                            placement: .destinationRect)))
                 return
             }
             // The even device-grid origin preserves the reference rasterizer's
@@ -248,7 +249,7 @@ internal struct CanvasSymbolFrameRenderer {
                 .drawBitmap(
                     DrawBitmapCommand(
                         rect: deviceBounds.scaled(by: 1 / scale), bitmap: composed,
-                        opacity: min(1, opacity), clipRect: clipRect)))
+                        opacity: min(1, opacity), clipRect: clipRect, placement: .devicePixelRaster)))
         }
     }
 
@@ -332,7 +333,9 @@ internal struct CanvasSymbolFrameRenderer {
             pixels: Data([255, 0, 255, 255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 0, 255, 255]))
         commands.append(
             .drawBitmap(
-                DrawBitmapCommand(rect: visible, bitmap: bitmap, opacity: min(1, opacity), clipRect: visible)))
+                DrawBitmapCommand(
+                    rect: visible, bitmap: bitmap, opacity: min(1, opacity), clipRect: visible,
+                    placement: .destinationRect)))
     }
 
     private static func isFinite(_ rect: Rect) -> Bool {

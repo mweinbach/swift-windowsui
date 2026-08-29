@@ -410,7 +410,10 @@ final class D3D11FrameKernel {
         // a downgraded session instead of being soft-skipped below. Runs on
         // both the Direct2D and D3D11 fallback branches; frames without path
         // commands pass through unchanged.
-        let frame = FramePathDegradation.degradingPathsToBitmaps(in: frame, scaleFactor: scaleFactor)
+        // Placement admission precedes path expansion and both native drawing
+        // branches. Refusals retain original command indices and are reported
+        // once, before any bitmap upload; valid siblings still present.
+        let frame = prepareFrameForNativeDrawing(frame, scaleFactor: scaleFactor)
 
         // Present sits *outside* this block on purpose. It used to be the
         // last statement inside the Direct2D `do`, so a present error — a
@@ -1262,11 +1265,7 @@ final class D3D11FrameKernel {
             return
         }
 
-        let alignedRect = makeLogicalBitmapRect(
-            from: command.rect,
-            bitmapSize: IntSize(width: command.bitmap.width, height: command.bitmap.height),
-            scaleFactor: scaleFactor
-        )
+        let alignedRect = logicalBitmapRect(for: command, scaleFactor: scaleFactor)
 
         if let clipRect = command.clipRect, clipRect.intersected(with: alignedRect) == nil {
             return
@@ -1912,12 +1911,40 @@ private func scaled(fillRect command: FillRectCommand, factor: Double) -> FillRe
     )
 }
 
-/// The old frame path paints pre-rasterized bitmaps at their pixel dimensions.
-/// Raw cap/tile images instead retain their requested destination geometry.
+/// Native branches share this admission before Direct2D capability selection
+/// or path degradation. Kept outside the COM owner so the exact preparation
+/// can be tested without claiming an HWND-backed frame has been rendered.
+func prepareFrameForNativeDrawing(
+    _ frame: RenderFrame,
+    scaleFactor: Double,
+    onFailure: ((FrameBitmapPlacementFailure) -> Void)? = nil
+) -> RenderFrame {
+    let admission = frame.admittingBitmapPlacements(validatingDestination: {
+        nativeFrameBitmapPlacementFailure($0, scaleFactor: scaleFactor)
+    })
+    admission.reportFailures(to: onFailure)
+    return FramePathDegradation.degradingPathsToBitmaps(in: admission.frame, scaleFactor: scaleFactor)
+}
+
+/// Validates exactly the rectangles consumed by both native draw branches,
+/// before coordinates reach a native draw or bitmap upload. This does not apply cap/tile
+/// numeric limits to ordinary destination-rectangle images.
+func nativeFrameBitmapPlacementFailure(
+    _ command: DrawBitmapCommand, scaleFactor: Double
+) -> BitmapPlacementFailure? {
+    if let failure = command.placementFailure { return failure }
+    guard scaleFactor.isFinite else { return .nonfiniteDestinationGeometry }
+    return BitmapPlacementFailure.validatingDestination(scaled(bitmap: command, factor: scaleFactor).rect)
+        ?? BitmapPlacementFailure.validatingDestination(logicalBitmapRect(for: command, scaleFactor: scaleFactor))
+}
+
+/// Only explicitly declared destination-sized rasters use physical dimensions.
+/// Legacy sampling alone says nothing about an authored image's destination.
+/// Empty logical destinations stay empty instead of acquiring a source extent.
 /// Copying the command preserves sampling, blend data, and any future fields.
 func scaled(bitmap command: DrawBitmapCommand, factor: Double) -> DrawBitmapCommand {
     var result = command
-    if command.sampling.isLegacy {
+    if command.placement == .devicePixelRaster, !command.rect.isEmpty {
         result.rect = makePixelAlignedBitmapRect(
             from: command.rect,
             bitmapSize: IntSize(width: command.bitmap.width, height: command.bitmap.height),
@@ -1928,6 +1955,19 @@ func scaled(bitmap command: DrawBitmapCommand, factor: Double) -> DrawBitmapComm
     }
     result.clipRect = command.clipRect?.scaled(by: factor)
     return result
+}
+
+/// Direct2D draws in logical units; ordinary images retain their complete
+/// authored rectangle. Device rasters preserve the historical snapped blit.
+func logicalBitmapRect(for command: DrawBitmapCommand, scaleFactor: Double) -> Rect {
+    if command.placement == .devicePixelRaster, !command.rect.isEmpty {
+        return makeLogicalBitmapRect(
+            from: command.rect,
+            bitmapSize: IntSize(width: command.bitmap.width, height: command.bitmap.height),
+            scaleFactor: scaleFactor
+        )
+    }
+    return command.rect
 }
 
 /// Capability selection happens before Direct2D BeginDraw. It does not disable

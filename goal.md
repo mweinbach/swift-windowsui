@@ -8190,3 +8190,37 @@ behavior. Stage B and the original identity/raw-payload review requirements
 remain open. The separate native/List integration also passed strict lint of
 all 144 changed Swift files; its runtime tests remain pending. No original
 completion gate is changed or closed.
+
+### Ninth implementation pass: explicit frame bitmap placement (2026-08-29)
+
+Frame bitmap commands now distinguish an authored logical destination from an
+already completed device-pixel raster. Ordinary Image, Canvas and cached
+axis-aligned symbol producers use the destination; text, path and affine
+raster producers mark their physical pixels explicitly. Existing initializer
+function values remain supported. The native plans preserve the positive
+29-by-15 raster at scale 1.5 and keep zero or negative logical extents empty
+before considering source dimensions.
+
+Shared admission records typed placement failures with original command
+indices before resource registration or native branch selection. Rejected
+bitmaps do not remove valid siblings or alter clip order; a supplied observer
+or stderr receives the refusal. A successful accepted partial frame is not a
+claim that rejected commands painted. Source images, sampling policy, the
+128-byte ImagePrimitive ABI and tile-phase limits remain unchanged. Legacy
+POINT/nearest filtering still differs from the linear CPU/batch-scene path.
+
+The reviewed native/List-relative patch is from
+`af26a7ea89b8e964f08f56efc22ad3bacf5e191d`, SHA-256
+`4bb3753403d659524ed9300b7b45d3f34fcf019f106e3689f07dd5ebf2757a5f`.
+All fifteen changed production/test postimages match that source on the root.
+The native kernel/facade split, captured scale, complete frame transport,
+submission/device identities and teardown remain preserved. The independent
+native-boundary source review found no blocker; root contracts, strict lint
+of all fifteen Swift paths and whitespace checks passed.
+
+The three new test files contain 31 async methods, including the two empty-
+extent regressions; their full source remains unchanged from the reviewed
+candidate. Compilation and execution, actual native frame rendering and
+fractional filtering remain pending. This source integration does not inherit
+the earlier foundation's CPU gallery or focused-test result. All original
+completion gates remain open.

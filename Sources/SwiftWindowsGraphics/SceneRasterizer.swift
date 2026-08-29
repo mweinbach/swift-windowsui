@@ -78,8 +78,21 @@ public enum GPUIRawSceneRasterizer {
     }
 
     public static func rasterize(_ frame: RenderFrame, size: IntSize) -> BitmapSurface {
+        rasterize(frame, size: size, onBitmapPlacementFailure: nil)
+    }
+
+    /// Retains the frame bridge's explicit partial-frame admission. The observer
+    /// receives typed placement refusals once; nil reports to stderr rather than
+    /// silently omitting rejected bitmap commands. The original overload keeps
+    /// its two-argument function type.
+    public static func rasterize(
+        _ frame: RenderFrame, size: IntSize,
+        onBitmapPlacementFailure: ((FrameBitmapPlacementFailure) -> Void)?
+    ) -> BitmapSurface {
         let surfaceSize = Size(width: Double(max(1, size.width)), height: Double(max(1, size.height)))
-        return rasterize(GPUIScene(from: frame, surfaceSize: surfaceSize), size: size)
+        return rasterize(
+            GPUIScene(from: frame, surfaceSize: surfaceSize, onBitmapPlacementFailure: onBitmapPlacementFailure),
+            size: size)
     }
 
     /// Rasterize a single path primitive to a bitmap sized to its masked bounds.

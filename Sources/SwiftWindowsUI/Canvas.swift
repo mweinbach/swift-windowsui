@@ -479,7 +479,8 @@ extension CanvasGraphicsContext {
                                 rect: effectiveRect,
                                 bitmap: bitmap,
                                 opacity: effectiveOpacity,
-                                clipRect: currentClip
+                                clipRect: currentClip,
+                                placement: .destinationRect
                             )))
                 }
 

@@ -377,6 +377,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   `WinSwiftUIBitmapStretchTests` keeps the default and intrinsic behavior checks.
   Test source and a compile-only build are not execution evidence; native
   SwiftUI pixels and unsupported cap/phase cases remain separate requirements.
+- `D3D11FrameBitmapPlacementTests`, `FrameBitmapPlacementAdmissionTests`, and
+  `FrameBitmapProducerPlacementTests` specify logical destinations versus
+  completed device rasters, shared typed refusal, sibling/clip order, and all
+  eight bitmap constructors. The native preparation tests are analytic, not
+  HWND rendering. CPU and batch-scene results do not qualify actual native
+  frame execution or its unchanged point filtering. See
+  [frame bitmap placement](BitmapFramePlacement.md) for the remaining evidence.
 - `LiveDiagnosticsAccountingTests` and `LiveDiagnosticsReportTests` cover
   rebuild intervals before/inside a frame, nested reloads, carryover, monotonic
   warmup, phase populations, and schema-2 nulls for missing evidence. Their

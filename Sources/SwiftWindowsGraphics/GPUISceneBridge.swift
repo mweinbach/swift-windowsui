@@ -51,13 +51,28 @@ extension GPUIScene {
     ///   - surfaceSize: The surface dimensions, used as the default clip rect
     ///     when no explicit clip is active.
     public init(from frame: RenderFrame, surfaceSize: Size) {
+        self.init(from: frame, surfaceSize: surfaceSize, onBitmapPlacementFailure: nil)
+    }
+
+    /// Reports each typed placement refusal once at this boundary. A nil
+    /// observer reports to stderr, including in release builds. Valid siblings
+    /// remain in order; rejected source resources are never registered.
+    /// `frame.admittingBitmapPlacements()` retains the structured partial-frame
+    /// result without reporting. The original two-argument initializer remains
+    /// available, including as a function value.
+    public init(
+        from frame: RenderFrame, surfaceSize: Size,
+        onBitmapPlacementFailure: ((FrameBitmapPlacementFailure) -> Void)?
+    ) {
+        let admission = frame.admittingBitmapPlacements()
+        admission.reportFailures(to: onBitmapPlacementFailure)
         self = GPUIScene(clearColor: frame.clearColor)
 
         // Clip stack entries track both the clip rect and whether it was a "replace" operation
         // For replace operations, we don't intersect with parent clips
         var clipStack: [ClipStackEntry] = []
 
-        for command in frame.commands {
+        for command in admission.frame.commands {
             switch command {
             case .fillRect(let cmd):
                 // Skip commands that result in an empty effective clip

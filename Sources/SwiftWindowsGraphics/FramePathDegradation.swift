@@ -144,10 +144,10 @@ public enum FramePathDegradation {
             return nil
         }
 
-        // The frame backends draw bitmaps 1:1 against physical pixels and take
-        // the draw origin from the command rect (see makeLogicalBitmapRect /
-        // makePixelAlignedBitmapRect in D3D11Renderer), so report the masked
-        // origin back in logical coordinates.
+        // This completed raster uses an explicit device-pixel blit: native
+        // frame backends preserve its physical dimensions and take the draw
+        // origin from the command rect, so report the masked origin in
+        // logical coordinates. Ordinary image commands can instead resize.
         return DrawBitmapCommand(
             rect: Rect(
                 x: maskedBounds.origin.x / scaleFactor,
@@ -157,7 +157,8 @@ public enum FramePathDegradation {
             ),
             bitmap: bitmap,
             opacity: 1,
-            clipRect: clipRect
+            clipRect: clipRect,
+            placement: .devicePixelRaster
         )
     }
 }

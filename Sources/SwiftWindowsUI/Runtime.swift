@@ -9252,7 +9252,8 @@ public final class ViewNode {
                         bitmap: bitmapSurface,
                         opacity: effectiveOpacity,
                         clipRect: effectiveClipRect,
-                        sampling: sampling
+                        sampling: sampling,
+                        placement: .destinationRect
                     )
                 )
             )

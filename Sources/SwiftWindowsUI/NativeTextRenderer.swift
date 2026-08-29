@@ -555,7 +555,8 @@ enum GDIRasterTextRenderer {
                     rect: Rect(origin: rect.origin, size: rasterSize),
                     bitmap: bitmap,
                     opacity: 1.0,
-                    clipRect: clipRect
+                    clipRect: clipRect,
+                    placement: .devicePixelRaster
                 )
             )
         )

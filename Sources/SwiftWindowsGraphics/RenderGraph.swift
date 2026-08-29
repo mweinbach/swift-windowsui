@@ -1033,6 +1033,8 @@ public struct BitmapSurface: Equatable, Sendable {
     }
 }
 public struct DrawBitmapCommand: Equatable, Sendable {
+    /// Logical destination. Native frame presenters only replace its extent
+    /// for an explicitly declared destination-sized device-pixel raster.
     public var rect: Rect
     public var bitmap: BitmapSurface
     public var opacity: Float
@@ -1040,7 +1042,10 @@ public struct DrawBitmapCommand: Equatable, Sendable {
     /// Gap 4 fix: per-command blend mode, defaults to .normal.
     public var blendMode: BlendMode
     public var sampling: ImageSamplingDescriptor
+    public var placement: BitmapPlacement
 
+    /// Keeps the original initializer's function type as well as its call
+    /// syntax. Ordinary bitmap commands occupy their requested destination.
     public init(
         rect: Rect,
         bitmap: BitmapSurface,
@@ -1049,12 +1054,27 @@ public struct DrawBitmapCommand: Equatable, Sendable {
         blendMode: BlendMode = .normal,
         sampling: ImageSamplingDescriptor = .legacy
     ) {
+        self.init(
+            rect: rect, bitmap: bitmap, opacity: opacity, clipRect: clipRect, blendMode: blendMode,
+            sampling: sampling, placement: .destinationRect)
+    }
+
+    public init(
+        rect: Rect,
+        bitmap: BitmapSurface,
+        opacity: Float = 1.0,
+        clipRect: Rect? = nil,
+        blendMode: BlendMode = .normal,
+        sampling: ImageSamplingDescriptor = .legacy,
+        placement: BitmapPlacement
+    ) {
         self.rect = rect
         self.bitmap = bitmap
         self.opacity = opacity
         self.clipRect = clipRect
         self.blendMode = blendMode
         self.sampling = sampling
+        self.placement = placement
     }
 }
 public struct FillPathCommand: Equatable, Sendable {

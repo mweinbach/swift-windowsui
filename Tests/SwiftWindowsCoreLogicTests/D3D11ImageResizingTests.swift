@@ -72,6 +72,7 @@ final class D3D11ImageResizingTests: XCTestCase {
 
         var legacy = command
         legacy.sampling = .legacy
+        legacy.placement = .devicePixelRaster
         let legacyResult = scaled(bitmap: legacy, factor: 1.5)
         XCTAssertEqual(legacyResult.rect, Rect(x: 15, y: 8, width: 1, height: 1))
         XCTAssertEqual(legacyResult.sampling, .legacy)

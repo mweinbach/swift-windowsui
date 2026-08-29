@@ -190,6 +190,9 @@ and the documented
 [scaledToFit alias](https://developer.apple.com/documentation/swiftui/view/scaledtofit%28%29/).
 The inspected native reference catalog has no bitmap aspect fixture. Native
 capture, fractional filtering, and full modifier-order behavior remain open.
-In addition, a retained-scene or CPU frame result does not qualify the legacy
-D3D11 frame bitmap path, whose canonical legacy placement still uses source
-pixel dimensions. That backend limit is unchanged by this layout slice.
+In addition, a retained-scene or CPU frame result does not qualify the native
+frame bitmap presenter. Its current source now distinguishes authored logical
+destinations from completed device-pixel rasters; see
+[BitmapFramePlacement.md](BitmapFramePlacement.md). That geometry change still
+needs combined execution, and native filtering and presentation remain separate
+qualification requirements.

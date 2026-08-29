@@ -157,8 +157,8 @@ package struct Win32CapturedPointerInput: Sendable {
     package let kind: Kind
     package let point: Point
     package let scaleFactor: Double
-    fileprivate let windowIdentity: UUID
-    fileprivate let lifetimeID: UUID?
+    fileprivate let windowIdentity: Foundation.UUID
+    fileprivate let lifetimeID: Foundation.UUID?
     fileprivate let sequence: UInt64
 
     @MainActor
@@ -624,7 +624,7 @@ public final class Win32Window: PlatformWindow {
     private var hasDeliveredWillClose = false
     private var windowLifetimeGeneration: UInt64 = 0
 
-    private let pointerInputIdentity = UUID()
+    private let pointerInputIdentity = Foundation.UUID()
     private var capturedPointerInputSequence: UInt64 = 0
     private var deliveredPointerInputSequence: UInt64 = 0
 
@@ -2021,7 +2021,7 @@ public final class Win32Window: PlatformWindow {
     /// which also lets no-HWND host tests use the production delivery path.
     /// Every real create owns a distinct close-lifetime UUID, even if its HWND
     /// or diagnostic generation is later reused. This reads no close approval.
-    private func permitsPointerInput(lifetimeID: UUID?) -> Bool {
+    private func permitsPointerInput(lifetimeID: Foundation.UUID?) -> Bool {
         guard !hasDeliveredWillClose, closeControl.lifetime?.id == lifetimeID else { return false }
         guard let lifetime = closeControl.lifetime else { return hwnd == nil && !ownsRetainedSelfReference }
         return !lifetime.destructionStarted && !lifetime.destructionCompleted && !lifetime.creationFailed

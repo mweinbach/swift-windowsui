@@ -7484,3 +7484,23 @@ Windows selection policies and the still-open graphical clock, grid-arrow
 roving focus, localization of navigation action names, full generic API/style
 surface, native accessibility, and native pixel comparisons. This slice does
 not close any original completion gate or exempt these remaining behaviors.
+
+### Eighth validation pass: pointer UUID collision found and corrected
+
+The first combined Full run on `30737f4` failed during portable-stage package
+compilation after 16 preceding validation stages passed. Both the direct
+PowerShell process and outer runner returned 1 naturally after 475.047 seconds;
+tracked source and index bytes were preserved, with no timeout or cleanup
+intervention. No XCTest cases ran. The failed receipts, raw log, and affected
+source/tests are retained in `artifacts/goal-eighth-full-30737f4-failure-v1`.
+
+`Win32Host.swift` imports both Foundation and WinSDK. Four unqualified UUID
+references in the pointer slice selected WinSDK's GUID alias, conflicting with
+the Foundation UUID used by close lifetimes. The window identity initializer
+also constructed a zero GUID instead of a fresh Foundation identity. All four
+references are now explicitly `Foundation.UUID`, preserving the intended
+per-window and per-lifetime identity checks. No test oracle, filter, skip, or
+acceptance threshold changed. Contracts and strict lint passed after this fix;
+the corrected combined source still requires fresh compiler/test/render
+validation. The failed run is not counted as a partial release pass, and every
+original completion gate remains open.

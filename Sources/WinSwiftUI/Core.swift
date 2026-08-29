@@ -19635,8 +19635,8 @@ private func aspectRatioPreferredSize(
             : Size(width: baseSize.width, height: baseSize.width / ratio)
     }
 }
-// These legacy preference/task adapters still use their existing callsite
-// bookkeeping. Mounted onChange does not read or write this registry.
+// The legacy task(id:) adapter still uses its existing callsite bookkeeping.
+// Mounted change and preference observations do not use this registry.
 @MainActor
 private final class OnChangeObservationRegistry {
     static let shared = OnChangeObservationRegistry()
@@ -19748,10 +19748,32 @@ private func stageOnChangeObservation<Value: Equatable>(
     value: Value, initial: Bool, action: @escaping (Value, Value) -> Void, context: ViewBuildContext
 ) {
     let type = ObjectIdentifier(OnChangeObservation<Value>.self)
-    context.stateMountCoordinator?.stageOnChange(at: context.retainedViewIdentity.appending(.view(type))) { owner in
-        let cell = owner.resolve(at: StatePropertySlot(concreteTypes: [type])) { OnChangeObservation<Value>() }
-        return OnChangeUpdate(owner: owner, cell: cell, value: value, initial: initial, action: action)
-    }
+    context.stateMountCoordinator?.stageOnChange(
+        at: context.retainedViewIdentity.appending(.view(type)),
+        seedObservation: { OnChangeObservation<Value>() },
+        makeUpdate: { owner, cell in
+            OnChangeUpdate(owner: owner, cell: cell, value: value, initial: initial, action: action)
+        })
+}
+
+private enum PreferenceChangeObservationOwner<Key: PreferenceKey> {}
+
+@MainActor
+private func stagePreferenceChangeObservation<Key: PreferenceKey>(
+    in node: ViewNode, key: Key.Type,
+    action: @escaping (Key.Value) -> Void, context: ViewBuildContext
+) where Key.Value: Equatable {
+    let type = ObjectIdentifier(PreferenceChangeObservationOwner<Key>.self)
+    context.stateMountCoordinator?.stageOnChange(
+        at: context.retainedViewIdentity.appending(.view(type)),
+        seedObservation: { OnChangeObservation<Key.Value>() },
+        makeUpdate: { owner, cell in
+            let preferenceValue = retainedPreferenceValueIfPresent(in: node, key: key)
+            let resolvedValue = preferenceValue ?? Key.defaultValue
+            return OnChangeUpdate(
+                owner: owner, cell: cell, value: resolvedValue, initial: preferenceValue != nil,
+                action: { _, newValue in action(newValue) })
+        })
 }
 
 @MainActor
@@ -25496,20 +25518,11 @@ extension View {
         line: Int = #line,
         column: Int = #column
     ) -> some View where Key.Value: Equatable {
-        let observationKey = "\(fileID):\(line):\(column):preference:\(Key.self)"
-        return ModifiedView(content: self) { content, context in
+        ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
-                let preferenceValue = retainedPreferenceValueIfPresent(in: childNode, key: key)
-                let resolvedValue = preferenceValue ?? Key.defaultValue
-                if let change = OnChangeObservationRegistry.shared.observe(
-                    value: resolvedValue,
-                    key: observationKey,
-                    initial: preferenceValue != nil
-                ) {
-                    action(change.newValue)
-                }
+                stagePreferenceChangeObservation(in: childNode, key: key, action: action, context: context)
                 return childNode
             }
         }

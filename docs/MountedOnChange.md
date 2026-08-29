@@ -61,11 +61,15 @@ coordinator has no adoption or retirement boundary and does not admit an
 host uses the real coordinator, `ComponentHost`, and retained runtime; its plain
 test models use explicit reloads rather than pretending to have subscriptions.
 
-The separate `onPreferenceChange` and `task(id:)` adapters still use their legacy
-callsite registry. Their lifetime semantics are not changed or qualified by
-this slice. General authored identity hashing inside the existing State mount
-resolver also remains a shared foundation boundary; the new staging admission
-rechecks close and supersession after its own identity lookups.
+The separate `task(id:)` adapter still uses its legacy callsite registry; its
+lifetime semantics are not changed or qualified by this slice.
+[`onPreferenceChange`](MountedPreferences.md) uses the same mounted observation
+delivery machinery with its own concrete-key namespace and value policy.
+Observer owner and cell acquisition uses the checked
+[mounted observer admission](MountedObserverAdmission.md) path, including
+same-epoch map mutation and cleanup receipts. General authored identity hashing
+inside ordinary State/StateObject resolution remains a separate boundary;
+their resolver bodies, preconditions, and success/failure behavior are unchanged.
 
 The focused fixtures are `MountedOnChangeIsolationTests`,
 `MountedOnChangeLifecycleTests`, `MountedOnChangeAdmissionTests`, and

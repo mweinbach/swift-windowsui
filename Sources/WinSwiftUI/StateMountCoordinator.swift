@@ -116,6 +116,8 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
 
     func discardUnadoptedSubtree(at prefix: RetainedViewIdentity, preserveCommitted: Bool) {
         guard let build = currentBuild else { return }
+        let discard = build.beginOnChangeDiscard(at: prefix)
+        defer { build.endOnChangeDiscard(discard) }
         build.activity.discardSubtree(at: prefix) { self.isCurrent(build) && build.canAdopt }
         guard isCurrent(build), build.canAdopt else { return }
         build.discardOnChangeUpdates(at: prefix) { self.isCurrent(build) && build.canAdopt }
@@ -129,16 +131,85 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
     func stageOnChange(
         at identity: RetainedViewIdentity, makeUpdate: (StateMountOwner) -> any MountedOnChangeUpdate
     ) {
-        guard let build = currentBuild, build.canAdopt,
-            let owner = build.epoch.owner(at: identity), isCurrent(build), build.canAdopt,
-            owner.isInstallationActive, build.canAdopt,
-            isCurrent(build), !build.constructionWasSuperseded
+        guard let build = currentBuild,
+            let materialization = build.beginOnChangeMaterialization(at: identity)
+        else { return }
+        defer { build.endOnChangeMaterialization(materialization) }
+        guard build.isCurrent(materialization),
+            let owner = build.epoch.syntheticObservationOwner(
+                at: identity, isMaterializationCurrent: { build.isCurrent(materialization) }),
+            let revision = build.epoch.observationConstructionRevision,
+            canStageOnChange(owner: owner, in: build, revision: revision, materialization: materialization)
         else { return }
         let update = makeUpdate(owner)
-        guard isCurrent(build), build.canAdopt, owner.isInstallationActive, build.canAdopt,
-            isCurrent(build), !build.constructionWasSuperseded
+        guard let revision = build.epoch.observationConstructionRevision,
+            canStageOnChange(owner: owner, in: build, revision: revision, materialization: materialization)
         else { return }
         build.stageOnChange(update)
+    }
+
+    /// Resolve the bookkeeping cell before entering a provisional adapter,
+    /// such as preference reduction. Owner lookup precedes its seed, and a
+    /// canceled cell resolution enters neither the adapter nor a precondition.
+    func stageOnChange<Observation>(
+        at identity: RetainedViewIdentity, seedObservation: () -> Observation,
+        makeUpdate: (StateMountOwner, MountedStateCell<Observation>) -> (any MountedOnChangeUpdate)?
+    ) {
+        guard let build = currentBuild,
+            let materialization = build.beginOnChangeMaterialization(at: identity)
+        else { return }
+        defer { build.endOnChangeMaterialization(materialization) }
+        guard build.isCurrent(materialization) else { return }
+        guard
+            let observation = build.epoch.resolveSyntheticObservation(
+                at: identity, isMaterializationCurrent: { build.isCurrent(materialization) }, seed: seedObservation),
+            let revision = build.epoch.observationConstructionRevision,
+            canStageOnChange(owner: observation.owner, in: build, revision: revision, materialization: materialization)
+        else {
+            stageOnChangePreservation(at: identity, as: Observation.self, in: build, materialization: materialization)
+            return
+        }
+        guard let update = makeUpdate(observation.owner, observation.cell) else {
+            stageOnChangePreservation(at: identity, as: Observation.self, in: build, materialization: materialization)
+            return
+        }
+        let slot = StatePropertySlot(concreteTypes: [ObjectIdentifier(Observation.self)])
+        guard build.isCurrent(materialization), let revision = build.epoch.observationConstructionRevision,
+            build.epoch.observationCellIsInstalled(
+                cell: observation.cell, owner: observation.owner, at: slot, revision: revision,
+                isMaterializationCurrent: { build.isCurrent(materialization) }),
+            build.epoch.observationConstructionRevision == revision, build.isCurrent(materialization)
+        else {
+            stageOnChangePreservation(at: identity, as: Observation.self, in: build, materialization: materialization)
+            return
+        }
+        build.stageOnChange(update)
+    }
+
+    private func stageOnChangePreservation<Observation>(
+        at identity: RetainedViewIdentity, as type: Observation.Type, in build: StateMountBuild,
+        materialization: OnChangeMaterialization
+    ) {
+        guard build.isCurrent(materialization), isCurrent(build), !build.constructionWasSuperseded,
+            build.epoch.observationConstructionRevision != nil,
+            let preservation = build.epoch.committedSyntheticObservation(
+                at: identity, as: type, isMaterializationCurrent: { build.isCurrent(materialization) }),
+            build.isCurrent(materialization), isCurrent(build), !build.constructionWasSuperseded,
+            build.epoch.observationConstructionRevision != nil, build.isCurrent(materialization)
+        else { return }
+        // This marker has the same materialization and parent-discard path as
+        // a normal proposal. Looking up a cell alone never preserves a mount.
+        build.stageOnChange(OnChangePreservationUpdate(preservation))
+    }
+
+    private func canStageOnChange(
+        owner: StateMountOwner, in build: StateMountBuild, revision: UInt64, materialization: OnChangeMaterialization
+    ) -> Bool {
+        build.isCurrent(materialization) && isCurrent(build)
+            && build.epoch.observationOwnerIsCurrent(
+                owner: owner, revision: revision, isMaterializationCurrent: { build.isCurrent(materialization) })
+            && isCurrent(build) && !build.constructionWasSuperseded
+            && build.epoch.observationConstructionRevision == revision && build.isCurrent(materialization)
     }
 
     func subtreeLease(
@@ -239,6 +310,40 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
 private enum PresentationActivityOwner {}
 private enum AlertActivityOwner {}
 
+@MainActor
+private final class OnChangeMaterialization {
+    let identity: RetainedViewIdentity
+    var isDiscarded = false
+
+    init(identity: RetainedViewIdentity) { self.identity = identity }
+}
+
+@MainActor
+private final class OnChangeDiscardScope {
+    let prefix: RetainedViewIdentity
+
+    init(prefix: RetainedViewIdentity) { self.prefix = prefix }
+}
+
+@MainActor
+private protocol MountedOnChangePreservationUpdate: MountedOnChangeUpdate {
+    func prepare(in epoch: StateMountEpoch) -> Bool
+}
+
+@MainActor
+private final class OnChangePreservationUpdate<Observation>: MountedOnChangePreservationUpdate {
+    private let preservation: MountedObservationPreservation<Observation>
+    var owner: StateMountOwner { preservation.owner }
+
+    init(_ preservation: MountedObservationPreservation<Observation>) {
+        self.preservation = preservation
+    }
+
+    func prepare(in epoch: StateMountEpoch) -> Bool { preservation.prepare(in: epoch) }
+    func commit() {}
+    func deliver() {}
+}
+
 // These existing leaves have a no-op DynamicProperty.update and manage their
 // own legacy mechanisms. They are not mount-owned by State/StateObject installation;
 // inspecting their private implementation boxes would invent ownership.
@@ -274,6 +379,8 @@ private final class StateMountBuild: RetainedBuildEpoch {
     private var onChangeUpdates: [ObjectIdentifier: any MountedOnChangeUpdate] = [:]
     private var onChangeOrder: [ObjectIdentifier] = []
     private var discardedOnChangeUpdates: [any MountedOnChangeUpdate] = []
+    private var onChangeMaterializations: [ObjectIdentifier: OnChangeMaterialization] = [:]
+    private var onChangeDiscardScopes: [OnChangeDiscardScope] = []
     private(set) var constructionWasSuperseded = false
     private var hasFinished = false
 
@@ -291,6 +398,58 @@ private final class StateMountBuild: RetainedBuildEpoch {
 
     var canAdopt: Bool { epoch.canAdopt && activity.canConstruct }
     var canComplete: Bool { epoch.didCommit && coordinator?.registry.isClosed == false }
+
+    private var canConstructOnChange: Bool {
+        coordinator?.isCurrent(self) == true && !constructionWasSuperseded
+            && activity.canConstruct && epoch.observationConstructionRevision != nil
+    }
+
+    func isCurrent(_ materialization: OnChangeMaterialization) -> Bool {
+        !materialization.isDiscarded && canConstructOnChange
+    }
+
+    func beginOnChangeMaterialization(at identity: RetainedViewIdentity) -> OnChangeMaterialization? {
+        guard canConstructOnChange else { return nil }
+        let materialization = OnChangeMaterialization(identity: identity)
+        onChangeMaterializations[ObjectIdentifier(materialization)] = materialization
+        // Register before comparing prefixes: authored equality can reenter
+        // another discard, which must be able to revoke this same attempt.
+        let scopes = onChangeDiscardScopes
+        for scope in scopes {
+            let matches = identity.segments.starts(with: scope.prefix.segments)
+            guard isCurrent(materialization) else {
+                endOnChangeMaterialization(materialization)
+                return nil
+            }
+            if matches {
+                materialization.isDiscarded = true
+                endOnChangeMaterialization(materialization)
+                return nil
+            }
+        }
+        return materialization
+    }
+
+    func endOnChangeMaterialization(_ materialization: OnChangeMaterialization) {
+        onChangeMaterializations.removeValue(forKey: ObjectIdentifier(materialization))
+    }
+
+    func beginOnChangeDiscard(at prefix: RetainedViewIdentity) -> OnChangeDiscardScope {
+        let scope = OnChangeDiscardScope(prefix: prefix)
+        onChangeDiscardScopes.append(scope)
+        let materializations = Array(onChangeMaterializations.values)
+        for materialization in materializations where !materialization.isDiscarded {
+            guard canConstructOnChange else { return scope }
+            let matches = materialization.identity.segments.starts(with: prefix.segments)
+            guard canConstructOnChange else { return scope }
+            if matches { materialization.isDiscarded = true }
+        }
+        return scope
+    }
+
+    func endOnChangeDiscard(_ scope: OnChangeDiscardScope) {
+        onChangeDiscardScopes.removeAll { $0 === scope }
+    }
 
     func stageOnChange(_ update: any MountedOnChangeUpdate) {
         let key = ObjectIdentifier(update.owner)
@@ -351,9 +510,21 @@ private final class StateMountBuild: RetainedBuildEpoch {
     }
     func willAdopt() -> Bool {
         guard let coordinator,
-            activity.prepare(isCurrent: { coordinator.isCurrent(self) && self.epoch.canAdopt })
+            activity.prepare(isCurrent: { coordinator.isCurrent(self) && self.epoch.canAdopt }),
+            prepareOnChangePreservations()
         else { return false }
         return epoch.prepareForAdoption()
+    }
+
+    private func prepareOnChangePreservations() -> Bool {
+        for key in onChangeOrder {
+            if let marker = onChangeUpdates[key] as? any MountedOnChangePreservationUpdate,
+                !marker.prepare(in: epoch)
+            {
+                return false
+            }
+        }
+        return true
     }
 
     func commit() {

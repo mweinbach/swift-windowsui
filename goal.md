@@ -5404,3 +5404,215 @@ history; this root 286-case result does not retroactively change them. Fresh
 root Quick/Full, whole-gallery comparison, native SwiftUI conformance, physical
 hardware frame budgets, hosted release success and clean-machine qualification
 remain outstanding. All nine original acceptance gates remain open.
+
+### Seventh batch: qualification chronology and mounted observer source
+
+The following owned-result records retain their original phase boundaries. In particular,
+the earlier Progress build-only paragraph describes 171 cases as unrun at that build-only
+boundary; the subsequent runtime entry records their later owned-tree pass. Neither is
+current-root Progress qualification. Original sections 1 through 9 and all nine gates stay unchanged.
+
+The thirteen integrated observer/preference paths give observations mounted owner/cell
+identity and checked publication instead of shared callsite identity. Observer admission
+uses snapshots and revision checks around authored identity operations and capture release,
+so a reentrant callback cannot keep mutating an obsolete proposal or overlap an exclusive
+dictionary mutation. Preference observation uses the same mounted lifetime and transaction
+delivery. Six new files provide 76 tests; three existing preference facade bodies now use
+managed hosts while retaining their behavioral assertions. The root strict lint of all ten
+changed Swift files and architecture contracts passed before the focused run.
+
+The legacy task(id:) adapter is still separate in this committed source. Ordinary State
+hash reentry, ancestor preference refresh, partial lazy adoption, native scheduling and
+complete SwiftUI behavior remain open; the focused result below does not close those gaps.
+
+### Seventh batch: isolated lazy-list pass, Progress build and diagnostic controls
+
+These 2026-08-28 records add detail without changing sections 1 through 9 or closing any
+original completion gate. Earlier failures and ledger entries remain intact. Paths below are
+relative to `C:/Users/maxw6/AppData/Local/Temp`; each result belongs to its frozen owned source,
+not an integrated root, release, Full or Quick qualification.
+
+The fourth dormant lazy-list Stage 2 attempt passed all 223 selected XCTest methods exactly once
+across ten suites and fifteen serial stock shards, with no failures, skips, missing or extra
+cases. Its tested tree is `7a4f65dfc94eb4c97b55903f457679741a9f9659` at base `1ce6b9a`; retained
+PS5 PID 42476, runner and tool naturally returned 0 in 406.390 seconds. The separate eleven-line
+fixture setup adds one ordinary frame before the original clean-mask assertions and checks that
+factory, epoch, adoption, consumption and initial-row identity do not change. The original mask
+and physical-overlap assertions remain. Both the previously failing clean-ancestor case and the
+previously unrun final anchor case passed.
+
+The result is
+`swift-windowsui-lazy-list-clean-ancestor-1d6a97429bca40678e7f8357201ebc24/worktree/artifacts/lazy-list-stage2-clean-ancestor-outcome-cfbaa040e1334b829ebd3ea232aea1fc/OUTCOME.json`,
+SHA256 `e8ca1e7186d75e0a796ce751c564b0644eb335ba7b917ba93cb6f32f93a0e11e`. Its sixty-member
+manifest has SHA256 `2b71022f6b422cd2b4663bc43e3cb2732c2933119b170e30f2eded9bc310b96e`; the
+final independent audit SHA256 is
+`670e82b15914fc20c9ff32430c5fa86392dc5da204f317c53a00a767cfb9dd16`. All 754 source inputs and
+index/helper pins were preserved. Endpoint checks do not prove continuous file immutability or
+descendant closure. These headless fixtures may use DirectWrite/GDI; public
+List/ForEach/LazyVStack construction remains unchanged. No public lazy-resource, performance,
+visible-UI, Narrator or root-integration pass follows. The earlier failures are not combined
+into this single successful attempt.
+
+The ProgressViewStyle source at tree `0d565d5aa2d4104ec34129a1796fae83224a2313`, based on
+`11d02b18`, completed one `swift build --build-tests --jobs 2`. Native Swift, PS5, retained
+helper/controller and tool exits were 0. The helper ran for 592.578 seconds; final
+preparation/build/evidence sealing totaled 1,382.879 seconds within the 1,800-second acceptance
+budget, which is not an independent hard outer timeout. Passive analysis reconciled 5,122 unique
+generated XCTest IDs, including all 171 selected methods exactly once: 38 new and 133 unchanged.
+No test, registry listing, product, gallery or native UI was executed. All 171 runtime cases
+remain unrun.
+
+The build packet is `swift-windowsui-progress-style-plan-11d02b1-pze8l8rb/build-only-v1`. Its
+thirty-nine-member `MANIFEST.json` has SHA256
+`c7213d345669063dfddb858238f358314bc56063a3a7f8e674ac138b4a1d5b12`; `BUILD-QUALIFICATION.json`
+has SHA256 `0c17d1af20d6fe1e650556d25ac6980b659077ff086329301a91b016dcfb308d`. The twelve
+approved source paths, 99 source-packet members and protected inputs matched. Compiler/linker
+warnings remain, including two new WeakMutability warnings. Build success does not establish
+mounted style behavior, appearance, accessibility, native style precedence or API conformance.
+Complete descendant retirement is unproven.
+
+Separately, 23 pure SHA comparison controls passed in one pinned PS7 child: all expected typed
+results matched, with zero failed controls and child/parent/tool exits 0. The child took 0.531
+seconds and final evidence was preserved within the original thirty-second window. The controls
+cover equal upper/lower/mixed-case digest text, malformed values and differing digests, plus
+rejection when the prior exit, deadline or path condition is wrong. Twenty held pins and
+fourteen proposal inputs matched. This is the comparator candidate with SHA256
+`fa7101e8fb6ff1824e9ea63dbb9b67bf6ad1325bc0e32bc4ce91f1723736a76a`.
+
+The standalone phase is `swift-windowsui-f9-sha-pure-runner-1787956620838/run-1787956620838`.
+Its `actual-execution-receipt.json` has SHA256
+`cc85496507f0e11c6ea28ebf0ccd5d1e32a651a3967768a52a8957718cfc43a8`; the six-member
+`frozen-pure-phase-manifest.json` has SHA256
+`692f57151e0af8bc8b305df023d24d2d86f6a865475f4e0b87a1bb2e17bc07fa`. No controller, supervisor,
+watchdog, F9 workload, validator or compiler ran. The old P6 native attempt remains
+FAILED_CONTROLLER_GATE, and the historical F9 compile audit still records compiler 0/collector
+1. Pure comparison results repair neither record.
+
+The CI evidence investigation completed 21 observations in each of two serial processes: two
+AST, three binding and sixteen object-transport observations per engine. PS5 PID 33628 and PS7
+PID 37484 naturally returned 0, as did the controller/tool; the observed tool wall time was
+3.142 seconds. These are 21 plus 21 collected observations, not behavioral passes. PS5 preserved
+identity in all sixteen transport cases; PS7 preserved seven and wrapped scalar values in nine
+mock/forwarding routes. The reports also expose the FunctionDefinitionAst/Body guard assumption
+and the fixture's Path-switch/name collision. Authored observations are not a replay of the
+original failed objects or exceptions, nor execution of the full fixture suite.
+
+The packet is `swift-windowsui-test-evidence-observation-prep-472201f407cc4e59a05932e0c0322c60`.
+Its forty-six-member `MANIFEST.json` has SHA256
+`53c268fc067cb0535735ea68ec310498eab5acf7642f5d57e5c86a15db1f7451`;
+`observation-v1-assessment.json` has SHA256
+`8fdb2e05577a8421e3851349094c9fb5b20d615354e0af8c5121facfb3a50336`. This copied snapshot has no
+new Git tree: it derives from the unqualified six-file candidate at `a7c530b0`, with only the
+separately recorded fixture-classifier increment. Its 134-case full suite remains unrun. All 357
+original failed-packet members and selected old/current pins remained unchanged; metadata-only
+sealing failures remain separate. No corrected CI behavior, native stdout transport, compiler
+identity, process-tree closure, hosted test count or release gate is qualified by these probes.
+
+### Seventh batch: path-guard functional controls
+
+One owned invocation passed ten controls and 204 assertions, with 46 baseline/proposed
+guard calls plus two baseline ownership checks, zero failures and no unrun cases.
+Parent, child and tool exits were all 0. The child took 1.091 seconds within its
+43-second cap; the observed tool boundary was 3.889 seconds within the 60-second phase
+with its 15-second reserve. Later audits are outside that interval; no closing QPC tick was saved.
+
+Execution used earlier conditional functional authority, frozen pins and two agent
+prelaunch source reviews. A truncated command retrieval was rejected and reread before
+binding. The parent's final output-root/template review was POST-execution: later full
+file reads recovered its truncated diff and found no blocker. It was not prelaunch review.
+
+The immutable 36-member packet is
+`C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-path-guard-audit-c99cd95487e84a8aa09d1f7b5e5e246e/AUDIT-SEAL.json`,
+SHA256 `dca1b01a307464f7366cde3fab7e1ee291946a415540a6e1827e89ff90b328ef`.
+All 24 before/after pins and sixteen regular-file copies matched; the two original
+junctions were retained, with metadata recorded rather than junction copies or traversal.
+
+A later independent read-only audit request hit OS error 5 before its tool host existed;
+no audit code or control ran in that failed request. The audit locates the exact request
+and full error in the original task transcript; it claims no standalone byte-identical
+copy. Subsequent bounded reads used the same ordinary route, without escalation or a control rerun.
+This did not exercise guard access-denial behavior. No old 4,453-file walk, Stage A/B/C,
+Swift-product, speed or Quick qualification follows. Earlier Stage A remains failed with 61 unrun cases;
+the historical after-census stays unproven and all nine original completion gates stay open.
+
+### Seventh batch: later owned Progress runtime qualification
+
+After the earlier build-only phase, one separately approved run passed all 171 selected
+XCTest IDs once: 38 new cases and 133 unchanged regressions. Seven serial stock NONSharded
+invocations produced 171 starts and 171 passes, no failed, skipped or unrun selected cases,
+and seven zero-test Swift Testing trailers. All seven retained direct PS5 exits and the
+natural outer tool exit were 0; independent native XCTest OS exits remain unknown.
+
+This qualifies only owned base `11d02b18e587640790f4d8d3ce3273cac6c90d58`,
+tree `0d565d5aa2d4104ec34129a1796fae83224a2313`, not the newer root.
+The final 50-member packet is
+`C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-progress-style-plan-11d02b1-pze8l8rb/runtime-run-v1/MANIFEST.json`,
+SHA256 `64978d7daed5c4d39893957bff8fbae846873ffb5d99a843ec2fcb00635268eb`.
+The independent audit reconciled all 5,122 source/registry IDs, 28 capture copies and 160
+physical pins; those counts are not extra executed cases. Source, index and binary stayed unchanged.
+
+The runner recorded 61.531 seconds before final serialization; the final phase including
+preparation, audit and seal took 1,107.543 seconds within the 1,800-second acceptance budget,
+without an independent hard outer deadline. Permitted headless font/UIA work does not prove
+UIA delivery, descendant closure, native style parity or generic/class/enum/nonfinite conformance.
+No full-suite, root or original goal gate is qualified. Prior build-only entries and their
+warnings remain historical records; this later selected runtime pass does not rewrite them.
+
+### Seventh batch: observer/preference integration and root run
+
+The integrated observer/preference changes now have a root-specific focused result on
+HEAD `228b12b955e6a7d4d34c8503cf71211a17cc609a`, staged tree
+`492334b958cb280111ade3fc9802af0e3fad3352`. All 825 selected XCTest IDs started and
+passed once across 35 serial stock NONSharded invocations, with no failed, skipped,
+duplicate or unrun selected cases. These comprise the earlier 689-ID selection plus
+136 additional regressions; the 76 new methods in six observer/preference files are
+included within the 825, leaving 749 other cases. They are not an additional population.
+
+All 35 retained direct PS5 exits were 0. The parent separately observed natural outer
+closure at exit 0 in completion `0935a5`; the copied capture records that observation,
+not an independently retained supervisor handle. The runner's 496.610-second reading
+was after preservation checks and before final receipt serialization. The overrun marker
+was absent at capture. Native XCTest OS exits and descendant closure remain unproven.
+
+The evidence is frozen under
+`C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-observer825-outcome-audit-jfvt5p9g`.
+Its final `SEAL.json` is SHA256 `c0c28528227ae1145f28abd2524b48e9b9e2b5c227e0ba94f7898946c6d0c9b8`.
+The copied source/exit receipts and physical index agree with the tested identity;
+the runner reports all 786 source inputs and ten tool pins unchanged. The independent
+audit reconciles 13 capture copies and all 5,407 generated XCTest IDs. Only 825 ran;
+134 Swift Testing declarations remain source-only,
+with 35 actual zero-test Swift Testing envelopes. The independent raw and compiled
+receipts are pinned in the accompanying evidence map; no changing root file was read
+to prepare this entry. Earlier failures and owned-tree results retain their identities.
+The metadata-only inventory-role refusal is retained; correcting its links changed no tests.
+
+### Seventh batch: P7 native supervisor compile-only success
+
+A separate P7 phase compiled and linked the native supervisor successfully: both retained
+direct compiler/linker exits, the collector and the outer tool returned 0. The final
+receipt was preserved within the original 600-second phase; no built supervisor was run.
+The 344,576-byte executable has SHA256
+`83d1005c84de27c01e847317558279f44b5d0cfccad150f152eff9a36a68c3bf`.
+
+The 30-member compile packet is
+`C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-native-supervisor-prototype-1787957738753/compile-f9-supervisor-1787960226013/frozen-compile-phase-manifest.json`,
+SHA256 `edd90d4b458b9bedd21b236fd82d1c422c1798b905b2057f38b276fb27c33c8c`.
+The final tool receipt is separately pinned. Its current 147 source files, nine collector
+files, 333 headers and nine possible libraries were preserved; the 410 include records
+matched preflight. These boundary checks do not prove selected library origins or ABI.
+
+The optional linker MainModule observation was unavailable for an unknown reason.
+No watchdog copy, F9 payload staging, native runtime or candidate DLL load occurred.
+The P6 controller/runtime failure and historical F9 compiler-0/collector-1 failure remain
+failed; this compile result does not repair them. All nine original gates remain open.
+The earlier Progress build-only/171-unrun entry remains correct for its phase; the later
+owned 171-pass entry adds runtime evidence without rewriting that historical boundary.
+
+Parent evidence copies are retained under artifacts/goal-seventh-owned-results-ledger-intake-v2,
+artifacts/goal-seventh-observer-ledger-primary-intake-v1 and
+artifacts/goal-seventh-observer-final-ledger-intake-v1. The closed observer result also has
+artifacts/goal-seventh-observer-completion-intake-v1/intake.json, SHA256
+669a11603175b3cb53a6ad5d4478f6d7308aa0c009a3c4350a8af5a5666ddffd: 137 mandatory files
+were verified and 136 copied; the sealed test PE was verified externally rather than copied again.
+All 786 tracked source files and the physical index were freshly verified unchanged before
+this ledger addition. This is endpoint preservation, not continuous monitoring or native descendant proof.

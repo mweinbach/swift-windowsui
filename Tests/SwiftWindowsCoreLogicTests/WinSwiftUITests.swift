@@ -18242,10 +18242,19 @@ final class WinSwiftUITests: XCTestCase {
                 }
             }
 
-            _ = makeNode(observedView(first: true, second: false))
-            _ = makeNode(observedView(first: true, second: false))
-            _ = makeNode(observedView(first: true, second: true))
-            _ = makeNode(observedView(first: false, second: false))
+            var first = true
+            var second = false
+            let host = MountedOnChangeTestHost {
+                AnyView(observedView(first: first, second: second))
+            }
+            defer { host.close() }
+
+            host.reload()
+            second = true
+            host.reload()
+            first = false
+            second = false
+            host.reload()
 
             XCTAssertEqual(observedValues, [2, 5, 0])
         }
@@ -18276,9 +18285,15 @@ final class WinSwiftUITests: XCTestCase {
                 }
             }
 
-            _ = makeNode(observedView(multiplier: 10))
-            _ = makeNode(observedView(multiplier: 10))
-            _ = makeNode(observedView(multiplier: 20))
+            var multiplier = 10
+            let host = MountedOnChangeTestHost {
+                AnyView(observedView(multiplier: multiplier))
+            }
+            defer { host.close() }
+
+            host.reload()
+            multiplier = 20
+            host.reload()
 
             XCTAssertEqual(observedValues, [51, 101])
         }
@@ -18301,9 +18316,15 @@ final class WinSwiftUITests: XCTestCase {
                 }
             }
 
-            _ = makeNode(observedView("A"))
-            _ = makeNode(observedView("A"))
-            _ = makeNode(observedView("B"))
+            var suffix = "A"
+            let host = MountedOnChangeTestHost {
+                AnyView(observedView(suffix))
+            }
+            defer { host.close() }
+
+            host.reload()
+            suffix = "B"
+            host.reload()
 
             XCTAssertEqual(observedValues, ["DETAIL-A", "DETAIL-B"])
         }

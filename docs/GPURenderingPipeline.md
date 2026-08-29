@@ -2333,8 +2333,8 @@ composite with a **single blend per pixel**. Four things that buys:
   scanline-filled as its own quad with the right edge rounded out and the
   left rounded in, so adjacent segments overlapped and a translucent
   polyline came out blotchy and progressively darker at every vertex.
-- **Caps and joins.** The stroke outline is a quad per segment, plus the
-  join at every turn sharp enough for its wedge to show, plus a cap at each
+- **Caps and joins.** The stroke outline is a quad per segment, plus a
+  connector at every noncollinear turn, plus a cap at each
   end of an open subpath — all wound the same way so a non-zero fill of the
   set is exactly their union. `PathPrimitive` carries `lineCap`, `lineJoin`
   and `miterLimit` alongside `lineWidth` (defaulting to `StrokeStyle`'s own
@@ -2347,9 +2347,17 @@ composite with a **single blend per pixel**. Four things that buys:
   the SF-symbol vector fallback asks for on every icon — got neither, and
   which wrong answer it got depended on whether the path promoted.
   `StrokeOutlineGeometry` owns the rules both routes apply: the miter
-  ratio, the limit resolution, and how much error an omitted join is worth
-  (0.1 px, so a 2 000-segment flattened curve does not pay for 2 000
-  wedges).
+  ratio, the limit resolution, and the exterior error of approximating a
+  small round or miter join with its bevel connector (0.1 px). The CPU
+  stroker always fills that triangle between flush segment bodies; omitting
+  it leaves a gap toward the centerline even when the extra exterior tip
+  is tiny. Below the threshold this adds three edges per noncollinear
+  turn to the same non-zero union, without a second blend. Visible joins,
+  caps, bounds, eight subrows and the promotion policy stay unchanged.
+  `PathStrokeJoinConnectivityTests` specifies exact opaque and translucent
+  interiors, mirrored and closing joins, collinear/reversal controls,
+  visible join styles and an opaque promoted-route comparison. These
+  focused source regressions do not establish native or full-image parity.
 - **Stroke bounds.** A stroke straddles its path, so an emitter sizes
   `bounds` through `StrokeOutlineGeometry.boundsOutset(forElements:…)`
   rather than by half a line width: a square cap reaches √2 half-widths on
@@ -2401,15 +2409,36 @@ composite with a **single blend per pixel**. Four things that buys:
   A package callback in sparse lifecycle storage receives the live `ViewNode`;
   reconciliation copies or clears it, and replacement invalidates layout even
   at unchanged dimensions. The legacy callback retains its order and behavior.
-  `ShapePaintProducerTests` adds fourteen public producer regressions and two
-  receiver controls; these source additions await compiled/runtime validation.
+  `ShapePaintProducerTests` covers fourteen public producer regressions and two
+  receiver controls.
   No renderer, promotion, ordering, shader ABI or tolerance changes are part
-  of this producer work. Partial trim and Arc coordinate normalization remain
-  open: Arc's existing actual-bounds path is still scaled as normalized data.
+  of this producer work. Partial trim remains open.
   Full stroke metadata reaches the leaf, but legacy background-path emission
   omits dash/phase while the scene route expands dashes into geometry. Gradient
   first-stop fallback, antialiasing, general clipping, arbitrary custom shape
   component trees and native geometry/paint parity remain unqualified.
+- **Arc coordinates.** The existing live-node layout callback now encodes its
+  open arc as a normalized `RenderPath`, using the positive inner dimensions
+  after the node's full border-width inset. The center is `(0.5, 0.5)`; the
+  initial move divides each radius component by its own axis, while the arc
+  radius divides by the larger inner dimension because `RenderPath.scaled(to:)`
+  scales arc radii by that dimension. A unit-circle replacement alone would
+  still oversize a circle in a non-square frame. The callback ignores the
+  layout origin and reads the live border width, whose existing setter
+  invalidates layout. Unusable inner dimensions clear geometry to an empty
+  path, not nil, so they cannot produce a rectangular fallback.
+  The scene painter applies placement and display scale once; legacy frame
+  path commands stay in logical coordinates. `Arc.path(in:)`, paint handling,
+  callback ownership, path promotion, shaders and coverage tolerances are
+  unchanged. `ArcCoordinateTests` adds twelve source regressions with literal
+  geometry and required visible/clear pixel probes; compilation and runtime
+  qualification of this follow-up are still pending.
+  This is the repository's Arc utility, not native Arc API parity. Unbordered
+  uniform scale is a control, not a general transform guarantee: scaling a
+  paint rectangle before subtracting an unscaled border can change its aspect.
+  Bordered/nonuniform transforms, shear/reflection, rotated frame parity,
+  partial trim, repeated-inset styling, gradients, dashes, general clips and
+  antialiasing remain separate unfinished work.
 
 ## 8. Stress / robustness invariants
 

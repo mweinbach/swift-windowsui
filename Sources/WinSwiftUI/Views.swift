@@ -2237,16 +2237,26 @@ public struct Arc: View {
             node.layoutFillAxes = .both
             paint.apply(to: ShapePaintOwner(node: node))
             node.onLayoutWithNode = { node, bounds in
-                var path = Path()
-                let center = Point(x: bounds.midX, y: bounds.midY)
-                let radius = max(0, min(bounds.size.width, bounds.size.height) * 0.5)
-                path.moveTo(
-                    Point(
-                        x: center.x + radius * cos(startAngle.radians), y: center.y + radius * sin(startAngle.radians)))
-                path.arc(
-                    center: center, radius: radius, startAngle: startAngle.radians, endAngle: endAngle.radians,
+                // backgroundPath is scaled into the border-inset paint rect.
+                // Point axes and arc radii use different scales in RenderPath.
+                let inset = node.borderWidth > 0 ? node.borderWidth : 0
+                let width = bounds.size.width - 2 * inset
+                let height = bounds.size.height - 2 * inset
+                guard width.isFinite, height.isFinite, width > 0, height > 0 else {
+                    node.backgroundPath = RenderPath()
+                    return
+                }
+                let radius = min(width, height) * 0.5
+                var path = RenderPath()
+                path.move(
+                    to: Point(
+                        x: 0.5 + (radius / width) * cos(startAngle.radians),
+                        y: 0.5 + (radius / height) * sin(startAngle.radians)))
+                path.addArc(
+                    center: Point(x: 0.5, y: 0.5), radius: radius / max(width, height),
+                    startAngle: startAngle.radians, endAngle: endAngle.radians,
                     clockwise: clockwise)
-                node.backgroundPath = RenderPath(path: path)
+                node.backgroundPath = path
             }
             return node
         }

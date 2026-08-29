@@ -252,9 +252,9 @@ struct FlattenedPath {
         return edges
     }
 
-    /// The stroke's *outline* as one polygon set: a quad per segment, a join
-    /// wherever consecutive segments turn enough for the wedge between their
-    /// quads to be visible, and a cap at each end of an open subpath. Every
+    /// The stroke's *outline* as one polygon set: a quad per segment, a
+    /// connector at each noncollinear turn with any needed round/miter
+    /// exterior geometry, and a cap at each end of an open subpath. Every
     /// polygon is wound the same way, so filling the set with the non-zero
     /// rule is exactly their union — one coverage value per pixel, one
     /// blend, no seams at the joints.
@@ -339,11 +339,10 @@ struct FlattenedPath {
         return edges
     }
 
-    /// The join geometry for one turn, emitted only when omitting it would
-    /// move the stroke boundary by more than `StrokeOutlineGeometry`'s
-    /// tolerance. Flattened curves turn by fractions of a degree per
-    /// segment, so skipping the negligible ones keeps a 2,000-segment curve
-    /// from paying for 2,000 wedges.
+    /// Every noncollinear turn connects the two flush bodies with at least a
+    /// bevel triangle. The tolerance decides whether the requested round
+    /// or miter geometry beyond that triangle's outer chord is needed;
+    /// dropping the triangle itself leaves a gap back to the centerline.
     private func appendJoinIfNeeded(
         at vertex: Point,
         from previous: (x: Double, y: Double),
@@ -355,11 +354,10 @@ struct FlattenedPath {
     ) {
         let dot = previous.x * next.x + previous.y * next.y
         let resolved = StrokeOutlineGeometry.resolvedJoin(join, directionDot: dot, miterLimit: miterLimit)
-        guard
-            StrokeOutlineGeometry.joinIsVisible(halfWidth: halfWidth, directionDot: dot, join: resolved)
-        else { return }
+        let needsFullJoin = StrokeOutlineGeometry.joinIsVisible(
+            halfWidth: halfWidth, directionDot: dot, join: resolved)
 
-        if resolved == .round {
+        if resolved == .round, needsFullJoin {
             appendDisc(at: vertex, radius: halfWidth, into: &edges)
             return
         }
@@ -368,6 +366,9 @@ struct FlattenedPath {
         // along `(-dy, dx)`; the wedge the two quads leave open is on the
         // side away from the turn.
         let cross = previous.x * next.y - previous.y * next.x
+        // Collinear bodies have no connective area. A visible round
+        // reversal was already handled above by its disc.
+        guard cross != 0 else { return }
         let outerSign: Double = cross > 0 ? -1 : 1
         let firstNormal = Point(
             x: -previous.y * halfWidth * outerSign, y: previous.x * halfWidth * outerSign)
@@ -375,7 +376,7 @@ struct FlattenedPath {
         let firstCorner = Point(x: vertex.x + firstNormal.x, y: vertex.y + firstNormal.y)
         let secondCorner = Point(x: vertex.x + secondNormal.x, y: vertex.y + secondNormal.y)
 
-        if resolved == .miter {
+        if resolved == .miter, needsFullJoin {
             // The two outer offset lines meet at `(n1 + n2) / (1 + dot)` from
             // the vertex; `resolvedJoin` already rejected the reversal that
             // makes that denominator vanish.
@@ -389,6 +390,8 @@ struct FlattenedPath {
             }
         }
 
+        // Keep this connector even when the exterior round/miter error is
+        // below tolerance. It joins the same nonzero union, not a new blend.
         appendPolygon([vertex, firstCorner, secondCorner], to: &edges)
     }
 

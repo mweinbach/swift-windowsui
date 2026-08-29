@@ -15,14 +15,14 @@ import SwiftWindowsCore
 /// routes already depend on.
 public enum StrokeOutlineGeometry {
 
-    /// Largest distance, in the primitive's own (device-pixel) space, that an
-    /// omitted join may move the stroke boundary by.
+    /// Largest distance, in the primitive's own (device-pixel) space, that
+    /// approximating a join's exterior may move the stroke boundary by.
+    /// The connecting bevel triangle between flush segment bodies is still
+    /// required; this tolerance never permits a gap back to the centerline.
     ///
-    /// A flattened curve turns by a fraction of a degree per segment, so
-    /// drawing a join at every vertex costs thousands of polygons to move a
-    /// boundary by a thousandth of a pixel. A tenth of a pixel is below the
-    /// cross-backend parity suite's ±4/255 tolerance for every angle a real
-    /// corner makes.
+    /// Full round or miter outlines on a flattened curve add edges for a
+    /// subpixel exterior change. Small turns retain their bevel connector;
+    /// only the additional exterior detail may use this fixed approximation.
     public static let joinTolerance: Double = 0.1
 
     /// `1 / cos(turn / 2)` — the miter length as a multiple of the half
@@ -83,8 +83,9 @@ public enum StrokeOutlineGeometry {
         return min(limit, maxMiterBoundsRatio)
     }
 
-    /// How far the join's own geometry reaches beyond the two segment bodies:
-    /// the error a renderer accepts by not drawing it at all.
+    /// An upper bound on the requested join's exterior beyond a connected
+    /// bevel triangle. It does not bound the gap left by omitting that
+    /// triangle between flush segment bodies.
     ///
     /// `join` must already be resolved through `resolvedJoin(_:…)` — a miter
     /// past its limit leaves a bevel's error, not a miter's.
@@ -94,8 +95,9 @@ public enum StrokeOutlineGeometry {
         join: StrokeStyle.LineJoin
     ) -> Double {
         guard halfWidth > 0, dot.isFinite else { return 0 }
-        // The two butt ends meet along a chord at `halfWidth * cos(turn / 2)`
-        // from the vertex; every join fills outward from there.
+        // The connector's outer chord is `halfWidth * cos(turn / 2)` from
+        // the vertex. This measures exterior error beyond a connected bevel
+        // triangle, not the entire triangle left open by two flush butt ends.
         let cosHalf = max(0, min(1, (1 + dot) / 2)).squareRoot()
         switch join {
         case .round, .bevel:
@@ -106,7 +108,7 @@ public enum StrokeOutlineGeometry {
         }
     }
 
-    /// Whether this turn is sharp enough for its join to be worth drawing.
+    /// Whether this turn exceeds the shared threshold for full join geometry.
     public static func joinIsVisible(
         halfWidth: Double,
         directionDot dot: Double,

@@ -135,15 +135,24 @@ Unstyled wrappers still delegate, and active outer styling clears obsolete
 gradient, rule and stroke fields. Arc assigns paint during construction and
 updates geometry through a layout callback receiving the live retained node,
 so layout does not restore captured inner paint or target a discarded node.
-`ShapePaintProducerTests` adds public paint/ownership and callback controls;
-this source slice has not yet received compiled or runtime qualification.
+`ShapePaintProducerTests` covers public paint/ownership and callback controls.
 
-Partial trim fractions and trim-inset geometry are still unimplemented. Arc's
-layout path uses actual coordinates that the painter scales again; the producer
-tests check paint and live-node delivery, not correct Arc geometry or pixels.
+Arc's layout callback stores normalized coordinates for the existing
+border-inset paint rectangle, reading the live node's stroke width. Point axes
+and arc radii use their respective renderer scales, so ordinary rectangular
+layout does not scale actual coordinates twice or add the layout origin twice.
+Collapsed inner dimensions retain an empty path rather than falling back to a
+rectangular background. Public `Arc.path(in:)` still uses the supplied rectangle.
+`ArcCoordinateTests` adds independent geometry and pixel oracles for this
+follow-up; these new source tests await compiled/runtime validation.
+Arc is a repository utility, not a native Arc declaration in the pinned macOS
+SwiftUI/SwiftUICore interfaces. Bordered or arbitrary view transforms and rotated
+legacy-frame parity remain separate from ordinary layout and display scaling.
+
+Partial trim fractions and trim-inset geometry are still unimplemented.
 Inset's existing `.inset(by:)` reconstruction can discard stored styling.
 General path clipping, arbitrary custom component paint ownership, shape-path
-gradient fidelity, antialiasing and native rendering parity remain separate.
+gradient fidelity, dashes, antialiasing and native rendering parity remain separate.
 
 ### Controls — Implemented / Partial
 

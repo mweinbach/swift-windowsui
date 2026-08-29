@@ -1523,6 +1523,19 @@ struct MeasurementPlan {
     var measuresChildrenIndividually = false
 }
 
+/// Placement admission travels with the size under the same measurement key.
+/// An ideal probe must not leave a finite-fit flag on a different cached size.
+private struct ViewMeasurementResult {
+    var size: Size
+    var fittedAspect: RetainedAspectFitLayout?
+    var inheritedFillAxes: LayoutFillAxes
+}
+
+private struct ViewMeasurementCacheEntry {
+    var key: ViewMeasureCacheKey
+    var result: ViewMeasurementResult
+}
+
 /// A single synchronous measurement can propose several widths to a subtree.
 /// Dirty nodes cannot use their previous frame's cache yet, so retain these
 /// answers only for this walk to avoid repeating an entire nested row for
@@ -1545,7 +1558,7 @@ private final class MeasurementMemo {
         }
     }
 
-    var sizes: [Key: Size] = [:]
+    var results: [Key: ViewMeasurementResult] = [:]
 }
 
 /// How far along the track a stack has placed, and the widest child so far.
@@ -1657,6 +1670,16 @@ private struct GridRowMetrics {
     var guideBefore: Double = 0
     var guideAfter: Double = 0
     var isFlexible = false
+}
+
+/// A one-child modifier that proposes a coupled size for finite aspect fit.
+/// Nil preserves the child's current ideal ratio, not its last placed size.
+package struct RetainedAspectFitLayout: Equatable, Sendable {
+    package var aspectRatio: Double?
+
+    package init(aspectRatio: Double? = nil) {
+        self.aspectRatio = aspectRatio
+    }
 }
 
 public enum ViewLayoutMode: Sendable {
@@ -2129,6 +2152,16 @@ public final class ViewNode {
     public var forwardsStackMainAxisProposal = false {
         didSet {
             guard forwardsStackMainAxisProposal != oldValue else { return }
+            invalidateRuntime(.layout)
+        }
+    }
+
+    /// The facade installs this on a centered one-child stack. An admitted
+    /// finite measurement places its accepted child size without fitting again;
+    /// declined proposals keep the original stack measurement and placement.
+    package var aspectFitLayout: RetainedAspectFitLayout? {
+        didSet {
+            guard aspectFitLayout != oldValue else { return }
             invalidateRuntime(.layout)
         }
     }
@@ -3869,8 +3902,9 @@ public final class ViewNode {
         }
     }
     internal private(set) var subtreeDirtyFlags: DirtyFlags = .all
-    internal var cachedMeasureKey: ViewMeasureCacheKey?
-    internal var cachedMeasuredSize: Size?
+    private var cachedMeasurement: ViewMeasurementCacheEntry?
+    internal var cachedMeasureKey: ViewMeasureCacheKey? { cachedMeasurement?.key }
+    internal var cachedMeasuredSize: Size? { cachedMeasurement?.result.size }
     /// Main-axis greed this stack picked up from its own children, folded in
     /// at the end of every measurement (see `updateInheritedStackFillAxes`).
     /// Never set by a caller — `layoutFillAxes` is the declared half of the
@@ -5267,6 +5301,7 @@ public final class ViewNode {
     /// and, unless virtualization defers them, laying out — each child.
     @inline(never)
     private func layoutStackChildren(stackLayout: StackLayout, descendants: inout [ViewNode]) {
+        if aspectFitLayout != nil, layoutAspectFitChild(descendants: &descendants) { return }
         let allocation = stackAllocation(for: stackLayout)
         // nil for a plain `.stack` and for a `.lazyStack` with nothing
         // scrollable above it, which is what makes virtualization opt-in
@@ -5288,6 +5323,27 @@ public final class ViewNode {
 
         resolvedContentSize = stackContentSize(
             stackLayout: stackLayout, allocation: allocation, maxCrossExtent: cursor.maxCrossExtent)
+    }
+
+    /// Do not reinterpret the accepted size as another aspect proposal or
+    /// restore a fixed child's preferred dimensions through absolute layout.
+    /// If this was a declined probe or its assigned slot changed, the original
+    /// stack path remains responsible for allocation, alignment and clamping.
+    private func layoutAspectFitChild(descendants: inout [ViewNode]) -> Bool {
+        guard let measurement = cachedMeasurement,
+            let fittedAspect = measurement.result.fittedAspect,
+            fittedAspect == aspectFitLayout,
+            measurement.key.displayScale == (runtime?.displayScale ?? 1),
+            applyingLayoutConstraints(to: measurement.key.constraints) == measurement.key.constraints,
+            measurement.result.size == resolvedFrame.size,
+            children.count == 1, let child = children.first, !child.isHidden
+        else { return false }
+
+        child.resolvedFrame = Rect(origin: .zero, size: measurement.result.size)
+        descendants.append(child)
+        resolvedContentSize = resolvedFrame.size
+        scrollContainerState?.contentSize = resolvedFrame.size
+        return true
     }
 
     @inline(never)
@@ -8028,6 +8084,10 @@ public final class ViewNode {
             return cached
         }
 
+        if aspectFitLayout != nil, let size = measureAspectFit(plan: plan, memo: memo) {
+            return size
+        }
+
         if case .grid(let layout) = layoutMode {
             return measureGrid(layout: layout, plan: plan, memo: memo)
         }
@@ -8071,6 +8131,46 @@ public final class ViewNode {
         }
 
         return finishMeasurement(plan: plan, childSizes: childSizes, memo: memo)
+    }
+
+    /// Only the finite positive two-axis proposal is admitted here. Other
+    /// proposals keep the existing ideal-size fallback until their semantics
+    /// are characterized. In particular, never feed an unbounded proposal to
+    /// AspectRatioConstraint's finite sentinel fallback.
+    @inline(never)
+    private func measureAspectFit(plan: MeasurementPlan, memo: MeasurementMemo) -> Size? {
+        let constraints = plan.effectiveConstraints
+        guard case .stack = layoutMode,
+            let layout = aspectFitLayout, children.count == 1,
+            let child = children.first, !child.isHidden,
+            constraints.minWidth == 0, constraints.minHeight == 0,
+            constraints.maxWidth.isFinite, constraints.maxWidth > 0,
+            constraints.maxHeight.isFinite, constraints.maxHeight > 0
+        else { return nil }
+
+        let ratio: Double
+        if let requestedRatio = layout.aspectRatio {
+            ratio = requestedRatio
+        } else {
+            let ideal = child.sizeThatFits(in: .unconstrained, memo: memo)
+            guard ideal.width.isFinite, ideal.width > 0, ideal.height.isFinite, ideal.height > 0 else { return nil }
+            ratio = ideal.width / ideal.height
+        }
+        guard ratio.isFinite, ratio > 0 else { return nil }
+
+        let proposal = AspectRatioConstraint(ratio: ratio, mode: .fit).measure(
+            in: LayoutConstraints(maxWidth: constraints.maxWidth, maxHeight: constraints.maxHeight)
+        ).size
+        guard proposal.width.isFinite, proposal.width > 0, proposal.height.isFinite, proposal.height > 0 else {
+            return nil
+        }
+
+        let acceptedSize = child.sizeThatFits(
+            in: LayoutConstraints(maxWidth: proposal.width, maxHeight: proposal.height), memo: memo)
+        inheritedStackFillAxes = LayoutFillAxes()
+        // A frame or intrinsic child may decline the proposal. Report its
+        // answer, not the proposal or the wrapper's legacy preferred size.
+        return cacheMeasuredSize(acceptedSize, plan: plan, memo: memo, fittedAspect: layout)
     }
 
     @inline(never)
@@ -8126,17 +8226,13 @@ public final class ViewNode {
         let effectiveConstraints = applyingLayoutConstraints(to: constraints)
         let cacheKey = ViewMeasureCacheKey(constraints: effectiveConstraints, displayScale: displayScale)
         let layoutDirtyFlags = subtreeDirtyFlags.intersection([.layout, .children])
-        if layoutDirtyFlags.isEmpty, cachedMeasureKey == cacheKey, let cachedMeasuredSize {
-            runtime?.recordMeasureReuse()
-            return cachedMeasuredSize
+        if layoutDirtyFlags.isEmpty, let cachedMeasurement, cachedMeasurement.key == cacheKey {
+            return reuseMeasuredSize(cachedMeasurement.result, cacheKey: cacheKey)
         }
         let memoKey = MeasurementMemo.Key(
             node: ObjectIdentifier(self), measurement: cacheKey, depth: ViewNode.traversalDepth)
-        if let measuredSize = memo.sizes[memoKey] {
-            cachedMeasureKey = cacheKey
-            cachedMeasuredSize = measuredSize
-            runtime?.recordMeasureReuse()
-            return measuredSize
+        if let result = memo.results[memoKey] {
+            return reuseMeasuredSize(result, cacheKey: cacheKey)
         }
 
         let contentConstraints = contentMeasurementConstraints(in: effectiveConstraints)
@@ -8216,13 +8312,31 @@ public final class ViewNode {
 
         let resolvedSize = applyingExplicitDimensions(
             to: measuredSize, constraints: plan.effectiveConstraints)
-        cachedMeasureKey = plan.cacheKey
-        cachedMeasuredSize = resolvedSize
-        memo.sizes[
+        return cacheMeasuredSize(resolvedSize, plan: plan, memo: memo)
+    }
+
+    private func cacheMeasuredSize(
+        _ resolvedSize: Size, plan: MeasurementPlan, memo: MeasurementMemo,
+        fittedAspect: RetainedAspectFitLayout? = nil
+    ) -> Size {
+        let result = ViewMeasurementResult(
+            size: resolvedSize, fittedAspect: fittedAspect, inheritedFillAxes: inheritedStackFillAxes)
+        cachedMeasurement = ViewMeasurementCacheEntry(key: plan.cacheKey, result: result)
+        memo.results[
             MeasurementMemo.Key(
                 node: ObjectIdentifier(self), measurement: plan.cacheKey, depth: ViewNode.traversalDepth)
-        ] = resolvedSize
+        ] = result
         return resolvedSize
+    }
+
+    private func reuseMeasuredSize(_ result: ViewMeasurementResult, cacheKey: ViewMeasureCacheKey) -> Size {
+        cachedMeasurement = ViewMeasurementCacheEntry(key: cacheKey, result: result)
+        // A fit wrapper can alternate between a legacy ideal probe and an
+        // admitted finite proposal within one memo. Restore its greed with
+        // that same result, including when the reused result is the fallback.
+        if aspectFitLayout != nil { inheritedStackFillAxes = result.inheritedFillAxes }
+        runtime?.recordMeasureReuse()
+        return result.size
     }
 
     @inline(never)

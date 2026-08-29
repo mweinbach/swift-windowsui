@@ -1096,6 +1096,7 @@ public final class ComponentHost {
         if target.forwardsStackMainAxisProposal != source.forwardsStackMainAxisProposal {
             target.forwardsStackMainAxisProposal = source.forwardsStackMainAxisProposal
         }
+        if target.aspectFitLayout != source.aspectFitLayout { target.aspectFitLayout = source.aspectFitLayout }
         if target.layoutPriority != source.layoutPriority { target.layoutPriority = source.layoutPriority }
         if target.spatialCompressionResistance != source.spatialCompressionResistance {
             target.spatialCompressionResistance = source.spatialCompressionResistance

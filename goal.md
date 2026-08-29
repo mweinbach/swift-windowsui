@@ -7859,3 +7859,47 @@ failures. Hosted visual qualification and all original goal gates remain open.
 The passive comparison, geometry review and unchanged-input checks are saved in
 `artifacts/goal-eighth-font-policy-a2cad23-analysis-v1`; they required no
 additional app process or font probe.
+
+### Ninth implementation pass: finite image fit and fallback preservation (2026-08-29)
+
+The next integration branch starts from the validated and pushed `3d716d1`
+checkpoint. It now contains the reviewed finite-fit implementation from private
+`923be4ae0bb47b1cc026e2fd5c71703ac1e17567`; all five Swift postimages match
+that candidate exactly. The original source patch SHA-256 is
+`a9bf57eb98b4eb4095578e0367a3822d9e14a324e09b8870a105ea1e1bde62a5`.
+The documentation join preserves the preceding a2 validation rather than
+relabeling it as execution of these new cases.
+
+Resizable bitmap Image and generic View fit methods now share a retained
+proposal modifier. Positive finite width and height maxima with zero minima
+produce a coupled aspect-fit proposal; a nil ratio comes from the child's
+current ideal size. The wrapper reports the child's accepted size, and the
+outer frame keeps responsibility for alignment. A 4-by-2 image inside a
+centered 12-by-12 frame therefore fits to 12-by-6 at (0, 3).
+
+Declined proposals retain the original centered stack's measurement and clamp.
+This incorporates a source-review correction: an earlier, unrun absolute
+wrapper let an inner fixed 12-by-8 frame regain its width inside the old 8-by-8
+fit ideal. The accepted implementation preserves the old 8-by-8 result at
+(6, 6) under fixedSize and a centered 20-by-20 outer frame. Accepted size,
+placement admission, fit configuration and inherited fill state travel together
+under the same measurement cache/memo key; construction nodes do not replace
+the installed node's private cache.
+
+Nineteen new MainActor async XCTest methods cover independent geometry and
+solid coverage, typed and generic lowering, frame order, reconciliation,
+caps and repeats, four display scales, clipping, fallback preservation,
+source identity and the unchanged tile-phase limit. The original sixteen
+candidate tests and helpers remain unchanged; three cover the corrected
+fallback and finite/fallback reconciliation. Source bytes, sampling, the
+128-byte image ABI, all existing test bodies, baselines and tolerances remain
+unchanged by this slice. Root contracts and strict formatting of all five
+changed Swift files passed. Compilation and execution of the nineteen new
+cases are still unrun at this entry; the earlier a2 Full did not include them.
+
+Fill/overflow, unspecified/infinite/single-axis/invalid proposals, minimum and
+fixed-size conflicts, complete modifier order, symbols, density, orientation,
+RTL, interpolation and native pixel/filtering conformance remain original
+requirements. Preserving older Windows fallback behavior does not establish
+native conformance. Legacy frame bitmap placement and the separate resource
+samples still need their own integration. All nine original gates remain open.

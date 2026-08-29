@@ -19608,6 +19608,26 @@ private func aspectRatioPreferredSize(
             : Size(width: baseSize.width, height: baseSize.width / ratio)
     }
 }
+
+/// Shared lowering for Image's typed fit modifier and the generic View path.
+/// The old preference is only an ideal fallback; retained measurement resolves
+/// finite fit from the live proposal. Keep the original centered stack for
+/// declined proposals; only an admitted measurement selects fit placement.
+@MainActor
+func retainedAspectFitComponent(child: Component, aspectRatio: Double?) -> Component {
+    Component { runtime in
+        let childNode = child.makeNode(runtime: runtime)
+        let preferredSize = aspectRatioPreferredSize(
+            baseSize: childNode.intrinsicContentSize(), requestedAspectRatio: aspectRatio, contentMode: .fit)
+        let root = Controls.stackPanel(
+            preferredSize: preferredSize,
+            stackLayout: .vertical(padding: .zero, alignment: .center, mainAlignment: .center),
+            isHitTestVisible: false, children: [childNode])
+        root.aspectFitLayout = RetainedAspectFitLayout(aspectRatio: aspectRatio)
+        return root
+    }
+}
+
 // The legacy task(id:) adapter still uses its existing callsite bookkeeping.
 // Mounted change and preference observations do not use this registry.
 @MainActor
@@ -23422,6 +23442,9 @@ extension View {
     public func aspectRatio(_ aspectRatio: Double? = nil, contentMode: ContentMode) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
+            if case .fit = contentMode {
+                return retainedAspectFitComponent(child: child, aspectRatio: aspectRatio)
+            }
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 let baseSize = childNode.intrinsicContentSize()

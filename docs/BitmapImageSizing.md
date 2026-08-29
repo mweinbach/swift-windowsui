@@ -14,6 +14,31 @@ available. A nonresizable bitmap keeps its intrinsic size and alignment
 inside a larger frame. Ordinary zero-cap stretch keeps the existing sampling
 path and does not acquire the new cap/tile admission limits.
 
+Resizable bitmap `Image.aspectRatio(..., contentMode: .fit)` and
+`scaledToFit()` now share one retained proposal modifier with the generic
+`View` fit methods. With positive finite width and height maxima and zero
+minimum extents, it computes the largest rectangle of the requested ratio
+inside that proposal. A nil ratio is read from the child's current ideal
+size. The modifier offers the coupled width and height to its child and
+reports the child's accepted size; a fixed frame or intrinsic child need
+not take the full proposal. Its enclosing frame owns alignment. For example,
+a 4-by-2 resizable bitmap in a centered 12-by-12 frame fits to 12-by-6 at
+`(0, 3)`, leaving bands above and below.
+
+This is retained layout, not a source-image transform. The fit wrapper keeps
+the original centered stack as its fallback. An admitted finite measurement
+forwards both dimensions and places the child's accepted size at the wrapper
+origin, without fitting that answer again or inheriting independent fill axes.
+The admission and accepted size travel together under the same measurement
+cache and memo key. A declined proposal retains the old stack measurement,
+alignment and clamping, including its treatment of an inner fixed frame.
+The existing preferred size remains the fallback outside the admitted finite
+domain, but does not override a finite fit measurement. Changes to the ratio,
+proposal, or child invalidate or change the measurement cache; reconciliation
+keeps the bitmap leaf within a stable fit modifier structure. Typed Image
+methods still return Image, while generic methods build the same fit wrapper.
+System symbols and `.fill` keep their existing paths.
+
 The source stays at its decoded dimensions, with unchanged bytes and
 `BitmapContentKey`. The retained scene emits one `ImagePrimitive` and one
 source resource; frame output emits one `DrawBitmapCommand`. Their constant
@@ -78,9 +103,14 @@ No Canvas or demo-specific public API is needed.
 
 The following remain open:
 
-- Image and generic-view `aspectRatio`, `scaledToFit`, and `scaledToFill`
-  retain the existing preferred-size path. Complete proposal negotiation,
-  fit bands, fill overflow, and modifier-order behavior need separate work.
+- Finite positive two-axis fit is an incremental implementation, not complete
+  Image proposal negotiation. `scaledToFill` and `.fill` retain the existing
+  preferred-size path; fill overflow and negative frame alignment need
+  separate work. Unspecified, infinite, single-axis, zero, invalid-ratio,
+  nonzero-minimum, fixed-size and competing-stack proposals remain
+  unqualified. The retained constraint type does not distinguish SwiftUI's
+  unspecified ideal proposal from infinity. Repeated typed Image aspect
+  modifiers still overwrite one ratio/mode pair rather than nesting.
 - Fractional caps, zero or negative center extents, undersized destinations,
   oversized caps, and tile phases beyond the admitted bound remain
   unsupported. Their native behavior has not been established.
@@ -105,6 +135,29 @@ tile-phase bound. It also specifies CPU/D3D11 comparisons through the
 existing device-optional harness; a missing D3D11 device is a skip, not a
 backend pass.
 
+`WinSwiftUIBitmapAspectFitTests` specifies nineteen independent geometry and
+preservation cases: wide and tall fits, an explicit ratio, shrinking,
+alignment, generic and typed lowering, both orders of frame and fit,
+reconciliation, fitted cap fractions and tile repeats, four display scales,
+clipping, ordinary-stretch and intrinsic-size preservation, and the existing
+tile-phase failure bound. Solid-color rectangles give exact independent
+coverage expectations for scene and frame CPU output, including 72 pixels
+for the 12-by-6 fit and 48 after the authored offset is clipped. Source bytes,
+content keys, one-image presentation order and the 128-byte primitive ABI
+are also asserted. The large phase-bound fixture emits records only, with
+no destination raster allocation. The old preferred-size metadata tests
+and all existing stretch, resizing and backend test bodies are unchanged.
+These geometry expectations are analytic Windows oracles, not measured
+native pixels or a new baseline.
+
+Three fallback regressions preserve the prior centered-stack geometry under
+`fixedSize`, an ordinary VStack's unbounded main-axis proposal, and repeated
+finite/fallback reconciliation. A 12-by-8 fixed image frame followed by
+ratio-1 fit, `fixedSize()` and a centered 20-by-20 frame keeps the old 8-by-8
+image at `(6, 6)`; it does not regain the inner frame's declared width and
+overflow to 12-by-8. These preserve existing Windows behavior outside finite
+admission, without claiming native fixed-size or unbounded conformance.
+
 At `a2cad23`, a fresh serial focused run passed all 20 resizing and stretch
 XCTest methods with no failures or skips, including both D3D11 comparison
 methods. The subsequent complete local Full run also passed. Two fixture
@@ -114,10 +167,24 @@ instead of a 24-point helper that clamped its requested size. Production
 sampling, the 4096 phase limit, source bytes, ABI and tolerances did not change.
 The runs and reviewed images are recorded in `goal.md`; native SwiftUI,
 interpolation, legacy-frame placement and SDK conformance remain unqualified.
-No baseline review flags are promoted. Run focused checks serially with the
-existing architecture and formatting checks:
+
+The nineteen new aspect-fit cases have not yet been compiled or executed on
+this integration branch. The earlier a2 runs did not include them. No baseline
+review flags are promoted. Run focused checks serially with the existing
+architecture and formatting checks:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUIBitmapStretchTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUIBitmapResizingTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUIBitmapAspectFitTests
 ```
+
+The primary semantic reference is Apple's
+[image sizing guide](https://developer.apple.com/documentation/swiftui/fitting-images-into-available-space)
+and the documented
+[scaledToFit alias](https://developer.apple.com/documentation/swiftui/view/scaledtofit%28%29/).
+The inspected native reference catalog has no bitmap aspect fixture. Native
+capture, fractional filtering, and full modifier-order behavior remain open.
+In addition, a retained-scene or CPU frame result does not qualify the legacy
+D3D11 frame bitmap path, whose canonical legacy placement still uses source
+pixel dimensions. That backend limit is unchanged by this layout slice.

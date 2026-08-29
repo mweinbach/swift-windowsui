@@ -7004,13 +7004,20 @@ public struct Image: View {
             // Resizable bitmaps accept layout's finite proposal. Keep the
             // bitmap as its intrinsic fallback instead of pinning an explicit
             // preferred size, which also defeats fill in absolute containers.
-            // Aspect sizing still follows its separate preferred-size path.
+            // Fit adds a one-child proposal modifier around this same leaf;
+            // fill keeps its existing preferred-size path for now.
             // Cap/tile admission is checked against the final local paint size.
-            let resizesToProposal = isResizable && contentMode == nil
+            let fitsProposal: Bool
+            if case .fit? = contentMode {
+                fitsProposal = isResizable && bitmap != nil
+            } else {
+                fitsProposal = false
+            }
+            let resizesToProposal = isResizable && (contentMode == nil || fitsProposal)
             let preferredSize =
                 resizesToProposal
                 ? nil : resolvedPreferredSize(baseSize: bitmap?.logicalSize, requiresExplicitOptIn: false)
-            return Component { _ in
+            let image = Component { _ in
                 guard let bitmap else {
                     let node = Controls.panel(preferredSize: preferredSize, isHitTestVisible: false)
                     applyImageMetadata(to: node, context: context)
@@ -7024,6 +7031,7 @@ public struct Image: View {
                 applyImageMetadata(to: node, context: context)
                 return node
             }
+            return fitsProposal ? retainedAspectFitComponent(child: image, aspectRatio: aspectRatioValue) : image
         }
     }
 

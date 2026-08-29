@@ -172,22 +172,14 @@ extension App {
         let app = Self.init()
         let resolved = RenderBackendFactoryResolution.resolve(Self.renderBackendFactory())
 
-        do {
-            let coordinator = WinSwiftUIWindowCoordinator(
-                sceneConfigurations: app.body.makeWindowConfigurations(),
-                renderBackendFactory: resolved.factory,
-                backendResolution: resolved.resolution,
-                platformHostFactory: Self.platformHostFactory(),
-                // `--diagnostics`: open the real window, drive it, measure it,
-                // write the report and close. Wired at the composition root
-                // rather than behind a build flag, because the session worth
-                // measuring is the one the product actually ships.
-                liveDiagnostics: LiveDiagnosticsConfiguration.fromCommandLine()
-            )
-            _ = try coordinator.run()
-        } catch {
-            print("Failed to start WinSwiftUI app: \(error)")
-        }
+        WinSwiftUIAppMain.run(
+            application: app,
+            sceneConfigurations: app.body.makeWindowConfigurations(),
+            renderBackendFactory: resolved.factory,
+            backendResolution: resolved.resolution,
+            platformHostFactory: Self.platformHostFactory(),
+            liveDiagnostics: LiveDiagnosticsConfiguration.fromCommandLine()
+        )
     }
 }
 @MainActor
@@ -2466,6 +2458,30 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
     private let window: Win32Window
     private let renderer: any RenderBackend
     private let batchRenderer: (any BatchRenderBackend)?
+    private let nativePresentationFactory: (any NativePresentationBackendFactory)?
+    private let nativePresentationAttachmentID = NativeWindowAttachmentID()
+    private let nativePresentationTeardownStore = NativePresentationTeardownStore()
+    private var nativePresentationQueue: NativeHostPresentationQueue?
+    private var nativePresentationSnapshot: NativePresentationSnapshot?
+    private var isNativePresentationAttachmentInstalled = false
+    private var isNativePresenterTransitionPending = false
+    private var isNativeFramePending = false
+    private var nativeResizeGeneration: UInt64?
+    private var nativeAttachedSurfaceGeneration: UInt64?
+    private var nativeInitialFrameWaiters: [CheckedContinuation<Bool, Never>] = []
+    private var nativeFrameBackendDisplayName: String?
+    private var nativeSceneBackendDisplayName: String?
+    private var nativeLifetimeKey: NativeWindowKey?
+    private var didConsumeNativeTeardown = false
+    private var didReportNativeTerminalFailure = false
+    private var nativeCompletedGPUFrameTimings: [GPUFrameTimingResult] = []
+    private var nativeCapturedPresentedFrame: BitmapSurface?
+    private var nativeDialogSession: NativeDialogSession?
+    private var nativeDialogOwnerIsReady = false
+    private var pendingNativeDialogOwnerRequests: [@MainActor (NativeDialogSession) -> Void] = []
+    private var didNotifyWindowClosed = false
+    private var nativeTeardownResult: Bool?
+    private var nativeTeardownWaiters: [CheckedContinuation<Bool, Never>] = []
     private let runtime: RetainedViewRuntime
     private let componentHost: ComponentHost
     private lazy var stateMountCoordinator = StateMountCoordinator(
@@ -2918,6 +2934,7 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
     /// the frame backend is presenting.
     var activeBatchBackendDiagnostics: BatchBackendDiagnostics? {
         guard activeBackend == .scene else { return nil }
+        if usesNativePresentation { return nativePresentationSnapshot?.backendDiagnostics }
         return batchRenderer?.backendDiagnostics
     }
 
@@ -2925,23 +2942,31 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
     /// fallback detaches it. Draining must therefore not depend on which
     /// backend currently presents, and must never start another frame.
     var gpuFrameTimingDiagnostics: GPUFrameTimingDiagnostics? {
-        batchRenderer?.gpuFrameTimingDiagnostics
+        if usesNativePresentation { return nativePresentationSnapshot?.gpuFrameTimingDiagnostics }
+        return batchRenderer?.gpuFrameTimingDiagnostics
     }
 
     @discardableResult
     func setGPUFrameTimingEnabled(_ enabled: Bool) -> Bool {
+        guard !usesNativePresentation else { return false }
         guard !enabled || !hasTornDownWindow else { return false }
         return batchRenderer?.setGPUFrameTimingEnabled(enabled) ?? false
     }
 
     func takeCompletedGPUFrameTimings() -> [GPUFrameTimingResult] {
-        batchRenderer?.takeCompletedGPUFrameTimings() ?? []
+        if usesNativePresentation {
+            let completed = nativeCompletedGPUFrameTimings
+            nativeCompletedGPUFrameTimings.removeAll(keepingCapacity: true)
+            return completed
+        }
+        return batchRenderer?.takeCompletedGPUFrameTimings() ?? []
     }
 
     /// Asks the active batch backend to stop pacing presents to vblank.
     /// Returns whether it honoured the request.
     @discardableResult
     func setActiveBatchBackendVSync(_ enabled: Bool) -> Bool {
+        guard !usesNativePresentation else { return false }
         guard activeBackend == .scene, let batchRenderer else { return false }
         return batchRenderer.setPresentsWithVSync(enabled)
     }
@@ -2950,12 +2975,18 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
     /// presents. Returns whether it honoured the request.
     @discardableResult
     func setActiveBatchBackendFrameCapture(_ enabled: Bool) -> Bool {
+        guard !usesNativePresentation else { return false }
         guard activeBackend == .scene, let batchRenderer else { return false }
         return batchRenderer.setCapturesPresentedFrames(enabled)
     }
 
     /// The pixels of the most recently presented frame, consumed.
     func takeCapturedPresentedFrame() -> BitmapSurface? {
+        if usesNativePresentation {
+            let captured = nativeCapturedPresentedFrame
+            nativeCapturedPresentedFrame = nil
+            return captured
+        }
         guard activeBackend == .scene, let batchRenderer else { return nil }
         return batchRenderer.takeCapturedPresentedFrame()
     }
@@ -3001,12 +3032,19 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
     /// bridge; the window coordinator uses it to drop the window's record and
     /// apply the last-window-quit policy.
     var onWindowClosed: ((WinSwiftUIWindowHost) -> Void)?
+    /// A failed native owner is not a destroyed window. The coordinator uses
+    /// this separate route to fail its run without inventing a close receipt.
+    var onNativeFailure: ((WinSwiftUIWindowHost, NativeWindowOwnerFailure) -> Void)?
 
     /// The Win32 window this host drives. Exposed for the window
     /// coordinator's platform hooks (start/close) and for tests.
     var platformWindow: Win32Window {
         window
     }
+
+    /// Chosen before window creation. A custom or headless renderer keeps the
+    /// synchronous path unless its factory explicitly supplies native kernels.
+    var usesNativePresentation: Bool { nativePresentationFactory != nil }
 
     var documentContext: DocumentWindowContext? { claimedDocumentContext }
     var isClosed: Bool { hasTornDownWindow }
@@ -3052,6 +3090,7 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
         // fallback). Nothing user-facing can reach these defaults.
         renderer: any RenderBackend = CPURenderBackendFactory().makeRenderBackend(),
         batchRenderer: (any BatchRenderBackend)? = CPURenderBackendFactory().makeBatchRenderBackend(),
+        nativePresentationFactory: (any NativePresentationBackendFactory)? = nil,
         surfaceDescriptorProvider: @escaping @MainActor (Win32Window) -> SurfaceDescriptor? = WinSwiftUIWindowHost
             .defaultSurfaceDescriptor,
         sceneRenderer: (@MainActor (RetainedViewRuntime, Double) -> GPUIScene)? = nil,
@@ -3083,6 +3122,7 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
                 configuration: WinSwiftUIWindowHost.platformConfiguration(for: configuration))
         self.renderer = renderer
         self.batchRenderer = batchRenderer
+        self.nativePresentationFactory = nativePresentationFactory
         self.surfaceDescriptorProvider = surfaceDescriptorProvider
         self.runtime = RetainedViewRuntime(clearColor: configuration.clearColor, root: ViewNode())
         self.componentHost = ComponentHost(runtime: runtime)
@@ -3094,6 +3134,11 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
         self.startupProbeConfiguration = startupProbeConfiguration
         self.recoveryPolicy = recoveryPolicy
         self.currentBatchRecoveryInterval = recoveryPolicy.initialRetryInterval
+        componentHost.expectsNativeDialogOwner = nativePresentationFactory != nil
+        if nativePresentationFactory != nil {
+            self.frameClock = { PlatformClock.now() }
+            self.recoveryClock = { PlatformClock.now() }
+        }
 
         // A bare legacy document marker remains an unadapted raw host. Typed
         // document metadata must claim its exact prepared context; neither
@@ -3124,6 +3169,9 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
             .hostedWindow(window)
         }
         componentHost.buildLifecycle = stateMountCoordinator
+        componentHost.onReloadCompleted = { [weak self] in
+            self?.completeNativeDialogOwnerReload()
+        }
         windowCloseRegistration = window.installCloseAuthority(self)
         componentHost.measureBuild = { [weak self] build in
             guard let self else {
@@ -3160,13 +3208,15 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
 
         // UI Automation wiring: the bridge re-projects the retained tree on
         // every UIA query; focus events ride the runtime's focus hook.
-        let uiaTreeSource = RuntimeUIAElementTreeSource(runtime: runtime) { [weak window] bounds in
-            window?.clientRectToScreen(bounds) ?? bounds
+        if nativePresentationFactory == nil {
+            let uiaTreeSource = RuntimeUIAElementTreeSource(runtime: runtime) { [weak window] bounds in
+                window?.clientRectToScreen(bounds) ?? bounds
+            }
+            let uiaBridge = UIAProviderBridge(source: uiaTreeSource)
+            window.accessibilityProvider = uiaBridge
+            self.uiaTreeSource = uiaTreeSource
+            self.uiaBridge = uiaBridge
         }
-        let uiaBridge = UIAProviderBridge(source: uiaTreeSource)
-        window.accessibilityProvider = uiaBridge
-        self.uiaTreeSource = uiaTreeSource
-        self.uiaBridge = uiaBridge
         runtime.onAccessibilityFocusChanged = { [weak self] node in
             self?.accessibilityFocusDidChange(to: node)
         }
@@ -3179,7 +3229,10 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
             let closeWorkPin = windowCloseRegistration?.pinDeferredWork()
             let closingParticipant = windowCloseParticipant
             let closeBuildWait = pendingCloseBuildWait
-            defer { withExtendedLifetime((closeWorkPin, closingParticipant, closeBuildWait)) {} }
+            let pendingNativeDialogs = pendingNativeDialogOwnerRequests
+            pendingNativeDialogOwnerRequests.removeAll()
+            nativeDialogOwnerIsReady = false
+            defer { withExtendedLifetime((closeWorkPin, closingParticipant, closeBuildWait, pendingNativeDialogs)) {} }
             closeParticipantIdentity = CloseParticipantIdentity()
             windowCloseParticipant = nil
             closeBuildWait?.isValid = false
@@ -3191,6 +3244,9 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
             windowCloseRegistration?.revoke()
             closingParticipant?.revokeCloseParticipation()
             componentHost.invalidateFileDialogRequests()
+            nativeDialogSession?.invalidate()
+            nativePresentationQueue?.invalidate()
+            if usesNativePresentation { uiaBridge?.revokeNativeRequests() }
             runtime.stopRenderLifecycleCallbacks()
             let textInputTeardown = prepareTextInputUndoForWindowClose(in: runtime)
             stateMountCoordinator.close()
@@ -3308,8 +3364,9 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
     }
 
     private func accessibilityFocusDidChange(to node: ViewNode?) {
-        // Skip re-projection entirely when no assistive client is attached.
-        guard let uiaBridge, uiaBridge.isClientListening else {
+        // Native events check listening on the owner. Asking the OS here can
+        // cycle through a provider call that is synchronously waiting for us.
+        guard let uiaBridge, usesNativePresentation || uiaBridge.isClientListening else {
             return
         }
         guard let node, let elementID = uiaTreeSource?.projectedElementID(forNodeOrAncestor: node) else {
@@ -3321,6 +3378,9 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
     @discardableResult
     func run() throws -> Int32 {
         try validateNativeActivation()
+        guard !usesNativePresentation else {
+            throw NativeWindowOwnerFailure.execution("A native-owner host must be started by the native coordinator.")
+        }
         return try Win32Application.run(window: window)
     }
 
@@ -3341,6 +3401,10 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
         guard !hasTornDownWindow else { return }
         syncWindowDismissBehavior()
         reportUnsupportedWindowConfigurationIfNeeded()
+        // startNative awaits the actual attachment and first render receipts.
+        // This delegate runs during actor ingress and must never await native
+        // progress, including when ingress was flushed by a UIA transaction.
+        guard !usesNativePresentation else { return }
         do {
             guard let surface = surfaceDescriptorProvider(window) else {
                 recordPresenterAttachFailure("Missing surface descriptor.", in: window)
@@ -3437,6 +3501,11 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
             let dueAt = nextPresenterAttachAttemptAt,
             recoveryClock() >= dueAt
         else {
+            return false
+        }
+
+        if usesNativePresentation {
+            retryNativePresenterIfDue()
             return false
         }
 
@@ -4303,13 +4372,55 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
     }
 
     func windowWillClose(_ window: Win32Window) {
+        tearDownRetainedWindow()
+        if usesNativePresentation {
+            guard window.usesNativeOwner else {
+                completeNativeTeardownWaiters(destroyed: false)
+                return
+            }
+            let finish: @MainActor () -> Void = { [self] in
+                // Native destruction proves owner execution ended, but an
+                // already-posted reply task can still own timing/capture data.
+                // Consume that actor work before final diagnostics or the
+                // coordinator can observe this window as fully closed.
+                consumeNativeTeardownReceipt()
+                completeNativeTeardownWaiters(destroyed: true)
+                notifyWindowClosed()
+            }
+            if let queue = nativePresentationQueue {
+                queue.whenDrained(finish)
+            } else {
+                finish()
+            }
+            return
+        }
+        notifyWindowClosed()
+    }
+
+    private func notifyWindowClosed() {
+        // Native teardown preparation has already closed the actor state.
+        // The delegate is terminal only after the owner has detached native
+        // resources, cleared the backpointer and returned from WM_NCDESTROY.
+        guard !didNotifyWindowClosed else { return }
+        didNotifyWindowClosed = true
+        onWindowClosed?(self)
+    }
+
+    private func tearDownRetainedWindow() {
         guard !hasTornDownWindow else { return }
         hasTornDownWindow = true
+        if usesNativePresentation {
+            uiaBridge?.revokeNativeRequests()
+            runtime.onAccessibilityFocusChanged = nil
+        }
         documentContext?.owner.revoke()
         let closeWorkPin = windowCloseRegistration?.pinDeferredWork()
         let closingParticipant = windowCloseParticipant
         let closeBuildWait = pendingCloseBuildWait
-        defer { withExtendedLifetime((closeWorkPin, closingParticipant, closeBuildWait)) {} }
+        let pendingNativeDialogs = pendingNativeDialogOwnerRequests
+        pendingNativeDialogOwnerRequests.removeAll()
+        nativeDialogOwnerIsReady = false
+        defer { withExtendedLifetime((closeWorkPin, closingParticipant, closeBuildWait, pendingNativeDialogs)) {} }
         closeParticipantIdentity = CloseParticipantIdentity()
         windowCloseParticipant = nil
         closeBuildWait?.isValid = false
@@ -4321,6 +4432,8 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
         windowCloseRegistration?.revoke()
         closingParticipant?.revokeCloseParticipation()
         componentHost.invalidateFileDialogRequests()
+        nativeDialogSession?.invalidate()
+        nativePresentationQueue?.invalidate()
         runtime.stopRenderLifecycleCallbacks()
         // Revoke every capability before any ownership cleanup releases
         // application payloads that may reenter undo or escaped State bindings.
@@ -4346,22 +4459,28 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
         runtime.pointerCancelled()
         runtime.keyboardFocusDidLeaveWindow()
         textInputTeardown.detach()
-        uiaBridge?.disconnect()
-        window.accessibilityProvider = nil
+        if !usesNativePresentation {
+            uiaBridge?.disconnect()
+            window.accessibilityProvider = nil
+        }
         // Release the GPU stack while the HWND is still alive. A swap chain
         // pins the window it presents to and nothing else in the process
         // will ever release it, so a closed window without this leaks its
         // whole device — including the blur ping-pong textures, which are
         // tens of megabytes at 4K.
         isRendererReady = false
-        batchRenderer?.detach()
-        renderer.detach()
-        onWindowClosed?(self)
+        if !usesNativePresentation {
+            batchRenderer?.detach()
+            renderer.detach()
+        }
     }
 
     private var buildContext: ViewBuildContext {
         ViewBuildContext(
             stateMountCoordinator: stateMountCoordinator,
+            nativeDialogSession: nativeDialogSession,
+            nativeDialogOwnerRequest: usesNativePresentation
+                ? { [weak self] request in self?.requestNativeDialogOwner(request) } : nil,
             canvasSizeProvider: { [weak self] in
                 self?.runtime.root.frame.size
                     ?? Size(
@@ -4633,11 +4752,15 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
             return max(0, dueAt - recoveryClock())
         }()
         let activeBackendName: String?
-        switch activeBackend {
-        case .scene:
-            activeBackendName = batchRenderer?.backendDisplayName
-        case .frame:
-            activeBackendName = renderer.backendDisplayName
+        if usesNativePresentation {
+            activeBackendName = nativePresentationSnapshot?.backendDisplayName
+        } else {
+            switch activeBackend {
+            case .scene:
+                activeBackendName = batchRenderer?.backendDisplayName
+            case .frame:
+                activeBackendName = renderer.backendDisplayName
+            }
         }
         return RendererHealthSnapshot(
             activeBackend: activeBackend == .scene ? .scene : .frame,
@@ -4668,6 +4791,7 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
     /// The active backend's post-render presentation state. Backends that
     /// cannot lose a device report the neutral value.
     private var activePresentationState: PresentationState {
+        if usesNativePresentation { return nativePresentationSnapshot?.presentationState ?? PresentationState() }
         switch activeBackend {
         case .scene:
             return batchRenderer?.presentationState ?? PresentationState()
@@ -4680,6 +4804,7 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
     /// frame by the self-pacing gate, so it must stay a property read and not
     /// become a computation.
     var activePresentPacing: PresentPacingStatus {
+        if usesNativePresentation { return nativePresentationSnapshot?.presentPacing ?? PresentPacingStatus() }
         switch activeBackend {
         case .scene:
             return batchRenderer?.presentPacing ?? PresentPacingStatus()
@@ -4809,6 +4934,9 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
 
     private func commitRuntimeState(in window: Win32Window, interactive: Bool = false) {
         guard !hasTornDownWindow else { return }
+        if usesNativePresentation, let surface = window.nativeSurface {
+            window.updateNativeCaretRect(runtime.focusedTextInputCaretRect, forSurfaceGeneration: surface.generation)
+        }
         let needsPresentation = runtime.isDirty || pendingPresentation
 
         if interactive && needsPresentation {
@@ -4836,6 +4964,12 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
     @discardableResult
     private func renderCurrentFrame(in window: Win32Window, timestamp: Double? = nil) -> Bool {
         guard !hasTornDownWindow else { return false }
+        if usesNativePresentation {
+            submitNativeFrame(timestamp: timestamp)
+            // Admission cannot answer a synchronous question about a present.
+            // Native startup and diagnostics observe the terminal receipt.
+            return false
+        }
         // The drag's newest size, applied once, here — not once per mouse
         // report in the wndproc. Before the presenter check, so the runtime's
         // root is the window's size even on a frame that cannot be presented.
@@ -5096,6 +5230,10 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
         selfPacedFrameInterval = seconds
         // A display change invalidates the deadline the old one set.
         selfPacedFrameDueAt = 0
+        if usesNativePresentation {
+            configureNativePresentation(NativePresentationConfiguration(displayFrameInterval: seconds))
+            return
+        }
         batchRenderer?.setDisplayFrameInterval(seconds)
         renderer.setDisplayFrameInterval(seconds)
     }
@@ -5147,6 +5285,12 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
     /// presents plus the display it presents to. Either changing is a new
     /// bargain, judged fresh.
     private func computePresentPacingMemoryKey() -> String {
+        if usesNativePresentation {
+            let adapter =
+                nativePresentationSnapshot?.backendDiagnostics?.adapterDescription
+                ?? nativePresentationSnapshot?.backendDisplayName ?? "unattached"
+            return "\(adapter)|\(window.displayIdentity())"
+        }
         let adapter =
             activeBatchBackendDiagnostics?.adapterDescription
             ?? (activeBackend == .scene
@@ -5174,8 +5318,12 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
             return
         }
 
-        batchRenderer?.adoptRememberedSelfPacing()
-        renderer.adoptRememberedSelfPacing()
+        if usesNativePresentation {
+            configureNativePresentation(NativePresentationConfiguration(adoptRememberedSelfPacing: true))
+        } else {
+            batchRenderer?.adoptRememberedSelfPacing()
+            renderer.adoptRememberedSelfPacing()
+        }
     }
 
     /// Files the watchdog's current verdict after a presented frame. Only the
@@ -5254,7 +5402,7 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
 
     private func syncAnimationDriver(for window: Win32Window) {
         guard !hasTornDownWindow else {
-            window.setAnimationTimerEnabled(false)
+            if !usesNativePresentation { window.setAnimationTimerEnabled(false) }
             currentTimerState = TimerState(
                 isEnabled: false,
                 intervalMilliseconds: currentTimerState.intervalMilliseconds,
@@ -5266,6 +5414,17 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
         runtime.minimumFrameInterval = Self.pacingInterval(forRefreshRate: refreshRate)
         window.useHighResolutionTimer = true
         applyDisplayFrameInterval(1.0 / Double(refreshRate))
+
+        if usesNativePresentation, isNativeFramePending || isNativePresenterTransitionPending {
+            // The terminal native reply schedules the next needed frame. No
+            // timer is needed merely to discover that a command is still busy.
+            window.setAnimationTimerEnabled(false)
+            currentTimerState = TimerState(
+                isEnabled: false, intervalMilliseconds: currentTimerState.intervalMilliseconds,
+                usesHighResolution: true, refreshRate: UInt32(refreshRate))
+            onTimerStateChanged?(currentTimerState)
+            return
+        }
 
         // Without a presenter there is nothing to animate and nothing to
         // present, so the timer's only remaining job is the bounded attach
@@ -5467,6 +5626,11 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
         // Resized swap-chain buffers do not carry the old pixels; whatever
         // revision was on screen is gone with them.
         invalidatePresentedContentTracking()
+        if usesNativePresentation {
+            nativeResizeGeneration = window.nativeSurface?.generation
+            beginNativeResizeIfNeeded()
+            return
+        }
         if activeBackend == .scene, let batchRenderer {
             do {
                 try batchRenderer.resize(to: size)
@@ -5569,7 +5733,11 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
         consecutiveSuccessfulSceneFrames = 0
         didSceneContentChangeSinceFailure = false
 
-        guard recoveryPolicy.isEnabled, batchRenderer != nil, lastPresentationFailureKind != .permanent else {
+        guard recoveryPolicy.isEnabled,
+            usesNativePresentation
+                ? nativePresentationFactory?.capabilities.supportsSceneRendering == true : batchRenderer != nil,
+            lastPresentationFailureKind != .permanent
+        else {
             nextBatchRecoveryAttemptAt = nil
             return
         }
@@ -5588,6 +5756,10 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
     /// policy is enabled, and the next-attempt timestamp has passed. Success
     /// promotes us back to the scene backend; failure extends the backoff.
     private func attemptBatchBackendRecoveryIfDue(in window: Win32Window) {
+        if usesNativePresentation {
+            beginNativeBatchRecoveryIfDue()
+            return
+        }
         guard recoveryPolicy.isEnabled,
             activeBackend == .frame,
             let batchRenderer,
@@ -5674,8 +5846,11 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
         currentPresentationSelection = PresentationSelection(
             presenter: activeBackend == .scene ? .scene : .frame,
             reason: reason,
-            frameBackend: renderer.backendDisplayName,
-            sceneBackend: batchRenderer?.backendDisplayName
+            frameBackend: usesNativePresentation
+                ? (nativeFrameBackendDisplayName
+                    ?? "\(nativePresentationFactory?.factoryName ?? "Native") frame (unattached)")
+                : renderer.backendDisplayName,
+            sceneBackend: usesNativePresentation ? nativeSceneBackendDisplayName : batchRenderer?.backendDisplayName
         )
     }
 
@@ -5964,4 +6139,884 @@ public protocol AppIntent: Sendable, Equatable {
 @available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
 extension AppIntent {
     public static var description: String? { nil }
+}
+
+extension WinSwiftUIWindowHost {
+    /// Runs from the coordinator's independent actor task, never from a
+    /// synchronous native query. The delegate callbacks themselves stay
+    /// non-suspending; this operation waits for real creation and startup work.
+    func startNative(on pump: Win32NativePump) async throws {
+        try validateNativeActivation()
+        guard nativePresentationFactory != nil else {
+            throw NativeWindowOwnerFailure.execution("The renderer has no native-owner factory.")
+        }
+        window.onNativeClosePrepared = { [weak self] _ in self?.tearDownRetainedWindow() }
+        window.onNativeStartupDiscardPrepared = { [weak self] in self?.tearDownRetainedWindow() }
+        window.onNativeCloseRequested = { [weak self] _ in
+            guard let self, !self.hasTornDownWindow else { return }
+            // Returning this callback releases the native transaction. The
+            // separate task can then wait for complete callback drain and the
+            // actual destruction acknowledgement without waiting on itself.
+            Task { @MainActor [self] in
+                let outcome = await window.closeNative()
+                if case .destructionFailed(let failure) = outcome {
+                    switch failure {
+                    case .owner(let ownerFailure): failNativeOwner(ownerFailure)
+                    case .native(let code): failNativeOwner(.native(operation: "DestroyWindow", code: Int64(code)))
+                    case .destructionNotObserved:
+                        failNativeOwner(
+                            .execution("DestroyWindow returned without native destruction acknowledgement."))
+                    }
+                }
+            }
+        }
+        window.onNativeOwnerFailure = { [weak self] failure in
+            self?.failNativeOwner(failure)
+        }
+        window.onNativeCaretRectRequested = { [weak self] sequence, generation in
+            guard let self else { return nil }
+            guard case .success = self.window.flushNativeEvents(through: sequence) else { return nil }
+            guard !self.hasTornDownWindow, self.window.nativeSurface?.generation == generation else { return nil }
+            return self.runtime.focusedTextInputCaretRect
+        }
+
+        let created = try await window.startNative(on: pump)
+        guard !hasTornDownWindow else { throw WindowCoordinatorError.windowClosedDuringStartup }
+        guard let sink = window.nativeCommandSink, let snapshots = window.nativeSnapshotSource else {
+            throw NativeWindowOwnerFailure.unavailable
+        }
+        nativeLifetimeKey = created.key
+        nativePresentationQueue = NativeHostPresentationQueue(
+            sink: sink, attachmentID: nativePresentationAttachmentID, teardownStore: nativePresentationTeardownStore)
+        bindNativeDialogSession(NativeDialogSession(windowKey: created.key, commandSink: sink))
+        guard !hasTornDownWindow else { throw WindowCoordinatorError.windowClosedDuringStartup }
+
+        let source = RuntimeUIAElementTreeSource(runtime: runtime)
+        let bridge = UIAProviderBridge(
+            source: source, nativeWindowKey: created.key, nativeSnapshotSource: snapshots, nativeCommandSink: sink,
+            beforeRequest: { [weak self] key, generation, geometry in
+                guard let self, !self.hasTornDownWindow else { return .failure(.closed) }
+                let flushed = self.window.flushNativeEvents(through: geometry.nativeSequence)
+                guard case .success = flushed else { return flushed }
+                guard !self.hasTornDownWindow else { return .failure(.closed) }
+                guard let surface = self.window.nativeSurface, surface.key == key else { return .failure(.staleWindow) }
+                guard surface.generation == generation else {
+                    return .failure(.staleSurface(expected: generation, actual: surface.generation))
+                }
+                return .success(())
+            }
+        )
+        uiaTreeSource = source
+        uiaBridge = bridge
+        guard let factory = bridge.makeNativeAttachmentFactory() else {
+            throw NativeWindowOwnerFailure.execution("The native UI Automation factory is unavailable.")
+        }
+        let installation: Result<Void, NativeWindowOwnerFailure> = await withCheckedContinuation { continuation in
+            let reply = NativeWindowReply<Void> { result in continuation.resume(returning: result) }
+            _ = sink.submit(
+                NativeHostAttachmentInstallCommand(
+                    windowKey: created.key, requestID: NativeWindowRequestID(), factory: factory, reply: reply))
+        }
+        try installation.get()
+        guard !hasTornDownWindow else { throw WindowCoordinatorError.windowClosedDuringStartup }
+
+        _ = await withCheckedContinuation { continuation in
+            beginNativePresenterAttach { success in continuation.resume(returning: success) }
+        }
+        guard !hasTornDownWindow else { throw WindowCoordinatorError.windowClosedDuringStartup }
+    }
+
+    /// Activation is a separate native operation so no interactive input can
+    /// reach actions captured before the dialog session and UIA front exist.
+    func finishNativeStartupPresentation() async throws {
+        guard !hasTornDownWindow else { throw WindowCoordinatorError.windowClosedDuringStartup }
+        guard isRendererReady else {
+            completeStartupProbeIfNeeded(
+                in: window, success: false, errorMessage: lastPresenterAttachFailureDetail)
+            return
+        }
+        if hasCurrentNativeSubmittedFrame {
+            completeStartupProbeIfNeeded(in: window, success: true, errorMessage: nil)
+            return
+        }
+        pendingPresentation = true
+        let submitted = await withCheckedContinuation { continuation in
+            nativeInitialFrameWaiters.append(continuation)
+            submitNativeFrame()
+        }
+        guard !hasTornDownWindow else { throw WindowCoordinatorError.windowClosedDuringStartup }
+        completeStartupProbeIfNeeded(
+            in: window, success: submitted,
+            errorMessage: submitted ? nil : "The initial native frame was not submitted to the window.")
+    }
+
+    func discardNativeFailedStartup() async throws {
+        if !window.usesNativeOwner {
+            guard window.nativeHandle == nil else {
+                throw NativeWindowOwnerFailure.execution(
+                    "Cannot discard a native window owned by a different host path.")
+            }
+            // A factory can fail admission before creation was started. There
+            // is no HWND to destroy and no native acknowledgement to invent,
+            // but its retained closures and model capabilities still need
+            // their normal actor cleanup.
+            tearDownRetainedWindow()
+            completeNativeTeardownWaiters(destroyed: false)
+            return
+        }
+        do {
+            try await window.discardNativeFailedStartup()
+        } catch {
+            tearDownRetainedWindow()
+            consumeNativeTeardownReceipt()
+            completeNativeTeardownWaiters(destroyed: false)
+            throw error
+        }
+    }
+
+    private func failNativeOwner(_ failure: NativeWindowOwnerFailure) {
+        guard !didReportNativeTerminalFailure else { return }
+        didReportNativeTerminalFailure = true
+        report("Native window ownership failed: \(failure)")
+        tearDownRetainedWindow()
+        consumeNativeTeardownReceipt()
+        completeNativeTeardownWaiters(destroyed: false)
+        onNativeFailure?(self, failure)
+    }
+
+    /// Built-in actions capture their build context. Installing the real
+    /// session requires an adopted rebuild before pending intents can run.
+    /// A later valid rebuild can supersede this particular request.
+    func bindNativeDialogSession(_ session: NativeDialogSession) {
+        guard !hasTornDownWindow else { return }
+        precondition(usesNativePresentation && nativeDialogSession == nil)
+        nativeDialogSession = session
+        componentHost.nativeDialogSession = session
+        componentHost.reload()
+    }
+
+    private func completeNativeDialogOwnerReload() {
+        guard !hasTornDownWindow, !nativeDialogOwnerIsReady,
+            let session = nativeDialogSession, componentHost.nativeDialogSession === session, session.isValid
+        else { return }
+        // This hook belongs to every adopted root, not just the bind request:
+        // an abandoned bind rebuild must not strand later admitted actions.
+        nativeDialogOwnerIsReady = true
+        let pending = pendingNativeDialogOwnerRequests
+        pendingNativeDialogOwnerRequests.removeAll()
+        for request in pending {
+            guard !hasTornDownWindow, session.isValid else { break }
+            request(session)
+        }
+        componentHost.processPendingFileDialogs()
+    }
+
+    private func requestNativeDialogOwner(_ request: @escaping @MainActor (NativeDialogSession) -> Void) {
+        guard !hasTornDownWindow else { return }
+        guard nativeDialogOwnerIsReady, let session = nativeDialogSession else {
+            pendingNativeDialogOwnerRequests.append(request)
+            return
+        }
+        guard session.isValid else { return }
+        request(session)
+    }
+
+    private var hasCurrentNativeSubmittedFrame: Bool {
+        NativeHostFrameDisposition.hasCurrentSubmission(
+            submittedRevision: lastPresentedContentRevision, currentRevision: runtime.contentRevision,
+            attachedSurfaceGeneration: nativeAttachedSurfaceGeneration,
+            currentSurfaceGeneration: window.nativeSurface?.generation,
+            isAttached: isRendererReady, needsImmediateRepaint: activePresentationState.needsImmediateRepaint,
+            hasUnpreparedContent: reloadScheduled || runtime.isDirty)
+    }
+
+    /// Closing diagnostics use the actual native terminal acknowledgement,
+    /// not the actor's earlier capability-revocation boundary.
+    func waitForNativeTeardown() async -> Bool {
+        guard usesNativePresentation else { return true }
+        if let nativeTeardownResult { return nativeTeardownResult }
+        return await withCheckedContinuation { nativeTeardownWaiters.append($0) }
+    }
+
+    private func completeNativeTeardownWaiters(destroyed: Bool) {
+        guard nativeTeardownResult == nil else { return }
+        nativeTeardownResult = destroyed
+        let waiters = nativeTeardownWaiters
+        nativeTeardownWaiters.removeAll()
+        for waiter in waiters { waiter.resume(returning: destroyed) }
+        completeNativeInitialFrameWaiters(submitted: false)
+    }
+
+    private func completeNativeInitialFrameWaiters(submitted: Bool) {
+        let waiters = nativeInitialFrameWaiters
+        nativeInitialFrameWaiters.removeAll()
+        for waiter in waiters { waiter.resume(returning: submitted) }
+    }
+
+    private func consumeNativeTeardownReceipt() {
+        guard let receipt = nativePresentationTeardownStore.takeReceipt(),
+            receipt.windowKey == nativeLifetimeKey, receipt.attachmentID == nativePresentationAttachmentID
+        else { return }
+        consumeNativePresentationSnapshot(receipt.snapshot)
+        didConsumeNativeTeardown = true
+        isNativePresentationAttachmentInstalled = !receipt.result.isDetached
+        isRendererReady = false
+        for failure in receipt.result.failures { report("Native renderer teardown failed: \(failure)") }
+    }
+
+    private func consumeNativePresentationSnapshot(_ snapshot: NativePresentationSnapshot) {
+        nativeCompletedGPUFrameTimings.append(contentsOf: snapshot.completedGPUFrameTimings)
+        guard !didConsumeNativeTeardown else { return }
+        if let captured = snapshot.capturedPresentedFrame, snapshot.lastFrameSubmission?.outcome == .submitted {
+            nativeCapturedPresentedFrame = captured
+        }
+        nativePresentationSnapshot = snapshot
+        if let path = snapshot.path {
+            activeBackend = path == .scene ? .scene : .frame
+            if path == .scene {
+                nativeSceneBackendDisplayName = snapshot.backendDisplayName
+            } else {
+                nativeFrameBackendDisplayName = snapshot.backendDisplayName
+            }
+        }
+        isRendererReady = snapshot.isAttached && !hasTornDownWindow
+    }
+
+    private func submitNativePresentation(
+        _ operation: NativePresentationOperation, capturedSurface: NativeWindowSurface? = nil,
+        requiresSurfaceGeneration: Bool = true,
+        completion: @escaping NativeHostPresentationQueue.Completion
+    ) {
+        guard !hasTornDownWindow, let queue = nativePresentationQueue,
+            let surface = capturedSurface ?? window.nativeSurface
+        else {
+            completion(.failure(hasTornDownWindow ? .closing : .unavailable))
+            return
+        }
+        queue.submit(operation, surface: surface, requiresSurfaceGeneration: requiresSurfaceGeneration) {
+            [weak self] result in
+            if let self, case .success(let receipt) = result,
+                receipt.surface.key == self.nativeLifetimeKey,
+                receipt.attachmentID == self.nativePresentationAttachmentID
+            {
+                if !self.didConsumeNativeTeardown {
+                    self.isNativePresentationAttachmentInstalled = receipt.isAttachmentInstalled
+                    if receipt.operation == .renderScene || receipt.operation == .renderFrame {
+                        self.nativeCapturedPresentedFrame = nil
+                    }
+                }
+                self.consumeNativePresentationSnapshot(receipt.snapshot)
+                if !self.didConsumeNativeTeardown, receipt.failure == nil, receipt.snapshot.isAttached,
+                    receipt.operation == .install || receipt.operation == .attach || receipt.operation == .resize
+                {
+                    self.nativeAttachedSurfaceGeneration = receipt.surface.generation
+                }
+            }
+            completion(result)
+        }
+    }
+
+    private func performNativePresentation(
+        _ operation: NativePresentationOperation, requiresSurfaceGeneration: Bool = true
+    ) async -> Result<NativePresentationReceipt, NativeWindowOwnerFailure> {
+        await withCheckedContinuation { continuation in
+            submitNativePresentation(operation, requiresSurfaceGeneration: requiresSurfaceGeneration) { result in
+                continuation.resume(returning: result)
+            }
+        }
+    }
+
+    private func configureNativePresentation(_ configuration: NativePresentationConfiguration) {
+        guard isNativePresentationAttachmentInstalled, !hasTornDownWindow else { return }
+        submitNativePresentation(.configure(configuration), requiresSurfaceGeneration: false) { [weak self] result in
+            guard let self, !self.hasTornDownWindow else { return }
+            if let detail = Self.nativePresentationFailureDescription(result) {
+                self.reportRepeating(
+                    "Native presentation configuration failed: \(detail)", signature: "native-configure")
+            }
+        }
+    }
+
+    func setGPUFrameTimingEnabledNative(_ enabled: Bool) async -> Bool {
+        guard usesNativePresentation else { return setGPUFrameTimingEnabled(enabled) }
+        guard !hasTornDownWindow, isNativePresentationAttachmentInstalled else { return false }
+        let result = await performNativePresentation(
+            .configure(NativePresentationConfiguration(gpuFrameTimingEnabled: enabled)),
+            requiresSurfaceGeneration: false)
+        guard case .success(let receipt) = result, receipt.failure == nil else { return false }
+        return receipt.snapshot.configurationResult.gpuFrameTimingEnabledAccepted == true
+    }
+
+    func setActiveBatchBackendVSyncNative(_ enabled: Bool) async -> Bool {
+        guard usesNativePresentation else { return setActiveBatchBackendVSync(enabled) }
+        guard !hasTornDownWindow, activeBackend == .scene, isRendererReady else { return false }
+        let result = await performNativePresentation(
+            .configure(NativePresentationConfiguration(presentsWithVSync: enabled)), requiresSurfaceGeneration: false)
+        guard case .success(let receipt) = result, receipt.failure == nil else { return false }
+        return receipt.snapshot.configurationResult.presentsWithVSyncAccepted == true
+    }
+
+    func setActiveBatchBackendFrameCaptureNative(_ enabled: Bool) async -> Bool {
+        guard usesNativePresentation else { return setActiveBatchBackendFrameCapture(enabled) }
+        guard !hasTornDownWindow, activeBackend == .scene, isRendererReady else { return false }
+        let result = await performNativePresentation(
+            .configure(NativePresentationConfiguration(capturesPresentedFrames: enabled)),
+            requiresSurfaceGeneration: false)
+        guard case .success(let receipt) = result, receipt.failure == nil else { return false }
+        return receipt.snapshot.configurationResult.capturesPresentedFramesAccepted == true
+    }
+
+    func pollNativePresentation() async -> Bool {
+        // The legacy diagnostics path has its own synchronous drain. There
+        // is no native command to acknowledge on a host without this owner.
+        guard usesNativePresentation else { return false }
+        guard !hasTornDownWindow, isNativePresentationAttachmentInstalled else { return false }
+        let result = await performNativePresentation(.poll, requiresSurfaceGeneration: false)
+        guard case .success(let receipt) = result else { return false }
+        return receipt.failure == nil
+    }
+
+    private static func nativePresentationFailureDescription(
+        _ result: Result<NativePresentationReceipt, NativeWindowOwnerFailure>
+    ) -> String? {
+        switch result {
+        case .failure(let failure): return String(describing: failure)
+        case .success(let receipt): return receipt.failure.map(String.init(describing:))
+        }
+    }
+
+    private static func isStaleNativeSurface(
+        _ result: Result<NativePresentationReceipt, NativeWindowOwnerFailure>
+    ) -> Bool {
+        if case .failure(.staleSurface) = result { return true }
+        return false
+    }
+
+    private func beginNativePresenterAttach(completion: @escaping @MainActor (Bool) -> Void) {
+        guard !hasTornDownWindow, !isNativePresenterTransitionPending, !isNativeFramePending,
+            let factory = nativePresentationFactory, let surface = window.nativeSurface
+        else {
+            completion(false)
+            return
+        }
+        guard surface.descriptor.pixelSize.width > 0, surface.descriptor.pixelSize.height > 0 else {
+            nextPresenterAttachAttemptAt = recoveryClock() + Self.initialPresenterAttachRetryInterval
+            syncAnimationDriver(for: window)
+            completion(false)
+            return
+        }
+        isNativePresenterTransitionPending = true
+        syncAnimationDriver(for: window)
+        let path: NativePresentationPath =
+            startupPresentationMode != .frameDebug && factory.capabilities.supportsSceneRendering ? .scene : .frame
+        let operation: NativePresentationOperation =
+            isNativePresentationAttachmentInstalled
+            ? .attach(path: path)
+            : .install(
+                factory: factory, path: path,
+                configuration: NativePresentationConfiguration(displayFrameInterval: displayFrameInterval))
+        submitNativePresentation(operation, capturedSurface: surface) { [weak self] result in
+            guard let self, !self.hasTornDownWindow else {
+                completion(false)
+                return
+            }
+            if path == .scene, case .success(let receipt) = result, let failure = receipt.failure,
+                receipt.isAttachmentInstalled
+            {
+                self.lastPresentationFailureKind = failure.presentationFailureKind
+                self.reportRepeating(
+                    "Native batch attach failed; trying the frame presenter. \(failure)",
+                    signature: "native-batch-attach")
+                self.submitNativePresentation(.attach(path: .frame)) { [weak self] fallback in
+                    guard let self else {
+                        completion(false)
+                        return
+                    }
+                    let success = self.finishNativePresenterAttach(
+                        fallback, reason: .batchAttachFailure(String(describing: failure)))
+                    if success { self.scheduleBatchBackendRecoveryIfNeeded() }
+                    completion(success)
+                }
+                return
+            }
+            let reason: PresentationSelectionReason =
+                path == .scene
+                ? .defaultScene
+                : (self.startupPresentationMode == .frameDebug ? .frameDebugOverride : .batchRendererUnavailable)
+            completion(self.finishNativePresenterAttach(result, reason: reason))
+        }
+    }
+
+    private func finishNativePresenterAttach(
+        _ result: Result<NativePresentationReceipt, NativeWindowOwnerFailure>, reason: PresentationSelectionReason
+    ) -> Bool {
+        isNativePresenterTransitionPending = false
+        guard !hasTornDownWindow else { return false }
+        guard case .success(let receipt) = result, receipt.failure == nil, receipt.snapshot.isAttached else {
+            if Self.isStaleNativeSurface(result) {
+                nextPresenterAttachAttemptAt = recoveryClock()
+                syncAnimationDriver(for: window)
+            } else {
+                recordPresenterAttachFailure(
+                    Self.nativePresentationFailureDescription(result) ?? "Native presenter did not attach.", in: window)
+            }
+            return false
+        }
+        guard
+            let surfaces = NativeHostAttachmentSurfaces(
+                attachedSurface: receipt.surface, currentSurface: window.nativeSurface)
+        else {
+            recordPresenterAttachFailure(
+                "Native attachment no longer has a matching actor window lifetime.", in: window)
+            return false
+        }
+        surfaceDescriptor = surfaces.actorSurface.descriptor
+        isRendererReady = true
+        isPresenterUnavailable = false
+        presenterAttachAttemptCount = 0
+        nextPresenterAttachAttemptAt = nil
+        nativeAttachedSurfaceGeneration = surfaces.attachedSurface.generation
+        nativeResizeGeneration = surfaces.requiresNativeResize ? surfaces.actorSurface.generation : nil
+        pendingLiveResizeSize = nil
+        invalidatePresentedContentTracking()
+        updatePresentationSelection(reason: reason)
+        let scale = surfaces.actorSurface.geometry.effectiveScaleFactor
+        runtime.displayScale = scale
+        NativeTextRenderer.claimDefaultIconDisplayScale(scale, owner: self)
+        runtime.setRootSize(logicalSize(for: surfaces.actorSurface.descriptor))
+        componentHost.reload()
+        guard !hasTornDownWindow else { return false }
+        syncWindowDismissBehavior()
+        uiaBridge?.raiseStructureChanged()
+        applyDisplayFrameInterval(displayFrameInterval, force: true)
+        seedPresentPacingFromMemoryIfRemembered()
+        if let current = window.nativeSurface, current.generation != receipt.surface.generation {
+            nativeResizeGeneration = current.generation
+        }
+        return true
+    }
+
+    private func retryNativePresenterIfDue() {
+        guard !hasTornDownWindow, !isRendererReady, !isPresenterUnavailable,
+            !isNativeFramePending, !isNativePresenterTransitionPending,
+            let dueAt = nextPresenterAttachAttemptAt, recoveryClock() >= dueAt,
+            let surface = window.nativeSurface
+        else { return }
+        guard surface.descriptor.pixelSize.width > 0, surface.descriptor.pixelSize.height > 0 else {
+            nextPresenterAttachAttemptAt = recoveryClock() + Self.initialPresenterAttachRetryInterval
+            return
+        }
+        nextPresenterAttachAttemptAt = nil
+        presenterAttachAttemptCount += 1
+        let attempt = presenterAttachAttemptCount
+        beginNativePresenterAttach { [weak self] attached in
+            guard let self, !self.hasTornDownWindow else { return }
+            if attached {
+                self.resetFailureReporting()
+                self.report("Native render backend attached after \(attempt) retry attempt(s).")
+                self.pendingPresentation = true
+                self.submitNativeFrame()
+            }
+        }
+    }
+
+    private func beginNativeResizeIfNeeded() {
+        guard !hasTornDownWindow, isRendererReady, !isNativeFramePending,
+            !isNativePresenterTransitionPending, let surface = window.nativeSurface,
+            surface.descriptor.pixelSize.width > 0, surface.descriptor.pixelSize.height > 0
+        else { return }
+        guard nativeResizeGeneration != nil || nativeAttachedSurfaceGeneration != surface.generation else { return }
+        if nativeAttachedSurfaceGeneration == surface.generation {
+            nativeResizeGeneration = nil
+            return
+        }
+        isNativePresenterTransitionPending = true
+        invalidatePresentedContentTracking()
+        syncAnimationDriver(for: window)
+        submitNativePresentation(.resize, capturedSurface: surface) { [weak self] result in
+            guard let self else { return }
+            self.isNativePresenterTransitionPending = false
+            guard !self.hasTornDownWindow else { return }
+            if case .success(let receipt) = result, receipt.failure == nil, receipt.snapshot.isAttached {
+                if self.window.nativeSurface?.generation == receipt.surface.generation {
+                    self.nativeResizeGeneration = nil
+                }
+                self.pendingPresentation = true
+                self.submitNativeFrame()
+            } else if Self.isStaleNativeSurface(result) {
+                self.requestFrame(in: self.window)
+            } else if self.activeBackend == .scene {
+                let detail = Self.nativePresentationFailureDescription(result) ?? "Native resize did not complete."
+                self.beginNativeFrameFallback(
+                    reason: .batchResizeFailure(detail), failureKind: Self.nativeFailureKind(result))
+            } else {
+                self.recordPresenterAttachFailure(
+                    Self.nativePresentationFailureDescription(result) ?? "The native frame presenter could not resize.",
+                    in: self.window)
+                self.completeNativeInitialFrameWaiters(submitted: false)
+            }
+        }
+    }
+
+    private static func nativeFailureKind(
+        _ result: Result<NativePresentationReceipt, NativeWindowOwnerFailure>
+    ) -> PresentationFailureKind? {
+        guard case .success(let receipt) = result else { return nil }
+        return receipt.failure?.presentationFailureKind
+    }
+
+    private func beginNativeFrameFallback(
+        reason: PresentationSelectionReason, failureKind: PresentationFailureKind?
+    ) {
+        guard !hasTornDownWindow, !isNativePresenterTransitionPending else { return }
+        isNativePresenterTransitionPending = true
+        lastPresentationFailureKind = failureKind
+        reportRepeating(
+            "Native batch presenter failed; trying the frame presenter. \(reason.detail ?? "")",
+            signature: "native-\(reason.probeCode)")
+        syncAnimationDriver(for: window)
+        submitNativePresentation(.attach(path: .frame)) { [weak self] result in
+            guard let self else { return }
+            self.isNativePresenterTransitionPending = false
+            guard !self.hasTornDownWindow else { return }
+            guard case .success(let receipt) = result, receipt.failure == nil, receipt.snapshot.isAttached else {
+                if Self.isStaleNativeSurface(result) {
+                    self.nextPresenterAttachAttemptAt = self.recoveryClock()
+                    self.isRendererReady = false
+                    self.syncAnimationDriver(for: self.window)
+                } else {
+                    self.recordPresenterAttachFailure(
+                        Self.nativePresentationFailureDescription(result)
+                            ?? "The native frame presenter did not attach.",
+                        in: self.window)
+                }
+                self.completeNativeInitialFrameWaiters(submitted: false)
+                return
+            }
+            self.invalidatePresentedContentTracking()
+            self.updatePresentationSelection(reason: reason)
+            self.scheduleBatchBackendRecoveryIfNeeded()
+            self.pendingPresentation = true
+            self.submitNativeFrame()
+        }
+    }
+
+    private func beginNativeBatchRecoveryIfDue() {
+        guard !hasTornDownWindow, isRendererReady, recoveryPolicy.isEnabled,
+            startupPresentationMode != .frameDebug, activeBackend == .frame,
+            nativePresentationFactory?.capabilities.supportsSceneRendering == true,
+            !isNativeFramePending, !isNativePresenterTransitionPending,
+            let dueAt = nextBatchRecoveryAttemptAt, recoveryClock() >= dueAt
+        else { return }
+        let now = recoveryClock()
+        if lastPresentationFailureKind == .sceneContent, !didSceneContentChangeSinceFailure {
+            extendBatchRecoveryBackoff(now: now)
+            return
+        }
+        isNativePresenterTransitionPending = true
+        syncAnimationDriver(for: window)
+        submitNativePresentation(.attach(path: .scene)) { [weak self] result in
+            guard let self else { return }
+            guard !self.hasTornDownWindow else {
+                self.isNativePresenterTransitionPending = false
+                return
+            }
+            if Self.isStaleNativeSurface(result) {
+                self.isNativePresenterTransitionPending = false
+                self.requestFrame(in: self.window)
+                return
+            }
+            if case .success(let receipt) = result, receipt.failure == nil, receipt.snapshot.isAttached {
+                self.isNativePresenterTransitionPending = false
+                self.nextBatchRecoveryAttemptAt = nil
+                self.consecutiveSuccessfulSceneFrames = 0
+                self.lastPresentationFailureKind = nil
+                self.didSceneContentChangeSinceFailure = false
+                self.invalidatePresentedContentTracking()
+                self.resetFailureReporting()
+                self.updatePresentationSelection(reason: .batchBackendRecovered)
+                self.report("Native batch presenter recovered after fallback.")
+                self.pendingPresentation = true
+                self.submitNativeFrame()
+                return
+            }
+            self.lastPresentationFailureKind = Self.nativeFailureKind(result)
+            let failure =
+                Self.nativePresentationFailureDescription(result) ?? "The native batch presenter did not attach."
+            // attach(path:) has released the old swap chain. Restore the frame
+            // path before scheduling a later recovery; an old attached flag
+            // cannot stand in for the restoration receipt.
+            self.submitNativePresentation(.attach(path: .frame)) { [weak self] restoration in
+                guard let self else { return }
+                self.isNativePresenterTransitionPending = false
+                guard !self.hasTornDownWindow else { return }
+                self.extendBatchRecoveryBackoff(now: now)
+                if case .success(let receipt) = restoration, receipt.failure == nil, receipt.snapshot.isAttached {
+                    self.invalidatePresentedContentTracking()
+                    self.pendingPresentation = true
+                    self.reportRepeating("Native batch recovery failed: \(failure)", signature: "native-batch-recovery")
+                    self.submitNativeFrame()
+                } else {
+                    self.recordPresenterAttachFailure(
+                        Self.nativePresentationFailureDescription(restoration)
+                            ?? "Native frame restoration did not attach.",
+                        in: self.window)
+                    self.completeNativeInitialFrameWaiters(submitted: false)
+                }
+            }
+        }
+    }
+
+    private struct NativeFrameAccounting: Sendable {
+        let contentRevision: UInt64
+        let surfaceGeneration: UInt64
+        let startedAt: Double
+        let sceneBuildSeconds: Double
+        let outsideFrameRebuildSeconds: Double
+        let rebuildSeconds: Double
+        let rebuildCount: Int
+        let rebuildPhaseTimingsAvailable: Bool
+        let composeSeconds: Double
+        let nodeConstructionSeconds: Double
+        let reconcileSeconds: Double
+        let layoutSeconds: Double
+        let paintSeconds: Double
+        let didRebuildScene: Bool
+        let nodeReplayCount: Int
+        let primitiveCount: Int
+        let visitedNodeCount: Int
+        let hadActiveAnimations: Bool
+        let path: NativePresentationPath
+    }
+
+    /// Builds retained output on the actor and sends only immutable render
+    /// values to the native owner. This method is safe in an input/UIA
+    /// transaction: it neither blocks nor suspends waiting for native work.
+    private func submitNativeFrame(timestamp: Double? = nil) {
+        guard !hasTornDownWindow else {
+            completeNativeInitialFrameWaiters(submitted: false)
+            return
+        }
+        guard !isNativeFramePending, !isNativePresenterTransitionPending else { return }
+        applyPendingLiveResizeIfNeeded(in: window)
+        guard !isNativePresenterTransitionPending else { return }
+        guard isRendererReady else {
+            retryNativePresenterIfDue()
+            if isPresenterUnavailable { completeNativeInitialFrameWaiters(submitted: false) }
+            return
+        }
+        guard let surface = window.nativeSurface,
+            surface.descriptor.pixelSize.width > 0, surface.descriptor.pixelSize.height > 0
+        else {
+            completeNativeInitialFrameWaiters(submitted: false)
+            return
+        }
+        if nativeAttachedSurfaceGeneration != surface.generation || nativeResizeGeneration != nil {
+            beginNativeResizeIfNeeded()
+            if isNativePresenterTransitionPending { return }
+        }
+        if runtime.isDirty { didSceneContentChangeSinceFailure = true }
+        let recoveryNeedsAnimationSample =
+            lastPresentationFailureKind == .sceneContent && (runtime.hasActiveAnimations || reloadScheduled)
+        if !recoveryNeedsAnimationSample {
+            beginNativeBatchRecoveryIfDue()
+            if isNativePresenterTransitionPending { return }
+        }
+        guard
+            reloadScheduled || runtime.isDirty || pendingPresentation || runtime.hasActiveAnimations
+                || inputRateTracker.isHighRate
+        else {
+            syncAnimationDriver(for: window)
+            completeNativeInitialFrameWaiters(submitted: false)
+            return
+        }
+        let frameTimestamp = timestamp ?? frameClock()
+        guard isFrameDueUnderSelfPacing(at: frameTimestamp) else {
+            syncAnimationDriver(for: window)
+            return
+        }
+
+        // Publishing this guard before callbacks run also prevents a nested
+        // retained invalidation from preparing a second frame with half of the
+        // first frame's accounting. The native command has not started yet.
+        isNativeFramePending = true
+        var didSubmit = false
+        defer {
+            if !didSubmit {
+                isNativeFramePending = false
+                syncAnimationDriver(for: window)
+            }
+        }
+        let outsideFrameRebuildSeconds = pendingRebuildSeconds
+        let startedAt = frameClock()
+        flushObservedObjectReload(in: window, requestsFrame: false)
+        guard !hasTornDownWindow else {
+            completeNativeInitialFrameWaiters(submitted: false)
+            return
+        }
+        guard runtime.isDirty || pendingPresentation || runtime.hasActiveAnimations || inputRateTracker.isHighRate
+        else {
+            completeNativeInitialFrameWaiters(submitted: false)
+            return
+        }
+        _ = runtime.tickAnimations(at: frameTimestamp)
+        if runtime.isDirty { didSceneContentChangeSinceFailure = true }
+        if recoveryNeedsAnimationSample {
+            // The recovery decision may use this animation sample, but its
+            // command must precede this frame's command. No actor frame is
+            // active while the asynchronous path transition is outstanding.
+            isNativeFramePending = false
+            beginNativeBatchRecoveryIfDue()
+            guard !isNativePresenterTransitionPending else { return }
+            isNativeFramePending = true
+        }
+        let rebuildsBefore = runtime.sceneRebuildCount
+        let path: NativePresentationPath = activeBackend == .scene ? .scene : .frame
+        let operation: NativePresentationOperation
+        let primitiveCount: Int
+        let visitedNodeCount: Int
+        if path == .scene {
+            let scene = sceneRenderer(runtime, frameTimestamp)
+            operation = .renderScene(scene)
+            primitiveCount = scene.layers.reduce(0) { $0 + $1.paintOperations.count }
+            visitedNodeCount = scene.paintMetrics.nodesVisited
+        } else {
+            operation = .renderFrame(runtime.renderFrame(at: frameTimestamp))
+            primitiveCount = 0
+            visitedNodeCount = 0
+        }
+        guard !hasTornDownWindow else {
+            completeNativeInitialFrameWaiters(submitted: false)
+            return
+        }
+        if shouldSkipIdenticalPresent() {
+            recordSkippedIdenticalPresent(in: window)
+            completeNativeInitialFrameWaiters(submitted: hasCurrentNativeSubmittedFrame)
+            return
+        }
+        let didRebuildScene = runtime.sceneRebuildCount != rebuildsBefore
+        let accounting = NativeFrameAccounting(
+            contentRevision: runtime.contentRevision, surfaceGeneration: surface.generation,
+            startedAt: startedAt, sceneBuildSeconds: frameClock() - startedAt,
+            outsideFrameRebuildSeconds: outsideFrameRebuildSeconds,
+            rebuildSeconds: pendingRebuildSeconds, rebuildCount: pendingRebuildCount,
+            rebuildPhaseTimingsAvailable: pendingRebuildPhaseTimingsAvailable && pendingRebuildCount > 0,
+            composeSeconds: pendingComposeSeconds, nodeConstructionSeconds: pendingNodeConstructionSeconds,
+            reconcileSeconds: pendingReconcileSeconds,
+            layoutSeconds: didRebuildScene ? runtime.lastLayoutSeconds : 0,
+            paintSeconds: didRebuildScene ? runtime.lastPaintSeconds : 0,
+            didRebuildScene: didRebuildScene, nodeReplayCount: runtime.lastSceneNodeReplayCount,
+            primitiveCount: primitiveCount, visitedNodeCount: visitedNodeCount,
+            hadActiveAnimations: runtime.hasActiveAnimations, path: path)
+        pendingRebuildSeconds = 0
+        pendingRebuildCount = 0
+        pendingRebuildPhaseTimingsAvailable = true
+        pendingComposeSeconds = 0
+        pendingNodeConstructionSeconds = 0
+        pendingReconcileSeconds = 0
+        didSubmit = true
+        syncAnimationDriver(for: window)
+        submitNativePresentation(operation, capturedSurface: surface) { [weak self] result in
+            self?.completeNativeFrame(result, accounting: accounting)
+        }
+    }
+
+    private func completeNativeFrame(
+        _ result: Result<NativePresentationReceipt, NativeWindowOwnerFailure>, accounting: NativeFrameAccounting
+    ) {
+        isNativeFramePending = false
+        guard !hasTornDownWindow else {
+            completeNativeInitialFrameWaiters(submitted: false)
+            return
+        }
+        guard case .success(let receipt) = result else {
+            if Self.isStaleNativeSurface(result) {
+                pendingPresentation = true
+                requestFrame(in: window)
+            } else {
+                completeNativeInitialFrameWaiters(submitted: false)
+                reportRepeating(
+                    "Native render request failed: \(Self.nativePresentationFailureDescription(result) ?? "unavailable")",
+                    signature: "native-render-transport")
+                pendingPresentation = runtime.isDirty || runtime.hasActiveAnimations || inputRateTracker.isHighRate
+                syncAnimationDriver(for: window)
+            }
+            return
+        }
+        if let failure = receipt.failure {
+            if accounting.path == .scene {
+                beginNativeFrameFallback(
+                    reason: .batchRenderFailure(String(describing: failure)),
+                    failureKind: failure.presentationFailureKind)
+            } else {
+                completeNativeInitialFrameWaiters(submitted: false)
+                reportRepeating("Native frame rendering failed: \(failure)", signature: "native-frame-render")
+                pendingPresentation = runtime.isDirty || runtime.hasActiveAnimations || inputRateTracker.isHighRate
+                syncAnimationDriver(for: window)
+            }
+            emitNativeFrameSample(receipt, accounting: accounting)
+            return
+        }
+
+        let disposition = NativeHostFrameDisposition(
+            snapshot: receipt.snapshot, preparedSurfaceGeneration: accounting.surfaceGeneration,
+            returnedSurfaceGeneration: receipt.surface.generation,
+            currentSurfaceGeneration: window.nativeSurface?.generation,
+            preparedContentRevision: accounting.contentRevision, currentContentRevision: runtime.contentRevision)
+        if disposition.canTrackSubmittedContent {
+            // This records a successful native Present submission, not a
+            // display-completion measurement. A resize or newer retained
+            // revision still requires another frame.
+            lastPresentedContentRevision = accounting.contentRevision
+            if accounting.path == .scene { noteSuccessfulSceneFrame() }
+            persistPacingVerdictIfChanged()
+        }
+        completeNativeInitialFrameWaiters(submitted: disposition.canTrackSubmittedContent)
+        pendingPresentation =
+            runtime.isDirty || runtime.hasActiveAnimations || inputRateTracker.isHighRate
+            || disposition.needsRepaint
+        if receipt.snapshot.lastFrameSubmission == nil {
+            reportRepeating("Native backend returned no submission outcome.", signature: "native-outcome-unavailable")
+        }
+        syncAnimationDriver(for: window)
+        // A diagnostics callback may request another frame. Bookkeeping is
+        // finished first so that request is not overwritten. Ordinary motion
+        // waits for the native timer; a fast occluded return cannot spin an
+        // unpaced sequence of frame commands.
+        emitNativeFrameSample(receipt, accounting: accounting)
+    }
+
+    private func emitNativeFrameSample(_ receipt: NativePresentationReceipt, accounting: NativeFrameAccounting) {
+        guard let onFramePresented else { return }
+        let diagnostics = receipt.snapshot.backendDiagnostics
+        let bindSeconds = receipt.bindSeconds ?? 0
+        onFramePresented(
+            LiveFrameSample(
+                presentedAt: receipt.completedAtSeconds,
+                totalSeconds: max(0, receipt.completedAtSeconds - accounting.startedAt),
+                rebuildSeconds: accounting.rebuildSeconds,
+                outsideFrameRebuildSeconds: accounting.outsideFrameRebuildSeconds,
+                rebuildCount: accounting.rebuildCount,
+                rebuildPhaseTimingsAvailable: accounting.rebuildPhaseTimingsAvailable,
+                composeSeconds: accounting.composeSeconds,
+                nodeConstructionSeconds: accounting.nodeConstructionSeconds,
+                reconcileSeconds: accounting.reconcileSeconds,
+                sceneBuildSeconds: accounting.sceneBuildSeconds,
+                layoutSeconds: accounting.layoutSeconds, paintSeconds: accounting.paintSeconds,
+                bindSeconds: bindSeconds, bindTimingsAvailable: receipt.bindSeconds != nil,
+                backendSubmitSeconds: diagnostics?.lastSubmitSeconds ?? 0,
+                backendPresentSeconds: diagnostics?.lastPresentSeconds ?? 0,
+                backendTimingsAvailable: diagnostics != nil,
+                submitAndPresentSeconds: max(0, receipt.completedAtSeconds - receipt.startedAtSeconds - bindSeconds),
+                didRebuildScene: accounting.didRebuildScene, nodeReplayCount: accounting.nodeReplayCount,
+                primitiveCount: accounting.primitiveCount, hadActiveAnimations: accounting.hadActiveAnimations,
+                backend: accounting.path == .scene ? .scene : .frame,
+                backendFrameSubmission: receipt.snapshot.lastFrameSubmission,
+                gpuTimingAdapterIsSoftware: receipt.snapshot.lastFrameSubmission?.adapterIsSoftware,
+                atlasUploadedByteCount: diagnostics?.atlasUploadedByteCount ?? 0,
+                drawCallCount: diagnostics?.lastDrawCallCount ?? 0,
+                drawnInstanceCount: diagnostics?.lastDrawnInstanceCount ?? 0,
+                visitedNodeCount: accounting.visitedNodeCount)
+        )
+    }
 }

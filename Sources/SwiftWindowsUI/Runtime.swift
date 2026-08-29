@@ -228,6 +228,7 @@ final class RetainedFileDialogPresenterLease {
 }
 
 public struct RetainedFileExporterConfiguration {
+    package var invocationScope: (any RetainedFileDialogInvocationScope)? = nil
     public var isPresented: Binding<Bool>
     public var document: Any?
     public var documents: [Any]?
@@ -257,6 +258,7 @@ public struct RetainedFileExporterConfiguration {
     }
 }
 public struct RetainedFileImporterConfiguration {
+    package var invocationScope: (any RetainedFileDialogInvocationScope)? = nil
     public var isPresented: Binding<Bool>
     public var allowedContentTypes: [UTType]
     public var onCompletion: (Result<URL, Error>) -> Void
@@ -272,6 +274,7 @@ public struct RetainedFileImporterConfiguration {
     }
 }
 public struct RetainedFileImporterMultiConfiguration {
+    package var invocationScope: (any RetainedFileDialogInvocationScope)? = nil
     public var isPresented: Binding<Bool>
     public var allowedContentTypes: [UTType]
     public var allowsMultipleSelection: Bool
@@ -290,6 +293,7 @@ public struct RetainedFileImporterMultiConfiguration {
     }
 }
 public struct RetainedFileMoverConfiguration {
+    package var invocationScope: (any RetainedFileDialogInvocationScope)? = nil
     public var isPresented: Binding<Bool>
     public var file: URL
     public var onCompletion: (Result<URL, Error>) -> Void

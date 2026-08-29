@@ -833,7 +833,6 @@ private enum TimestampQueryComponent: CaseIterable, Equatable {
     case end
 }
 
-@MainActor
 private final class FakeTimestampQueryTransport: GPUTimestampQueryTransport {
     enum Event: Equatable {
         case create(GPUTimestampQueryKind, Int32, Int?)

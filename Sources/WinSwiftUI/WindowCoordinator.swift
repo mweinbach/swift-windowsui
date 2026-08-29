@@ -87,6 +87,65 @@ struct WindowCoordinatorHooks {
     }
 }
 
+/// The production owner's operations complete only after their native result
+/// is known. This separate seam also permits deterministic, headless tests;
+/// the legacy synchronous hooks keep their original contract.
+struct WindowCoordinatorNativeHooks {
+    var startOwner: @MainActor () async throws -> Void
+    var startWindow: @MainActor (WinSwiftUIWindowHost) async throws -> Void
+    var activateWindow: @MainActor (WinSwiftUIWindowHost) async throws -> Bool
+    var requestCloseWindow: @MainActor (WinSwiftUIWindowHost) -> Void
+    var discardFailedWindow: @MainActor (WinSwiftUIWindowHost) async throws -> Void
+    var stopOwner: @MainActor () async throws -> Int32
+
+    @MainActor
+    static func win32(_ pump: Win32NativePump) -> WindowCoordinatorNativeHooks {
+        WindowCoordinatorNativeHooks(
+            startOwner: { try await pump.start() },
+            startWindow: { host in
+                try host.validateNativeActivation()
+                host.platformWindow.postsQuitMessageOnDestroy = false
+                try await host.startNative(on: pump)
+                _ = try await host.platformWindow.activateNative()
+                try await host.finishNativeStartupPresentation()
+            },
+            activateWindow: { host in try await host.platformWindow.activateNative() },
+            requestCloseWindow: { host in host.platformWindow.requestClose() },
+            discardFailedWindow: { host in try await host.discardNativeFailedStartup() },
+            stopOwner: {
+                let result = try await pump.stop()
+                guard result.joined else {
+                    throw NativeWindowOwnerFailure.execution("The native owner returned without a thread join.")
+                }
+                return result.exitCode
+            }
+        )
+    }
+}
+
+enum NativeWindowCoordinatorError: Error, CustomStringConvertible {
+    case asynchronousOwnerRequired
+    case alreadyRunning
+    case ownerNotStarted
+    case reentrantWindowPreparation
+    case startupAndCleanup(startup: any Error, cleanup: any Error)
+
+    var description: String {
+        switch self {
+        case .asynchronousOwnerRequired:
+            return "This coordinator requires the asynchronous native-owner entry point."
+        case .alreadyRunning:
+            return "The native window coordinator has already started."
+        case .ownerNotStarted:
+            return "The native window owner has not started."
+        case .reentrantWindowPreparation:
+            return "A native window is already being prepared by this actor call."
+        case .startupAndCleanup(let startup, let cleanup):
+            return "Native startup failed: \(startup). Native cleanup also failed: \(cleanup)."
+        }
+    }
+}
+
 enum WindowCoordinatorError: Error, LocalizedError, Equatable, CustomStringConvertible {
     case noLaunchableWindowScene
     case nativeDocumentActivationUnavailable
@@ -136,8 +195,8 @@ enum WindowCoordinatorError: Error, LocalizedError, Equatable, CustomStringConve
 ///
 /// Each window gets its own `WinSwiftUIWindowHost` — and therefore its own
 /// `Win32Window`, `RetainedViewRuntime`, renderer attachment, UIA bridge, and
-/// scene-storage scope. Everything stays on the main actor, matching the
-/// rest of the UI stack.
+/// scene-storage scope. Retained UI and routing stay on the main actor. The
+/// production path has a separate native window and presentation owner.
 ///
 /// Close policy: closing a window tears down only that window's host —
 /// `WinSwiftUIWindowHost.windowWillClose` disconnects UIA and calls
@@ -166,6 +225,7 @@ final class WinSwiftUIWindowCoordinator {
     /// MenuBarExtra configurations do not become the initial app window.
     private let sceneConfigurations: [WindowGroupConfiguration]
     private let hooks: WindowCoordinatorHooks
+    private let nativeHooks: WindowCoordinatorNativeHooks?
     private let hostFactory: @MainActor (WindowGroupConfiguration, Bool) throws -> WinSwiftUIWindowHost
     private let sceneStorageScopeProvider: @MainActor () -> String
     private let documentServices: DocumentWindowServices?
@@ -175,6 +235,25 @@ final class WinSwiftUIWindowCoordinator {
     private(set) var windows: [ManagedWindow] = []
     private var isTerminated = false
     private var lastManagedCloseID: UUID?
+
+    private var nativeRunStarted = false
+    private var nativeOwnerStarted = false
+    private var nativeWindowPreparation: UUID?
+    private var failedNativeUnadmittedHosts: [ObjectIdentifier: WinSwiftUIWindowHost] = [:]
+    private var nativeActivationResults: [ObjectIdentifier: Bool] = [:]
+    private var nativeStartupTask: Task<Void, Never>?
+    private var nativeStartupWaiter: CheckedContinuation<Void, any Error>?
+    private var nativeWindowStarts: [ObjectIdentifier: Task<WinSwiftUIWindowHost, any Error>] = [:]
+    private var nativeStartupRollbacks: Set<ObjectIdentifier> = []
+    private var nativePrimaryClosedDuringStartup = false
+    private var nativePendingCloseRequests: Set<ObjectIdentifier> = []
+    private var nativeStopTask: Task<Int32, any Error>?
+    private var nativeDiagnosticsDrain: Task<Void, Never>?
+    private var nativeFatalResult: Task<Int32, any Error>?
+    private var nativeStopWaiters: [CheckedContinuation<Task<Int32, any Error>, Never>] = []
+    /// A failed native cleanup remains owned and visible; it is not reported
+    /// as a successfully closed window or allowed to trigger a normal quit.
+    private(set) var nativeLifecycleFailures: [String] = []
 
     /// Set when the process was launched in `--diagnostics` mode. The session
     /// attaches to the primary window only: a secondary window opened by the
@@ -209,6 +288,8 @@ final class WinSwiftUIWindowCoordinator {
         backendResolution: RenderBackendResolution? = nil,
         platformHostFactory: any PlatformHostFactory = Win32PlatformHostFactory(),
         hooks: WindowCoordinatorHooks? = nil,
+        nativeHooks: WindowCoordinatorNativeHooks? = nil,
+        nativePresentationFactory: (any NativePresentationBackendFactory)? = nil,
         hostFactory: (@MainActor (WindowGroupConfiguration, Bool) throws -> WinSwiftUIWindowHost)? = nil,
         sceneStorageScopeProvider: (@MainActor () -> String)? = nil,
         liveDiagnostics: LiveDiagnosticsConfiguration? = nil,
@@ -218,6 +299,7 @@ final class WinSwiftUIWindowCoordinator {
         self.documentServices = documentServices
         self.hasInjectedDocumentHost = hooks != nil && hostFactory != nil
         self.hooks = hooks ?? .platform(platformHostFactory)
+        self.nativeHooks = nativeHooks
         self.liveDiagnosticsConfiguration = liveDiagnostics
         self.hostFactory =
             hostFactory
@@ -229,12 +311,20 @@ final class WinSwiftUIWindowCoordinator {
                         expectedPlatform: Win32PlatformHostFactory().platformName
                     )
                 }
+                if nativePresentationFactory != nil {
+                    guard win32Window.nativeHandle == nil, !win32Window.usesNativeOwner else {
+                        throw NativeWindowOwnerFailure.execution(
+                            "A native platform factory must return an uncreated, unowned window facade."
+                        )
+                    }
+                }
 
                 return WinSwiftUIWindowHost(
                     configuration: configuration,
                     platformWindow: win32Window,
                     renderer: renderBackendFactory.makeRenderBackend(),
                     batchRenderer: renderBackendFactory.makeBatchRenderBackend(),
+                    nativePresentationFactory: nativePresentationFactory,
                     // Only the primary window writes the startup probe;
                     // secondary windows must not overwrite it on open.
                     startupProbeConfiguration: isPrimary ? .fromEnvironment() : nil,
@@ -256,6 +346,7 @@ final class WinSwiftUIWindowCoordinator {
     /// boot when only one window is ever opened.
     @discardableResult
     func run() throws -> Int32 {
+        guard nativeHooks == nil else { throw NativeWindowCoordinatorError.asynchronousOwnerRequired }
         try bootPrimaryWindow()
         return try hooks.runMessageLoop()
     }
@@ -265,6 +356,7 @@ final class WinSwiftUIWindowCoordinator {
     /// without a real run loop.
     @discardableResult
     func bootPrimaryWindow() throws -> WinSwiftUIWindowHost {
+        guard nativeHooks == nil else { throw NativeWindowCoordinatorError.asynchronousOwnerRequired }
         if let primary = windows.first(where: \.isPrimary) {
             return primary.host
         }
@@ -296,6 +388,7 @@ final class WinSwiftUIWindowCoordinator {
     /// when no scene matches.
     @discardableResult
     func openWindow(payload: WindowActionPayload) -> Bool {
+        guard nativeHooks == nil else { return false }
         guard payload.id != nil || payload.value != nil else {
             return false
         }
@@ -630,6 +723,7 @@ final class WinSwiftUIWindowCoordinator {
     /// routing; foreground activation remains subject to Windows policy.
     @discardableResult
     func openSettings() -> Bool {
+        guard nativeHooks == nil else { return false }
         guard let template = sceneConfigurations.first(where: \.isSettingsWindow) else {
             return false
         }
@@ -671,8 +765,408 @@ final class WinSwiftUIWindowCoordinator {
         }
 
         for target in targets {
-            hooks.requestCloseWindow(target.host)
+            if let nativeHooks {
+                let identity = ObjectIdentifier(target.host)
+                if nativeWindowStarts[identity] != nil {
+                    nativePendingCloseRequests.insert(identity)
+                } else {
+                    nativeHooks.requestCloseWindow(target.host)
+                }
+            } else {
+                hooks.requestCloseWindow(target.host)
+            }
         }
+    }
+
+    /// Runs only under the process's public main-dispatch entry point. Native
+    /// acknowledgements suspend this task; they never block actor execution.
+    /// Return is after the native thread has stopped and its join completed.
+    func runNative() async throws -> Int32 {
+        guard let nativeHooks else { throw NativeWindowCoordinatorError.asynchronousOwnerRequired }
+        guard !nativeRunStarted else { throw NativeWindowCoordinatorError.alreadyRunning }
+        nativeRunStarted = true
+        do {
+            try await withCheckedThrowingContinuation { continuation in
+                nativeStartupWaiter = continuation
+                nativeStartupTask = Task { @MainActor in
+                    do {
+                        try await nativeHooks.startOwner()
+                        self.nativeOwnerStarted = true
+                        guard !self.isTerminated else { throw WindowCoordinatorError.coordinatorTerminated }
+                        _ = try await self.bootPrimaryNativeWindow()
+                        self.completeNativeStartup(.success(()))
+                    } catch {
+                        self.completeNativeStartup(.failure(error))
+                    }
+                    self.nativeStartupTask = nil
+                }
+            }
+        } catch {
+            if nativePrimaryClosedDuringStartup, nativeFatalResult == nil {
+                // An ordinary close can win the race with activation or the
+                // initial presentation. The terminal close receipt, not a
+                // missing first frame, determines normal owner shutdown.
+                let stop = await waitForNativeOwnerStop()
+                return try await stop.value
+            }
+            // A failed creation removes its provisional record only after its
+            // actual native rollback. Failed rollback intentionally leaves the
+            // host owned and does not report a normal, empty-window shutdown.
+            if nativeOwnerStarted, windows.isEmpty, nativeWindowStarts.isEmpty {
+                startNativeOwnerStop()
+                if let nativeStopTask {
+                    do { _ = try await nativeStopTask.value } catch let cleanup {
+                        throw NativeWindowCoordinatorError.startupAndCleanup(startup: error, cleanup: cleanup)
+                    }
+                }
+            }
+            throw error
+        }
+        let stop = await waitForNativeOwnerStop()
+        return try await stop.value
+    }
+
+    @discardableResult
+    func bootPrimaryNativeWindow() async throws -> WinSwiftUIWindowHost {
+        guard nativeOwnerStarted else { throw NativeWindowCoordinatorError.ownerNotStarted }
+        if let primary = windows.first(where: \.isPrimary) {
+            if let pending = nativeWindowStarts[ObjectIdentifier(primary.host)] {
+                return try await pending.value
+            }
+            return primary.host
+        }
+        guard let configuration = sceneConfigurations.first(where: { !$0.isSettingsWindow && !$0.isMenuBarExtra })
+        else { throw WindowCoordinatorError.noLaunchableWindowScene }
+        // The existing native DocumentGroup admission gate is unchanged.
+        guard !configuration.isDocumentGroup else { throw WindowCoordinatorError.nativeDocumentActivationUnavailable }
+        return try await beginNativeWindow(
+            configuration: configuration, presentedValue: nil, isPrimary: true
+        ).value
+    }
+
+    /// True means the matching scene exists or its creation completed. An
+    /// existing scene is not duplicated when Windows declines activation; that
+    /// actual Bool is separately exposed by lastNativeActivationResult. Public
+    /// Void actions use routeOpenWindow so a synchronous UIA invocation never
+    /// waits for a native operation.
+    @discardableResult
+    func openNativeWindow(payload: WindowActionPayload) async throws -> Bool {
+        guard let pending = try beginNativeWindowRequest(payload: payload) else { return false }
+        _ = try await pending.value
+        return true
+    }
+
+    @discardableResult
+    func openNativeSettings() async throws -> Bool {
+        guard let pending = try beginNativeSettingsRequest() else { return false }
+        _ = try await pending.value
+        return true
+    }
+
+    private func routeOpenWindow(payload: WindowActionPayload) {
+        if nativeHooks != nil {
+            do { _ = try beginNativeWindowRequest(payload: payload) } catch { recordNativeLifecycleFailure(error) }
+        } else {
+            _ = openWindow(payload: payload)
+        }
+    }
+
+    private func routeOpenSettings() {
+        if nativeHooks != nil {
+            do { _ = try beginNativeSettingsRequest() } catch { recordNativeLifecycleFailure(error) }
+        } else {
+            _ = openSettings()
+        }
+    }
+
+    func beginNativeWindowRequest(
+        payload: WindowActionPayload
+    ) throws -> Task<WinSwiftUIWindowHost, any Error>? {
+        guard nativeOwnerStarted else { throw NativeWindowCoordinatorError.ownerNotStarted }
+        guard !isTerminated else { throw WindowCoordinatorError.coordinatorTerminated }
+        guard payload.id != nil || payload.value != nil else { return nil }
+        guard
+            let template = sceneConfigurations.first(where: { template in
+                guard !template.isSettingsWindow && !template.isMenuBarExtra && !template.isDocumentGroup else {
+                    return false
+                }
+                if let id = payload.id, template.windowID != id { return false }
+                if let value = payload.value {
+                    guard template.forType == type(of: value.base), template.dataBoundContent != nil else {
+                        return false
+                    }
+                }
+                return true
+            })
+        else { return nil }
+        if let value = payload.value,
+            let existing = windows.first(where: {
+                $0.configuration.windowID == template.windowID && $0.presentedValue == value
+            })
+        {
+            return beginNativeActivation(existing.host)
+        }
+        return try beginNativeWindow(configuration: template, presentedValue: payload.value, isPrimary: false)
+    }
+
+    func beginNativeSettingsRequest() throws -> Task<WinSwiftUIWindowHost, any Error>? {
+        guard nativeOwnerStarted else { throw NativeWindowCoordinatorError.ownerNotStarted }
+        guard !isTerminated else { throw WindowCoordinatorError.coordinatorTerminated }
+        guard let template = sceneConfigurations.first(where: \.isSettingsWindow) else { return nil }
+        if let existing = windows.first(where: { $0.configuration.isSettingsWindow }) {
+            return beginNativeActivation(existing.host)
+        }
+        return try beginNativeWindow(configuration: template, presentedValue: nil, isPrimary: false)
+    }
+
+    private func beginNativeActivation(_ host: WinSwiftUIWindowHost) -> Task<WinSwiftUIWindowHost, any Error> {
+        let startup = nativeWindowStarts[ObjectIdentifier(host)]
+        return Task { @MainActor in
+            do {
+                if let startup { _ = try await startup.value }
+                guard self.windows.contains(where: { $0.host === host }), !self.isTerminated,
+                    let nativeHooks = self.nativeHooks
+                else { throw WindowCoordinatorError.windowClosedDuringStartup }
+                // An OS refusal to activate does not duplicate an existing
+                // scene. The Bool is the real OS result, not queue admission.
+                let activated = try await nativeHooks.activateWindow(host)
+                if self.windows.contains(where: { $0.host === host }) {
+                    self.nativeActivationResults[ObjectIdentifier(host)] = activated
+                }
+                return host
+            } catch {
+                self.recordNativeLifecycleFailure(error)
+                throw error
+            }
+        }
+    }
+
+    func lastNativeActivationResult(for host: WinSwiftUIWindowHost) -> Bool? {
+        guard windows.contains(where: { $0.host === host }) else { return nil }
+        return nativeActivationResults[ObjectIdentifier(host)]
+    }
+
+    var failedUnadmittedNativeHostCount: Int { failedNativeUnadmittedHosts.count }
+
+    /// Reserves the actor record before returning to an action's caller. This
+    /// preserves Settings/value deduplication and allows an immediately
+    /// following dismiss to find a window whose native creation is pending.
+    private func beginNativeWindow(
+        configuration: WindowGroupConfiguration, presentedValue: AnyHashable?, isPrimary: Bool
+    ) throws -> Task<WinSwiftUIWindowHost, any Error> {
+        guard let nativeHooks, nativeOwnerStarted else { throw NativeWindowCoordinatorError.ownerNotStarted }
+        guard !isTerminated else { throw WindowCoordinatorError.coordinatorTerminated }
+        guard !configuration.isDocumentGroup, configuration.documentScene == nil,
+            configuration.documentWindowContext == nil
+        else { throw WindowCoordinatorError.nativeDocumentActivationUnavailable }
+        guard nativeWindowPreparation == nil else { throw NativeWindowCoordinatorError.reentrantWindowPreparation }
+        let preparation = UUID()
+        nativeWindowPreparation = preparation
+        defer {
+            if nativeWindowPreparation == preparation { nativeWindowPreparation = nil }
+            terminateIfNoWindows()
+        }
+        let existingHostIdentities = Set(windows.map { ObjectIdentifier($0.host) })
+        var configuration = configuration
+        let host: WinSwiftUIWindowHost
+        var unadmittedHost: WinSwiftUIWindowHost?
+        do {
+            releaseClosedHosts()
+            try validateNativePreparation(preparation)
+            if let value = presentedValue, let dataBoundContent = configuration.dataBoundContent {
+                configuration.content = dataBoundContent(value)
+                try validateNativePreparation(preparation)
+            }
+            configuration.instantiateWindowContent()
+            try validateNativePreparation(preparation)
+            let created = try hostFactory(configuration, isPrimary)
+            guard !existingHostIdentities.contains(ObjectIdentifier(created)),
+                !windows.contains(where: { $0.host === created }), created.documentContext == nil,
+                created.onWindowClosed == nil, created.onNativeFailure == nil,
+                created.platformWindow.nativeHandle == nil, !created.platformWindow.usesNativeOwner
+            else { throw WindowCoordinatorError.documentContextMismatch }
+            // Only a newly returned host is ours to roll back. An injected
+            // factory returning another managed host never transfers it.
+            unadmittedHost = created
+            try validateNativePreparation(preparation)
+            try created.validateDocumentAdmission(expected: nil)
+            try validateNativePreparation(preparation)
+            let storageScope = sceneStorageScopeProvider()
+            try validateNativePreparation(preparation)
+            created.windowEnvironment = WindowSceneEnvironment(
+                openWindow: OpenWindowAction(payloadHandler: { [weak self] payload in
+                    self?.routeOpenWindow(payload: payload)
+                }),
+                dismissWindow: DismissWindowAction(payloadHandler: { [weak self, weak created] payload in
+                    self?.dismissWindow(payload: payload, from: created)
+                }),
+                supportsMultipleWindows: true,
+                sceneStorageScope: storageScope,
+                openSettings: OpenSettingsAction { [weak self] in self?.routeOpenSettings() }
+            )
+            try validateNativePreparation(preparation)
+            try created.validateDocumentAdmission(expected: nil)
+            try validateNativePreparation(preparation)
+            host = created
+        } catch {
+            if let unadmittedHost {
+                return discardUnadmittedNativeHost(unadmittedHost, admissionError: error, hooks: nativeHooks)
+            }
+            throw error
+        }
+        host.onWindowClosed = { [weak self] closedHost in self?.windowDidClose(closedHost) }
+        host.onNativeFailure = { [weak self] failedHost, failure in
+            self?.nativeOwnerFailed(for: failedHost, failure: failure)
+        }
+        do {
+            try validateNativePreparation(preparation)
+            try host.validateDocumentAdmission(expected: nil)
+        } catch {
+            return discardUnadmittedNativeHost(host, admissionError: error, hooks: nativeHooks)
+        }
+        windows.append(
+            ManagedWindow(
+                host: host, configuration: configuration, presentedValue: presentedValue, isPrimary: isPrimary
+            ))
+        let identity = ObjectIdentifier(host)
+        let startup = Task { @MainActor in
+            defer {
+                self.nativeWindowStarts.removeValue(forKey: identity)
+                self.nativeStartupRollbacks.remove(identity)
+                self.nativePendingCloseRequests.remove(identity)
+                self.terminateIfNoWindows()
+            }
+            do {
+                try await nativeHooks.startWindow(host)
+                try host.validateDocumentAdmission(expected: nil)
+                guard self.windows.contains(where: { $0.host === host }) else {
+                    throw WindowCoordinatorError.windowClosedDuringStartup
+                }
+                if self.nativePendingCloseRequests.remove(identity) != nil {
+                    nativeHooks.requestCloseWindow(host)
+                }
+                if isPrimary, let configuration = self.liveDiagnosticsConfiguration,
+                    self.liveDiagnosticsSession == nil
+                {
+                    let session = LiveDiagnosticsSession(configuration: configuration, host: host)
+                    self.liveDiagnosticsSession = session
+                    session.start()
+                }
+                return host
+            } catch {
+                if isPrimary, self.nativePrimaryClosedDuringStartup, self.nativeFatalResult == nil,
+                    !self.windows.contains(where: { $0.host === host })
+                {
+                    throw WindowCoordinatorError.windowClosedDuringStartup
+                }
+                self.recordNativeLifecycleFailure(error)
+                if self.windows.contains(where: { $0.host === host }) {
+                    self.nativeStartupRollbacks.insert(identity)
+                    do {
+                        try await nativeHooks.discardFailedWindow(host)
+                    } catch let cleanup {
+                        self.recordNativeLifecycleFailure(cleanup)
+                        // Keep the host and callback: native resources may
+                        // still be alive. No synthetic close or normal quit.
+                        let failure = NativeWindowCoordinatorError.startupAndCleanup(startup: error, cleanup: cleanup)
+                        self.signalFatalNativeFailure(failure)
+                        throw failure
+                    }
+                    host.onWindowClosed = nil
+                    host.onNativeFailure = nil
+                    self.windows.removeAll { $0.host === host }
+                    self.hostsPendingRelease.append(host)
+                }
+                throw error
+            }
+        }
+        nativeWindowStarts[identity] = startup
+        return startup
+    }
+
+    private func validateNativePreparation(_ preparation: UUID) throws {
+        guard nativeWindowPreparation == preparation, !isTerminated else {
+            throw WindowCoordinatorError.coordinatorTerminated
+        }
+    }
+
+    private func discardUnadmittedNativeHost(
+        _ host: WinSwiftUIWindowHost, admissionError: any Error, hooks: WindowCoordinatorNativeHooks
+    ) -> Task<WinSwiftUIWindowHost, any Error> {
+        let identity = ObjectIdentifier(host)
+        let cleanup = Task<WinSwiftUIWindowHost, any Error> { @MainActor in
+            defer {
+                self.nativeWindowStarts.removeValue(forKey: identity)
+                self.terminateIfNoWindows()
+            }
+            self.recordNativeLifecycleFailure(admissionError)
+            do {
+                try await hooks.discardFailedWindow(host)
+            } catch {
+                self.failedNativeUnadmittedHosts[identity] = host
+                self.recordNativeLifecycleFailure(error)
+                let failure = NativeWindowCoordinatorError.startupAndCleanup(startup: admissionError, cleanup: error)
+                self.signalFatalNativeFailure(failure)
+                throw failure
+            }
+            self.hostsPendingRelease.append(host)
+            throw admissionError
+        }
+        nativeWindowStarts[identity] = cleanup
+        return cleanup
+    }
+
+    private func recordNativeLifecycleFailure(_ error: any Error) {
+        let description = String(describing: error)
+        nativeLifecycleFailures.append(description)
+        print("[WinSwiftUI] Native window operation failed: \(description)")
+    }
+
+    private func completeNativeStartup(_ result: Result<Void, any Error>) {
+        let waiter = nativeStartupWaiter
+        nativeStartupWaiter = nil
+        waiter?.resume(with: result)
+    }
+
+    /// A fatal native ownership error is not a destruction acknowledgement.
+    /// Release the run's waiters with the exact error, keeping the host and any
+    /// admitted operation alive until their own terminal result. In particular,
+    /// do not cancel a task whose native command may already be executing.
+    private func nativeOwnerFailed(for host: WinSwiftUIWindowHost, failure: NativeWindowOwnerFailure) {
+        guard windows.contains(where: { $0.host === host }), nativeFatalResult == nil else { return }
+        recordNativeLifecycleFailure(failure)
+        signalFatalNativeFailure(failure)
+    }
+
+    private func signalFatalNativeFailure(_ failure: any Error) {
+        guard nativeFatalResult == nil else { return }
+        isTerminated = true
+        let failed = Task<Int32, any Error> { throw failure }
+        nativeFatalResult = failed
+        completeNativeStartup(.failure(failure))
+        let waiters = nativeStopWaiters
+        nativeStopWaiters.removeAll()
+        for waiter in waiters { waiter.resume(returning: failed) }
+    }
+
+    private func startNativeOwnerStop() {
+        guard let nativeHooks, nativeOwnerStarted, nativeStopTask == nil,
+            windows.isEmpty, nativeWindowStarts.isEmpty, nativeDiagnosticsDrain == nil,
+            nativeWindowPreparation == nil, failedNativeUnadmittedHosts.isEmpty
+        else { return }
+        isTerminated = true
+        releaseClosedHosts()
+        let stop = Task { @MainActor in try await nativeHooks.stopOwner() }
+        nativeStopTask = stop
+        let waiters = nativeStopWaiters
+        nativeStopWaiters.removeAll()
+        for waiter in waiters { waiter.resume(returning: stop) }
+    }
+
+    private func waitForNativeOwnerStop() async -> Task<Int32, any Error> {
+        if let nativeFatalResult { return nativeFatalResult }
+        if let nativeStopTask { return nativeStopTask }
+        return await withCheckedContinuation { nativeStopWaiters.append($0) }
     }
 
     @discardableResult
@@ -781,14 +1275,38 @@ final class WinSwiftUIWindowCoordinator {
     }
 
     private func windowDidClose(_ host: WinSwiftUIWindowHost) {
-        guard windows.contains(where: { $0.host === host }) else { return }
+        guard nativeHooks != nil else {
+            legacyWindowDidClose(host)
+            return
+        }
+        let previousWindows = windows
+        guard let managed = previousWindows.first(where: { $0.host === host }) else { return }
+        // Keep removed records alive until their replacement bookkeeping is
+        // fully published, including captures owned only by the configuration.
+        defer { withExtendedLifetime(previousWindows) {} }
+        let identity = ObjectIdentifier(host)
+        if managed.isPrimary, nativeWindowStarts[identity] != nil,
+            !nativeStartupRollbacks.contains(identity)
+        {
+            nativePrimaryClosedDuringStartup = true
+        }
         lastManagedCloseID = UUID()
-        releaseClosedHosts()
         windows.removeAll { $0.host === host }
-        // Outlive the wndproc frame this is running inside. The message loop
-        // does not drain the main-actor executor, so the deferred task is a
-        // best-effort drain and not the only one: the next close or open
-        // releases it regardless.
+        nativeActivationResults.removeValue(forKey: ObjectIdentifier(host))
+        // Releasing a previous host can destroy authored captures that call a
+        // retained window action. Publish removal and reserve final admission
+        // before diagnostics or any such release is allowed to run.
+        if windows.isEmpty { isTerminated = true }
+        if let finish = liveDiagnosticsSession?.finishAfterHostClosed(host) {
+            nativeDiagnosticsDrain = Task { @MainActor in
+                await finish.value
+                self.nativeDiagnosticsDrain = nil
+                self.terminateIfNoWindows()
+            }
+        }
+        releaseClosedHosts()
+        // Native callbacks arrive after the final dispatch acknowledgement;
+        // deferring actor release also lets diagnostics take its final snapshot.
         hostsPendingRelease.append(host)
         Task { @MainActor [weak self] in
             self?.releaseClosedHosts()
@@ -797,14 +1315,47 @@ final class WinSwiftUIWindowCoordinator {
         terminateIfNoWindows()
     }
 
+    private func legacyWindowDidClose(_ host: WinSwiftUIWindowHost) {
+        guard windows.contains(where: { $0.host === host }) else { return }
+        lastManagedCloseID = UUID()
+        _ = liveDiagnosticsSession?.finishAfterHostClosed(host)
+        // Preserve the synchronous host contract: an earlier host's final
+        // release may open a replacement while this close is on the stack.
+        // Recheck the actual remaining windows afterward, never a saved quit
+        // decision. The shared release queue is still safe to reenter.
+        releaseClosedHosts()
+        windows.removeAll { $0.host === host }
+        hostsPendingRelease.append(host)
+        Task { @MainActor [weak self] in
+            self?.releaseClosedHosts()
+        }
+        terminateIfNoWindows()
+    }
+
     private func terminateIfNoWindows() {
-        if windows.isEmpty, !isTerminated {
+        guard windows.isEmpty else { return }
+        if nativeHooks != nil {
+            // Reserve final shutdown immediately. Outstanding work delays the
+            // owner stop; it does not reopen admission to a stale environment.
+            isTerminated = true
+            guard nativeOwnerStarted, nativeWindowStarts.isEmpty, nativeDiagnosticsDrain == nil,
+                nativeWindowPreparation == nil, failedNativeUnadmittedHosts.isEmpty
+            else { return }
+            startNativeOwnerStop()
+            return
+        }
+        if !isTerminated {
             isTerminated = true
             hooks.terminateMessageLoop()
         }
     }
 
     private func releaseClosedHosts() {
-        hostsPendingRelease.removeAll()
+        // Take the complete batch before ARC can call authored deinitializers.
+        // A reentrant open/close sees a new empty queue, never an Array mutation
+        // that is still borrowing this property for exclusive access.
+        let pending = hostsPendingRelease
+        hostsPendingRelease = []
+        withExtendedLifetime(pending) {}
     }
 }

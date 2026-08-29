@@ -46,30 +46,150 @@ adapter. A different platform can implement these same protocols without
 importing WinSDK, and the contract tests exercise an independent fake host.
 `WinSwiftUI.App.platformHostFactory()` injects that platform decision into the
 real window coordinator, which asks the selected factory to create windows,
-start them, and own the event loop. The current retained window host still
+start them, and own the event loop. `Win32PlatformHostFactory` also exposes the
+explicit `Win32NativePlatformHostFactory` capability. With a native presentation
+factory, the default app enters public `dispatchMain()` and runs a separate
+Win32 owner thread. The synchronous factory methods remain the legacy and
+headless contract; custom factories that do not opt into both capabilities
+retain that path. The current retained window host still
 requires the factory-created window to be a `Win32Window`, so integrating a
 second real platform also requires replacing that concrete host assumption
 and providing platform-native text, image, accessibility, dialogs, and
 presentation services.
 
-The native pointer-move and left-button delivery paths copy coordinates and
-effective display scale before entering the retained host. Their package-only
-context binds that value to the originating window lifetime and one synchronous
-delivery frame; nested callbacks keep their own context, and the retained host
-consumes each frame before invoking runtime callbacks. Public legacy and neutral
-delegates keep their synchronous API and physical-coordinate payloads. Other
-input families still use their existing callbacks. This boundary does not move
-HWND ownership, change the message pump, or service queued MainActor tasks;
-UI Automation, IME caret queries, modal dialogs, rendering, and close teardown
-retain their existing ownership and synchronous result requirements.
+The native owner initializes its COM apartment as STA, creates HWNDs, dispatches
+messages, samples native geometry, owns renderer attachments, executes native
+dialogs, and releases those resources. It balances successful COM initialization
+only after actual native cleanup; fatal parking does not claim that cleanup.
+Retained layout, model state, bindings, input actions, and scene construction stay
+on MainActor. `NativeWindowKey` separates window identity from the lifetime of a
+reusable handle, while a separate surface generation rejects stale rendering
+commands. Checked Sendable commands and copied results cross this boundary;
+native attachments and UI objects do not.
 
-UI Automation callbacks preserve synchronous query and action results. A single
-private dispatch-context marker recognizes execution on the main queue or a
-queue targeting it, avoiding a synchronous dispatch back to that same context
-when Foundation reports a different main thread. The existing native entry-thread
-path remains, and both paths still assert `MainActor` isolation before consulting
-the source. This does not move HWND ownership, service queued app tasks, or
-qualify modal/COM reentry and deadlock behavior.
+Input is copied before delivery to an ordered actor queue. Pointer movement and
+left-button events retain their captured scale and lifetime/frame identity.
+Legacy delegates keep their physical-coordinate payloads and synchronous APIs.
+Painting and animation messages request actor work; they do not run a retained
+render while waiting on the actor. A settled window does not need a polling
+frame loop to service an app task.
+
+The input transport reserves 1,024 queued record slots and accounts at most
+16 MiB of queued copied string bytes, URL spellings/array entries, and touch
+points per window. At most one record is being delivered outside that queue.
+Its fixed ring reuses released slots. Automatic MainActor turns consume at most
+32 records and reschedule once; synchronous catch-up captures a finite accepted
+boundary. Only the existing paint/animation requests coalesce. These are
+transport accounting limits, not hard OS memory caps: they do not measure
+Foundation/COW allocation capacity or buffers constructed before admission.
+Essential-input overflow revokes the lifetime and fails the native owner
+explicitly. A reserved one-shot notification retains the last accepted sequence;
+the rejected sequence is never published or committed. Already accepted input
+keeps FIFO order, while synchronous queries reject the terminal lifetime even
+at an older committed boundary. No new native-to-actor blocking catch-up is
+introduced by exhaustion.
+
+The command mailbox admits at most 128 queued ordinary creates/commands. Each
+actually owned window lifetime separately reserves 32 queued close requests,
+32 queued deferred close wakes, and one final destruction request held through
+its terminal reply. One stop marker has its own reservation. All accepted work
+remains in the same FIFO with distinct replies; these reserves do not promote,
+replace, or silently coalesce commands. For N owned lifetimes the queue has at
+most `128 + 65 * N + 1` slots. A command already executing belongs to its native
+caller, outside the queued-work count; dequeuing a close request or deferred
+wake releases its queued slot, unlike the final destruction reservation.
+Start and stop have at most 32 waiters each. Unknown or stale window keys cannot
+consume lifecycle reserves, and ordinary saturation does not consume them.
+Rejection clears the matching reservation and completes its owned reply outside
+locks. These counts scale with authored window count and do not bound arbitrary
+authored command payload sizes or allocations made before admission. Timer
+policy holds only the latest unsent desired value and one admitted request;
+applied state comes from the matching actual reply and native surface
+generation, never admission alone. Failed requests do not install a policy or
+trigger an automatic retry.
+
+Queued rejection claims every detached batch reply before delivering the first
+callback. Commands expose a concrete Core reply capability; the queue captures
+that capability and request identity before locking, and only Core claim logic
+runs under the queue lock. The lock order is Queue then close Phase, released
+before entering Reply. Neither Phase nor Reply enters Queue while locked.
+Retained payloads and one-shot deliveries leave the locks before callbacks or
+their last captured-object releases. An alias sharing a claimed reply cannot
+gain a new native admission or replace that reply's original result. Terminal
+claim, callback delivery, actor consumption and actual OS-thread join remain
+separate acknowledgements; none proves the next one.
+
+The new, unshipped `NativeWindowOwnerCommand` protocol now requires
+`commandReply`, constructed from the same stable `NativeWindowReply` used by
+execution. Custom conformers must put queued-rejection cleanup in that reply's
+callback. A custom `reject` override remains an execution-error/direct-sink hook;
+the mailbox does not invoke it for queued rejection. This source migration does
+not change the legacy or headless host APIs. Detached failure batches retain
+their payloads until outside-lock delivery; the queue limits are not limits on
+arbitrary authored callback recursion or total process memory.
+
+Fatal exhaustion is observable without waiting for a native dialog or command to
+return. Queued ordinary work and uncommitted lifecycle waiters fail; an executing
+ordinary operation or committed destruction keeps its real reply if it returns.
+The actor's process-fatal exit may instead terminate that operation
+before its outcome is known. This resource-exhaustion policy is not graceful
+close, successful native cleanup, or a claim of normal-load qualification.
+
+Every synchronous native-to-actor query must finish without further native-owner
+progress. UI Automation and IME use explicit value requests; their actor bodies
+cannot await native commands. Built-in dialogs and system URL effects use separate
+command completions. Provider payloads and transport HRESULTs stay separate, so a failed
+hop or revoked lifetime cannot become a successful false/empty action result.
+A heap UIA call lease spans queued actor work and the remaining C marshalling.
+COM identity methods remain callable independently of live-window admission.
+
+External COM calls read an immutable owner-published geometry revision instead
+of queueing a refresh on a native thread that may itself be inside outbound COM.
+The actor rejects reentry and mismatched surface generations before consulting
+the retained source. This is not a fresh OS geometry sample for every query, nor
+does it change the retained host's existing live-resize layout coalescing policy.
+`UiaHostProviderFromHwnd` still runs on its COM caller under the full-call lease;
+ownership of the HWND does not imply that every COM method executes on its thread.
+Legacy UIA callbacks keep the dispatch-context marker and `MainActor` assertion.
+
+Startup creates a hidden window, installs the native dialog/accessibility and
+presentation state, activates it, then awaits the initial presentation result.
+During the gap before native dialog ownership, retained presentation requests
+remain pending rather than falling through to a synchronous legacy dialog.
+Readiness comes from a successful current view build, so superseding the initial
+bind reload cannot strand those requests. A dialog session submits its next
+request only after the previous native result and actor completion/reset have
+finished, rechecking each deferred request's retained lifetime before submission.
+Window construction reserves actor admission before authored content/factory
+callbacks and rechecks it afterward. Reentrant construction fails explicitly;
+closing the last window prevents a callback from admitting a replacement after
+termination has been reserved.
+
+Normal close keeps the prepared actor policy/participant lease until the native
+result is known. The native owner stops new callback admission, waits for complete
+admitted calls and native operations to drain, detaches presentation resources,
+then destroys the HWND. A successful close requires `WM_NCDESTROY`, native dispatch
+unwind, completion of the actor lease, and actor consumption of any in-flight
+presentation reply. The coordinator also waits for the matching diagnostics task
+and actual thread join before normal exit. A cleanup
+failure retains its resource ownership and error; it is not a synthetic close.
+The legacy synchronous path still checks the current window list before quit;
+an earlier host's release callback may open a replacement before that check.
+An unrecoverable owner-loop failure with live resources reports a fatal error
+and parks the failed owner for process termination, without claiming graceful
+destruction or a successful join.
+
+These ownership changes require compilation and native UIA, IME, modal, rendering,
+input, failure and idle-wake qualification. Source checks and controlled headless
+tests are not proof that those native gates have passed. Arbitrary authored code
+that calls native APIs synchronously is not automatically made safe by this split.
+Built-in Link/Help system launches use the native command path; directly calling
+the public synchronous `OpenURLAction.system` from authored code retains its
+legacy synchronous result and is not covered by that adaptation.
+Clipboard stores and authored paste callbacks also remain synchronous. There is
+no owner-command wait in that source path, but external delayed clipboard data
+and clipboard-manager reentry need native UIA/IME qualification.
+The existing native `DocumentGroup` admission restriction remains in place.
 
 ## Rendering-engine boundary
 
@@ -79,6 +199,16 @@ qualify modal/COM reentry and deadlock behavior.
 - `BatchRenderBackend` for presentation-ordered `GPUIScene` primitives.
 - `RenderBackendCapabilities` for truthful frame/scene support, native-window
   versus offscreen targets, execution model, capture, and presentation pacing.
+- `makeNativePresentationFactory()` opts into constructing non-Sendable backend
+  state on the native owner. The default is nil for existing custom factories;
+  D3D11 and the software window presenter supply this capability. Their public
+  MainActor renderer APIs remain available for legacy callers.
+
+Native presentation commands retain real attach, resize, render, capture,
+configuration and teardown results. Command admission is not a submitted frame;
+an occluded, skipped, failed or stale-generation result cannot advance the host's
+presented content revision. Final renderer snapshots and cancelled GPU timing
+results are handed back before native teardown acknowledgement.
 
 `RenderSurfaceTarget.window` carries an opaque `NativeWindowHandle`.
 `RenderSurfaceTarget.offscreen` contains no handle, so

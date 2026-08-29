@@ -48,10 +48,10 @@ import WinSDK.DirectX
 /// The engine is self-contained (own shaders, constant buffers, sampler,
 /// blend/rasterizer state and a 1-instance quad buffer) so headless
 /// tests can drive it against a WARP device without an HWND or swap
-/// chain. `D3D11BatchRenderer` owns one instance and recreates it
+/// chain. `D3D11BatchKernel` owns one instance and recreates it
 /// whenever its device generation changes (re-attach, device-loss
 /// rebuild).
-@MainActor
+/// This native resource owner is confined to its renderer's execution owner.
 final class D3D11BackdropBlurEngine {
     /// Kernel radius cap. Tracks `GPUISceneLimits.maxBlurRadius` — the
     /// shared engine limit both backends honour — and the blur cbuffer
@@ -210,8 +210,8 @@ final class D3D11BackdropBlurEngine {
         deviceGeneration = 0
     }
 
-    // No deinit-based release: COM teardown must happen on the main
-    // actor, matching D3D11BatchRenderer's own explicit-teardown style.
+    // No deinit-based release: COM teardown must happen explicitly on the
+    // renderer's owner, matching D3D11BatchKernel's teardown protocol.
     // The owning renderer calls detach() when its device changes.
 
     // MARK: - Blur + Composite

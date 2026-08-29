@@ -37,6 +37,11 @@ public protocol RenderBackendFactory {
     /// Returns `nil` when the factory does not support batch rendering.
     func makeBatchRenderBackend() -> (any BatchRenderBackend)?
 
+    /// Opts into the split native host. The returned value constructs its
+    /// resources on the native owner; it must not capture an actor backend.
+    /// Legacy/custom factories keep their existing actor path by returning nil.
+    func makeNativePresentationFactory() -> (any NativePresentationBackendFactory)?
+
     /// Whether this machine can actually run the factory's backends, asked
     /// *before* a window exists to attach one to.
     ///
@@ -83,6 +88,8 @@ public enum RenderBackendAvailability: Equatable, Sendable {
 }
 
 extension RenderBackendFactory {
+    public func makeNativePresentationFactory() -> (any NativePresentationBackendFactory)? { nil }
+
     /// A legacy factory is known to produce frame renderers, but nothing else
     /// about its scene support, execution model, or presentation targets can
     /// be assumed until the implementation declares those capabilities.

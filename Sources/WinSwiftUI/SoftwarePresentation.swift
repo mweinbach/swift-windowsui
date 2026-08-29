@@ -1,5 +1,4 @@
 import Foundation
-
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 
@@ -36,6 +35,12 @@ import SwiftWindowsGraphics
 /// the screen without one.
 @MainActor
 protocol WindowBitmapPresenter {
+    func present(_ bitmap: BitmapSurface, to windowHandle: NativeWindowHandle, clientSize: IntSize) throws
+}
+
+/// Synchronous owner-confined blitting. Unlike the compatibility presenter,
+/// this protocol has no actor isolation and never crosses the native mailbox.
+protocol NativeWindowBitmapPresenter {
     func present(_ bitmap: BitmapSurface, to windowHandle: NativeWindowHandle, clientSize: IntSize) throws
 }
 
@@ -84,6 +89,14 @@ extension SoftwarePresentationError: ClassifiedPresentationFailure {
     /// scene's clear colour is opaque, so the composited frame is opaque.
     @MainActor
     struct GDIWindowBitmapPresenter: WindowBitmapPresenter {
+        func present(_ bitmap: BitmapSurface, to windowHandle: NativeWindowHandle, clientSize: IntSize) throws {
+            try GDIWindowBitmapKernel().present(bitmap, to: windowHandle, clientSize: clientSize)
+        }
+    }
+
+    /// Stateless native work shared by the actor compatibility presenter and
+    /// the native-owner backend. It owns the HDC only for this synchronous call.
+    private struct GDIWindowBitmapKernel: NativeWindowBitmapPresenter {
         func present(_ bitmap: BitmapSurface, to windowHandle: NativeWindowHandle, clientSize: IntSize) throws {
             try bitmap.validate()
 
@@ -134,7 +147,7 @@ extension SoftwarePresentationError: ClassifiedPresentationFailure {
                 )
             }
 
-            guard copiedScanLines != 0 else {
+            guard copiedScanLines != 0, copiedScanLines != -1 else {
                 throw SoftwarePresentationError.blitFailed
             }
         }
@@ -280,6 +293,10 @@ public struct SoftwareWindowRenderBackendFactory: RenderBackendFactory {
         SoftwareWindowRenderBackend()
     }
 
+    public func makeNativePresentationFactory() -> (any NativePresentationBackendFactory)? {
+        SoftwareNativePresentationBackendFactory()
+    }
+
     /// GDI is part of the OS: where this target runs at all, the software
     /// presenter runs. Elsewhere it says so, and the composition root keeps
     /// the requested factory rather than substituting a backend that cannot
@@ -292,5 +309,121 @@ public struct SoftwareWindowRenderBackendFactory: RenderBackendFactory {
         #else
             return .unavailable(reason: "Software window presentation requires Windows (GDI).")
         #endif
+    }
+}
+
+/// Creates a presenting CPU backend on the native owner. The portable CPU
+/// reference factory remains offscreen-only and does not opt into this path.
+public struct SoftwareNativePresentationBackendFactory: NativePresentationBackendFactory {
+    public init() {}
+
+    public var factoryName: String { "CPU Software" }
+    public var capabilities: RenderBackendCapabilities { .softwareWindow }
+
+    public func makeBackend() -> any NativePresentationBackend {
+        NativeSoftwareWindowRenderBackend()
+    }
+}
+
+/// No CPUBatchRenderer actor object crosses the boundary. Its pure rasterizer
+/// is used directly with the same scene/frame lowering; only the final blit is
+/// native. A submission receipt is set after the blit actually succeeds.
+final class NativeSoftwareWindowRenderBackend: NativePresentationBackend {
+    private let presenter: any NativeWindowBitmapPresenter
+    private var surface: SurfaceDescriptor?
+    private var path: NativePresentationPath?
+    private var lastFrameSubmission: BackendFrameSubmission?
+    private var configurationResult = NativePresentationConfigurationResult()
+
+    init(presenter: (any NativeWindowBitmapPresenter)? = nil) {
+        self.presenter = presenter ?? Self.defaultPresenter()
+    }
+
+    private static func defaultPresenter() -> any NativeWindowBitmapPresenter {
+        #if os(Windows)
+            return GDIWindowBitmapKernel()
+        #else
+            return UnavailableNativeWindowBitmapPresenter()
+        #endif
+    }
+
+    func attach(to surface: SurfaceDescriptor, path: NativePresentationPath) throws {
+        guard let handle = surface.windowHandle, handle.rawPointer != nil else {
+            throw SoftwarePresentationError.missingWindowHandle
+        }
+        #if !os(Windows)
+            throw SoftwarePresentationError.unsupportedPlatform
+        #else
+            self.surface = surface
+            self.path = path
+            lastFrameSubmission = nil
+        #endif
+    }
+
+    func resize(to surface: SurfaceDescriptor) throws {
+        guard self.surface != nil else { throw SoftwarePresentationError.missingWindowHandle }
+        self.surface = surface
+        lastFrameSubmission = nil
+    }
+
+    func render(scene: GPUIScene) throws {
+        try renderBitmap { size in GPUIRawSceneRasterizer.rasterize(scene, size: size) }
+    }
+
+    func render(frame: RenderFrame) throws {
+        try renderBitmap { size in
+            let scene = GPUIScene(
+                from: frame, surfaceSize: Size(width: Double(size.width), height: Double(size.height)))
+            return GPUIRawSceneRasterizer.rasterize(scene, size: size)
+        }
+    }
+
+    private func renderBitmap(_ rasterize: (IntSize) -> BitmapSurface) throws {
+        lastFrameSubmission = BackendFrameSubmission(outcome: .skipped, gpuTimingStatus: .unsupported)
+        guard let surface, let handle = surface.windowHandle else {
+            throw SoftwarePresentationError.missingWindowHandle
+        }
+        guard surface.pixelSize.width > 0, surface.pixelSize.height > 0 else {
+            throw CPUBatchRendererError.invalidSize(surface.pixelSize)
+        }
+        lastFrameSubmission = BackendFrameSubmission(outcome: .aborted, gpuTimingStatus: .unsupported)
+        let bitmap = rasterize(surface.pixelSize)
+        do {
+            try presenter.present(bitmap, to: handle, clientSize: surface.pixelSize)
+        } catch {
+            lastFrameSubmission = BackendFrameSubmission(outcome: .failed, gpuTimingStatus: .unsupported)
+            throw error
+        }
+        lastFrameSubmission = BackendFrameSubmission(outcome: .submitted, gpuTimingStatus: .unsupported)
+    }
+
+    @discardableResult
+    func configure(_ configuration: NativePresentationConfiguration) -> NativePresentationConfigurationResult {
+        configurationResult = NativePresentationConfigurationResult()
+        // GDI has no swap-chain pacing or GPU query objects. The legacy
+        // software presenter also does not advertise presented-frame capture.
+        if configuration.presentsWithVSync != nil { configurationResult.presentsWithVSyncAccepted = false }
+        if configuration.capturesPresentedFrames != nil { configurationResult.capturesPresentedFramesAccepted = false }
+        if configuration.gpuFrameTimingEnabled != nil { configurationResult.gpuFrameTimingEnabledAccepted = false }
+        return configurationResult
+    }
+
+    func takeSnapshot() -> NativePresentationSnapshot {
+        NativePresentationSnapshot(
+            path: path, isAttached: surface != nil, backendDisplayName: "CPU SOFTWARE",
+            backendStatusDescription: surface == nil ? "CPU SOFTWARE DETACHED" : "CPU SOFTWARE READY",
+            lastFrameSubmission: lastFrameSubmission, configurationResult: configurationResult)
+    }
+
+    func detach() -> NativeWindowAttachmentDetachResult {
+        surface = nil
+        lastFrameSubmission = nil
+        return NativeWindowAttachmentDetachResult(isDetached: true)
+    }
+}
+
+private struct UnavailableNativeWindowBitmapPresenter: NativeWindowBitmapPresenter {
+    func present(_ bitmap: BitmapSurface, to windowHandle: NativeWindowHandle, clientSize: IntSize) throws {
+        throw SoftwarePresentationError.unsupportedPlatform
     }
 }

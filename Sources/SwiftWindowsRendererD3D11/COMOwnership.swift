@@ -8,38 +8,69 @@
 // covers the second, so no call site has to remember the release.
 
 import Foundation
+import Synchronization
 import WinSDK
+
+/// Device identity shared by native owners and the legacy actor facades.
+/// Zero marks exhaustion internally and is never returned to a renderer.
+enum RendererDeviceGeneration {
+    private static let nextValue = Mutex<UInt64>(1)
+
+    static func next() -> UInt64 {
+        nextValue.withLock { value in
+            precondition(value != 0, "Renderer device generation exhausted")
+            let generation = value
+            value &+= 1
+            return generation
+        }
+    }
+}
 
 /// The release-visible backstop for a renderer that was deallocated while
 /// still attached.
 ///
-/// `detach()` runs on the main actor because it drives the immediate
-/// context, and a nonisolated `deinit` cannot get there — so the deinit
-/// cannot free anything, and it deliberately does not try: enqueueing the
-/// raw pointers onto the main actor would release objects at an
-/// unpredictable later point, and at process teardown that work never runs
-/// at all. What it *can* do is refuse to be silent. A debug-only
+/// `detach()` must run explicitly on the renderer's owner because it drives
+/// the immediate context. Deinitialization does not replace that protocol:
+/// enqueueing raw pointers onto an owner would release objects at an
+/// unpredictable later point, and at process teardown that work may never
+/// run. What the backstop can do is refuse to be silent. A debug-only
 /// `assert` left a shipping build leaking a device, a swap chain (which
 /// also pins a destroyed HWND), both glyph atlases, every cached path
 /// texture and the blur ping-pong pair with no diagnostic whatsoever;
 /// this writes the same message to stderr in every configuration and
 /// counts the occurrence so a test can see it happen.
 enum RendererTeardownBackstop {
+    private struct State: Sendable {
+        var undetachedTeardownCount = 0
+        var suppressTrapForTesting = false
+    }
+
+    private static let state = Mutex(State())
+
     /// How many times the backstop has fired this process. Never reset in
     /// production; tests read and restore it.
-    nonisolated(unsafe) static var undetachedTeardownCount = 0
+    static var undetachedTeardownCount: Int {
+        get { state.withLock { $0.undetachedTeardownCount } }
+        set { state.withLock { $0.undetachedTeardownCount = newValue } }
+    }
 
     /// Set by tests that deliberately drop an attached renderer, so the
     /// debug trap does not abort the run they are trying to make.
-    nonisolated(unsafe) static var suppressTrapForTesting = false
+    static var suppressTrapForTesting: Bool {
+        get { state.withLock { $0.suppressTrapForTesting } }
+        set { state.withLock { $0.suppressTrapForTesting = newValue } }
+    }
 
     /// Reports `message` to stderr, counts it, and traps in debug builds
     /// unless a test has opted out.
     static func reportUndetachedTeardown(_ message: String) {
-        undetachedTeardownCount &+= 1
+        let shouldTrap = state.withLock { state in
+            state.undetachedTeardownCount &+= 1
+            return !state.suppressTrapForTesting
+        }
         let line = "[swift-windowsui] \(message)\n"
         FileHandle.standardError.write(Data(line.utf8))
-        if !suppressTrapForTesting {
+        if shouldTrap {
             assertionFailure(message)
         }
     }

@@ -8041,3 +8041,42 @@ unchanged at the recorded endpoints. This retained CPU review and the focused
 GPU cases do not qualify native SwiftUI behavior, legacy frame presentation,
 the forthcoming native/List join, hosted CI or deployment. All nine original
 completion gates remain open.
+
+### Ninth implementation pass: bounded native owner and MainActor transport (2026-08-29)
+
+The reviewed native host source is now integrated over the tested image,
+resource and editor foundation. UI construction, state and callbacks remain
+on MainActor; a dedicated STA owns the HWND, native message pump and renderer
+kernel. Copied Sendable commands and typed actual replies cross that boundary.
+The renderer facade preserves captured display scale and submitted frame
+identity instead of consulting live HWND state from the UI actor.
+
+Native input admission is bounded to 1,024 records and 16 MiB of accounted
+payload, with 32 events per automatic actor turn and one outstanding drain
+token. Manual flushing has a finite captured tail. The native command mailbox
+has 128 ordinary slots and explicit bounded close/wake/stop reservations;
+these remain in FIFO order rather than bypassing older admitted work. Timer
+changes retain one command in flight and the latest desired state, applying
+state only after the matching actual reply. Essential overflow is an explicit
+owner failure, not a claim that normal-load performance is qualified.
+
+Commands expose the real one-shot reply capability. Terminal replies are
+claimed under the queue mutex before arbitrary callbacks, with delivery after
+release; no arbitrary getter, rejection callback or final object destruction
+is introduced under that lock. Close admission, native destruction, reply
+delivery, actor consumption and the OS-thread join remain distinct milestones.
+UIA retains complete C-call lifetimes across dispatch and output marshalling.
+Authored synchronous native services and the guarded document-startup paths
+remain documented qualification gaps.
+
+This is the native portion of the sealed source join from
+`e1c9945faf08f9659fbc29e0ace96d4f65df99e4`, applied as its separate
+`a837b74a1164e4e9d4be55166126b0dbdc66a0cb` source commit. Its patch SHA-256 is
+`fbedfd870b70ab0101595bd70aa4360da32aa90d2c32548d33f1a8dc28b50fb2`.
+All 68 changed production/test postimages match that immutable source; root
+documentation and goal history are preserved. Contracts passed before and
+after integration. The native source adds 269 test methods, including 95
+bounded-transport cases, but no compilation, discovery, native execution or
+live timing result has yet been obtained for this root composition. The
+following List join must preserve these ownership and transport contracts.
+All original completion requirements remain unchanged and open.

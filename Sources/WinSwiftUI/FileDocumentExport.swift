@@ -31,6 +31,7 @@ extension View {
                         defaultFilename: defaultFilename,
                         onCompletion: onCompletion
                     )
+                    .withInvocationScope(FileDialogInvocationContext(context))
                 } else {
                     node.fileExporterConfiguration = nil
                 }

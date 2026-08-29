@@ -10,6 +10,9 @@ import SwiftWindowsPlatform
 /// These are elapsed CPU seconds from the host's monotonic clock, including
 /// scene build, resource binding, submission and the Present call. They do not
 /// measure GPU execution, display completion, or input queueing latency.
+/// On the native-owner path, `presentedAt` is the owner's render-return time
+/// and `totalSeconds` includes the actor-to-owner command handoff. Delivery
+/// of the completed receipt back to the actor is outside that interval.
 struct LiveFrameSample {
     var presentedAt: Double
     var totalSeconds: Double
@@ -37,6 +40,10 @@ struct LiveFrameSample {
     var paintSeconds: Double = 0
     /// CPU resource binding. Upload work can instead occur during submission.
     var bindSeconds: Double
+    /// The synchronous host measures this phase directly. A native receipt
+    /// without a binding interval must not turn its placeholder zero into a
+    /// measured sample.
+    var bindTimingsAvailable = true
     /// Backend-reported split of `render(scene:)`: work issued vs time spent
     /// waiting in `Present`.
     var backendSubmitSeconds: Double
@@ -195,6 +202,25 @@ public struct LiveDiagnosticsConfiguration: Equatable, Sendable {
 
 // MARK: - Session
 
+/// Actual native replies, kept separate from the legacy synchronous controls.
+/// The closures take their host explicitly so each suspended operation retains
+/// the exact session/host pair. Tests can hold replies without starting Win32.
+@MainActor
+struct LiveDiagnosticsNativeCommands {
+    var setVSync: @MainActor (WinSwiftUIWindowHost, Bool) async -> Bool
+    var setGPUFrameTimingEnabled: @MainActor (WinSwiftUIWindowHost, Bool) async -> Bool
+    var setFrameCaptureEnabled: @MainActor (WinSwiftUIWindowHost, Bool) async -> Bool
+    var poll: @MainActor (WinSwiftUIWindowHost) async -> Bool
+    var waitForTeardown: @MainActor (WinSwiftUIWindowHost) async -> Bool
+
+    static let live = LiveDiagnosticsNativeCommands(
+        setVSync: { host, enabled in await host.setActiveBatchBackendVSyncNative(enabled) },
+        setGPUFrameTimingEnabled: { host, enabled in await host.setGPUFrameTimingEnabledNative(enabled) },
+        setFrameCaptureEnabled: { host, enabled in await host.setActiveBatchBackendFrameCaptureNative(enabled) },
+        poll: { host in await host.pollNativePresentation() },
+        waitForTeardown: { host in await host.waitForNativeTeardown() })
+}
+
 /// Drives one live diagnostics run against a real window and writes what it
 /// measured.
 ///
@@ -210,10 +236,19 @@ final class LiveDiagnosticsSession {
     private let clock: () -> Double
     private let requestClose: @MainActor () -> Void
     private let report: (String) -> Void
+    private let nativeCommands: LiveDiagnosticsNativeCommands?
 
     private var startedAt: Double?
+    private var stoppedAt: Double?
+    private var didStart = false
     private var samples: [LiveFrameSample] = []
     private var isFinished = false
+    private var nativeRunID: UUID? = UUID()
+    private var nativeStartTask: Task<Void, Never>?
+    private var nativeCaptureTask: Task<Void, Never>?
+    private var nativeFinishTask: Task<Void, Never>?
+    private var nativeAcknowledgements: [String: Bool] = [:]
+    private var nativeTeardownInterrupted = false
     /// Uploads recorded once the session considers the atlas warm, so a
     /// steady-state per-frame cost can be separated from the first-paint
     /// population of an empty atlas.
@@ -229,6 +264,7 @@ final class LiveDiagnosticsSession {
     /// Motion capture state. `nil` unless the run asked for it.
     private var motionRecorder: MotionCaptureRecorder?
     private var motionScript = MotionCaptureScript()
+    private var didRequestFrameCapture = false
     private var didEnableFrameCapture = false
     private var motionSummary: [String: Any]?
     private var motionFailureDetail: String?
@@ -246,32 +282,102 @@ final class LiveDiagnosticsSession {
         host: WinSwiftUIWindowHost,
         clock: @escaping () -> Double = { PlatformClock.now() },
         requestClose: (@MainActor () -> Void)? = nil,
+        nativeCommands: LiveDiagnosticsNativeCommands? = nil,
         report: @escaping (String) -> Void = { print("[WinSwiftUI] \($0)") }
     ) {
         self.configuration = configuration
         self.host = host
         self.clock = clock
         self.requestClose = requestClose ?? { [weak host] in host?.platformWindow.requestClose() }
+        self.nativeCommands = nativeCommands ?? (host.usesNativePresentation ? .live : nil)
         self.report = report
     }
 
     /// Installs the frame hook and starts the clock. The session drives itself
     /// from the host's own animation timer from here on.
     func start() {
+        guard !didStart, !isFinished, let host else { return }
+        didStart = true
+        if let nativeCommands, let runID = nativeRunID {
+            // This entry can be called by a synchronous native-to-actor
+            // callback. Return before awaiting the owner, or the two lanes
+            // would wait for one another.
+            nativeStartTask = Task { @MainActor [self, host] in
+                defer { nativeStartTask = nil }
+                await startNative(host: host, commands: nativeCommands, runID: runID)
+            }
+            return
+        }
+
+        // Preserve the synchronous path's original accounting boundary.
         startedAt = clock()
-        // The layout/paint split is off in a shipping frame loop and on for
-        // the run that is asking where the time goes.
-        host?.hostedRuntime.collectsPhaseTimings = true
+        host.hostedRuntime.collectsPhaseTimings = true
         if configuration.disablesVSync {
-            didDisableVSync = host?.setActiveBatchBackendVSync(false) ?? false
+            didDisableVSync = host.setActiveBatchBackendVSync(false)
         }
         if configuration.collectsGPUFrameTimings {
             // Clear bounded records left by an earlier collector before this
             // session establishes its own issuing-frame population.
-            _ = host?.takeCompletedGPUFrameTimings()
-            didEnableGPUFrameTimings = host?.setGPUFrameTimingEnabled(true) ?? false
+            _ = host.takeCompletedGPUFrameTimings()
+            didEnableGPUFrameTimings = host.setGPUFrameTimingEnabled(true)
         }
-        host?.onFramePresented = { [weak self] sample in
+        beginRecording(host: host)
+    }
+
+    private func startNative(
+        host: WinSwiftUIWindowHost, commands: LiveDiagnosticsNativeCommands, runID: UUID
+    ) async {
+        guard canContinueNativeStart(host: host, runID: runID) else { return }
+        if configuration.disablesVSync {
+            let accepted = await commands.setVSync(host, false)
+            guard isCurrentNativeRun(host: host, runID: runID) else { return }
+            didDisableVSync = accepted
+            recordNativeAcknowledgement("disableVSync", accepted: accepted)
+            guard canContinueNativeStart(host: host, runID: runID) else { return }
+        }
+        if configuration.collectsGPUFrameTimings {
+            // These drains consume actor-owned records only. The configure
+            // receipt may carry records from an earlier collector, which
+            // must also be excluded before this run starts sampling.
+            _ = host.takeCompletedGPUFrameTimings()
+            let accepted = await commands.setGPUFrameTimingEnabled(host, true)
+            guard isCurrentNativeRun(host: host, runID: runID) else { return }
+            didEnableGPUFrameTimings = accepted
+            recordNativeAcknowledgement("enableGPUFrameTimings", accepted: accepted)
+            guard canContinueNativeStart(host: host, runID: runID) else { return }
+            _ = host.takeCompletedGPUFrameTimings()
+        }
+        beginRecording(host: host)
+    }
+
+    private func isCurrentNativeRun(host: WinSwiftUIWindowHost, runID: UUID) -> Bool {
+        nativeRunID == runID && self.host === host
+    }
+
+    private func canContinueNativeStart(host: WinSwiftUIWindowHost, runID: UUID) -> Bool {
+        guard isCurrentNativeRun(host: host, runID: runID), !isFinished else { return false }
+        guard !host.isClosed else {
+            finish()
+            return false
+        }
+        return true
+    }
+
+    private func recordNativeAcknowledgement(_ operation: String, accepted: Bool) {
+        nativeAcknowledgements[operation] = accepted
+        if !accepted {
+            report("Live diagnostics: native \(operation) was not acknowledged by the backend.")
+        }
+    }
+
+    private func beginRecording(host: WinSwiftUIWindowHost) {
+        guard !isFinished else { return }
+        if startedAt == nil { startedAt = clock() }
+        // The layout/paint split is off in a shipping frame loop and on for
+        // the run that is asking where the time goes. Native setup and its
+        // acknowledgement delay are outside the measured session.
+        host.hostedRuntime.collectsPhaseTimings = true
+        host.onFramePresented = { [weak self] sample in
             self?.record(sample)
         }
         // The host runs its timer only while something is dirty or animating —
@@ -280,12 +386,12 @@ final class LiveDiagnosticsSession {
         // figure is a *sustained throughput* measurement of the real window,
         // not evidence that the app repaints continuously when nothing is
         // happening; the `animation` block reports the idle side separately.
-        host?.requestDiagnosticsFrame()
+        host.requestDiagnosticsFrame()
 
         // Independent of the frame loop on purpose. If the presenter never
         // attaches, or a frame stalls, no sample is ever recorded and nothing
         // in `record` can fire — the run has to close the window anyway.
-        host?.platformWindow.scheduleCloseWatchdog(
+        host.platformWindow.scheduleCloseWatchdog(
             afterSeconds: configuration.durationSeconds + Self.watchdogGraceSeconds)
 
         report(
@@ -301,6 +407,10 @@ final class LiveDiagnosticsSession {
 
     private func record(_ sample: LiveFrameSample) {
         guard !isFinished, let startedAt else {
+            return
+        }
+        if nativeCommands != nil, host?.isClosed == true {
+            finish()
             return
         }
 
@@ -357,20 +467,45 @@ final class LiveDiagnosticsSession {
             return
         }
 
-        if !didEnableFrameCapture {
-            didEnableFrameCapture = true
-            guard host.setActiveBatchBackendFrameCapture(true) else {
-                motionFailureDetail =
-                    "the active backend does not support presented-frame readback"
-                report("Live diagnostics: \(motionFailureDetail!); motion capture skipped.")
+        if !didRequestFrameCapture {
+            didRequestFrameCapture = true
+            if let nativeCommands, let runID = nativeRunID {
+                nativeCaptureTask = Task { @MainActor [self, host] in
+                    defer { nativeCaptureTask = nil }
+                    guard canContinueNativeStart(host: host, runID: runID) else { return }
+                    let accepted = await nativeCommands.setFrameCaptureEnabled(host, true)
+                    guard isCurrentNativeRun(host: host, runID: runID) else { return }
+                    didEnableFrameCapture = accepted
+                    recordNativeAcknowledgement("enableFrameCapture", accepted: accepted)
+                    if !accepted {
+                        // A false reply can mean revoked admission, a stale
+                        // attachment, or a backend refusal. It does not prove
+                        // that readback is an unsupported capability.
+                        motionFailureDetail = "native presented-frame readback enablement was not acknowledged"
+                        report("Live diagnostics: \(motionFailureDetail!); motion capture skipped.")
+                    }
+                    guard canContinueNativeStart(host: host, runID: runID), accepted else { return }
+                    // An old readback is not the first sample of this run.
+                    _ = host.takeCapturedPresentedFrame()
+                    beginMotionCapture()
+                    host.requestDiagnosticsFrame()
+                }
                 return
             }
-            motionRecorder = MotionCaptureRecorder(frameLimit: configuration.motionFrameCount)
-            report("Live diagnostics: capturing \(configuration.motionFrameCount) presented frames.")
+            didEnableFrameCapture = host.setActiveBatchBackendFrameCapture(true)
+            guard didEnableFrameCapture else {
+                reportUnsupportedMotionCapture()
+                return
+            }
+            beginMotionCapture()
             return
         }
 
         guard let recorder = motionRecorder else { return }
+        if nativeCommands != nil, sample.backendFrameSubmission?.outcome != .submitted {
+            _ = host.takeCapturedPresentedFrame()
+            return
+        }
 
         if let surface = host.takeCapturedPresentedFrame() {
             recorder.record(
@@ -388,6 +523,16 @@ final class LiveDiagnosticsSession {
         if recorder.isComplete {
             finish()
         }
+    }
+
+    private func reportUnsupportedMotionCapture() {
+        motionFailureDetail = "the active backend does not support presented-frame readback"
+        report("Live diagnostics: \(motionFailureDetail!); motion capture skipped.")
+    }
+
+    private func beginMotionCapture() {
+        motionRecorder = MotionCaptureRecorder(frameLimit: configuration.motionFrameCount)
+        report("Live diagnostics: capturing \(configuration.motionFrameCount) presented frames.")
     }
 
     private func perform(_ step: MotionCaptureScript.Step, in host: WinSwiftUIWindowHost) {
@@ -426,6 +571,11 @@ final class LiveDiagnosticsSession {
     private func finishMotionCapture(host: WinSwiftUIWindowHost) {
         guard configuration.capturesMotion else { return }
         host.setActiveBatchBackendFrameCapture(false)
+        writeMotionCapture()
+    }
+
+    private func writeMotionCapture() {
+        guard configuration.capturesMotion else { return }
         guard let recorder = motionRecorder, !recorder.frames.isEmpty else {
             return
         }
@@ -548,6 +698,16 @@ final class LiveDiagnosticsSession {
 
     // MARK: - Completion
 
+    /// The coordinator keeps this exact session's async report alive after
+    /// window teardown and before stopping the actor/native application loop.
+    /// The synchronous close callback must only retain the returned task;
+    /// awaiting it belongs in a separate actor task.
+    func finishAfterHostClosed(_ closedHost: WinSwiftUIWindowHost) -> Task<Void, Never>? {
+        guard host === closedHost, closedHost.isClosed else { return nil }
+        finish()
+        return nativeFinishTask
+    }
+
     /// Writes the report and asks the window to close. Idempotent: a frame
     /// delivered between the close request and `WM_DESTROY` must not write a
     /// second report or re-request the close.
@@ -556,12 +716,27 @@ final class LiveDiagnosticsSession {
             return
         }
         isFinished = true
+        stoppedAt = clock()
 
         guard let host else {
             return
         }
         host.onFramePresented = nil
         host.hostedRuntime.collectsPhaseTimings = false
+        if let nativeCommands, let runID = nativeRunID {
+            let pendingStart = nativeStartTask
+            let pendingCapture = nativeCaptureTask
+            nativeFinishTask = Task { @MainActor [self, host] in
+                defer { nativeFinishTask = nil }
+                // Configuration that was already sent must finish before
+                // shutdown. Its late success must not reinstall the frame
+                // hook or leave a collector/readback enabled after reporting.
+                await pendingStart?.value
+                await pendingCapture?.value
+                await finishNative(host: host, commands: nativeCommands, runID: runID)
+            }
+            return
+        }
         if configuration.collectsGPUFrameTimings {
             // One nonblocking final poll. Unready queries remain visible in
             // the snapshot and are cancelled rather than waited on or flushed.
@@ -574,6 +749,79 @@ final class LiveDiagnosticsSession {
         }
         finishMotionCapture(host: host)
 
+        writeFinalReport(host: host)
+    }
+
+    private func finishNative(
+        host: WinSwiftUIWindowHost, commands: LiveDiagnosticsNativeCommands, runID: UUID
+    ) async {
+        guard isCurrentNativeRun(host: host, runID: runID) else { return }
+        if await finishAfterNativeCloseIfNeeded(host: host, commands: commands, runID: runID) { return }
+
+        if configuration.collectsGPUFrameTimings {
+            // Exactly one explicit final poll. Frames already deliver their
+            // bounded records in receipts; sampling never adds native polls.
+            let polled = await commands.poll(host)
+            guard isCurrentNativeRun(host: host, runID: runID) else { return }
+            recordNativeAcknowledgement("finalGPUFrameTimingPoll", accepted: polled)
+            if await finishAfterNativeCloseIfNeeded(host: host, commands: commands, runID: runID) { return }
+            gpuFrameTimings.append(contentsOf: host.takeCompletedGPUFrameTimings())
+            // Without an acknowledged poll, the cached diagnostics may be
+            // older than the final attempt; missing is more honest than zero.
+            gpuDiagnosticsAtFinish = polled ? host.gpuFrameTimingDiagnostics : nil
+
+            let disabled = await commands.setGPUFrameTimingEnabled(host, false)
+            guard isCurrentNativeRun(host: host, runID: runID) else { return }
+            recordNativeAcknowledgement("disableGPUFrameTimings", accepted: disabled)
+            gpuFrameTimings.append(contentsOf: host.takeCompletedGPUFrameTimings())
+            if await finishAfterNativeCloseIfNeeded(host: host, commands: commands, runID: runID) { return }
+        }
+        if didEnableFrameCapture {
+            let disabled = await commands.setFrameCaptureEnabled(host, false)
+            guard isCurrentNativeRun(host: host, runID: runID) else { return }
+            recordNativeAcknowledgement("disableFrameCapture", accepted: disabled)
+            if !disabled {
+                motionFailureDetail = "native presented-frame readback shutdown was not acknowledged"
+            }
+            if await finishAfterNativeCloseIfNeeded(host: host, commands: commands, runID: runID) { return }
+        }
+        if configuration.collectsGPUFrameTimings {
+            // The final readback configuration receipt can carry ready timing
+            // results, especially when collector shutdown was rejected. Drain
+            // those actor-owned values without issuing another native poll.
+            gpuFrameTimings.append(contentsOf: host.takeCompletedGPUFrameTimings())
+        }
+        writeMotionCapture()
+        writeFinalReport(host: host)
+    }
+
+    /// A close revokes command admission. Await its actual teardown receipt
+    /// instead of sending configuration after close or inventing cancellations.
+    private func finishAfterNativeCloseIfNeeded(
+        host: WinSwiftUIWindowHost, commands: LiveDiagnosticsNativeCommands, runID: UUID
+    ) async -> Bool {
+        guard host.isClosed else { return false }
+        nativeTeardownInterrupted = true
+        let acknowledged = await commands.waitForTeardown(host)
+        guard isCurrentNativeRun(host: host, runID: runID) else { return true }
+        recordNativeAcknowledgement("teardown", accepted: acknowledged)
+        if configuration.collectsGPUFrameTimings {
+            gpuFrameTimings.append(contentsOf: host.takeCompletedGPUFrameTimings())
+            if gpuDiagnosticsAtFinish == nil, acknowledged {
+                gpuDiagnosticsAtFinish = host.gpuFrameTimingDiagnostics
+            }
+        }
+        if configuration.capturesMotion, didRequestFrameCapture,
+            nativeAcknowledgements["disableFrameCapture"] != true
+        {
+            motionFailureDetail = "window teardown interrupted presented-frame readback"
+        }
+        writeMotionCapture()
+        writeFinalReport(host: host)
+        return true
+    }
+
+    private func writeFinalReport(host: WinSwiftUIWindowHost) {
         do {
             let json = try buildReportJSON(host: host)
             try writeReport(json)
@@ -582,7 +830,10 @@ final class LiveDiagnosticsSession {
             report("Live diagnostics could not write \(configuration.outputPath): \(error)")
         }
 
-        requestClose()
+        nativeRunID = nil
+        if nativeCommands == nil || !host.isClosed {
+            requestClose()
+        }
     }
 
     private func writeReport(_ data: Data) throws {
@@ -602,7 +853,8 @@ final class LiveDiagnosticsSession {
         let pixelSize = window.currentClientSize()
         let logicalSize = host.currentLogicalRootSize
         let refreshRate = max(Int(window.monitorRefreshRate), 1)
-        let elapsed = startedAt.map { clock() - $0 } ?? 0
+        let endedAt = nativeCommands == nil ? clock() : (stoppedAt ?? clock())
+        let elapsed = startedAt.map { endedAt - $0 } ?? 0
 
         let timedSamples = samples.filter { sampleElapsed($0) >= Self.warmupSeconds }
         let gpuReport = LiveGPUFrameTimingReport.build(
@@ -623,6 +875,17 @@ final class LiveDiagnosticsSession {
         report["vsyncDisableRequested"] = configuration.disablesVSync
         report["scriptedStepsExecuted"] = executedStepCounts
         report["gpu"] = gpuReport.json
+        if nativeCommands != nil {
+            report["nativePresentation"] = [
+                "acknowledgements": nativeAcknowledgements,
+                "completion": nativeTeardownInterrupted
+                    ? "teardownInterrupted"
+                    : (nativeAcknowledgements.values.contains(false) ? "commandsRejected" : "commandsCompleted"),
+                "samplingStarted": startedAt != nil,
+                "teardownInterrupted": nativeTeardownInterrupted,
+                "pendingTimingResultsAtFinish": nullable(gpuDiagnosticsAtFinish?.pendingCount),
+            ]
+        }
         report["sampling"] = [
             "population": "framesEndingAtOrAfterWarmup",
             "status": timedSamples.isEmpty ? "noPostWarmupSamples" : "samplesAvailable",
@@ -637,11 +900,14 @@ final class LiveDiagnosticsSession {
                 ? "syntheticMotionScript" : (configuration.exercisesInput ? "syntheticRetainedRuntime" : "none"),
             "forcedFrameRequests": true,
             "clock": "monotonic",
-            "frameTimestamp": "hostFrameReturn",
+            "frameTimestamp": nativeCommands == nil ? "hostFrameReturn" : "nativeOwnerRenderReturn",
+            "nativeCommandHandoffIncludedInFrameTime": nativeCommands != nil,
+            "nativeReplyDeliveryDelayIncludedInFrameTime": false,
             "presentTiming": "cpuCallDuration",
             "resourceBindingTiming": "cpuBindingExcludingSubmissionUploads",
             "rebuildPhasePopulation": "framesWithCompleteNonNestedRebuildPhaseSnapshots",
-            "userVisibleCostMeaning": "outsideFrameRebuildPlusCPUFrame",
+            "userVisibleCostMeaning": nativeCommands == nil
+                ? "outsideFrameRebuildPlusCPUFrame" : "outsideFrameRebuildPlusActorPreparationToNativeRenderReturn",
             "backendHealthScope": "finalSnapshotNotFullRunHistory",
             "backendReturnCanSkipPresentationDuringRecovery": true,
             "backendPhaseZeroMayMeanUncompleted": true,
@@ -770,9 +1036,10 @@ final class LiveDiagnosticsSession {
         // and reports a cost nobody paid.
         let rebuildingSamples = timedSamples.filter { $0.rebuildCount > 0 }
         let rebuildPhaseSamples = rebuildingSamples.filter(\.rebuildPhaseTimingsAvailable)
+        let bindingTimingSamples = timedSamples.filter(\.bindTimingsAvailable)
         let backendTimingSamples = timedSamples.filter(\.backendTimingsAvailable)
         let rebuildMs = rebuildingSamples.map { $0.rebuildSeconds * 1000 }.sorted()
-        let bindMs = timedSamples.map { $0.bindSeconds * 1000 }.sorted()
+        let bindMs = bindingTimingSamples.map { $0.bindSeconds * 1000 }.sorted()
         let submitMs = timedSamples.map { $0.submitAndPresentSeconds * 1000 }.sorted()
         let backendSubmitMs = backendTimingSamples.map { $0.backendSubmitSeconds * 1000 }.sorted()
         let backendPresentMs = backendTimingSamples.map { $0.backendPresentSeconds * 1000 }.sorted()
@@ -809,6 +1076,7 @@ final class LiveDiagnosticsSession {
             "framesCarryingATreeRebuild": rebuildingSamples.count,
             "framesWithRebuildPhaseTimings": rebuildPhaseSamples.count,
             "treeRebuildsTotal": timedSamples.reduce(0) { $0 + $1.rebuildCount },
+            "framesWithBindResourceTimings": bindingTimingSamples.count,
             "bindResourcesMs": percentileSummary(bindMs),
             "submitAndPresentMs": percentileSummary(submitMs),
             "backendSubmitMs": percentileSummary(backendSubmitMs),
@@ -941,7 +1209,7 @@ final class LiveDiagnosticsSession {
             "sceneBuildMs": sample.sceneBuildSeconds * 1000,
             "layoutMs": sample.layoutSeconds * 1000,
             "paintMs": sample.paintSeconds * 1000,
-            "bindResourcesMs": sample.bindSeconds * 1000,
+            "bindResourcesMs": nullable(sample.bindTimingsAvailable ? sample.bindSeconds * 1000 : nil),
             "backendSubmitMs": nullable(sample.backendTimingsAvailable ? sample.backendSubmitSeconds * 1000 : nil),
             "backendPresentMs": nullable(sample.backendTimingsAvailable ? sample.backendPresentSeconds * 1000 : nil),
             "didRebuildScene": sample.didRebuildScene,

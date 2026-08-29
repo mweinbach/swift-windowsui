@@ -17314,6 +17314,27 @@ public struct MultiDatePicker: View {
     }
 }
 @MainActor
+func nativeDialogCallerIsCurrent(_ context: ViewBuildContext) -> Bool {
+    guard context.nativeDialogSession != nil || context.nativeDialogOwnerRequest != nil else { return true }
+    guard context.nativeDialogSession?.isValid != false else { return false }
+    // An installed view occurrence cannot be revived by another occurrence at
+    // the same path. Unmounted/headless contexts retain their original behavior.
+    return context.viewIdentity.installedOwner?.isLive ?? true
+}
+
+@MainActor
+func withNativeDialogInvocationContext(
+    _ context: ViewBuildContext, _ body: @escaping @MainActor (ViewBuildContext) -> Void
+) {
+    guard nativeDialogCallerIsCurrent(context) else { return }
+    context.withNativeDialogOwner { session in
+        let resolvedContext = context.withNativeDialogSession(session)
+        guard nativeDialogCallerIsCurrent(resolvedContext) else { return }
+        ViewBuildContextScope.withCurrent(resolvedContext) { body(resolvedContext) }
+    }
+}
+
+@MainActor
 public struct ColorPicker: View {
     public typealias Body = Never
 
@@ -17395,10 +17416,25 @@ public struct ColorPicker: View {
             let invalidate = context.invalidate
             let activate: () -> Void = {
                 if usesNativeDialog {
-                    if let chosen = ColorDialogManager.chooseColor(initial: selection.wrappedValue) {
-                        selection.wrappedValue = chosen
-                        invalidate()
+                    let dialogContext = ViewBuildContextScope.current ?? context
+                    var isDeferred = false
+                    withNativeDialogInvocationContext(dialogContext) { dialogContext in
+                        let initial = selection.wrappedValue
+                        guard nativeDialogCallerIsCurrent(dialogContext) else { return }
+                        ColorDialogManager.requestColor(
+                            initial: initial, nativeSession: dialogContext.nativeDialogSession,
+                            isCurrent: { nativeDialogCallerIsCurrent(dialogContext) }
+                        ) { outcome in
+                            guard case .selected(let chosen) = outcome,
+                                !isDeferred || nativeDialogCallerIsCurrent(dialogContext)
+                            else { return }
+                            ViewBuildContextScope.withCurrent(dialogContext) {
+                                selection.wrappedValue = chosen
+                            }
+                            if !isDeferred || nativeDialogCallerIsCurrent(dialogContext) { invalidate() }
+                        }
                     }
+                    isDeferred = true
                 } else {
                     Self.applyPaletteStep(
                         to: selection,
@@ -20654,7 +20690,8 @@ public struct Link: View {
                 isEnabled: context.isEnabled,
                 animation: ButtonSurfaceStyle.plain.animation,
                 action: {
-                    _ = openURL(destination)
+                    performBuiltInOpenURL(
+                        destination, action: openURL, context: ViewBuildContextScope.current ?? context)
                     context.invalidate()
                 },
                 children: [labelNode]
@@ -20800,7 +20837,8 @@ public struct HelpLink: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         let openURL = context.environmentValues.openURL
         return Button {
-            openURL(destination)
+            guard let invocationContext = ViewBuildContextScope.current else { return }
+            performBuiltInOpenURL(destination, action: openURL, context: invocationContext)
         } label: {
             [AnyView(Text("Help"))]
         }
@@ -21246,9 +21284,14 @@ public struct DeleteButton: View {
         let label = label
         let items = items
         return Button {
+            guard let dialogContext = ViewBuildContextScope.current else { return }
             let fileURLs = items.compactMap { $0 as? URL }
             if !fileURLs.isEmpty {
-                FileDialogManager.moveToRecycleBin(fileURLs: fileURLs)
+                withNativeDialogInvocationContext(dialogContext) { dialogContext in
+                    FileDialogManager.requestMoveToRecycleBin(
+                        fileURLs: fileURLs, nativeSession: dialogContext.nativeDialogSession,
+                        isCurrent: { nativeDialogCallerIsCurrent(dialogContext) })
+                }
             }
         } label: {
             label
@@ -21346,13 +21389,25 @@ public struct ImportButton: View {
         let supportedContentTypes = supportedContentTypes
         let onImport = onImport
         return Button {
-            let urls = FileDialogManager.showOpenFileDialog(
-                allowedExtensions: FileDialogManager.fileExtensions(forContentTypes: supportedContentTypes),
-                allowsMultipleSelection: true
-            )
-            if !urls.isEmpty {
-                onImport(urls)
+            // An admitted alert action deliberately has no departing alert
+            // mount owner. Preserve that invocation context through selection.
+            guard let dialogContext = ViewBuildContextScope.current else { return }
+            var isDeferred = false
+            withNativeDialogInvocationContext(dialogContext) { dialogContext in
+                FileDialogManager.requestOpenFileDialog(
+                    allowedExtensions: FileDialogManager.fileExtensions(forContentTypes: supportedContentTypes),
+                    allowsMultipleSelection: true,
+                    nativeSession: dialogContext.nativeDialogSession,
+                    isCurrent: { nativeDialogCallerIsCurrent(dialogContext) }
+                ) { outcome in
+                    guard case .selected(let urls) = outcome, !urls.isEmpty,
+                        !isDeferred || nativeDialogCallerIsCurrent(dialogContext)
+                    else { return }
+                    ViewBuildContextScope.withCurrent(dialogContext) { onImport(urls) }
+                    if isDeferred, nativeDialogCallerIsCurrent(dialogContext) { dialogContext.invalidate() }
+                }
             }
+            isDeferred = true
         } label: {
             label
         }
@@ -22638,16 +22693,39 @@ public struct PhotosPicker: View {
         let single = selection
         let multiple = selections
         return Button {
-            let urls = FileDialogManager.showOpenFileDialog(
-                allowedExtensions: FileDialogManager.fileExtensions(forContentTypes: [.image]),
-                allowsMultipleSelection: multiple != nil
-            )
-            let items = urls.map { PhotosPickerItem(fileURL: $0) }
-            if let multiple {
-                multiple.wrappedValue = items
-            } else if let first = items.first, let single {
-                single.wrappedValue = first
+            guard let dialogContext = ViewBuildContextScope.current else { return }
+            var isDeferred = false
+            withNativeDialogInvocationContext(dialogContext) { dialogContext in
+                FileDialogManager.requestOpenFileDialog(
+                    allowedExtensions: FileDialogManager.fileExtensions(forContentTypes: [.image]),
+                    allowsMultipleSelection: multiple != nil,
+                    nativeSession: dialogContext.nativeDialogSession,
+                    isCurrent: { nativeDialogCallerIsCurrent(dialogContext) }
+                ) { outcome in
+                    guard !isDeferred || nativeDialogCallerIsCurrent(dialogContext) else { return }
+                    let urls: [URL]
+                    switch outcome {
+                    case .selected(let selected): urls = selected
+                    case .cancelled:
+                        // Preserve the existing multi-selection cancellation reset;
+                        // native failures and revoked requests must not clear it.
+                        guard multiple != nil else { return }
+                        urls = []
+                    case .failed, .revoked:
+                        return
+                    }
+                    let items = urls.map { PhotosPickerItem(fileURL: $0) }
+                    ViewBuildContextScope.withCurrent(dialogContext) {
+                        if let multiple {
+                            multiple.wrappedValue = items
+                        } else if let first = items.first, let single {
+                            single.wrappedValue = first
+                        }
+                    }
+                    if isDeferred, nativeDialogCallerIsCurrent(dialogContext) { dialogContext.invalidate() }
+                }
             }
+            isDeferred = true
         } label: {
             Label("Photos", systemImage: "photo")
         }
@@ -22758,13 +22836,23 @@ public struct ImagePicker: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         let binding = selection
         return Button {
-            let urls = FileDialogManager.showOpenFileDialog(
-                allowedExtensions: FileDialogManager.fileExtensions(forContentTypes: [.image]),
-                allowsMultipleSelection: false
-            )
-            if let url = urls.first, let binding {
-                binding.wrappedValue = url
+            guard let dialogContext = ViewBuildContextScope.current else { return }
+            var isDeferred = false
+            withNativeDialogInvocationContext(dialogContext) { dialogContext in
+                FileDialogManager.requestOpenFileDialog(
+                    allowedExtensions: FileDialogManager.fileExtensions(forContentTypes: [.image]),
+                    allowsMultipleSelection: false,
+                    nativeSession: dialogContext.nativeDialogSession,
+                    isCurrent: { nativeDialogCallerIsCurrent(dialogContext) }
+                ) { outcome in
+                    guard case .selected(let urls) = outcome, let url = urls.first, let binding,
+                        !isDeferred || nativeDialogCallerIsCurrent(dialogContext)
+                    else { return }
+                    ViewBuildContextScope.withCurrent(dialogContext) { binding.wrappedValue = url }
+                    if isDeferred, nativeDialogCallerIsCurrent(dialogContext) { dialogContext.invalidate() }
+                }
             }
+            isDeferred = true
         } label: {
             Label("Choose Photo", systemImage: "photo")
         }

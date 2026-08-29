@@ -1,12 +1,11 @@
 import Foundation
-
-// MARK: - D3D11 Render Backend Factory
-
 /// Factory that produces D3D11 graphics-device renderers. The Windows product
 /// selects it in its executable composition root; the app-facing facade stays
 /// renderer-neutral and defaults to its presenting software factory.
 import SwiftWindowsGraphics
 import WinSDK
+
+// MARK: - D3D11 Render Backend Factory
 
 // MARK: - Legacy Default Factory (deprecated, use D3D11RenderBackendFactory)
 
@@ -30,6 +29,10 @@ public struct D3D11RenderBackendFactory: RenderBackendFactory {
     /// keeps the frame renderer attached as an explicit debug/fallback path.
     public func makeBatchRenderBackend() -> (any BatchRenderBackend)? {
         D3D11BatchRenderer()
+    }
+
+    public func makeNativePresentationFactory() -> (any NativePresentationBackendFactory)? {
+        D3D11NativePresentationBackendFactory()
     }
 
     /// Asks D3D11 whether a device *could* be created, without creating one:

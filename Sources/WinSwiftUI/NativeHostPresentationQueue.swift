@@ -1,0 +1,214 @@
+import SwiftWindowsCore
+import SwiftWindowsGraphics
+
+/// Serializes the host's native presentation requests without blocking the UI
+/// actor. A request is removed only when its real native reply arrives; neither
+/// command admission nor an actor task's scheduling order is a completion.
+@MainActor
+final class NativeHostPresentationQueue {
+    typealias Completion = @MainActor (Result<NativePresentationReceipt, NativeWindowOwnerFailure>) -> Void
+
+    private struct Pending: Sendable {
+        let id: NativeWindowRequestID
+        let surface: NativeWindowSurface
+        let expectedGeneration: UInt64?
+        let operation: NativePresentationOperation
+        let completion: Completion
+    }
+
+    private let sink: any NativeWindowCommandSink
+    private let attachmentID: NativeWindowAttachmentID
+    private let teardownStore: NativePresentationTeardownStore
+    private var pending: [Pending] = []
+    private var executing: Pending?
+    private var acceptsRequests = true
+    private var isDeliveringCompletion = false
+    private var isRejectingPendingRequests = false
+    private var drainCallbacks: [@MainActor () -> Void] = []
+
+    init(
+        sink: any NativeWindowCommandSink, attachmentID: NativeWindowAttachmentID,
+        teardownStore: NativePresentationTeardownStore
+    ) {
+        self.sink = sink
+        self.attachmentID = attachmentID
+        self.teardownStore = teardownStore
+    }
+
+    func submit(
+        _ operation: NativePresentationOperation, surface: NativeWindowSurface,
+        requiresSurfaceGeneration: Bool = true, completion: @escaping Completion
+    ) {
+        guard acceptsRequests else {
+            completion(.failure(.closing))
+            return
+        }
+        pending.append(
+            Pending(
+                id: NativeWindowRequestID(), surface: surface,
+                expectedGeneration: requiresSurfaceGeneration ? surface.generation : nil,
+                operation: operation, completion: completion
+            )
+        )
+        advance()
+    }
+
+    /// Pending work has never reached the owner and can be rejected now. The
+    /// executing request keeps its completion until the native operation has
+    /// actually returned, even if a close was requested by a UIA callback.
+    func invalidate() {
+        guard acceptsRequests else { return }
+        acceptsRequests = false
+        isRejectingPendingRequests = true
+        let rejected = pending
+        pending.removeAll()
+        for request in rejected {
+            request.completion(.failure(.closing))
+        }
+        isRejectingPendingRequests = false
+        notifyDrainedIfNeeded()
+    }
+
+    /// A native close acknowledgement can precede the actor task carrying a
+    /// render's final results. This actor-only barrier waits for consumption,
+    /// including unsent work rejected during invalidation, without blocking N.
+    func whenDrained(_ callback: @escaping @MainActor () -> Void) {
+        drainCallbacks.append(callback)
+        notifyDrainedIfNeeded()
+    }
+
+    private func notifyDrainedIfNeeded() {
+        guard executing == nil, pending.isEmpty, !isDeliveringCompletion, !isRejectingPendingRequests else { return }
+        let callbacks = drainCallbacks
+        drainCallbacks.removeAll()
+        for callback in callbacks { callback() }
+    }
+
+    private func advance() {
+        guard acceptsRequests, !isDeliveringCompletion, executing == nil, !pending.isEmpty else { return }
+        let request = pending.removeFirst()
+        executing = request
+        let reply = NativeWindowReply<NativePresentationReceipt> { [self] result in
+            Task { @MainActor in
+                complete(requestID: request.id, result: result)
+            }
+        }
+        let command = NativePresentationCommand(
+            windowKey: request.surface.key, attachmentID: attachmentID,
+            expectedSurfaceGeneration: request.expectedGeneration, requestID: request.id,
+            operation: request.operation, reply: reply, teardownStore: teardownStore
+        )
+        _ = sink.submit(command)
+    }
+
+    private func complete(
+        requestID: NativeWindowRequestID,
+        result: Result<NativePresentationReceipt, NativeWindowOwnerFailure>
+    ) {
+        guard let request = executing, request.id == requestID else { return }
+        executing = nil
+        isDeliveringCompletion = true
+        let validated: Result<NativePresentationReceipt, NativeWindowOwnerFailure>
+        if case .success(let receipt) = result {
+            if receipt.requestID != request.id || receipt.attachmentID != attachmentID
+                || receipt.operation != request.operation.kind
+            {
+                validated = .failure(
+                    .execution("Native presentation replied to a different request, operation or attachment."))
+            } else if receipt.surface.key != request.surface.key {
+                validated = .failure(.staleWindow)
+            } else if let expected = request.expectedGeneration, receipt.surface.generation != expected {
+                validated = .failure(.staleSurface(expected: expected, actual: receipt.surface.generation))
+            } else {
+                validated = result
+            }
+        } else {
+            validated = result
+        }
+        request.completion(validated)
+        isDeliveringCompletion = false
+        advance()
+        notifyDrainedIfNeeded()
+    }
+}
+
+/// Installs the native UIA front during asynchronous host setup. The factory
+/// creates and the context retains the provider on the native owner; only the
+/// real installation result crosses back to the actor.
+struct NativeHostAttachmentInstallCommand: NativeWindowOwnerCommand {
+    let windowKey: NativeWindowKey
+    let requestID: NativeWindowRequestID
+    let factory: any NativeWindowOwnerAttachmentFactory
+    let reply: NativeWindowReply<Void>
+    var commandReply: NativeWindowCommandReply { reply.commandReply }
+
+    func execute(in context: any NativeWindowOwnerContext) throws {
+        let attachment = try factory.makeAttachment(in: context)
+        do {
+            try context.install(attachment, for: factory.attachmentID)
+        } catch {
+            attachment.beginQuiescence()
+            let cleanup = attachment.detach()
+            if !cleanup.isDetached || !cleanup.failures.isEmpty {
+                throw NativeWindowOwnerFailure.execution(
+                    "Attachment installation failed: \(error); native cleanup failed: \(cleanup.failures)"
+                )
+            }
+            throw error
+        }
+        reply.complete(.success(()))
+    }
+
+    func reject(_ failure: NativeWindowOwnerFailure) {
+        reply.complete(.failure(failure))
+    }
+}
+
+/// The actor may have advanced while a native render was running. Only the
+/// exact returned submission and surface can update its submitted-content
+/// memory; a successful Swift return, old generation, or offscreen draw cannot.
+struct NativeHostFrameDisposition: Equatable, Sendable {
+    let canTrackSubmittedContent: Bool
+    let needsRepaint: Bool
+
+    static func hasCurrentSubmission(
+        submittedRevision: UInt64?, currentRevision: UInt64,
+        attachedSurfaceGeneration: UInt64?, currentSurfaceGeneration: UInt64?,
+        isAttached: Bool, needsImmediateRepaint: Bool, hasUnpreparedContent: Bool
+    ) -> Bool {
+        guard isAttached, !needsImmediateRepaint, !hasUnpreparedContent,
+            let submittedRevision, submittedRevision == currentRevision,
+            let attachedSurfaceGeneration, let currentSurfaceGeneration
+        else { return false }
+        return attachedSurfaceGeneration == currentSurfaceGeneration
+    }
+
+    init(
+        snapshot: NativePresentationSnapshot, preparedSurfaceGeneration: UInt64,
+        returnedSurfaceGeneration: UInt64, currentSurfaceGeneration: UInt64?,
+        preparedContentRevision: UInt64, currentContentRevision: UInt64
+    ) {
+        let sameSurface =
+            preparedSurfaceGeneration == returnedSurfaceGeneration
+            && currentSurfaceGeneration == returnedSurfaceGeneration
+        canTrackSubmittedContent = snapshot.lastFrameSubmission?.outcome == .submitted && sameSurface
+        needsRepaint =
+            snapshot.presentationState.needsImmediateRepaint || !sameSurface
+            || preparedContentRevision != currentContentRevision
+    }
+}
+
+/// Attachment results describe the native buffers that were created. The
+/// actor can already have a newer geometry observation when the result arrives;
+/// that newer observation owns layout while the old native buffers need resize.
+struct NativeHostAttachmentSurfaces: Equatable, Sendable {
+    let actorSurface: NativeWindowSurface
+    let attachedSurface: NativeWindowSurface
+    var requiresNativeResize: Bool { actorSurface.generation != attachedSurface.generation }
+
+    init?(attachedSurface: NativeWindowSurface, currentSurface: NativeWindowSurface?) {
+        guard let currentSurface, currentSurface.key == attachedSurface.key else { return nil }
+        self.actorSurface = currentSurface
+        self.attachedSurface = attachedSurface
+    }
+}

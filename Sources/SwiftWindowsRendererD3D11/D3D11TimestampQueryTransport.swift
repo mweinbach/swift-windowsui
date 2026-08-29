@@ -3,7 +3,7 @@ import WinSDK.DirectX
 
 /// Borrows the renderer's device/context. The renderer detaches the collector
 /// before releasing either, which releases every query in this transport.
-@MainActor
+/// This transport stays on the same execution owner as that renderer.
 final class D3D11TimestampQueryTransport: GPUTimestampQueryTransport {
     private let device: UnsafeMutablePointer<ID3D11Device>
     private let context: UnsafeMutablePointer<ID3D11DeviceContext>

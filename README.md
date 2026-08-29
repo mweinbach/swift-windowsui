@@ -91,7 +91,8 @@ Products:
 
 See [`docs/PlatformArchitecture.md`](docs/PlatformArchitecture.md) for the
 platform-versus-engine portability matrix, real swap boundaries, offscreen
-surface contract, and remaining work before a second retained-runtime host.
+surface contract, MainActor/native ownership and its open qualification gates,
+and remaining work before a second retained-runtime host.
 
 Targets:
 

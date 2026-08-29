@@ -7,22 +7,17 @@ import WinSDK
 /// uploaded to a single GPU buffer and drawn in one DrawInstanced call.
 import WinSDK.DirectX
 
-// MARK: - D3D11BatchRenderer
+/// Native batch implementation, confined to one execution owner.
+/// The actor facade and the native presenter each create their own kernel;
+/// no kernel or borrowed COM pointer is transferred between those owners.
+final class D3D11BatchKernel {
+    public typealias OffscreenDriver = D3D11BatchOffscreenDriver
+    public typealias AtlasSource = D3D11BatchAtlasSource
+    public typealias CachedResources = D3D11BatchCachedResources
+    public typealias RenderStep = D3D11BatchRenderStep
+    public typealias RenderPlan = D3D11BatchRenderPlan
 
-// MARK: - Error Type
-
-// MARK: - Private Helpers
-
-@MainActor
-public final class D3D11BatchRenderer: BatchRenderBackend {
-    public private(set) var isAttached = false {
-        didSet { isAttachedMirror = isAttached }
-    }
-
-    /// Sendable mirror of ``isAttached`` so `deinit` — which is nonisolated
-    /// and therefore cannot read main-actor state — can still tell whether
-    /// the owner forgot to call ``detach()``.
-    private nonisolated(unsafe) var isAttachedMirror = false
+    public private(set) var isAttached = false
 
     public var backendDisplayName: String { "D3D11 BATCH" }
 
@@ -233,10 +228,6 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     private var swapChain: UnsafeMutablePointer<IDXGISwapChain1>?
     private var renderTargetView: UnsafeMutablePointer<ID3D11RenderTargetView>?
 
-    /// Process-wide source of device generations. Every `ID3D11Device` this
-    /// module creates gets a number no other device ever had.
-    private static var nextDeviceGeneration: UInt64 = 1
-
     /// Identity token for the device currently held, or `0` when detached.
     ///
     /// Device-owned caches key on this rather than on the device pointer:
@@ -272,25 +263,6 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     /// device-loss rebuild recreates the same kind of device.
     private var offscreenDriver: OffscreenDriver = .hardwareFirst
 
-    /// Which D3D11 driver an offscreen attach creates its device with.
-    public enum OffscreenDriver: Equatable, Sendable {
-        /// Prefer the GPU, fall back to the software rasterizer.
-        case hardwareFirst
-        /// Prefer WARP. The software rasterizer is present on every
-        /// Windows install and produces the same pixels on every machine,
-        /// which is what cross-backend pixel assertions need.
-        case warpFirst
-
-        fileprivate var driverTypes: [D3D_DRIVER_TYPE] {
-            switch self {
-            case .hardwareFirst:
-                return [D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP]
-            case .warpFirst:
-                return [D3D_DRIVER_TYPE_WARP, D3D_DRIVER_TYPE_HARDWARE]
-            }
-        }
-    }
-
     // MARK: - Shader Pipeline State
 
     private var quadVS: UnsafeMutablePointer<ID3D11VertexShader>?
@@ -325,19 +297,19 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
     private var quadInstanceBuffer: UnsafeMutablePointer<ID3D11Buffer>?
     private var quadInstanceSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
-    private var quadInstanceCapacity = D3D11BatchRenderer.initialQuadInstanceCapacity
+    private var quadInstanceCapacity = D3D11BatchKernel.initialQuadInstanceCapacity
 
     private var imageInstanceBuffer: UnsafeMutablePointer<ID3D11Buffer>?
     private var imageInstanceSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
-    private var imageInstanceCapacity = D3D11BatchRenderer.initialImageInstanceCapacity
+    private var imageInstanceCapacity = D3D11BatchKernel.initialImageInstanceCapacity
 
     private var glyphInstanceBuffer: UnsafeMutablePointer<ID3D11Buffer>?
     private var glyphInstanceSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
-    private var glyphInstanceCapacity = D3D11BatchRenderer.initialGlyphInstanceCapacity
+    private var glyphInstanceCapacity = D3D11BatchKernel.initialGlyphInstanceCapacity
 
     private var shadowInstanceBuffer: UnsafeMutablePointer<ID3D11Buffer>?
     private var shadowInstanceSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
-    private var shadowInstanceCapacity = D3D11BatchRenderer.initialShadowInstanceCapacity
+    private var shadowInstanceCapacity = D3D11BatchKernel.initialShadowInstanceCapacity
 
     /// One atlas texture plus the upload bookkeeping the atlas protocol
     /// needs. `state` is the whole point: it records what this texture
@@ -552,7 +524,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     /// image textures are: dropping the clip from the key means an entry now
     /// covers the path's whole extent, so one off-screen 4K chart is a 64 MB
     /// entry that 256 of would be unbounded in any useful sense.
-    private static var pathCacheByteBudget: Int { pathCacheByteBudgetOverrideForTesting ?? 64 * 1024 * 1024 }
+    private var pathCacheByteBudget: Int { pathCacheByteBudgetOverrideForTesting ?? 64 * 1024 * 1024 }
     /// Largest whole-path raster the renderer will make, in bytes.
     ///
     /// Below this the raster covers the entire path and the key stays
@@ -563,7 +535,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     /// off the unclipped bounds allocated coverage, bitmap and texture for
     /// every row the viewport will never show, up to the 16 384 px surface
     /// clamp.
-    private static var pathWholeRasterByteBudget: Int {
+    private var pathWholeRasterByteBudget: Int {
         pathWholeRasterByteBudgetOverrideForTesting ?? 8 * 1024 * 1024
     }
     /// Grid, in device pixels, that a windowed raster snaps out to. A scroll
@@ -573,9 +545,11 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     /// Test seams for the two byte budgets. "One outlier does not flush the
     /// cache" is a property of the budget, not of its value, and reaching a
     /// 64 MB entry for real would mean rasterizing 16 megapixels in a unit
-    /// test. Both are `nil` outside tests.
-    internal static var pathCacheByteBudgetOverrideForTesting: Int?
-    internal static var pathWholeRasterByteBudgetOverrideForTesting: Int?
+    /// test. The actor facade copies its current overrides before each
+    /// render. Native kernels keep their own defaults and never read actor
+    /// state. Both are `nil` outside tests.
+    internal var pathCacheByteBudgetOverrideForTesting: Int?
+    internal var pathWholeRasterByteBudgetOverrideForTesting: Int?
     // Test-observable counters so we can verify the cache is actually being
     // hit across frames.
     internal private(set) var pathCacheHits: UInt64 = 0
@@ -637,7 +611,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     /// a device tends to produce a blank frame.
     private var skipNextFrameAfterDeviceLoss = false
 
-    /// Test seam for the recovery wait. Production blocks the main actor for
+    /// Test seam for the recovery wait. Production blocks this owner for
     /// a beat, which is what the driver needs and what GPUI does; tests
     /// substitute a no-op so a recovery suite does not sleep for seconds.
     internal var deviceLostBackoffHandler: (Double) -> Void = { seconds in
@@ -737,41 +711,11 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     /// have.
     internal var createsDebugDeviceForTesting = false
 
-    public enum AtlasSource: Equatable {
-        case snapshot
-        case cached
-    }
-
-    public struct CachedResources: Equatable {
-        public var hasGlyphAtlas: Bool
-        public var hasPixelGlyphAtlas: Bool
-        public var boundImageTextureIDs: Set<Int32>
-
-        public init(
-            hasGlyphAtlas: Bool = false,
-            hasPixelGlyphAtlas: Bool = false,
-            boundImageTextureIDs: Set<Int32> = []
-        ) {
-            self.hasGlyphAtlas = hasGlyphAtlas
-            self.hasPixelGlyphAtlas = hasPixelGlyphAtlas
-            self.boundImageTextureIDs = boundImageTextureIDs
-        }
-    }
-
-    public enum RenderStep: Equatable {
-        case shadows(layerIndex: Int, range: Range<Int>)
-        case quads(layerIndex: Int, range: Range<Int>)
-        case glyphs(layerIndex: Int, range: Range<Int>, atlasSource: AtlasSource)
-        case pixelGlyphs(layerIndex: Int, range: Range<Int>, atlasSource: AtlasSource)
-        case images(layerIndex: Int, range: Range<Int>, textureID: Int32)
-        case paths(layerIndex: Int, range: Range<Int>)
-    }
-
     /// One piece of a quad batch after splitting around Material quads.
     /// Normal runs keep the single instanced draw; each blurred quad is
     /// drawn individually through the backdrop blur engine so the blur
     /// samples the scene exactly as painted before that quad.
-    enum QuadBatchSegment: Equatable {
+    enum QuadBatchSegment: Equatable, Sendable {
         case normal(range: Range<Int>)
         case blurred(index: Int)
     }
@@ -809,25 +753,6 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             segments.append(.normal(range: runStart..<range.upperBound))
         }
         return segments
-    }
-
-    public struct RenderPlan: Equatable {
-        public var glyphAtlasSource: AtlasSource?
-        public var pixelGlyphAtlasSource: AtlasSource?
-        public var steps: [RenderStep]
-        public var resultingResources: CachedResources
-
-        public init(
-            glyphAtlasSource: AtlasSource? = nil,
-            pixelGlyphAtlasSource: AtlasSource? = nil,
-            steps: [RenderStep] = [],
-            resultingResources: CachedResources = CachedResources()
-        ) {
-            self.glyphAtlasSource = glyphAtlasSource
-            self.pixelGlyphAtlasSource = pixelGlyphAtlasSource
-            self.steps = steps
-            self.resultingResources = resultingResources
-        }
     }
 
     /// Records which bitmap a texture ID refers to this frame.
@@ -1321,13 +1246,10 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     }
 
     deinit {
-        // Backstop, not a teardown path — see `RendererTeardownBackstop`
-        // for why a nonisolated deinit cannot free any of this. The host
-        // calls `detach()` from `windowWillClose` and on every presenter
-        // switch; reaching here still attached means one of those call
-        // sites was missed, and the report is emitted in release builds
-        // too, because that is where the leak actually costs something.
-        if isAttachedMirror {
+        // Native teardown remains explicit on the execution owner. The
+        // facade has no second backstop, so one forgotten detach reports
+        // exactly once when this kernel is released.
+        if isAttached {
             RendererTeardownBackstop.reportUndetachedTeardown(
                 "D3D11BatchRenderer was deallocated while still attached — its device, swap chain and "
                     + "atlases leak. Call detach() from the owner's teardown."
@@ -2561,8 +2483,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                     device = createdDevice
                     deviceContext = createdContext
                     createdFeatureLevel = featureLevel
-                    deviceGeneration = Self.nextDeviceGeneration
-                    Self.nextDeviceGeneration &+= 1
+                    deviceGeneration = RendererDeviceGeneration.next()
                     attachGPUFrameTimingCollectorIfNeeded()
                     return
                 }
@@ -3506,11 +3427,11 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             // which is what keeps the cache key translation-invariant and the
             // clip a draw parameter: a static chart scrolling under a
             // viewport used to miss on every frame and CPU-rasterize on the
-            // main actor. Past `pathWholeRasterByteBudget` the answer is the
+            // renderer owner. Past `pathWholeRasterByteBudget` the answer is the
             // visible window instead — the clip that was stripped from the
             // key still has to bound the buffer.
             let window: Rect?
-            switch Self.pathRasterWindow(
+            switch pathRasterWindow(
                 bounds: path.bounds, maskedBounds: maskedBounds, surface: surfaceRect)
             {
             case .empty: continue
@@ -3600,12 +3521,12 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     /// keeps one scrolling chart at one entry and one upload. Past the budget
     /// the raster covers the visible region only: a 400 × 20 000 chart inside
     /// a 600 px viewport is a 400 × 768 raster, not a 32 MB one.
-    private static func pathRasterWindow(
+    private func pathRasterWindow(
         bounds: Rect, maskedBounds: Rect, surface: Rect
     ) -> PathRasterWindow {
         let wholeWidth = max(1.0, bounds.size.width.rounded(.up))
         let wholeHeight = max(1.0, bounds.size.height.rounded(.up))
-        guard wholeWidth * wholeHeight * 4 > Double(Self.pathWholeRasterByteBudget) else {
+        guard wholeWidth * wholeHeight * 4 > Double(pathWholeRasterByteBudget) else {
             return .whole
         }
         guard let visible = maskedBounds.intersected(with: surface),
@@ -3673,7 +3594,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         // be inserted anyway, so the next frame re-rasterized the emptied
         // cache and did it again. An outlier is drawn once and owned by the
         // caller instead; the cache it cannot fit is left alone.
-        if entryBytes > Self.pathCacheByteBudget {
+        if entryBytes > pathCacheByteBudget {
             pathCacheOversizedDenials &+= 1
             let (texture, srv) = try createImageTextureResource(for: bitmap)
             return PathRaster(
@@ -3687,7 +3608,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         // allocating, so a frame never peaks at budget + entry.
         while !pathRenderCache.isEmpty
             && (pathRenderCache.count >= Self.pathCacheMaxEntries
-                || pathRenderCacheBytes + entryBytes > Self.pathCacheByteBudget)
+                || pathRenderCacheBytes + entryBytes > pathCacheByteBudget)
         {
             evictOldestCachedPathEntry()
         }

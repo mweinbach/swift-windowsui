@@ -14,8 +14,14 @@ public protocol ColorDialogProvider: AnyObject {
     func chooseColor(initial: Color) -> Color?
 }
 
+@MainActor
+package protocol NativeOwnerColorDialogProvider: ColorDialogProvider {
+    var supportsNativeOwnerRequests: Bool { get }
+}
+
 /// Live Win32 `ChooseColorW` common-dialog provider.
-public final class Win32ColorDialogProvider: ColorDialogProvider {
+public final class Win32ColorDialogProvider: ColorDialogProvider, NativeOwnerColorDialogProvider {
+    package let supportsNativeOwnerRequests = true
     /// `CC_RGBINIT | CC_FULLOPEN` from commdlg.h; not exposed by the WinSDK
     /// Swift module.
     private static let rgbInitAndFullOpen = DWORD(0x0000_0001 | 0x0000_0002)
@@ -67,7 +73,35 @@ public enum ColorDialogManager {
     /// tests inject a fake `ColorDialogProvider` and restore this afterwards.
     public static var provider: any ColorDialogProvider = Win32ColorDialogProvider()
 
-    /// Shows the native color dialog seeded with `initial`; `nil` on cancel.
+    package static func requestColor(
+        initial: Color, nativeSession: NativeDialogSession?,
+        isCurrent: @escaping @MainActor () -> Bool = { true },
+        completion: @escaping @MainActor (DialogRequestOutcome<Color>) -> Void
+    ) {
+        if let nativeSession,
+            (provider as? any NativeOwnerColorDialogProvider)?.supportsNativeOwnerRequests == true
+        {
+            nativeSession.request(.color(initial: initial), isCurrent: isCurrent) { response in
+                switch response {
+                case .selectedColor(let color): completion(.selected(color))
+                case .cancelled: completion(.cancelled)
+                case .failed(let error): completion(.failed(error))
+                case .revoked: completion(.revoked)
+                default: completion(.failed(NativeDialogFailure.unexpectedResult))
+                }
+            }
+            return
+        }
+        if let color = provider.chooseColor(initial: initial) {
+            completion(.selected(color))
+        } else {
+            completion(.cancelled)
+        }
+    }
+
+    /// Synchronous standalone/provider compatibility; `nil` on cancel. Hosted
+    /// controls use `requestColor` so a native callback never waits for a panel
+    /// running on the actor that must finish that callback's result transaction.
     public static func chooseColor(initial: Color) -> Color? {
         provider.chooseColor(initial: initial)
     }

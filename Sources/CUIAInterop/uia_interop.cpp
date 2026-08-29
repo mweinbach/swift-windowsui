@@ -1,8 +1,10 @@
 #include "CUIAInterop.h"
 
 #include <atomic>
+#include <cassert>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <new>
 #include <vector>
 
@@ -47,15 +49,26 @@ static_assert(SWU_UIA_CONTROL_TYPE_WINDOW == UIA_WindowControlTypeId, "control t
 static_assert(SWU_UIA_CONTROL_TYPE_PANE == UIA_PaneControlTypeId, "control type constant drift");
 static_assert(SWU_UIA_CONTROL_TYPE_HEADER == UIA_HeaderControlTypeId, "control type constant drift");
 
-// One context is shared by the bridge, every independently allocated provider,
-// and every in-flight provider call. The callback table never changes. Revoking
-// it therefore needs no lock across Swift callbacks or an OS call.
+namespace {
+SWUUIACallbacks makeCallAdapters(const SWUUIACallCallbacks &callbacks);
+}
+
+// Admission and the one drain notification share a short lock. No callback,
+// actor dispatch, COM call, release hook, or wake runs while that lock is held.
 struct SWUUIAProviderContext {
     const SWUUIACallbacks callbacks;
+    const SWUUIACallCallbacks callCallbacks;
+    const bool usesExplicitCalls;
     void (*const releaseContext)(void *);
+    const SWUUIADrainWake drainWake;
 
     SWUUIAProviderContext(const SWUUIACallbacks &value, void (*release)(void *))
-        : callbacks(value), releaseContext(release) {}
+        : callbacks(value), callCallbacks{}, usesExplicitCalls(false), releaseContext(release), drainWake{} {}
+
+    SWUUIAProviderContext(
+        const SWUUIACallCallbacks &value, void (*release)(void *), const SWUUIADrainWake &wake)
+        : callbacks(makeCallAdapters(value)), callCallbacks(value), usesExplicitCalls(true),
+          releaseContext(release), drainWake(wake) {}
 
     void retain() { references.fetch_add(1, std::memory_order_relaxed); }
 
@@ -65,23 +78,211 @@ struct SWUUIAProviderContext {
         }
     }
 
-    void revoke() { available.store(false, std::memory_order_release); }
+    void revoke() {
+        // A drain callback may release the owner's final reference reentrantly.
+        retain();
+        bool shouldSignal = false;
+        {
+            std::lock_guard<std::mutex> guard(admissionMutex);
+            available.store(false, std::memory_order_release);
+            shouldSignal = claimDrainNotification();
+        }
+        if (shouldSignal) signalDrain();
+        release();
+    }
+
     bool isAvailable() const { return available.load(std::memory_order_acquire); }
 
+    HRESULT admitCall() {
+        std::lock_guard<std::mutex> guard(admissionMutex);
+        if (!isAvailable()) return UIA_E_ELEMENTNOTAVAILABLE;
+        if (activeCalls == (std::numeric_limits<uint64_t>::max)()) return E_OUTOFMEMORY;
+        ++activeCalls;
+        return S_OK;
+    }
+
+    void releaseCall() {
+        bool shouldSignal = false;
+        {
+            std::lock_guard<std::mutex> guard(admissionMutex);
+            assert(activeCalls > 0);
+            --activeCalls;
+            shouldSignal = claimDrainNotification();
+        }
+        if (shouldSignal) signalDrain();
+    }
+
+    bool isQuiescent() {
+        std::lock_guard<std::mutex> guard(admissionMutex);
+        return !isAvailable() && activeCalls == 0;
+    }
+
+    HRESULT drainWakeResult() const { return wakeResult.load(std::memory_order_acquire); }
+
 private:
+    // Caller holds admissionMutex; this only publishes primitive owned state.
+    bool claimDrainNotification() {
+        if (isAvailable() || activeCalls != 0 || hasClaimedDrainNotification) return false;
+        hasClaimedDrainNotification = true;
+        return true;
+    }
+
+    void signalDrain() {
+        if (drainWake.signal != nullptr) {
+            wakeResult.store(drainWake.signal(drainWake.context), std::memory_order_release);
+        }
+    }
+
     ~SWUUIAProviderContext() {
         // The hook owns only the callback box. Its contract permits final
         // release on a COM thread and forbids actor-isolated cleanup here.
         if (releaseContext != nullptr) {
             releaseContext(callbacks.context);
         }
+        if (drainWake.releaseContext != nullptr) {
+            drainWake.releaseContext(drainWake.context);
+        }
     }
 
     std::atomic<ULONG> references{1};
     std::atomic<bool> available{true};
+    std::mutex admissionMutex;
+    uint64_t activeCalls = 0;
+    bool hasClaimedDrainNotification = false;
+    std::atomic<HRESULT> wakeResult{S_OK};
+};
+
+// The native method and its actor request each own a reference. Admission is
+// released only by this destructor, after both consumers finish. In particular,
+// a transport failure cannot leave a queued actor closure with a stack token.
+struct SWUUIACall {
+    SWUUIAProviderContext *const context;
+
+    explicit SWUUIACall(SWUUIAProviderContext *owner) : context(owner) { context->retain(); }
+
+    void retain() { references.fetch_add(1, std::memory_order_relaxed); }
+    void release() {
+        if (references.fetch_sub(1, std::memory_order_acq_rel) == 1) delete this;
+    }
+
+    HRESULT admit() {
+        HRESULT result = context->admitCall();
+        wasAdmitted = SUCCEEDED(result);
+        return result;
+    }
+
+    HRESULT status() const {
+        if (!context->isAvailable()) return UIA_E_ELEMENTNOTAVAILABLE;
+        return failure.load(std::memory_order_acquire);
+    }
+
+    void fail(HRESULT result) {
+        if (SUCCEEDED(result)) return;
+        HRESULT expected = S_OK;
+        failure.compare_exchange_strong(expected, result, std::memory_order_acq_rel);
+    }
+
+private:
+    ~SWUUIACall() {
+        if (wasAdmitted) context->releaseCall();
+        context->release();
+    }
+
+    std::atomic<ULONG> references{1};
+    std::atomic<HRESULT> failure{S_OK};
+    bool wasAdmitted = false;
 };
 
 namespace {
+
+// Keep one implementation of the existing payload mapping. These adapters
+// replace only the callback context argument; status remains out of band.
+SWUUIACallbacks makeCallAdapters(const SWUUIACallCallbacks &value) {
+    SWUUIACallbacks result{};
+    result.context = value.context;
+#define SWU_UIA_CALL_ADAPTER(name, resultType, signature, arguments) \
+    if (value.name != nullptr) { \
+        result.name = [] signature -> resultType { \
+            auto *call = static_cast<SWUUIACall *>(raw); \
+            return call->context->callCallbacks.name arguments; \
+        }; \
+    }
+    SWU_UIA_CALL_ADAPTER(navigate, uint64_t,
+        (void *raw, uint64_t element, int32_t direction), (call, element, direction))
+    SWU_UIA_CALL_ADAPTER(getRuntimeId, int32_t,
+        (void *raw, uint64_t element, int32_t *buffer, int32_t capacity), (call, element, buffer, capacity))
+    SWU_UIA_CALL_ADAPTER(getBoundingRectangle, void,
+        (void *raw, uint64_t element, double *left, double *top, double *width, double *height),
+        (call, element, left, top, width, height))
+    SWU_UIA_CALL_ADAPTER(copyStringProperty, uint16_t *,
+        (void *raw, uint64_t element, int32_t property), (call, element, property))
+    SWU_UIA_CALL_ADAPTER(getControlType, int32_t, (void *raw, uint64_t element), (call, element))
+    SWU_UIA_CALL_ADAPTER(getBoolProperty, int32_t,
+        (void *raw, uint64_t element, int32_t property), (call, element, property))
+    SWU_UIA_CALL_ADAPTER(hasInvokeAction, int32_t, (void *raw, uint64_t element), (call, element))
+    SWU_UIA_CALL_ADAPTER(invokeDefaultAction, void, (void *raw, uint64_t element), (call, element))
+    SWU_UIA_CALL_ADAPTER(supportsPattern, int32_t,
+        (void *raw, uint64_t element, int32_t pattern), (call, element, pattern))
+    SWU_UIA_CALL_ADAPTER(setValue, int32_t,
+        (void *raw, uint64_t element, const uint16_t *text, int32_t length), (call, element, text, length))
+    SWU_UIA_CALL_ADAPTER(getToggleState, int32_t, (void *raw, uint64_t element), (call, element))
+    SWU_UIA_CALL_ADAPTER(toggle, int32_t, (void *raw, uint64_t element), (call, element))
+    SWU_UIA_CALL_ADAPTER(select, int32_t, (void *raw, uint64_t element), (call, element))
+    SWU_UIA_CALL_ADAPTER(addToSelection, int32_t, (void *raw, uint64_t element), (call, element))
+    SWU_UIA_CALL_ADAPTER(removeFromSelection, int32_t, (void *raw, uint64_t element), (call, element))
+    SWU_UIA_CALL_ADAPTER(getSelectionContainer, uint64_t, (void *raw, uint64_t element), (call, element))
+    SWU_UIA_CALL_ADAPTER(getSelection, int32_t,
+        (void *raw, uint64_t element, uint64_t *buffer, int32_t capacity), (call, element, buffer, capacity))
+    SWU_UIA_CALL_ADAPTER(realizeVirtualizedItem, int32_t, (void *raw, uint64_t element), (call, element))
+    SWU_UIA_CALL_ADAPTER(setFocus, void, (void *raw, uint64_t element), (call, element))
+    SWU_UIA_CALL_ADAPTER(elementFromPoint, uint64_t, (void *raw, double x, double y), (call, x, y))
+    SWU_UIA_CALL_ADAPTER(focusedElement, uint64_t, (void *raw), (call))
+#undef SWU_UIA_CALL_ADAPTER
+    return result;
+}
+
+class ProviderCall {
+public:
+    ProviderCall(IUnknown *provider, SWUUIAProviderContext *context) : provider_(provider), context_(context) {
+        provider_->AddRef();
+        context_->retain();
+        if (context_->usesExplicitCalls) {
+            call_ = new (std::nothrow) SWUUIACall(context_);
+            admission_ = call_ != nullptr ? call_->admit() : E_OUTOFMEMORY;
+        } else {
+            admission_ = context_->admitCall();
+            legacyAdmitted_ = SUCCEEDED(admission_);
+        }
+    }
+
+    ~ProviderCall() {
+        // Balance the provider pin before publishing the full-call drain.
+        provider_->Release();
+        if (call_ != nullptr) call_->release();
+        if (legacyAdmitted_) context_->releaseCall();
+        context_->release();
+    }
+
+    ProviderCall(const ProviderCall &) = delete;
+    ProviderCall &operator=(const ProviderCall &) = delete;
+
+    HRESULT status() const {
+        if (FAILED(admission_)) return admission_;
+        if (call_ != nullptr) return call_->status();
+        return context_->isAvailable() ? S_OK : UIA_E_ELEMENTNOTAVAILABLE;
+    }
+
+    void *callbackContext() const {
+        return call_ != nullptr ? static_cast<void *>(call_) : context_->callbacks.context;
+    }
+
+private:
+    IUnknown *const provider_;
+    SWUUIAProviderContext *const context_;
+    SWUUIACall *call_ = nullptr;
+    HRESULT admission_ = UIA_E_ELEMENTNOTAVAILABLE;
+    bool legacyAdmitted_ = false;
+};
 
 class COMCallPin {
 public:
@@ -180,13 +381,15 @@ public:
 
     bool isAvailable() const { return context_->isAvailable(); }
     void revoke() { context_->revoke(); }
+    SWUUIAProviderContext *providerContext() const { return context_; }
 
     // IRawElementProviderSimple
 
     IFACEMETHODIMP get_ProviderOptions(ProviderOptions *pRetVal) override {
         if (pRetVal == nullptr) return E_POINTER;
         *pRetVal = static_cast<ProviderOptions>(0);
-        if (!isAvailable()) return UIA_E_ELEMENTNOTAVAILABLE;
+        ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
+        if (FAILED(call.status())) return call.status();
         *pRetVal = static_cast<ProviderOptions>(
             ProviderOptions_ServerSideProvider | ProviderOptions_UseComThreading);
         return S_OK;
@@ -195,42 +398,42 @@ public:
     IFACEMETHODIMP GetPatternProvider(PATTERNID patternId, IUnknown **pRetVal) override {
         if (pRetVal == nullptr) return E_POINTER;
         *pRetVal = nullptr;
-        COMCallPin pin(static_cast<IRawElementProviderSimple *>(this));
-        if (!isAvailable()) return UIA_E_ELEMENTNOTAVAILABLE;
+        ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
+        if (FAILED(call.status())) return call.status();
 
         bool supported = false;
         IUnknown *pattern = nullptr;
         HRESULT result = S_OK;
         switch (patternId) {
         case UIA_InvokePatternId:
-            result = supportsInvoke(supported);
+            result = supportsInvoke(call, supported);
             pattern = static_cast<IInvokeProvider *>(this);
             break;
         case UIA_ValuePatternId:
-            result = supportsPattern(SWU_UIA_PATTERN_VALUE, supported);
+            result = supportsPattern(call, SWU_UIA_PATTERN_VALUE, supported);
             pattern = static_cast<IValueProvider *>(this);
             break;
         case UIA_TogglePatternId:
-            result = supportsPattern(SWU_UIA_PATTERN_TOGGLE, supported);
+            result = supportsPattern(call, SWU_UIA_PATTERN_TOGGLE, supported);
             pattern = static_cast<IToggleProvider *>(this);
             break;
         case UIA_SelectionPatternId:
-            result = supportsPattern(SWU_UIA_PATTERN_SELECTION, supported);
+            result = supportsPattern(call, SWU_UIA_PATTERN_SELECTION, supported);
             pattern = static_cast<ISelectionProvider *>(this);
             break;
         case UIA_SelectionItemPatternId:
-            result = supportsPattern(SWU_UIA_PATTERN_SELECTION_ITEM, supported);
+            result = supportsPattern(call, SWU_UIA_PATTERN_SELECTION_ITEM, supported);
             pattern = static_cast<ISelectionItemProvider *>(this);
             break;
         case UIA_VirtualizedItemPatternId:
-            result = supportsPattern(SWU_UIA_PATTERN_VIRTUALIZED_ITEM, supported);
+            result = supportsPattern(call, SWU_UIA_PATTERN_VIRTUALIZED_ITEM, supported);
             pattern = static_cast<IVirtualizedItemProvider *>(this);
             break;
         default:
             break;
         }
         if (FAILED(result)) return result;
-        if (!isAvailable()) return UIA_E_ELEMENTNOTAVAILABLE;
+        if (FAILED(call.status())) return call.status();
         if (supported) {
             pattern->AddRef();
             *pRetVal = pattern;
@@ -241,36 +444,36 @@ public:
     IFACEMETHODIMP GetPropertyValue(PROPERTYID propertyId, VARIANT *pRetVal) override {
         if (pRetVal == nullptr) return E_POINTER;
         VariantInit(pRetVal);
-        COMCallPin pin(static_cast<IRawElementProviderSimple *>(this));
-        if (!isAvailable()) return UIA_E_ELEMENTNOTAVAILABLE;
+        ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
+        if (FAILED(call.status())) return call.status();
 
         VARIANT value;
         VariantInit(&value);
         HRESULT result = S_OK;
         switch (propertyId) {
         case UIA_NamePropertyId:
-            result = setStringProperty(&value, SWU_UIA_STRING_NAME);
+            result = setStringProperty(call, &value, SWU_UIA_STRING_NAME);
             break;
         case UIA_ValueValuePropertyId: {
             int32_t password = -1;
-            result = boolProperty(SWU_UIA_BOOL_IS_PASSWORD, password);
+            result = boolProperty(call, SWU_UIA_BOOL_IS_PASSWORD, password);
             if (SUCCEEDED(result) && password != 1) {
-                result = setStringProperty(&value, SWU_UIA_STRING_VALUE);
+                result = setStringProperty(call, &value, SWU_UIA_STRING_VALUE);
             }
             break;
         }
         case UIA_HelpTextPropertyId:
-            result = setStringProperty(&value, SWU_UIA_STRING_HELP_TEXT);
+            result = setStringProperty(call, &value, SWU_UIA_STRING_HELP_TEXT);
             break;
         case UIA_AutomationIdPropertyId:
-            result = setStringProperty(&value, SWU_UIA_STRING_AUTOMATION_ID);
+            result = setStringProperty(call, &value, SWU_UIA_STRING_AUTOMATION_ID);
             break;
         case UIA_ClassNamePropertyId:
-            result = setStringProperty(&value, SWU_UIA_STRING_CLASS_NAME);
+            result = setStringProperty(call, &value, SWU_UIA_STRING_CLASS_NAME);
             break;
         case UIA_ControlTypePropertyId: {
             int32_t controlType = 0;
-            result = readCallback(callbacks().getControlType, controlType, element_);
+            result = readCallback(call, callbacks().getControlType, controlType, element_);
             if (SUCCEEDED(result)) {
                 value.vt = VT_I4;
                 value.lVal = controlType;
@@ -278,30 +481,30 @@ public:
             break;
         }
         case UIA_IsEnabledPropertyId:
-            result = setBoolProperty(&value, SWU_UIA_BOOL_IS_ENABLED);
+            result = setBoolProperty(call, &value, SWU_UIA_BOOL_IS_ENABLED);
             break;
         case UIA_HasKeyboardFocusPropertyId:
-            result = setBoolProperty(&value, SWU_UIA_BOOL_HAS_KEYBOARD_FOCUS);
+            result = setBoolProperty(call, &value, SWU_UIA_BOOL_HAS_KEYBOARD_FOCUS);
             break;
         case UIA_IsKeyboardFocusablePropertyId:
-            result = setBoolProperty(&value, SWU_UIA_BOOL_IS_KEYBOARD_FOCUSABLE);
+            result = setBoolProperty(call, &value, SWU_UIA_BOOL_IS_KEYBOARD_FOCUSABLE);
             break;
         case UIA_IsOffscreenPropertyId:
-            result = setBoolProperty(&value, SWU_UIA_BOOL_IS_OFFSCREEN);
+            result = setBoolProperty(call, &value, SWU_UIA_BOOL_IS_OFFSCREEN);
             break;
         case UIA_IsPasswordPropertyId:
-            result = setBoolProperty(&value, SWU_UIA_BOOL_IS_PASSWORD);
+            result = setBoolProperty(call, &value, SWU_UIA_BOOL_IS_PASSWORD);
             break;
         case UIA_ValueIsReadOnlyPropertyId:
-            result = setBoolProperty(&value, SWU_UIA_BOOL_IS_READ_ONLY);
+            result = setBoolProperty(call, &value, SWU_UIA_BOOL_IS_READ_ONLY);
             break;
         case UIA_SelectionItemIsSelectedPropertyId:
-            result = setBoolProperty(&value, SWU_UIA_BOOL_IS_SELECTED);
+            result = setBoolProperty(call, &value, SWU_UIA_BOOL_IS_SELECTED);
             break;
         case UIA_ToggleToggleStatePropertyId: {
             int32_t state = -1;
             if (callbacks().getToggleState != nullptr) {
-                result = readCallback(callbacks().getToggleState, state, element_);
+                result = readCallback(call, callbacks().getToggleState, state, element_);
             }
             if (SUCCEEDED(result) && state >= SWU_UIA_TOGGLE_OFF && state <= SWU_UIA_TOGGLE_INDETERMINATE) {
                 value.vt = VT_I4;
@@ -317,7 +520,7 @@ public:
         default:
             break;
         }
-        if (!isAvailable()) result = UIA_E_ELEMENTNOTAVAILABLE;
+        if (FAILED(call.status())) result = call.status();
         if (FAILED(result)) {
             VariantClear(&value);
             return result;
@@ -329,14 +532,14 @@ public:
     IFACEMETHODIMP get_HostRawElementProvider(IRawElementProviderSimple **pRetVal) override {
         if (pRetVal == nullptr) return E_POINTER;
         *pRetVal = nullptr;
-        COMCallPin pin(static_cast<IRawElementProviderSimple *>(this));
-        if (!isAvailable()) return UIA_E_ELEMENTNOTAVAILABLE;
+        ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
+        if (FAILED(call.status())) return call.status();
         if (!isRoot_ || hwnd_ == nullptr) return S_OK;
 
         IRawElementProviderSimple *raw = nullptr;
         HRESULT result = UiaHostProviderFromHwnd(hwnd_, &raw);
         COMOwned<IRawElementProviderSimple> host(raw);
-        if (!isAvailable()) return UIA_E_ELEMENTNOTAVAILABLE;
+        if (FAILED(call.status())) return call.status();
         if (FAILED(result)) return result;
         *pRetVal = host.release();
         return S_OK;
@@ -348,31 +551,31 @@ public:
         if (pRetVal == nullptr) return E_POINTER;
         *pRetVal = nullptr;
         if (!isNavigationDirection(static_cast<int32_t>(direction))) return E_INVALIDARG;
-        COMCallPin pin(static_cast<IRawElementProviderSimple *>(this));
+        ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
         uint64_t target = SWU_UIA_NO_ELEMENT;
-        HRESULT result = readCallback(callbacks().navigate, target, element_, static_cast<int32_t>(direction));
+        HRESULT result = readCallback(call, callbacks().navigate, target, element_, static_cast<int32_t>(direction));
         if (FAILED(result)) return result;
-        return makeRelatedProvider(target, pRetVal);
+        return makeRelatedProvider(call, target, pRetVal);
     }
 
     IFACEMETHODIMP GetRuntimeId(SAFEARRAY **pRetVal) override {
         if (pRetVal == nullptr) return E_POINTER;
         *pRetVal = nullptr;
-        COMCallPin pin(static_cast<IRawElementProviderSimple *>(this));
+        ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
         int32_t buffer[8] = {};
         int32_t count = 0;
-        HRESULT result = readCallback(callbacks().getRuntimeId, count, element_, buffer, 8);
+        HRESULT result = readCallback(call, callbacks().getRuntimeId, count, element_, buffer, 8);
         if (FAILED(result)) return result;
         if (count <= 0) return S_OK;
         if (count > 8) return UIA_E_INVALIDOPERATION;
         OwnedSafeArray values(SafeArrayCreateVector(VT_I4, 0, static_cast<ULONG>(count)));
-        if (!isAvailable()) return UIA_E_ELEMENTNOTAVAILABLE;
+        if (FAILED(call.status())) return call.status();
         if (!values) return E_OUTOFMEMORY;
         for (LONG index = 0; index < count; ++index) {
             result = SafeArrayPutElement(values.get(), &index, &buffer[index]);
             if (FAILED(result)) return result;
         }
-        if (!isAvailable()) return UIA_E_ELEMENTNOTAVAILABLE;
+        if (FAILED(call.status())) return call.status();
         *pRetVal = values.release();
         return S_OK;
     }
@@ -380,9 +583,9 @@ public:
     IFACEMETHODIMP get_BoundingRectangle(UiaRect *pRetVal) override {
         if (pRetVal == nullptr) return E_POINTER;
         *pRetVal = UiaRect{0, 0, 0, 0};
-        COMCallPin pin(static_cast<IRawElementProviderSimple *>(this));
+        ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
         UiaRect value{0, 0, 0, 0};
-        HRESULT result = invokeCallback(
+        HRESULT result = invokeCallback(call,
             callbacks().getBoundingRectangle, element_, &value.left, &value.top, &value.width, &value.height);
         if (FAILED(result)) return result;
         *pRetVal = value;
@@ -392,19 +595,20 @@ public:
     IFACEMETHODIMP GetEmbeddedFragmentRoots(SAFEARRAY **pRetVal) override {
         if (pRetVal == nullptr) return E_POINTER;
         *pRetVal = nullptr;
-        return availabilityResult();
+        ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
+        return call.status();
     }
 
     IFACEMETHODIMP SetFocus() override {
-        COMCallPin pin(static_cast<IRawElementProviderSimple *>(this));
-        return invokeCallback(callbacks().setFocus, element_);
+        ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
+        return invokeCallback(call, callbacks().setFocus, element_);
     }
 
     IFACEMETHODIMP get_FragmentRoot(IRawElementProviderFragmentRoot **pRetVal) override {
         if (pRetVal == nullptr) return E_POINTER;
         *pRetVal = nullptr;
-        COMCallPin pin(static_cast<IRawElementProviderSimple *>(this));
-        return makeRelatedProvider(SWU_UIA_ROOT_ELEMENT, pRetVal);
+        ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
+        return makeRelatedProvider(call, SWU_UIA_ROOT_ELEMENT, pRetVal);
     }
 
     // IRawElementProviderFragmentRoot
@@ -412,32 +616,32 @@ public:
     IFACEMETHODIMP ElementProviderFromPoint(double x, double y, IRawElementProviderFragment **pRetVal) override {
         if (pRetVal == nullptr) return E_POINTER;
         *pRetVal = nullptr;
-        COMCallPin pin(static_cast<IRawElementProviderSimple *>(this));
+        ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
         uint64_t target = SWU_UIA_NO_ELEMENT;
-        HRESULT result = readCallback(callbacks().elementFromPoint, target, x, y);
+        HRESULT result = readCallback(call, callbacks().elementFromPoint, target, x, y);
         if (FAILED(result)) return result;
-        return makeRelatedProvider(target, pRetVal);
+        return makeRelatedProvider(call, target, pRetVal);
     }
 
     IFACEMETHODIMP GetFocus(IRawElementProviderFragment **pRetVal) override {
         if (pRetVal == nullptr) return E_POINTER;
         *pRetVal = nullptr;
-        COMCallPin pin(static_cast<IRawElementProviderSimple *>(this));
+        ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
         uint64_t target = SWU_UIA_NO_ELEMENT;
-        HRESULT result = readCallback(callbacks().focusedElement, target);
+        HRESULT result = readCallback(call, callbacks().focusedElement, target);
         if (FAILED(result)) return result;
-        return makeRelatedProvider(target, pRetVal);
+        return makeRelatedProvider(call, target, pRetVal);
     }
 
     // IInvokeProvider
 
     IFACEMETHODIMP Invoke() override {
-        COMCallPin pin(static_cast<IRawElementProviderSimple *>(this));
+        ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
         bool enabled = false;
-        HRESULT result = isEnabled(enabled);
+        HRESULT result = isEnabled(call, enabled);
         if (FAILED(result)) return result;
         if (!enabled) return UIA_E_ELEMENTNOTENABLED;
-        return invokeCallback(callbacks().invokeDefaultAction, element_);
+        return invokeCallback(call, callbacks().invokeDefaultAction, element_);
     }
 
     // IValueProvider
@@ -446,17 +650,17 @@ public:
         if (value == nullptr) return E_INVALIDARG;
         size_t length = wcslen(value);
         if (length > static_cast<size_t>((std::numeric_limits<int32_t>::max)())) return E_INVALIDARG;
-        COMCallPin pin(static_cast<IRawElementProviderSimple *>(this));
+        ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
         bool enabled = false;
-        HRESULT result = isEnabled(enabled);
+        HRESULT result = isEnabled(call, enabled);
         if (FAILED(result)) return result;
         if (!enabled) return UIA_E_ELEMENTNOTENABLED;
         bool readOnly = true;
-        result = isReadOnly(readOnly);
+        result = isReadOnly(call, readOnly);
         if (FAILED(result)) return result;
         if (readOnly) return UIA_E_INVALIDOPERATION;
         int32_t changed = 0;
-        result = readCallback(
+        result = readCallback(call,
             callbacks().setValue, changed, element_, reinterpret_cast<const uint16_t *>(value),
             static_cast<int32_t>(length));
         if (FAILED(result)) return result;
@@ -466,18 +670,18 @@ public:
     IFACEMETHODIMP get_Value(BSTR *pRetVal) override {
         if (pRetVal == nullptr) return E_POINTER;
         *pRetVal = nullptr;
-        COMCallPin pin(static_cast<IRawElementProviderSimple *>(this));
-        if (!isAvailable()) return UIA_E_ELEMENTNOTAVAILABLE;
+        ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
+        if (FAILED(call.status())) return call.status();
         uint16_t *raw = nullptr;
         HRESULT result = S_OK;
         if (callbacks().copyStringProperty != nullptr) {
-            result = readCallback(callbacks().copyStringProperty, raw, element_, SWU_UIA_STRING_VALUE);
+            result = readCallback(call, callbacks().copyStringProperty, raw, element_, SWU_UIA_STRING_VALUE);
         }
         OwnedBSTR value(reinterpret_cast<BSTR>(raw));
         if (FAILED(result)) return result;
-        if (!isAvailable()) return UIA_E_ELEMENTNOTAVAILABLE;
+        if (FAILED(call.status())) return call.status();
         if (!value) value.reset(SysAllocStringLen(nullptr, 0));
-        if (!isAvailable()) return UIA_E_ELEMENTNOTAVAILABLE;
+        if (FAILED(call.status())) return call.status();
         if (!value) return E_OUTOFMEMORY;
         *pRetVal = value.release();
         return S_OK;
@@ -486,9 +690,9 @@ public:
     IFACEMETHODIMP get_IsReadOnly(BOOL *pRetVal) override {
         if (pRetVal == nullptr) return E_POINTER;
         *pRetVal = FALSE;
-        COMCallPin pin(static_cast<IRawElementProviderSimple *>(this));
+        ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
         bool value = true;
-        HRESULT result = isReadOnly(value);
+        HRESULT result = isReadOnly(call, value);
         if (FAILED(result)) return result;
         *pRetVal = value ? TRUE : FALSE;
         return S_OK;
@@ -497,16 +701,16 @@ public:
     // IToggleProvider
 
     IFACEMETHODIMP Toggle() override {
-        COMCallPin pin(static_cast<IRawElementProviderSimple *>(this));
-        return performAction(callbacks().toggle);
+        ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
+        return performAction(call, callbacks().toggle);
     }
 
     IFACEMETHODIMP get_ToggleState(ToggleState *pRetVal) override {
         if (pRetVal == nullptr) return E_POINTER;
         *pRetVal = ToggleState_Off;
-        COMCallPin pin(static_cast<IRawElementProviderSimple *>(this));
+        ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
         int32_t value = -1;
-        HRESULT result = readCallback(callbacks().getToggleState, value, element_);
+        HRESULT result = readCallback(call, callbacks().getToggleState, value, element_);
         if (FAILED(result)) return result;
         if (value < SWU_UIA_TOGGLE_OFF || value > SWU_UIA_TOGGLE_INDETERMINATE) return UIA_E_INVALIDOPERATION;
         *pRetVal = static_cast<ToggleState>(value);
@@ -518,9 +722,9 @@ public:
     IFACEMETHODIMP GetSelection(SAFEARRAY **pRetVal) override {
         if (pRetVal == nullptr) return E_POINTER;
         *pRetVal = nullptr;
-        COMCallPin pin(static_cast<IRawElementProviderSimple *>(this));
+        ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
         int32_t count = 0;
-        HRESULT result = readCallback(callbacks().getSelection, count, element_, nullptr, 0);
+        HRESULT result = readCallback(call, callbacks().getSelection, count, element_, nullptr, 0);
         if (FAILED(result)) return result;
         if (count < 0 || count > 16384) return UIA_E_INVALIDOPERATION;
         std::vector<uint64_t> ids;
@@ -531,18 +735,18 @@ public:
         }
         if (count > 0) {
             int32_t actual = 0;
-            result = readCallback(callbacks().getSelection, actual, element_, ids.data(), count);
+            result = readCallback(call, callbacks().getSelection, actual, element_, ids.data(), count);
             if (FAILED(result)) return result;
             if (actual < 0 || actual > count) return UIA_E_INVALIDOPERATION;
             count = actual;
         }
-        if (!isAvailable()) return UIA_E_ELEMENTNOTAVAILABLE;
+        if (FAILED(call.status())) return call.status();
         OwnedSafeArray selection(SafeArrayCreateVector(VT_UNKNOWN, 0, static_cast<ULONG>(count)));
-        if (!isAvailable()) return UIA_E_ELEMENTNOTAVAILABLE;
+        if (FAILED(call.status())) return call.status();
         if (!selection) return E_OUTOFMEMORY;
         for (LONG index = 0; index < count; ++index) {
             IRawElementProviderSimple *raw = nullptr;
-            result = makeRelatedProvider(ids[static_cast<size_t>(index)], &raw);
+            result = makeRelatedProvider(call, ids[static_cast<size_t>(index)], &raw);
             COMOwned<IRawElementProviderSimple> provider(raw);
             if (FAILED(result)) return result;
             if (!provider) return UIA_E_INVALIDOPERATION;
@@ -550,7 +754,7 @@ public:
             result = SafeArrayPutElement(selection.get(), &index, unknown);
             if (FAILED(result)) return result;
         }
-        if (!isAvailable()) return UIA_E_ELEMENTNOTAVAILABLE;
+        if (FAILED(call.status())) return call.status();
         *pRetVal = selection.release();
         return S_OK;
     }
@@ -558,38 +762,40 @@ public:
     IFACEMETHODIMP get_CanSelectMultiple(BOOL *pRetVal) override {
         if (pRetVal == nullptr) return E_POINTER;
         *pRetVal = FALSE;
-        return availabilityResult();
+        ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
+        return call.status();
     }
 
     IFACEMETHODIMP get_IsSelectionRequired(BOOL *pRetVal) override {
         if (pRetVal == nullptr) return E_POINTER;
         *pRetVal = FALSE;
-        return availabilityResult();
+        ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
+        return call.status();
     }
 
     // ISelectionItemProvider
 
     IFACEMETHODIMP Select() override {
-        COMCallPin pin(static_cast<IRawElementProviderSimple *>(this));
-        return performAction(callbacks().select);
+        ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
+        return performAction(call, callbacks().select);
     }
 
     IFACEMETHODIMP AddToSelection() override {
-        COMCallPin pin(static_cast<IRawElementProviderSimple *>(this));
-        return performAction(callbacks().addToSelection);
+        ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
+        return performAction(call, callbacks().addToSelection);
     }
 
     IFACEMETHODIMP RemoveFromSelection() override {
-        COMCallPin pin(static_cast<IRawElementProviderSimple *>(this));
-        return performAction(callbacks().removeFromSelection);
+        ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
+        return performAction(call, callbacks().removeFromSelection);
     }
 
     IFACEMETHODIMP get_IsSelected(BOOL *pRetVal) override {
         if (pRetVal == nullptr) return E_POINTER;
         *pRetVal = FALSE;
-        COMCallPin pin(static_cast<IRawElementProviderSimple *>(this));
+        ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
         int32_t value = -1;
-        HRESULT result = boolProperty(SWU_UIA_BOOL_IS_SELECTED, value);
+        HRESULT result = boolProperty(call, SWU_UIA_BOOL_IS_SELECTED, value);
         if (FAILED(result)) return result;
         if (value < 0) return UIA_E_INVALIDOPERATION;
         *pRetVal = value != 0 ? TRUE : FALSE;
@@ -599,115 +805,114 @@ public:
     IFACEMETHODIMP get_SelectionContainer(IRawElementProviderSimple **pRetVal) override {
         if (pRetVal == nullptr) return E_POINTER;
         *pRetVal = nullptr;
-        COMCallPin pin(static_cast<IRawElementProviderSimple *>(this));
-        if (!isAvailable()) return UIA_E_ELEMENTNOTAVAILABLE;
+        ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
+        if (FAILED(call.status())) return call.status();
         if (callbacks().getSelectionContainer == nullptr) return S_OK;
         uint64_t target = SWU_UIA_NO_ELEMENT;
-        HRESULT result = readCallback(callbacks().getSelectionContainer, target, element_);
+        HRESULT result = readCallback(call, callbacks().getSelectionContainer, target, element_);
         if (FAILED(result)) return result;
-        return makeRelatedProvider(target, pRetVal);
+        return makeRelatedProvider(call, target, pRetVal);
     }
 
     // IVirtualizedItemProvider
 
     IFACEMETHODIMP Realize() override {
-        COMCallPin pin(static_cast<IRawElementProviderSimple *>(this));
-        return performAction(callbacks().realizeVirtualizedItem);
+        ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
+        return performAction(call, callbacks().realizeVirtualizedItem);
     }
 
 private:
     ~SWUProvider() { context_->release(); }
 
     const SWUUIACallbacks &callbacks() const { return context_->callbacks; }
-    HRESULT availabilityResult() const { return isAvailable() ? S_OK : UIA_E_ELEMENTNOTAVAILABLE; }
 
-    // Only call these helpers while a COMCallPin holds this provider. A
-    // callback may synchronously drop every external bridge/provider owner.
+    // The full method owns admission through output marshalling. A callback
+    // may drop every external owner or retain its token for queued actor work.
     template <typename Callback, typename Value, typename... Arguments>
-    HRESULT readCallback(Callback callback, Value &result, Arguments... arguments) {
-        if (!isAvailable()) return UIA_E_ELEMENTNOTAVAILABLE;
+    HRESULT readCallback(ProviderCall &call, Callback callback, Value &result, Arguments... arguments) {
+        if (FAILED(call.status())) return call.status();
         if (callback == nullptr) return UIA_E_INVALIDOPERATION;
-        result = callback(callbacks().context, arguments...);
-        return availabilityResult();
+        result = callback(call.callbackContext(), arguments...);
+        return call.status();
     }
 
     template <typename Callback, typename... Arguments>
-    HRESULT invokeCallback(Callback callback, Arguments... arguments) {
-        if (!isAvailable()) return UIA_E_ELEMENTNOTAVAILABLE;
+    HRESULT invokeCallback(ProviderCall &call, Callback callback, Arguments... arguments) {
+        if (FAILED(call.status())) return call.status();
         if (callback == nullptr) return UIA_E_INVALIDOPERATION;
-        callback(callbacks().context, arguments...);
-        return availabilityResult();
+        callback(call.callbackContext(), arguments...);
+        return call.status();
     }
 
     template <typename Interface>
-    HRESULT makeRelatedProvider(uint64_t element, Interface **result) {
-        if (!isAvailable()) return UIA_E_ELEMENTNOTAVAILABLE;
+    HRESULT makeRelatedProvider(ProviderCall &call, uint64_t element, Interface **result) {
+        if (FAILED(call.status())) return call.status();
         if (element == SWU_UIA_NO_ELEMENT) return S_OK;
         COMOwned<SWUProvider> provider(new (std::nothrow) SWUProvider(
             context_, hwnd_, element, element == SWU_UIA_ROOT_ELEMENT));
-        if (!isAvailable()) return UIA_E_ELEMENTNOTAVAILABLE;
+        if (FAILED(call.status())) return call.status();
         if (!provider) return E_OUTOFMEMORY;
         *result = static_cast<Interface *>(provider.release());
         return S_OK;
     }
 
-    HRESULT supportsInvoke(bool &result) {
+    HRESULT supportsInvoke(ProviderCall &call, bool &result) {
         result = false;
-        if (!isAvailable()) return UIA_E_ELEMENTNOTAVAILABLE;
+        if (FAILED(call.status())) return call.status();
         if (callbacks().hasInvokeAction == nullptr) return S_OK;
         int32_t supported = 0;
-        HRESULT status = readCallback(callbacks().hasInvokeAction, supported, element_);
+        HRESULT status = readCallback(call, callbacks().hasInvokeAction, supported, element_);
         if (SUCCEEDED(status)) result = supported != 0;
         return status;
     }
 
-    HRESULT supportsPattern(int32_t pattern, bool &result) {
+    HRESULT supportsPattern(ProviderCall &call, int32_t pattern, bool &result) {
         result = false;
-        if (!isAvailable()) return UIA_E_ELEMENTNOTAVAILABLE;
+        if (FAILED(call.status())) return call.status();
         if (callbacks().supportsPattern == nullptr) return S_OK;
         int32_t supported = 0;
-        HRESULT status = readCallback(callbacks().supportsPattern, supported, element_, pattern);
+        HRESULT status = readCallback(call, callbacks().supportsPattern, supported, element_, pattern);
         if (SUCCEEDED(status)) result = supported != 0;
         return status;
     }
 
-    HRESULT boolProperty(int32_t property, int32_t &result) {
+    HRESULT boolProperty(ProviderCall &call, int32_t property, int32_t &result) {
         result = -1;
-        if (!isAvailable()) return UIA_E_ELEMENTNOTAVAILABLE;
+        if (FAILED(call.status())) return call.status();
         if (callbacks().getBoolProperty == nullptr) return S_OK;
-        return readCallback(callbacks().getBoolProperty, result, element_, property);
+        return readCallback(call, callbacks().getBoolProperty, result, element_, property);
     }
 
-    HRESULT isEnabled(bool &result) {
+    HRESULT isEnabled(ProviderCall &call, bool &result) {
         int32_t value = -1;
-        HRESULT status = boolProperty(SWU_UIA_BOOL_IS_ENABLED, value);
+        HRESULT status = boolProperty(call, SWU_UIA_BOOL_IS_ENABLED, value);
         if (SUCCEEDED(status)) result = value != 0;
         return status;
     }
 
-    HRESULT isReadOnly(bool &result) {
+    HRESULT isReadOnly(ProviderCall &call, bool &result) {
         int32_t value = -1;
-        HRESULT status = boolProperty(SWU_UIA_BOOL_IS_READ_ONLY, value);
+        HRESULT status = boolProperty(call, SWU_UIA_BOOL_IS_READ_ONLY, value);
         if (SUCCEEDED(status)) result = value != 0;
         return status;
     }
 
-    HRESULT performAction(int32_t (*action)(void *, uint64_t)) {
+    HRESULT performAction(ProviderCall &call, int32_t (*action)(void *, uint64_t)) {
         bool enabled = false;
-        HRESULT result = isEnabled(enabled);
+        HRESULT result = isEnabled(call, enabled);
         if (FAILED(result)) return result;
         if (!enabled) return UIA_E_ELEMENTNOTENABLED;
         int32_t performed = 0;
-        result = readCallback(action, performed, element_);
+        result = readCallback(call, action, performed, element_);
         if (FAILED(result)) return result;
         return performed != 0 ? S_OK : UIA_E_INVALIDOPERATION;
     }
 
-    HRESULT setStringProperty(VARIANT *out, int32_t property) {
-        if (!isAvailable()) return UIA_E_ELEMENTNOTAVAILABLE;
+    HRESULT setStringProperty(ProviderCall &call, VARIANT *out, int32_t property) {
+        if (FAILED(call.status())) return call.status();
         if (callbacks().copyStringProperty == nullptr) return S_OK;
         uint16_t *raw = nullptr;
-        HRESULT result = readCallback(callbacks().copyStringProperty, raw, element_, property);
+        HRESULT result = readCallback(call, callbacks().copyStringProperty, raw, element_, property);
         OwnedBSTR value(reinterpret_cast<BSTR>(raw));
         if (FAILED(result)) return result;
         if (value) {
@@ -717,9 +922,9 @@ private:
         return S_OK;
     }
 
-    HRESULT setBoolProperty(VARIANT *out, int32_t property) {
+    HRESULT setBoolProperty(ProviderCall &call, VARIANT *out, int32_t property) {
         int32_t value = -1;
-        HRESULT result = boolProperty(property, value);
+        HRESULT result = boolProperty(call, property, value);
         if (FAILED(result)) return result;
         if (value >= 0) {
             out->vt = VT_BOOL;
@@ -793,10 +998,41 @@ const IID &interfaceID(int32_t kind) {
 
 extern "C" {
 
+void SWU_UIARetainCall(SWUUIACall *call) {
+    if (call != nullptr) call->retain();
+}
+
+void SWU_UIAReleaseCall(SWUUIACall *call) {
+    if (call != nullptr) call->release();
+}
+
+void *SWU_UIACallOwnerContext(SWUUIACall *call) {
+    return call != nullptr ? call->context->callbacks.context : nullptr;
+}
+
+int32_t SWU_UIACallStatus(SWUUIACall *call) {
+    return call != nullptr ? call->status() : UIA_E_ELEMENTNOTAVAILABLE;
+}
+
+void SWU_UIACallFail(SWUUIACall *call, int32_t failure) {
+    if (call != nullptr) call->fail(failure);
+}
+
+void SWU_UIACallRevokeOwner(SWUUIACall *call) {
+    if (call != nullptr) call->context->revoke();
+}
+
 SWUUIAProviderContext *SWU_UIACreateProviderContext(
     const SWUUIACallbacks *callbacks, void (*releaseContext)(void *)) {
     if (callbacks == nullptr) return nullptr;
     return new (std::nothrow) SWUUIAProviderContext(*callbacks, releaseContext);
+}
+
+SWUUIAProviderContext *SWU_UIACreateProviderContextWithCalls(
+    const SWUUIACallCallbacks *callbacks, void (*releaseContext)(void *), const SWUUIADrainWake *drainWake) {
+    if (callbacks == nullptr) return nullptr;
+    return new (std::nothrow) SWUUIAProviderContext(
+        *callbacks, releaseContext, drainWake != nullptr ? *drainWake : SWUUIADrainWake{});
 }
 
 void SWU_UIARetainProviderContext(SWUUIAProviderContext *context) {
@@ -813,6 +1049,14 @@ void SWU_UIARevokeProviderContext(SWUUIAProviderContext *context) {
 
 int SWU_UIAProviderContextIsAvailable(SWUUIAProviderContext *context) {
     return context != nullptr && context->isAvailable() ? 1 : 0;
+}
+
+int SWU_UIAProviderContextIsQuiescent(SWUUIAProviderContext *context) {
+    return context != nullptr && context->isQuiescent() ? 1 : 0;
+}
+
+int32_t SWU_UIAProviderContextDrainWakeResult(SWUUIAProviderContext *context) {
+    return context != nullptr ? context->drainWakeResult() : UIA_E_ELEMENTNOTAVAILABLE;
 }
 
 void *SWU_UIACreateRootProviderWithContext(SWUUIAProviderContext *context, void *hwnd) {
@@ -853,13 +1097,13 @@ intptr_t SWU_UIAReturnRawElementProvider(void *hwnd, uintptr_t wParam, intptr_t 
         if (hwnd == nullptr || wParam != 0 || lParam != 0) return 0;
         return static_cast<intptr_t>(UiaReturnRawElementProvider(static_cast<HWND>(hwnd), 0, 0, nullptr));
     }
-    COMCallPin pin(asSimple(provider));
-    if (!asProvider(provider)->isAvailable()) return 0;
+    ProviderCall call(asSimple(provider), asProvider(provider)->providerContext());
+    if (FAILED(call.status())) return 0;
     // This call borrows the provider. The temporary reference is balanced even
     // when the OS reenters the host and drops its owning reference.
     LRESULT result = UiaReturnRawElementProvider(
         static_cast<HWND>(hwnd), static_cast<WPARAM>(wParam), static_cast<LPARAM>(lParam), asSimple(provider));
-    return asProvider(provider)->isAvailable() ? static_cast<intptr_t>(result) : 0;
+    return SUCCEEDED(call.status()) ? static_cast<intptr_t>(result) : 0;
 }
 
 int SWU_UIAClientsAreListening(void) {
@@ -868,24 +1112,24 @@ int SWU_UIAClientsAreListening(void) {
 
 void SWU_UIARaiseAutomationFocusChanged(void *provider) {
     if (provider == nullptr) return;
-    COMCallPin pin(asSimple(provider));
-    if (asProvider(provider)->isAvailable()) {
+    ProviderCall call(asSimple(provider), asProvider(provider)->providerContext());
+    if (SUCCEEDED(call.status())) {
         UiaRaiseAutomationEvent(asSimple(provider), UIA_AutomationFocusChangedEventId);
     }
 }
 
 void SWU_UIARaiseStructureChanged(void *provider) {
     if (provider == nullptr) return;
-    COMCallPin pin(asSimple(provider));
-    if (asProvider(provider)->isAvailable()) {
+    ProviderCall call(asSimple(provider), asProvider(provider)->providerContext());
+    if (SUCCEEDED(call.status())) {
         UiaRaiseStructureChangedEvent(asSimple(provider), StructureChangeType_ChildrenInvalidated, nullptr, 0);
     }
 }
 
 void SWU_UIARaiseLiveRegionChanged(void *provider) {
     if (provider == nullptr) return;
-    COMCallPin pin(asSimple(provider));
-    if (asProvider(provider)->isAvailable()) {
+    ProviderCall call(asSimple(provider), asProvider(provider)->providerContext());
+    if (SUCCEEDED(call.status())) {
         UiaRaiseAutomationEvent(asSimple(provider), UIA_LiveRegionChangedEventId);
     }
 }

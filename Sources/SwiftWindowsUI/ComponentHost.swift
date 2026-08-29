@@ -16,6 +16,10 @@ public final class ComponentHost {
     /// The retained window supplies its own current HWND. Raw ComponentHost
     /// callers retain the standalone provider behavior without global ownership.
     package var fileDialogOwner: @MainActor () -> FileDialogOwner = { .standalone }
+    package var nativeDialogSession: NativeDialogSession?
+    /// Production chooses native ownership before its first retained build.
+    /// A task can present a modifier while window creation is still pending.
+    package var expectsNativeDialogOwner = false
 
     @MainActor
     private final class FileDialogOperation {
@@ -30,14 +34,21 @@ public final class ComponentHost {
         let ownerGeneration: UInt64
         let node: ViewNode
         let presenterLease: RetainedFileDialogPresenterLease
+        let invocationScope: (any RetainedFileDialogInvocationScope)?
         var phase = Phase.inspecting
         var outcome: Outcome?
         var didRequestSelection = false
+        var isInitiatingSelection = false
+        var isAwaitingSelection = false
 
-        init(ownerGeneration: UInt64, node: ViewNode, kind: RetainedFileDialogKind) {
+        init(
+            ownerGeneration: UInt64, node: ViewNode, kind: RetainedFileDialogKind,
+            invocationScope: (any RetainedFileDialogInvocationScope)?
+        ) {
             self.ownerGeneration = ownerGeneration
             self.node = node
             self.presenterLease = node.beginFileDialogPresentation(kind: kind)
+            self.invocationScope = invocationScope
         }
 
         func revoke() {
@@ -332,31 +343,50 @@ public final class ComponentHost {
         return true
     }
 
-    /// Scans the view tree for active file-dialog configurations and presents
-    /// the corresponding Win32 modal dialog. Reentrant requests wait until the
-    /// active operation, presentation reset, and completion callback finish.
+    /// Starts one owned selection at a time. Native selection returns later;
+    /// injected providers may complete inline. Reentrant requests wait until
+    /// selection, file access, presentation reset and completion all finish.
     public func processPendingFileDialogs() {
         guard fileDialogLifetimeIsValid else { return }
+        guard !expectsNativeDialogOwner || nativeDialogSession != nil else {
+            // Do not read application bindings, lease a presenter, or let a
+            // missing startup owner select the standalone Win32 path. The
+            // bind-and-reload pass will scan the still-pending declaration.
+            needsFileDialogProcessing = true
+            return
+        }
         guard !isProcessingFileDialog else {
             needsFileDialogProcessing = true
             return
         }
         isProcessingFileDialog = true
-        defer { isProcessingFileDialog = false }
+        continueProcessingFileDialogs()
+    }
+
+    private func continueProcessingFileDialogs() {
         var retriedEmptyScan = false
         repeat {
             needsFileDialogProcessing = false
-            guard fileDialogLifetimeIsValid else { return }
-            if !processNextFileDialog() {
+            guard fileDialogLifetimeIsValid else {
+                isProcessingFileDialog = false
+                return
+            }
+            let requestedSelection = processNextFileDialog()
+            if activeFileDialogOperation?.isAwaitingSelection == true { return }
+            if !requestedSelection {
                 // A getter may replace the tree and enqueue its new presenter.
                 // Retry once without spinning on an unchanged false getter
                 // that calls this method every time it is read.
-                guard needsFileDialogProcessing, !retriedEmptyScan else { return }
+                guard needsFileDialogProcessing, !retriedEmptyScan else {
+                    isProcessingFileDialog = false
+                    return
+                }
                 retriedEmptyScan = true
                 continue
             }
             retriedEmptyScan = false
         } while needsFileDialogProcessing
+        isProcessingFileDialog = false
     }
 
     /// Revocation precedes application teardown callbacks. It does not release
@@ -371,13 +401,53 @@ public final class ComponentHost {
 
     private func processNextFileDialog() -> Bool {
         guard let (config, operation) = findActiveFileDialogConfiguration(in: runtime.root) else { return false }
-        defer {
-            operation.presenterLease.invalidate()
-            if operation.phase != .revoked { operation.phase = .finished }
-            if activeFileDialogOperation === operation { activeFileDialogOperation = nil }
-        }
+        operation.isInitiatingSelection = true
         presentFileDialog(config, operation: operation)
+        operation.isInitiatingSelection = false
+        if !operation.isAwaitingSelection { finishFileDialogOperation(operation) }
         return operation.didRequestSelection
+    }
+
+    private func finishFileDialogOperation(_ operation: FileDialogOperation) {
+        operation.presenterLease.invalidate()
+        if operation.phase != .revoked { operation.phase = .finished }
+        if activeFileDialogOperation === operation { activeFileDialogOperation = nil }
+    }
+
+    private func receiveFileDialogSelection<Selection>(
+        _ selection: DialogRequestOutcome<Selection>, config: FileDialogConfig,
+        operation: FileDialogOperation,
+        complete: (DialogRequestOutcome<Selection>) -> Void
+    ) {
+        // Consume before any binding, file encoder or application completion
+        // can reenter. A duplicate reply cannot retire a later operation.
+        guard operation.isAwaitingSelection else { return }
+        operation.isAwaitingSelection = false
+        if case .revoked = selection {
+            operation.revoke()
+        } else if !isCurrentFileDialogPresenter(operation) {
+            operation.revoke()
+        } else if !operation.isInitiatingSelection, let scope = config.invocationScope {
+            // Application getters may replace a provider before selection.
+            // Actual deferred consumption needs its captured facade scope even
+            // when the initial provider was an inline/headless implementation.
+            scope.withInvocation {
+                if self.validateFileDialogPresentation(config, operation: operation) {
+                    complete(selection)
+                }
+            }
+        } else if validateFileDialogPresentation(config, operation: operation) {
+            complete(selection)
+        }
+        // Inline providers let the outer bounded scan do its usual cleanup.
+        // Deferred selection owns that same cleanup only after its real reply.
+        guard !operation.isInitiatingSelection else { return }
+        finishFileDialogOperation(operation)
+        guard fileDialogLifetimeIsValid, needsFileDialogProcessing else {
+            isProcessingFileDialog = false
+            return
+        }
+        continueProcessingFileDialogs()
     }
 
     private func findActiveFileDialogConfiguration(in node: ViewNode) -> (FileDialogConfig, FileDialogOperation)? {
@@ -389,8 +459,12 @@ public final class ComponentHost {
             guard let config = FileDialogConfig.current(kind: kind, on: node) else { continue }
             // Install the lease before reading an application binding: even its
             // getter can remove and reinsert this same retained presenter.
+            let invocationScope =
+                nativeDialogSession != nil && FileDialogManager.providerSupportsNativeOwnerRequests
+                ? config.invocationScope : nil
             let operation = FileDialogOperation(
-                ownerGeneration: fileDialogOwnerGeneration, node: node, kind: config.kind)
+                ownerGeneration: fileDialogOwnerGeneration, node: node, kind: config.kind,
+                invocationScope: invocationScope)
             activeFileDialogOperation = operation
             if validateFileDialogPresentation(config, operation: operation) {
                 operation.phase = .selecting
@@ -439,6 +513,15 @@ public final class ComponentHost {
             case .mover(let configuration): return configuration.isPresented
             }
         }
+
+        var invocationScope: (any RetainedFileDialogInvocationScope)? {
+            switch self {
+            case .exporter(let configuration): return configuration.invocationScope
+            case .importer(let configuration): return configuration.invocationScope
+            case .importerMulti(let configuration): return configuration.invocationScope
+            case .mover(let configuration): return configuration.invocationScope
+            }
+        }
     }
 
     private func isCurrentFileDialogOperation(_ operation: FileDialogOperation) -> Bool {
@@ -456,7 +539,12 @@ public final class ComponentHost {
             operation.revoke()
             return false
         }
-        let isPresented = config.isPresented.wrappedValue
+        var isPresented = false
+        if let scope = operation.invocationScope {
+            scope.withInvocation { isPresented = config.isPresented.wrappedValue }
+        } else {
+            isPresented = config.isPresented.wrappedValue
+        }
         guard isCurrentFileDialogPresenter(operation), isPresented else {
             operation.revoke()
             return false
@@ -469,6 +557,19 @@ public final class ComponentHost {
             operation.revoke()
             throw FileDialogOperationError.revoked
         }
+    }
+
+    private func canSubmitFileDialog(_ config: FileDialogConfig, operation: FileDialogOperation) -> Bool {
+        guard isCurrentFileDialogPresenter(operation) else { return false }
+        var canSubmit = false
+        if let scope = config.invocationScope {
+            scope.withInvocation {
+                canSubmit = self.validateFileDialogPresentation(config, operation: operation)
+            }
+        } else {
+            canSubmit = validateFileDialogPresentation(config, operation: operation)
+        }
+        return canSubmit
     }
 
     private func completeFileDialog(
@@ -512,110 +613,150 @@ public final class ComponentHost {
         let title = operation.node.fileDialogMessage
         let defaultDirectory = operation.node.fileDialogDefaultDirectory
         guard validateFileDialogPresentation(config, operation: operation) else { return }
-        let owner = fileDialogOwner()
+        let owner: FileDialogOwner
+        if let scope = operation.invocationScope {
+            var scopedOwner = FileDialogOwner.hosted(nil)
+            scope.withInvocation { scopedOwner = self.fileDialogOwner() }
+            owner = scopedOwner
+        } else {
+            owner = fileDialogOwner()
+        }
         guard validateFileDialogPresentation(config, operation: operation) else { return }
         operation.didRequestSelection = true
+        operation.isAwaitingSelection = true
+        let requestIsCurrent: @MainActor () -> Bool = {
+            self.canSubmitFileDialog(config, operation: operation)
+        }
         switch config {
         case .exporter(let exporter):
-            let selection = FileDialogManager.saveFileDialogOutcome(
+            FileDialogManager.requestSaveFileDialog(
                 defaultFilename: exporter.defaultFilename,
                 allowedExtensions: FileDialogManager.fileExtensions(forContentTypes: [exporter.contentType]),
                 defaultDirectory: defaultDirectory,
                 title: title,
-                owner: owner
-            )
-            guard validateFileDialogPresentation(config, operation: operation) else { return }
-            switch selection {
-            case .cancelled:
-                completeFileDialog(config, operation: operation, outcome: .cancelled)
-            case .failed(let error):
-                completeFileDialog(
-                    config, operation: operation, result: .failure(error), completion: exporter.onCompletion)
-            case .selected(let url):
-                operation.phase = .accessingFile
-                let result: Result<URL, Error> = Result {
-                    try exporter.write(to: url) {
-                        try self.validateFileDialogAccess(config, operation: operation)
+                owner: owner,
+                nativeSession: nativeDialogSession,
+                isCurrent: requestIsCurrent
+            ) { selection in
+                self.receiveFileDialogSelection(selection, config: config, operation: operation) { selection in
+                    switch selection {
+                    case .cancelled:
+                        self.completeFileDialog(config, operation: operation, outcome: .cancelled)
+                    case .failed(let error):
+                        self.completeFileDialog(
+                            config, operation: operation, result: .failure(error), completion: exporter.onCompletion)
+                    case .selected(let url):
+                        operation.phase = .accessingFile
+                        let result: Result<URL, Error> = Result {
+                            try exporter.write(to: url) {
+                                try self.validateFileDialogAccess(config, operation: operation)
+                            }
+                            return url
+                        }
+                        self.completeFileDialog(
+                            config, operation: operation, result: result, completion: exporter.onCompletion)
+                    case .revoked:
+                        break
                     }
-                    return url
                 }
-                completeFileDialog(config, operation: operation, result: result, completion: exporter.onCompletion)
             }
 
         case .importer(let importer):
-            let selection = FileDialogManager.openFileDialogOutcome(
+            FileDialogManager.requestOpenFileDialog(
                 allowedExtensions: FileDialogManager.fileExtensions(forContentTypes: importer.allowedContentTypes),
                 allowsMultipleSelection: false,
                 defaultDirectory: defaultDirectory,
                 title: title,
-                owner: owner
-            )
-            guard validateFileDialogPresentation(config, operation: operation) else { return }
-            switch selection {
-            case .selected(let urls):
-                let result: Result<URL, Error> =
-                    urls.first.map(Result.success) ?? .failure(FileDialogError.invalidSelection)
-                completeFileDialog(config, operation: operation, result: result, completion: importer.onCompletion)
-            case .cancelled:
-                let error = fileDialogCancellationError()
-                completeFileDialog(config, operation: operation, outcome: .cancelled) {
-                    importer.onCompletion(.failure(error))
+                owner: owner,
+                nativeSession: nativeDialogSession,
+                isCurrent: requestIsCurrent
+            ) { selection in
+                self.receiveFileDialogSelection(selection, config: config, operation: operation) { selection in
+                    switch selection {
+                    case .selected(let urls):
+                        let result: Result<URL, Error> =
+                            urls.first.map(Result.success) ?? .failure(FileDialogError.invalidSelection)
+                        self.completeFileDialog(
+                            config, operation: operation, result: result, completion: importer.onCompletion)
+                    case .cancelled:
+                        let error = self.fileDialogCancellationError()
+                        self.completeFileDialog(config, operation: operation, outcome: .cancelled) {
+                            importer.onCompletion(.failure(error))
+                        }
+                    case .failed(let error):
+                        self.completeFileDialog(
+                            config, operation: operation, result: .failure(error), completion: importer.onCompletion)
+                    case .revoked:
+                        break
+                    }
                 }
-            case .failed(let error):
-                completeFileDialog(
-                    config, operation: operation, result: .failure(error), completion: importer.onCompletion)
             }
 
         case .importerMulti(let importerMulti):
-            let selection = FileDialogManager.openFileDialogOutcome(
+            FileDialogManager.requestOpenFileDialog(
                 allowedExtensions: FileDialogManager.fileExtensions(
                     forContentTypes: importerMulti.allowedContentTypes),
                 allowsMultipleSelection: importerMulti.allowsMultipleSelection,
                 defaultDirectory: defaultDirectory,
                 title: title,
-                owner: owner
-            )
-            guard validateFileDialogPresentation(config, operation: operation) else { return }
-            switch selection {
-            case .selected(let urls):
-                let result: Result<[URL], Error> =
-                    urls.isEmpty ? .failure(FileDialogError.invalidSelection) : .success(urls)
-                completeFileDialog(config, operation: operation, result: result, completion: importerMulti.onCompletion)
-            case .cancelled:
-                let error = fileDialogCancellationError()
-                completeFileDialog(config, operation: operation, outcome: .cancelled) {
-                    importerMulti.onCompletion(.failure(error))
+                owner: owner,
+                nativeSession: nativeDialogSession,
+                isCurrent: requestIsCurrent
+            ) { selection in
+                self.receiveFileDialogSelection(selection, config: config, operation: operation) { selection in
+                    switch selection {
+                    case .selected(let urls):
+                        let result: Result<[URL], Error> =
+                            urls.isEmpty ? .failure(FileDialogError.invalidSelection) : .success(urls)
+                        self.completeFileDialog(
+                            config, operation: operation, result: result, completion: importerMulti.onCompletion)
+                    case .cancelled:
+                        let error = self.fileDialogCancellationError()
+                        self.completeFileDialog(config, operation: operation, outcome: .cancelled) {
+                            importerMulti.onCompletion(.failure(error))
+                        }
+                    case .failed(let error):
+                        self.completeFileDialog(
+                            config, operation: operation, result: .failure(error),
+                            completion: importerMulti.onCompletion)
+                    case .revoked:
+                        break
+                    }
                 }
-            case .failed(let error):
-                completeFileDialog(
-                    config, operation: operation, result: .failure(error), completion: importerMulti.onCompletion)
             }
 
         case .mover(let mover):
-            let selection = FileDialogManager.saveFileDialogOutcome(
+            FileDialogManager.requestSaveFileDialog(
                 defaultFilename: mover.file.lastPathComponent,
                 defaultDirectory: defaultDirectory,
                 title: title,
-                owner: owner
-            )
-            guard validateFileDialogPresentation(config, operation: operation) else { return }
-            switch selection {
-            case .selected(let destination):
-                operation.phase = .accessingFile
-                let result: Result<URL, Error> = Result {
-                    try validateFileDialogAccess(config, operation: operation)
-                    try FileManager.default.moveItem(at: mover.file, to: destination)
-                    return destination
+                owner: owner,
+                nativeSession: nativeDialogSession,
+                isCurrent: requestIsCurrent
+            ) { selection in
+                self.receiveFileDialogSelection(selection, config: config, operation: operation) { selection in
+                    switch selection {
+                    case .selected(let destination):
+                        operation.phase = .accessingFile
+                        let result: Result<URL, Error> = Result {
+                            try self.validateFileDialogAccess(config, operation: operation)
+                            try FileManager.default.moveItem(at: mover.file, to: destination)
+                            return destination
+                        }
+                        self.completeFileDialog(
+                            config, operation: operation, result: result, completion: mover.onCompletion)
+                    case .cancelled:
+                        let error = self.fileDialogCancellationError()
+                        self.completeFileDialog(config, operation: operation, outcome: .cancelled) {
+                            mover.onCompletion(.failure(error))
+                        }
+                    case .failed(let error):
+                        self.completeFileDialog(
+                            config, operation: operation, result: .failure(error), completion: mover.onCompletion)
+                    case .revoked:
+                        break
+                    }
                 }
-                completeFileDialog(config, operation: operation, result: result, completion: mover.onCompletion)
-            case .cancelled:
-                let error = fileDialogCancellationError()
-                completeFileDialog(config, operation: operation, outcome: .cancelled) {
-                    mover.onCompletion(.failure(error))
-                }
-            case .failed(let error):
-                completeFileDialog(
-                    config, operation: operation, result: .failure(error), completion: mover.onCompletion)
             }
         }
     }

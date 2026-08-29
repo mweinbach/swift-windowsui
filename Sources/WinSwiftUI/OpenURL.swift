@@ -8,11 +8,20 @@ import Foundation
 /// default is `ShellExecuteOpenURLExecutor`, which calls `ShellExecuteW`;
 /// tests inject a fake so nothing is launched from the test runner.
 protocol OpenURLShellExecutor {
+    /// Only the live executor opts into the separate native owner. Existing
+    /// injected executors keep their synchronous result and are never bypassed.
+    var supportsNativeOwnerExecution: Bool { get }
     func execute(operation: String, target: String) -> Bool
+}
+
+extension OpenURLShellExecutor {
+    var supportsNativeOwnerExecution: Bool { false }
 }
 
 #if os(Windows)
     final class ShellExecuteOpenURLExecutor: OpenURLShellExecutor {
+        let supportsNativeOwnerExecution = true
+
         func execute(operation: String, target: String) -> Bool {
             withWideString(operation) { operationWide in
                 withWideString(target) { targetWide in

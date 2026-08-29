@@ -8,7 +8,7 @@ enum GPUTimestampQueryKind: Equatable {
 /// The collector owns handles; only the transport knows about COM or WinSDK.
 /// Keeping HRESULTs intact makes S_FALSE distinguishable from ready data in
 /// the deterministic tests as well as in the native implementation.
-@MainActor
+/// Transport and collector stay on the same renderer execution owner.
 protocol GPUTimestampQueryTransport: AnyObject {
     var ownedQueryCount: Int { get }
     func createQuery(_ kind: GPUTimestampQueryKind) -> (hresult: Int32, handle: Int?)
@@ -22,7 +22,7 @@ protocol GPUTimestampQueryTransport: AnyObject {
 /// Optional elapsed GPU intervals. No path waits for readiness, flushes the
 /// context, grows the query pool, or reuses an unresolved query. A caller that
 /// stops draining results can lose evidence, but cannot grow memory forever.
-@MainActor
+/// The collector is not Sendable and never leaves its renderer's owner.
 final class D3D11GPUFrameTimingCollector {
     static let slotCapacity = 8
     static let resultCapacity = 16

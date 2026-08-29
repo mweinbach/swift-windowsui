@@ -121,6 +121,10 @@ public protocol UIAElementTreeSource: AnyObject {
     /// Flat pre-order snapshot list, root first. The root element must use
     /// `UIAProviderBridge.rootElementID` and a nil `parentID`.
     func uiaElementSnapshots() -> [UIAElementSnapshot]
+    /// Projects live retained state using one owner-published geometry value.
+    /// Sources that already supply screen coordinates may keep the default.
+    /// A runtime-backed source must not ask the native owner to map each rect.
+    func uiaElementSnapshots(geometry: NativeWindowGeometry) throws -> [UIAElementSnapshot]
     /// Invokes the element's default action. Returns true when invoked.
     @discardableResult
     func uiaInvokeDefaultAction(elementID: UInt64) -> Bool
@@ -145,6 +149,10 @@ public protocol UIAElementTreeSource: AnyObject {
 }
 
 extension UIAElementTreeSource {
+    public func uiaElementSnapshots(geometry: NativeWindowGeometry) throws -> [UIAElementSnapshot] {
+        uiaElementSnapshots()
+    }
+
     public func uiaSetValue(elementID: UInt64, value: String) -> Bool { false }
     public func uiaToggle(elementID: UInt64) -> Bool {
         uiaInvokeDefaultAction(elementID: elementID)
@@ -258,15 +266,27 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
     private static let runtimeIDPrefix: Int32 = 0x5357
     /// OBJID value UIA clients pass as `lParam` in `WM_GETOBJECT`.
     private static let uiaRootObjectID: Int32 = -25
+    // One actor transaction at a time across provider families. A nested
+    // provider call must not pump another window's pending input for freshness.
+    private static var nativeRequestInProgress = false
 
     private let source: any UIAElementTreeSource
     private let nativeCalls: UIAProviderNativeCalls
     private let callbackContext: UIAProviderCallbackContext
     private let nativeContext: OpaquePointer?
+    private let nativeSession: UIANativeProviderSession?
+    private let nativeCallbackContext: UIANativeCallbackContext?
+    private let beforeNativeRequest:
+        (@MainActor (NativeWindowKey, UInt64, NativeWindowGeometry) -> Result<Void, NativeWindowOwnerFailure>)?
     private var hwnd: UnsafeMutableRawPointer?
     private var rootProvider: UnsafeMutableRawPointer?
     private var didDisconnect = false
-    internal private(set) var lastDisconnectResult: Int32?
+    private var legacyDisconnectResult: Int32?
+    internal var lastDisconnectResult: Int32? {
+        if let nativeSession { return nativeSession.disconnectResult }
+        return legacyDisconnectResult
+    }
+    package var lastNativeFailure: NativeWindowOwnerFailure? { nativeSession?.diagnostics.failure }
 
     public convenience init(source: any UIAElementTreeSource) {
         self.init(source: source, nativeCalls: .live)
@@ -275,6 +295,9 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
     internal init(source: any UIAElementTreeSource, nativeCalls: UIAProviderNativeCalls) {
         self.source = source
         self.nativeCalls = nativeCalls
+        nativeSession = nil
+        nativeCallbackContext = nil
+        beforeNativeRequest = nil
         let callbackContext = UIAProviderCallbackContext()
         self.callbackContext = callbackContext
         let retainedBox = Unmanaged.passRetained(callbackContext).toOpaque()
@@ -289,9 +312,60 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
         callbackContext.bridge = self
     }
 
+    /// The production split keeps native resources in an owner attachment.
+    /// The hook drains already-copied events and validates the captured window
+    /// key/surface generation against the actor facade; it must never wait for
+    /// N. Same-generation geometry remains the request's published observation.
+    package init(
+        source: any UIAElementTreeSource,
+        nativeWindowKey: NativeWindowKey,
+        nativeSnapshotSource: any NativeWindowSnapshotSource,
+        nativeCommandSink: any NativeWindowCommandSink,
+        beforeRequest:
+            @escaping @MainActor (NativeWindowKey, UInt64, NativeWindowGeometry) ->
+            Result<Void, NativeWindowOwnerFailure>
+    ) {
+        self.source = source
+        nativeCalls = .live
+        callbackContext = UIAProviderCallbackContext()
+        nativeContext = nil
+        let nativeSession = UIANativeProviderSession(
+            windowKey: nativeWindowKey, commandSink: nativeCommandSink)
+        self.nativeSession = nativeSession
+        let nativeCallbackContext = UIANativeCallbackContext(
+            windowKey: nativeWindowKey, snapshotSource: nativeSnapshotSource,
+            diagnostics: nativeSession.diagnostics)
+        self.nativeCallbackContext = nativeCallbackContext
+        beforeNativeRequest = beforeRequest
+        nativeCallbackContext.bridge = self
+    }
+
+    package func makeNativeAttachmentFactory() -> (any NativeWindowOwnerAttachmentFactory)? {
+        makeNativeAttachmentFactory(nativeCalls: .live)
+    }
+
+    internal func makeNativeAttachmentFactory(
+        nativeCalls: UIANativeCalls
+    ) -> (any NativeWindowOwnerAttachmentFactory)? {
+        guard let nativeSession, let nativeCallbackContext else { return nil }
+        return UIANativeProviderFactory(
+            session: nativeSession, callbackContext: nativeCallbackContext, nativeCalls: nativeCalls)
+    }
+
+    /// Immediate, local admission revocation. The native attachment owns OS
+    /// disconnection and resource release after the complete C call drains.
+    package func revokeNativeRequests() {
+        nativeSession?.revoke()
+        nativeCallbackContext?.bridge = nil
+        if let nativeContext { SWU_UIARevokeProviderContext(nativeContext) }
+        callbackContext.bridge = nil
+    }
+
     isolated deinit {
         // Local revocation is sufficient for safety even when Windows cannot
         // disconnect providers. Never make an outbound COM call from deinit.
+        nativeSession?.revoke()
+        nativeCallbackContext?.bridge = nil
         if let nativeContext { SWU_UIARevokeProviderContext(nativeContext) }
         callbackContext.bridge = nil
         if let rootProvider {
@@ -301,7 +375,8 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
     }
 
     private var isAvailable: Bool {
-        nativeContext.map { SWU_UIAProviderContextIsAvailable($0) != 0 } ?? false
+        if let nativeSession { return nativeSession.isAvailable }
+        return nativeContext.map { SWU_UIAProviderContextIsAvailable($0) != 0 } ?? false
     }
 
     internal var callbackContextObjectForTesting: AnyObject { callbackContext }
@@ -311,6 +386,8 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
     public func handleAccessibilityGetObject(
         hwnd: UnsafeMutableRawPointer?, wParam: WPARAM, lParam: LPARAM
     ) -> LRESULT? {
+        // Production WM_GETOBJECT is handled entirely by the native attachment.
+        guard nativeSession == nil else { return nil }
         guard isAvailable else { return nil }
         self.hwnd = hwnd
         guard Int32(truncatingIfNeeded: lParam) == Self.uiaRootObjectID else {
@@ -334,10 +411,12 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
         return isAvailable ? result : nil
     }
 
-    /// True while an assistive-technology client is attached. Cheap to call;
-    /// use to gate work (like re-projection) that only matters for UIA.
+    /// Legacy bridges perform the native query. A split bridge returns the
+    /// last owner observation (false before the first observation), never a
+    /// fresh OS result. Native event delivery always checks actual listening.
     public var isClientListening: Bool {
-        nativeCalls.clientsAreListening()
+        if let nativeSession { return nativeSession.clientListeningObservation ?? false }
+        return nativeCalls.clientsAreListening()
     }
 
     // MARK: - UIA events
@@ -345,6 +424,10 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
     /// Raises `UIA_AutomationFocusChangedEventId` for the given element.
     /// No-op when no UIA client is listening.
     public func raiseFocusChanged(elementID: UInt64) {
+        if let nativeSession {
+            nativeSession.submit(.focusChanged(element: elementID))
+            return
+        }
         defer { withExtendedLifetime(self) {} }
         guard isAvailable, isClientListening, isAvailable, let nativeContext else {
             return
@@ -360,6 +443,10 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
     /// Raises `UIA_StructureChangedEventId` (ChildrenInvalidated) on the root.
     /// No-op when no client is listening or UIA has never attached.
     public func raiseStructureChanged() {
+        if let nativeSession {
+            nativeSession.submit(.structureChanged)
+            return
+        }
         defer { withExtendedLifetime(self) {} }
         guard isAvailable, isClientListening, isAvailable, let rootProvider else {
             return
@@ -373,6 +460,10 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
     /// The provider is projected at call time; no second accessibility tree
     /// or observer work is retained when no assistive client is attached.
     public func raiseLiveRegionChanged(elementID: UInt64) {
+        if let nativeSession {
+            nativeSession.submit(.liveRegionChanged(element: elementID))
+            return
+        }
         defer { withExtendedLifetime(self) {} }
         guard isAvailable, isClientListening, isAvailable, let nativeContext,
             let provider = SWU_UIACreateElementProviderWithContext(nativeContext, hwnd, elementID)
@@ -389,6 +480,11 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
     public func disconnect() {
         guard !didDisconnect else { return }
         didDisconnect = true
+        if let nativeSession {
+            revokeNativeRequests()
+            nativeSession.submitDisconnect()
+            return
+        }
         if let nativeContext { SWU_UIARevokeProviderContext(nativeContext) }
         callbackContext.bridge = nil
         guard let rootProvider else {
@@ -396,7 +492,7 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
         }
         SWU_UIAAddRefProvider(rootProvider)
         defer { SWU_UIAReleaseProvider(rootProvider) }
-        lastDisconnectResult = nativeCalls.disconnectProvider(rootProvider)
+        legacyDisconnectResult = nativeCalls.disconnectProvider(rootProvider)
     }
 
     /// Test seam: the lazily created root provider, without requiring a
@@ -559,13 +655,131 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
     /// Main dispatch may execute on a thread Foundation does not call main;
     /// dispatching synchronously from that context back to main would self-wait.
     /// Both paths still assert actor isolation before reading the weak bridge.
-    nonisolated private static func onMain<Result: Sendable>(_ work: @MainActor () -> Result) -> Result {
+    nonisolated static func onMain<Result: Sendable>(_ work: @MainActor () -> Result) -> Result {
         if Thread.isMainThread || isInMainDispatchQueueContext {
             return MainActor.assumeIsolated(work)
         }
         return DispatchQueue.main.sync {
             MainActor.assumeIsolated(work)
         }
+    }
+
+    /// One non-suspending retained transaction. The native call token stays
+    /// owned by both the C method and its queued/running actor request.
+    internal func receiveNativeRequest(
+        _ envelope: UIAProviderRequestEnvelope, lease: UIANativeCallLease
+    ) -> UIAProviderReply? {
+        guard let nativeSession, envelope.windowKey == nativeSession.windowKey,
+            nativeSession.isAvailable, lease.isAvailable
+        else {
+            lease.fail(UIANativeHRESULT.elementNotAvailable)
+            return nil
+        }
+        guard !Self.nativeRequestInProgress else {
+            nativeSession.recordFailure(.execution("A UIA actor transaction is already in progress"))
+            lease.fail(UIANativeHRESULT.failed)
+            return nil
+        }
+        Self.nativeRequestInProgress = true
+        defer { Self.nativeRequestInProgress = false }
+        if let beforeNativeRequest {
+            if case .failure(let failure) = beforeNativeRequest(
+                envelope.windowKey, envelope.surfaceGeneration, envelope.geometry)
+            {
+                nativeSession.recordFailure(failure)
+                lease.fail(UIANativeHRESULT.forOwnerFailure(failure))
+                return nil
+            }
+        }
+        // Flushing earlier native events can close the window or replace its
+        // retained tree. Recheck admission before touching the source.
+        guard nativeSession.isAvailable, lease.isAvailable else {
+            lease.fail(UIANativeHRESULT.elementNotAvailable)
+            return nil
+        }
+        do {
+            let reply = try replyForNativeRequest(
+                envelope.request, geometry: envelope.geometry,
+                isAvailable: { nativeSession.isAvailable && lease.isAvailable })
+            guard nativeSession.isAvailable, lease.isAvailable else {
+                lease.fail(UIANativeHRESULT.elementNotAvailable)
+                return nil
+            }
+            return reply
+        } catch {
+            nativeSession.recordFailure(.execution("UIA retained request failed: \(error)"))
+            lease.fail(UIANativeHRESULT.failed)
+            return nil
+        }
+    }
+
+    /// This resolver is also the headless test seam. Every query case captures
+    /// a new projection at the same boundary as its legacy counterpart. It
+    /// neither batches independent callbacks nor caches a previous projection.
+    package func replyForNativeRequest(
+        _ request: UIAProviderRequest, geometry: NativeWindowGeometry,
+        isAvailable: @MainActor () -> Bool
+    ) throws -> UIAProviderReply {
+        switch request {
+        case .navigate(let element, let direction):
+            return .element(
+                try nativeQuerySnapshot(geometry).navigate(element, direction: direction))
+        case .runtimeID(let element):
+            return .runtimeID(runtimeIDForUIA(element))
+        case .boundingRectangle(let element):
+            return .bounds(try nativeQuerySnapshot(geometry).boundingRectangle(element))
+        case .stringProperty(let element, let property):
+            return .string(
+                try nativeQuerySnapshot(geometry).stringProperty(element, property: property))
+        case .controlType(let element):
+            return .integer(try nativeQuerySnapshot(geometry).controlType(element))
+        case .boolProperty(let element, let property):
+            return .integer(
+                try nativeQuerySnapshot(geometry).boolProperty(element, property: property))
+        case .hasInvokeAction(let element):
+            return .integer(try nativeQuerySnapshot(geometry).hasInvokeAction(element))
+        case .invokeDefaultAction(let element):
+            invokeDefaultActionForUIA(element)
+            return .completed
+        case .supportsPattern(let element, let pattern):
+            return .integer(
+                try nativeQuerySnapshot(geometry).supportsPattern(element, pattern: pattern))
+        case .setValue(let element, let value):
+            guard
+                let snapshot = try source.uiaElementSnapshots(geometry: geometry).first(where: {
+                    $0.id == element
+                }), isAvailable(), snapshot.isEnabled, snapshot.supportsValue,
+                !snapshot.isPassword, !snapshot.isReadOnly
+            else { return .integer(0) }
+            return .integer(source.uiaSetValue(elementID: element, value: value) ? 1 : 0)
+        case .toggleState(let element):
+            return .integer(try nativeQuerySnapshot(geometry).toggleState(element))
+        case .toggle(let element):
+            return .integer(toggleForUIA(element))
+        case .select(let element):
+            return .integer(selectForUIA(element))
+        case .addToSelection(let element):
+            return .integer(addToSelectionForUIA(element))
+        case .removeFromSelection(let element):
+            return .integer(removeFromSelectionForUIA(element))
+        case .selectionContainer(let element):
+            return .element(try nativeQuerySnapshot(geometry).selectionContainer(element))
+        case .selection(let element):
+            return .selection(try nativeQuerySnapshot(geometry).selection(element))
+        case .realizeVirtualizedItem(let element):
+            return .integer(realizeVirtualizedItemForUIA(element))
+        case .setFocus(let element):
+            setFocusForUIA(element)
+            return .completed
+        case .elementFromPoint(let x, let y):
+            return .element(try nativeQuerySnapshot(geometry).elementFromPoint(x: x, y: y))
+        case .focusedElement:
+            return .element(try nativeQuerySnapshot(geometry).focusedElement())
+        }
+    }
+
+    private func nativeQuerySnapshot(_ geometry: NativeWindowGeometry) throws -> UIAQuerySnapshot {
+        UIAQuerySnapshot(try source.uiaElementSnapshots(geometry: geometry))
     }
 
     // MARK: - Tree queries (main actor; C memory stays in the trampolines)

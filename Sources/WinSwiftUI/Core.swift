@@ -5609,9 +5609,18 @@ public struct OpenURLAction: @unchecked Sendable {
     }
 
     private let handler: @MainActor (URL) -> Result
+    // Only the framework default may be routed through a native owner. A
+    // caller's custom synchronous action keeps its actual Result semantics.
+    let isSystemAction: Bool
 
     public init(handler: @escaping @MainActor (URL) -> Result) {
         self.handler = handler
+        isSystemAction = false
+    }
+
+    private init(systemHandler: @escaping @MainActor (URL) -> Result) {
+        handler = systemHandler
+        isSystemAction = true
     }
 
     @discardableResult
@@ -5620,9 +5629,9 @@ public struct OpenURLAction: @unchecked Sendable {
         handler(url)
     }
 
-    public static let system = OpenURLAction { url in
+    public static let system = OpenURLAction(systemHandler: { url in
         defaultOpenURL(url) ? .handled : .discarded
-    }
+    })
 }
 public struct DismissAction: @unchecked Sendable {
     private let handler: @MainActor () -> Void
@@ -8545,6 +8554,10 @@ public struct ViewBuildContext {
 
     var viewIdentity: ViewIdentityContext
     let stateMountCoordinator: StateMountCoordinator?
+    package private(set) var nativeDialogSession: NativeDialogSession?
+    /// Installed before the first native-host build. A missing session then
+    /// means startup is pending, not permission to use standalone Win32 APIs.
+    package let nativeDialogOwnerRequest: (@MainActor (@escaping @MainActor (NativeDialogSession) -> Void) -> Void)?
 
     private let canvasSizeProvider: () -> Size
     private let invalidateHandler: () -> Void
@@ -9237,6 +9250,8 @@ public struct ViewBuildContext {
     init(
         viewIdentity: ViewIdentityContext = ViewIdentityContext(),
         stateMountCoordinator: StateMountCoordinator? = nil,
+        nativeDialogSession: NativeDialogSession? = nil,
+        nativeDialogOwnerRequest: (@MainActor (@escaping @MainActor (NativeDialogSession) -> Void) -> Void)? = nil,
         canvasSizeProvider: @escaping () -> Size,
         invalidateHandler: @escaping () -> Void,
         stateMutationInvalidationHandler: (() -> Void)? = nil,
@@ -9295,6 +9310,8 @@ public struct ViewBuildContext {
         self.navigationPresentedDestinationsProvider = navigationPresentedDestinationsProvider
         self.viewIdentity = viewIdentity
         self.stateMountCoordinator = stateMountCoordinator
+        self.nativeDialogSession = nativeDialogSession
+        self.nativeDialogOwnerRequest = nativeDialogOwnerRequest
     }
 
     /// The ambient tint every control resolves its accent from. Tracks
@@ -9310,17 +9327,53 @@ public struct ViewBuildContext {
         { [invalidateHandler] in invalidateHandler() }
     }
 
+    /// The host may retain this admitted intent until native creation and its
+    /// retained reload finish. Admission does not imply a selected dialog value.
+    func withNativeDialogOwner(_ body: @escaping @MainActor (NativeDialogSession?) -> Void) {
+        if let nativeDialogOwnerRequest {
+            nativeDialogOwnerRequest { session in body(session) }
+        } else {
+            body(nativeDialogSession)
+        }
+    }
+
+    /// Keep the invocation's original environment and occurrence while binding
+    /// a session that did not exist when an early action was constructed.
+    func withNativeDialogSession(_ session: NativeDialogSession?) -> ViewBuildContext {
+        var context = self
+        context.nativeDialogSession = session
+        return context
+    }
+
     /// Action storage must not form coordinator -> alert -> context ->
     /// coordinator ownership. Invocation keeps the environment snapshot, not a
     /// build epoch or the private action-construction scope that created it.
     func retainedAlertInvocationContext() -> ViewBuildContext {
+        var values = environmentValuesProvider()
+        values.retainedAlertActionScope = nil
+        return retainedInvocationContext(environment: { values })
+    }
+
+    /// Preserve the original providers without calling application environment
+    /// getters during configuration construction. Deferred dialog callbacks use
+    /// this context only after their own presenter/owner lease is revalidated.
+    func retainedFileDialogInvocationContext() -> ViewBuildContext {
+        let provider = environmentValuesProvider
+        return retainedInvocationContext {
+            var values = provider()
+            values.retainedAlertActionScope = nil
+            return values
+        }
+    }
+
+    private func retainedInvocationContext(environment: @escaping () -> EnvironmentValues) -> ViewBuildContext {
         var identity = viewIdentity
         identity.installedOwner = nil
         identity.installedEpoch = nil
-        var values = environmentValuesProvider()
-        values.retainedAlertActionScope = nil
         return ViewBuildContext(
             viewIdentity: identity,
+            nativeDialogSession: nativeDialogSession,
+            nativeDialogOwnerRequest: nativeDialogOwnerRequest,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9341,7 +9394,7 @@ public struct ViewBuildContext {
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
-            environmentValuesProvider: { values },
+            environmentValuesProvider: environment,
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
             navigationValueHandlerProvider: navigationValueHandlerProvider,
             navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
@@ -9397,6 +9450,8 @@ public struct ViewBuildContext {
         return ViewBuildContext(
             viewIdentity: viewIdentity,
             stateMountCoordinator: stateMountCoordinator,
+            nativeDialogSession: nativeDialogSession,
+            nativeDialogOwnerRequest: nativeDialogOwnerRequest,
             canvasSizeProvider: { clamped },
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9429,6 +9484,8 @@ public struct ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
             stateMountCoordinator: stateMountCoordinator,
+            nativeDialogSession: nativeDialogSession,
+            nativeDialogOwnerRequest: nativeDialogOwnerRequest,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9463,6 +9520,8 @@ public struct ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
             stateMountCoordinator: stateMountCoordinator,
+            nativeDialogSession: nativeDialogSession,
+            nativeDialogOwnerRequest: nativeDialogOwnerRequest,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9500,6 +9559,8 @@ public struct ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
             stateMountCoordinator: stateMountCoordinator,
+            nativeDialogSession: nativeDialogSession,
+            nativeDialogOwnerRequest: nativeDialogOwnerRequest,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9537,6 +9598,8 @@ public struct ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
             stateMountCoordinator: stateMountCoordinator,
+            nativeDialogSession: nativeDialogSession,
+            nativeDialogOwnerRequest: nativeDialogOwnerRequest,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9573,6 +9636,8 @@ public struct ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
             stateMountCoordinator: stateMountCoordinator,
+            nativeDialogSession: nativeDialogSession,
+            nativeDialogOwnerRequest: nativeDialogOwnerRequest,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9605,6 +9670,8 @@ public struct ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
             stateMountCoordinator: stateMountCoordinator,
+            nativeDialogSession: nativeDialogSession,
+            nativeDialogOwnerRequest: nativeDialogOwnerRequest,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9641,6 +9708,8 @@ public struct ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
             stateMountCoordinator: stateMountCoordinator,
+            nativeDialogSession: nativeDialogSession,
+            nativeDialogOwnerRequest: nativeDialogOwnerRequest,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9673,6 +9742,8 @@ public struct ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
             stateMountCoordinator: stateMountCoordinator,
+            nativeDialogSession: nativeDialogSession,
+            nativeDialogOwnerRequest: nativeDialogOwnerRequest,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9713,6 +9784,8 @@ public struct ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
             stateMountCoordinator: stateMountCoordinator,
+            nativeDialogSession: nativeDialogSession,
+            nativeDialogOwnerRequest: nativeDialogOwnerRequest,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9751,6 +9824,8 @@ public struct ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
             stateMountCoordinator: stateMountCoordinator,
+            nativeDialogSession: nativeDialogSession,
+            nativeDialogOwnerRequest: nativeDialogOwnerRequest,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9787,6 +9862,8 @@ public struct ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
             stateMountCoordinator: stateMountCoordinator,
+            nativeDialogSession: nativeDialogSession,
+            nativeDialogOwnerRequest: nativeDialogOwnerRequest,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9823,6 +9900,8 @@ public struct ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
             stateMountCoordinator: stateMountCoordinator,
+            nativeDialogSession: nativeDialogSession,
+            nativeDialogOwnerRequest: nativeDialogOwnerRequest,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9859,6 +9938,8 @@ public struct ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
             stateMountCoordinator: stateMountCoordinator,
+            nativeDialogSession: nativeDialogSession,
+            nativeDialogOwnerRequest: nativeDialogOwnerRequest,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9891,6 +9972,8 @@ public struct ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
             stateMountCoordinator: stateMountCoordinator,
+            nativeDialogSession: nativeDialogSession,
+            nativeDialogOwnerRequest: nativeDialogOwnerRequest,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9927,6 +10010,8 @@ public struct ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
             stateMountCoordinator: stateMountCoordinator,
+            nativeDialogSession: nativeDialogSession,
+            nativeDialogOwnerRequest: nativeDialogOwnerRequest,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9959,6 +10044,8 @@ public struct ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
             stateMountCoordinator: stateMountCoordinator,
+            nativeDialogSession: nativeDialogSession,
+            nativeDialogOwnerRequest: nativeDialogOwnerRequest,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9995,6 +10082,8 @@ public struct ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
             stateMountCoordinator: stateMountCoordinator,
+            nativeDialogSession: nativeDialogSession,
+            nativeDialogOwnerRequest: nativeDialogOwnerRequest,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -10033,6 +10122,8 @@ public struct ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
             stateMountCoordinator: stateMountCoordinator,
+            nativeDialogSession: nativeDialogSession,
+            nativeDialogOwnerRequest: nativeDialogOwnerRequest,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -10070,6 +10161,8 @@ public struct ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
             stateMountCoordinator: stateMountCoordinator,
+            nativeDialogSession: nativeDialogSession,
+            nativeDialogOwnerRequest: nativeDialogOwnerRequest,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -10105,6 +10198,8 @@ public struct ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
             stateMountCoordinator: stateMountCoordinator,
+            nativeDialogSession: nativeDialogSession,
+            nativeDialogOwnerRequest: nativeDialogOwnerRequest,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -10161,6 +10256,8 @@ public struct ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
             stateMountCoordinator: stateMountCoordinator,
+            nativeDialogSession: nativeDialogSession,
+            nativeDialogOwnerRequest: nativeDialogOwnerRequest,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -10193,6 +10290,8 @@ public struct ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
             stateMountCoordinator: stateMountCoordinator,
+            nativeDialogSession: nativeDialogSession,
+            nativeDialogOwnerRequest: nativeDialogOwnerRequest,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -10225,6 +10324,8 @@ public struct ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
             stateMountCoordinator: stateMountCoordinator,
+            nativeDialogSession: nativeDialogSession,
+            nativeDialogOwnerRequest: nativeDialogOwnerRequest,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -10259,6 +10360,8 @@ public struct ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
             stateMountCoordinator: stateMountCoordinator,
+            nativeDialogSession: nativeDialogSession,
+            nativeDialogOwnerRequest: nativeDialogOwnerRequest,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -22919,6 +23022,7 @@ extension View {
                     defaultFilename: defaultFilename,
                     onCompletion: onCompletion
                 )
+                .withInvocationScope(FileDialogInvocationContext(context))
                 return node
             }
         }
@@ -22940,6 +23044,7 @@ extension View {
                     contentType: contentType,
                     onCompletion: onCompletion
                 )
+                .withInvocationScope(FileDialogInvocationContext(context))
                 return node
             }
         }
@@ -22959,6 +23064,7 @@ extension View {
                     allowedContentTypes: allowedContentTypes,
                     onCompletion: onCompletion
                 )
+                .withInvocationScope(FileDialogInvocationContext(context))
                 return node
             }
         }
@@ -22980,6 +23086,7 @@ extension View {
                     allowsMultipleSelection: allowsMultipleSelection,
                     onCompletion: onCompletion
                 )
+                .withInvocationScope(FileDialogInvocationContext(context))
                 return node
             }
         }
@@ -22999,6 +23106,7 @@ extension View {
                     file: file,
                     onCompletion: onCompletion
                 )
+                .withInvocationScope(FileDialogInvocationContext(context))
                 return node
             }
         }

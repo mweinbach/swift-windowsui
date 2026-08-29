@@ -1,4 +1,5 @@
 import Foundation
+import SwiftWindowsCore
 
 /// Internal reasons are retained so a build wait is not mistaken for a policy
 /// veto and retried continuously on the native message queue.
@@ -12,6 +13,7 @@ package enum Win32CloseBusyReason: Equatable, Sendable {
 package enum Win32CloseDestructionFailure: Equatable, Sendable {
     case native(UInt32)
     case destructionNotObserved
+    case owner(NativeWindowOwnerFailure)
 }
 
 package enum Win32CloseAttemptOutcome: Equatable, Sendable {
@@ -105,15 +107,15 @@ package protocol Win32CloseAuthority: AnyObject {
 /// a deferred request keeps its exact intent through the entire evaluation.
 @MainActor
 package final class Win32CloseAttempt {
-    package let id = UUID()
+    package let id = Foundation.UUID()
     package let ticket: Win32CloseTicket?
-    package var intentID: UUID? { ticket?.intentID }
+    package var intentID: Foundation.UUID? { ticket?.intentID }
     package private(set) var busyReason: Win32CloseBusyReason?
     package private(set) var isUnavailable = false
-    fileprivate let registrationEpoch: UUID?
+    fileprivate let registrationEpoch: Foundation.UUID?
     private weak var control: Win32CloseControl?
 
-    fileprivate init(ticket: Win32CloseTicket?, registrationEpoch: UUID?, control: Win32CloseControl) {
+    fileprivate init(ticket: Win32CloseTicket?, registrationEpoch: Foundation.UUID?, control: Win32CloseControl) {
         self.ticket = ticket
         self.registrationEpoch = registrationEpoch
         self.control = control
@@ -137,14 +139,15 @@ package final class Win32CloseAttempt {
 /// after another native window reuses its handle or its Swift window object.
 @MainActor
 final class Win32CloseLifetime {
-    let id = UUID()
+    let id: Foundation.UUID
     let generation: UInt64
     var handle: UInt?
     private(set) var destructionStarted = false
     private(set) var destructionCompleted = false
     private(set) var creationFailed = false
 
-    init(generation: UInt64) {
+    init(generation: UInt64, id: Foundation.UUID = Foundation.UUID()) {
+        self.id = id
         self.generation = generation
     }
 
@@ -166,17 +169,17 @@ final class Win32CloseLifetime {
 /// Cancellation is permanent, and terminal native attempts consume it once.
 @MainActor
 package final class Win32CloseTicket {
-    package let id = UUID()
-    package let intentID: UUID
+    package let id = Foundation.UUID()
+    package let intentID: Foundation.UUID
     fileprivate weak var registration: Win32CloseRegistration?
     fileprivate let lifetime: Win32CloseLifetime
-    fileprivate let registrationEpoch: UUID
+    fileprivate let registrationEpoch: Foundation.UUID
     fileprivate private(set) var isCancelled = false
-    fileprivate var consumedByAttempt: UUID?
+    fileprivate var consumedByAttempt: Foundation.UUID?
     fileprivate var latestDeferredNonce: UInt?
 
     fileprivate init(
-        intentID: UUID, registration: Win32CloseRegistration, lifetime: Win32CloseLifetime
+        intentID: Foundation.UUID, registration: Win32CloseRegistration, lifetime: Win32CloseLifetime
     ) {
         self.intentID = intentID
         self.registration = registration
@@ -199,11 +202,11 @@ package final class Win32CloseTicket {
 /// a previously required authority is a veto, never restoration of default true.
 @MainActor
 package final class Win32CloseRegistration {
-    package let id = UUID()
+    package let id = Foundation.UUID()
     fileprivate weak var control: Win32CloseControl?
     fileprivate weak var authority: (any Win32CloseAuthority)?
     fileprivate var lifetime: Win32CloseLifetime?
-    fileprivate var ticketEpoch = UUID()
+    fileprivate var ticketEpoch = Foundation.UUID()
     package private(set) var isRevoked = false
 
     fileprivate init(control: Win32CloseControl, authority: any Win32CloseAuthority) {
@@ -216,7 +219,7 @@ package final class Win32CloseRegistration {
         return control.registration === self
     }
 
-    package func makeTicket(intentID: UUID) -> Win32CloseTicket? {
+    package func makeTicket(intentID: Foundation.UUID) -> Win32CloseTicket? {
         guard isCurrent, let lifetime, lifetime.isAlive else { return nil }
         return Win32CloseTicket(intentID: intentID, registration: self, lifetime: lifetime)
     }
@@ -230,7 +233,7 @@ package final class Win32CloseRegistration {
     /// Replacing a session/participant invalidates its tickets without removing
     /// the host's required final authority or stranding the next close request.
     package func invalidateTickets() {
-        ticketEpoch = UUID()
+        ticketEpoch = Foundation.UUID()
         control?.cancelDeferredWork(registration: self)
     }
 
@@ -259,7 +262,7 @@ package final class Win32CloseRegistration {
     }
 }
 
-enum Win32CloseNativeResult: Equatable {
+package enum Win32CloseNativeResult: Equatable, Sendable {
     case succeeded
     case failed(UInt32)
 }
@@ -272,7 +275,7 @@ final class Win32CloseControl: Win32DispatchWakeClient {
         enum RetryState {
             case notAttempted
             case attempting(Win32CloseAttempt)
-            case continuation(Win32CloseAttempt, topology: UUID, handle: UInt)
+            case continuation(Win32CloseAttempt, topology: Foundation.UUID, handle: UInt)
             case retired
         }
 
@@ -302,15 +305,44 @@ final class Win32CloseControl: Win32DispatchWakeClient {
         let phase: Win32DeferredClosePhase
     }
 
+    /// Actor-owned pins survive submission, native quiescence and full native
+    /// unwind. Only the reservation value is sent to the HWND owner.
+    private final class PreparedNativeClose {
+        let reservation: Win32NativeCloseReservation
+        let lifetime: Win32CloseLifetime
+        let attempt: Win32CloseAttempt
+        let participants: [AnyObject]
+        let registration: Win32CloseRegistration?
+        let authority: (any Win32CloseAuthority)?
+        let lease: (any Win32CloseCommitLease)?
+
+        init(
+            reservation: Win32NativeCloseReservation, lifetime: Win32CloseLifetime,
+            attempt: Win32CloseAttempt, participants: [AnyObject],
+            registration: Win32CloseRegistration?, authority: (any Win32CloseAuthority)?,
+            lease: (any Win32CloseCommitLease)?
+        ) {
+            self.reservation = reservation
+            self.lifetime = lifetime
+            self.attempt = attempt
+            self.participants = participants
+            self.registration = registration
+            self.authority = authority
+            self.lease = lease
+        }
+    }
+
     private(set) var lifetime: Win32CloseLifetime?
     private(set) var registration: Win32CloseRegistration?
     private(set) var activeAttempt: Win32CloseAttempt?
     private var requiresAuthority = false
-    private var topologyIdentity = UUID()
+    private var topologyIdentity = Foundation.UUID()
     private let postWake: (@MainActor (UInt, UInt) -> Win32CloseNativeResult)?
+    private var nativePostWake: (@MainActor (UInt, UInt) -> NativeWindowSubmission)?
     private let wakeSequence: Win32CloseWakeSequence
     private var pendingWork: DeferredWork?
     private var executingWork: DeferredWork?
+    private var preparedNativeClose: PreparedNativeClose?
     private var deferredCleanupIdentities: [DeferredCleanupIdentity] = []
     var isCloseEnabled = true
 
@@ -323,6 +355,31 @@ final class Win32CloseControl: Win32DispatchWakeClient {
     }
 
     var isHandlingCloseRequest: Bool { activeAttempt != nil }
+
+    /// Installs the split owner's typed submission boundary before any work is
+    /// admitted. A logical rejection is unavailable, never an invented Win32
+    /// error. The poster retains that typed failure and revokes its registration.
+    @discardableResult
+    func installNativeDeferredWake(
+        _ post: @escaping @MainActor (UInt, UInt) -> NativeWindowSubmission
+    ) -> Bool {
+        guard activeAttempt == nil, pendingWork == nil, executingWork == nil,
+            deferredCleanupIdentities.isEmpty
+        else { return false }
+        nativePostWake = post
+        return true
+    }
+
+    private var hasDeferredWakePoster: Bool { nativePostWake != nil || postWake != nil }
+
+    private func postDeferredWake(handle: UInt, nonce: UInt) -> NativeWindowSubmission {
+        if let nativePostWake { return nativePostWake(handle, nonce) }
+        guard let postWake else { return .rejected(.unavailable) }
+        switch postWake(handle, nonce) {
+        case .succeeded: return .accepted
+        case .failed(let code): return .rejected(.postFailed(code: code))
+        }
+    }
 
     @discardableResult
     func installAuthority(_ authority: any Win32CloseAuthority) -> Win32CloseRegistration? {
@@ -345,11 +402,11 @@ final class Win32CloseControl: Win32DispatchWakeClient {
         }
     }
 
-    func noteTopologyChanged() { topologyIdentity = UUID() }
+    func noteTopologyChanged() { topologyIdentity = Foundation.UUID() }
 
     @discardableResult
-    func beginLifetime(generation: UInt64) -> Win32CloseLifetime {
-        let next = Win32CloseLifetime(generation: generation)
+    func beginLifetime(generation: UInt64, id: Foundation.UUID = Foundation.UUID()) -> Win32CloseLifetime {
+        let next = Win32CloseLifetime(generation: generation, id: id)
         if let registration {
             if registration.lifetime == nil, !registration.isRevoked {
                 registration.lifetime = next
@@ -382,6 +439,207 @@ final class Win32CloseControl: Win32DispatchWakeClient {
     }
 
     func revokeForForcedTeardown() { registration?.revoke() }
+
+    /// Evaluates and reserves on the actor without calling or waiting for the
+    /// native owner. The caller must publish its closing guard and prepare its
+    /// retained state before submitting the reservation for native teardown.
+    /// Queue acceptance is not a close outcome; only completeNativeClose may
+    /// finish the retained authority after a terminal native acknowledgement.
+    func prepareNativeClose(
+        windowKey: NativeWindowKey,
+        requestID: NativeWindowRequestID,
+        expectedHandle: UInt,
+        ticket: Win32CloseTicket?,
+        participants: [AnyObject],
+        preflight: () -> Bool
+    ) -> Win32NativeClosePreparation {
+        var selectedRetry: DeferredWork?
+        if let executingWork, executingWork.phase == .retry {
+            switch executingWork.retryState {
+            case .notAttempted:
+                if executingWork.ticket === ticket { selectedRetry = executingWork }
+            case .attempting, .continuation, .retired:
+                executingWork.retryState = .retired
+            }
+        }
+        guard activeAttempt == nil, preparedNativeClose == nil else {
+            return .completed(.busy(.closeInProgress))
+        }
+        if ticket != nil {
+            guard Win32DispatchScope.permitsTaggedClose(isOwnedRetry: selectedRetry != nil) else {
+                return .completed(.busy(.nativeDispatch))
+            }
+        }
+        guard let lifetime, lifetime.isAlive, lifetime.handle == expectedHandle,
+            lifetime.id == windowKey.lifetimeID
+        else { return .completed(.unavailable) }
+        let selectedRegistration = registration
+        let authority = selectedRegistration?.authority
+        if requiresAuthority {
+            guard let selectedRegistration, selectedRegistration.isCurrent, authority != nil,
+                selectedRegistration.lifetime === lifetime
+            else { return .completed(.unavailable) }
+        }
+        if let ticket {
+            guard ticket.isCurrent, ticket.registration === selectedRegistration,
+                ticket.lifetime === lifetime
+            else { return .completed(.unavailable) }
+        }
+
+        let attempt = Win32CloseAttempt(
+            ticket: ticket, registrationEpoch: selectedRegistration?.ticketEpoch, control: self)
+        // Allocate the value identity before user code and final validation.
+        let reservation = Win32NativeCloseReservation(
+            windowKey: windowKey, requestID: requestID, attemptID: attempt.id,
+            expectedHandle: expectedHandle)
+        let selectedTopology = topologyIdentity
+        selectedRetry?.retryState = .attempting(attempt)
+        activeAttempt = attempt
+        var keepsReservation = false
+        Win32DispatchScope.beginCloseAttempt()
+        defer {
+            if !keepsReservation { activeAttempt = nil }
+            // Native lifetime state, not this synchronous actor scope, protects
+            // the interval until the matching completion. Never span an await.
+            Win32DispatchScope.endCloseAttempt()
+        }
+
+        return withExtendedLifetime((participants, selectedRegistration, authority, lifetime, attempt)) {
+            var lease: (any Win32CloseCommitLease)?
+            let rejection: Win32CloseAttemptOutcome? = {
+                let approved = preflight()
+                if lifetime.destructionCompleted { return .closed }
+                if attempt.isUnavailable { return .unavailable }
+                guard approved else {
+                    if let reason = attempt.busyReason { return .busy(reason) }
+                    return .vetoed
+                }
+                guard
+                    isCurrent(
+                        lifetime: lifetime, handle: expectedHandle, registration: selectedRegistration,
+                        topology: selectedTopology, attempt: attempt)
+                else { return .unavailable }
+                guard isCloseEnabled else { return .vetoed }
+
+                if let authority {
+                    let preparation = authority.prepareCloseCommit(for: attempt)
+                    if case .ready(let prepared) = preparation { lease = prepared }
+                    if lifetime.destructionCompleted { return .closed }
+                    if attempt.isUnavailable { return .unavailable }
+                    switch preparation {
+                    case .ready: break
+                    case .vetoed: return .vetoed
+                    case .busy(let reason): return .busy(reason)
+                    case .unavailable: return .unavailable
+                    }
+                }
+
+                guard
+                    isCurrent(
+                        lifetime: lifetime, handle: expectedHandle, registration: selectedRegistration,
+                        topology: selectedTopology, attempt: attempt)
+                else { return .unavailable }
+                guard isCloseEnabled else { return .vetoed }
+                if let lease {
+                    let decision = lease.validateAndReserve()
+                    if lifetime.destructionCompleted { return .closed }
+                    if attempt.isUnavailable { return .unavailable }
+                    switch decision {
+                    case .reserved: break
+                    case .vetoed: return .vetoed
+                    case .busy(let reason): return .busy(reason)
+                    case .unavailable: return .unavailable
+                    }
+                }
+                ticket?.consumedByAttempt = attempt.id
+                guard
+                    isCurrent(
+                        lifetime: lifetime, handle: expectedHandle, registration: selectedRegistration,
+                        topology: selectedTopology, attempt: attempt)
+                else { return .unavailable }
+                guard isCloseEnabled else { return .vetoed }
+                return nil
+            }()
+
+            if let outcome = rejection {
+                if case .busy = outcome {
+                    // A busy evaluation has not consumed its deferred ticket.
+                } else {
+                    ticket?.consumedByAttempt = attempt.id
+                }
+                lease?.finish(with: outcome)
+                if let selectedRetry, executingWork === selectedRetry,
+                    case .attempting(let selectedAttempt) = selectedRetry.retryState,
+                    selectedAttempt === attempt
+                {
+                    if outcome == .busy(.buildsNotSettled), let ticket, ticket.isCurrent,
+                        ticket.latestDeferredNonce == selectedRetry.nonce,
+                        isCurrent(
+                            lifetime: lifetime, handle: expectedHandle, registration: selectedRegistration,
+                            topology: selectedTopology, attempt: attempt)
+                    {
+                        selectedRetry.retryState = .continuation(
+                            attempt, topology: selectedTopology, handle: expectedHandle)
+                    } else {
+                        selectedRetry.retryState = .retired
+                    }
+                }
+                return withExtendedLifetime(lease) { .completed(outcome) }
+            }
+
+            preparedNativeClose = PreparedNativeClose(
+                reservation: reservation, lifetime: lifetime, attempt: attempt,
+                participants: participants, registration: selectedRegistration,
+                authority: authority, lease: lease)
+            keepsReservation = true
+            selectedRetry?.retryState = .retired
+            return .reserved(reservation)
+        }
+    }
+
+    /// Returns nil for a duplicate/mismatched reply or an acknowledgement that
+    /// has not unwound native dispatch. A completed old lifetime never mutates
+    /// a newer lifetime, even if its HWND value has been reused.
+    func completeNativeClose(
+        _ reservation: Win32NativeCloseReservation,
+        result: Result<Win32NativeCloseDestruction, NativeWindowOwnerFailure>
+    ) -> Win32CloseAttemptOutcome? {
+        guard let prepared = preparedNativeClose, prepared.reservation == reservation,
+            activeAttempt === prepared.attempt
+        else { return nil }
+        if case .success(let destruction) = result, !destruction.didUnwindNativeDispatch {
+            return nil
+        }
+
+        return Win32DispatchScope.withMailboxWork {
+            preparedNativeClose = nil
+            Win32DispatchScope.beginCloseAttempt()
+            defer {
+                if activeAttempt === prepared.attempt { activeAttempt = nil }
+                Win32DispatchScope.endCloseAttempt()
+            }
+            let outcome: Win32CloseAttemptOutcome
+            switch result {
+            case .failure(let failure):
+                outcome = .destructionFailed(.owner(failure))
+            case .success(let destruction):
+                if destruction.didObserveNonClientDestruction {
+                    beginDestruction(prepared.lifetime)
+                    completeDestruction(prepared.lifetime)
+                    outcome = .closed
+                } else {
+                    switch destruction.nativeResult {
+                    case .failed(let code): outcome = .destructionFailed(.native(code))
+                    case .succeeded: outcome = .destructionFailed(.destructionNotObserved)
+                    }
+                }
+            }
+            // Publish removal before finish can reenter. The local record pins
+            // every owner through finish and synchronous cleanup, exactly once.
+            prepared.lease?.finish(with: outcome)
+            return withExtendedLifetime(prepared) { outcome }
+        }
+    }
 
     func attemptClose(
         expectedHandle: UInt,
@@ -567,7 +825,7 @@ final class Win32CloseControl: Win32DispatchWakeClient {
         action: @escaping @MainActor (Win32CloseTicket) -> Void
     ) -> Win32DeferredCloseSubmission {
         Win32DispatchScope.withMailboxWork {
-            guard let postWake, let registration, let authority = registration.authority,
+            guard hasDeferredWakePoster, let registration, let authority = registration.authority,
                 ticket.isCurrent, ticket.registration === registration,
                 ticket.lifetime === lifetime, let handle = ticket.lifetime.handle
             else { return .unavailable }
@@ -623,21 +881,25 @@ final class Win32CloseControl: Win32DispatchWakeClient {
                     return .queued
                 }
                 work.hasOutstandingWake = true
-                let result = postWake(handle, nonce)
+                let result = postDeferredWake(handle: handle, nonce: nonce)
                 guard pendingWork === work, isCurrent(work) else {
                     if pendingWork === work { pendingWork = nil }
                     work.hasOutstandingWake = false
                     return .unavailable
                 }
                 switch result {
-                case .succeeded:
+                case .accepted:
                     return .queued
-                case .failed(let code):
+                case .rejected(.postFailed(let code)):
                     pendingWork = nil
                     work.hasOutstandingWake = false
                     // The synchronous caller owns this failure; notifying its
                     // observer too would deliver the same failure twice.
                     return .postFailed(code)
+                case .rejected:
+                    pendingWork = nil
+                    work.hasOutstandingWake = false
+                    return .unavailable
                 }
             }
         }
@@ -662,6 +924,38 @@ final class Win32CloseControl: Win32DispatchWakeClient {
                 }
             }
             receiveDeferredWakeWithOwners(nonce: nonce, canDeliver: canDeliver)
+        }
+    }
+
+    /// An accepted owner command can later fail its real native PostMessage.
+    /// Retire only that exact outstanding record. Callback captures and promoted
+    /// owners finish releasing before the outer cleanup identity is removed.
+    func failDeferredWake(nonce: UInt, code: UInt32) {
+        Win32DispatchScope.withMailboxWork {
+            guard pendingWork?.nonce == nonce, pendingWork?.hasOutstandingWake == true,
+                let ticket = pendingWork?.ticket, let phase = pendingWork?.phase
+            else { return }
+            deferredCleanupIdentities.append(DeferredCleanupIdentity(ticket: ticket, phase: phase))
+            defer {
+                deferredCleanupIdentities.removeLast()
+                if let pendingWork, !pendingWork.hasOutstandingWake {
+                    Win32DispatchScope.requestWakeWhenIdle(self)
+                }
+            }
+            failDeferredWakeWithOwners(nonce: nonce, code: code)
+        }
+    }
+
+    private func failDeferredWakeWithOwners(nonce: UInt, code: UInt32) {
+        guard let work = pendingWork, work.nonce == nonce, work.hasOutstandingWake else { return }
+        let selectedRegistration = registration
+        let authority = selectedRegistration?.authority
+        pendingWork = nil
+        work.hasOutstandingWake = false
+        withExtendedLifetime((work, selectedRegistration, authority)) {
+            if isCurrent(work), work.ticket.latestDeferredNonce == nonce {
+                work.onPostFailure(work.ticket, code)
+            }
         }
     }
 
@@ -704,24 +998,28 @@ final class Win32CloseControl: Win32DispatchWakeClient {
         guard let work = pendingWork, !work.hasOutstandingWake else { return nil }
         let selectedRegistration = registration
         let authority = selectedRegistration?.authority
-        guard let postWake, authority != nil, isCurrent(work), let handle = work.ticket.lifetime.handle else {
+        guard hasDeferredWakePoster, authority != nil, isCurrent(work), let handle = work.ticket.lifetime.handle else {
             pendingWork = nil
             return retirement(of: work, registration: selectedRegistration, authority: authority)
         }
         work.hasOutstandingWake = true
-        let result = postWake(handle, work.nonce)
+        let result = postDeferredWake(handle: handle, nonce: work.nonce)
         guard pendingWork === work, isCurrent(work) else {
             if pendingWork === work { pendingWork = nil }
             work.hasOutstandingWake = false
             return retirement(of: work, registration: selectedRegistration, authority: authority)
         }
         switch result {
-        case .succeeded:
+        case .accepted:
             return retirement(of: work, registration: selectedRegistration, authority: authority)
-        case .failed(let code):
+        case .rejected(.postFailed(let code)):
             pendingWork = nil
             work.hasOutstandingWake = false
             return retirement(of: work, registration: selectedRegistration, authority: authority, failure: code)
+        case .rejected:
+            pendingWork = nil
+            work.hasOutstandingWake = false
+            return retirement(of: work, registration: selectedRegistration, authority: authority)
         }
     }
 
@@ -752,7 +1050,7 @@ final class Win32CloseControl: Win32DispatchWakeClient {
         lifetime: Win32CloseLifetime,
         handle: UInt,
         registration selectedRegistration: Win32CloseRegistration?,
-        topology: UUID,
+        topology: Foundation.UUID,
         attempt: Win32CloseAttempt
     ) -> Bool {
         guard self.lifetime === lifetime, lifetime.isAlive, lifetime.handle == handle,

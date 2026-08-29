@@ -133,7 +133,6 @@ float4 psMain(VSOutput input) : SV_Target {
 }
 """#
 
-@MainActor
 public struct GlyphPipelineResources: Sendable {
     public static let vertexShaderSource: String = glyphShaderSource
     public static let vertexShaderEntryPoint = "vsMain"
@@ -143,7 +142,6 @@ public struct GlyphPipelineResources: Sendable {
 public enum GlyphPipeline {
     /// Validates that glyph shaders compile successfully.
     /// Called from unit tests to verify shader correctness without a GPU device.
-    @MainActor
     public static func validateShadersForTesting() throws {
         var vertexShaderBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
             source: glyphShaderSource, entryPoint: "vsMain", profile: "vs_5_0"

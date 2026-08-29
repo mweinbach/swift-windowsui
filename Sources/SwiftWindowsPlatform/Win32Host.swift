@@ -4,6 +4,192 @@ import SwiftWindowsCore
 import Synchronization
 import WinSDK
 
+/// The caller's timer preference. A successful application may still use the
+/// native owner's existing modal or unavailable-high-resolution fallback.
+struct Win32NativeTimerPolicy: Equatable, Sendable {
+    let enabled: Bool
+    let intervalMilliseconds: UInt32
+    let highResolution: Bool
+
+    init(enabled: Bool, intervalMilliseconds: UInt32, highResolution: Bool) {
+        self.enabled = enabled
+        self.intervalMilliseconds = max(1, intervalMilliseconds)
+        self.highResolution = highResolution
+    }
+}
+
+struct Win32NativeTimerPolicyRequest: Equatable, Sendable {
+    let requestID: NativeWindowRequestID
+    let windowKey: NativeWindowKey
+    let capturedSurfaceGeneration: UInt64
+    let policy: Win32NativeTimerPolicy
+}
+
+struct Win32NativeTimerPolicyReceipt: Equatable, Sendable {
+    let request: Win32NativeTimerPolicyRequest
+    let appliedSurfaceGeneration: UInt64
+}
+
+/// Keeps only the latest unsent preference and one admitted native request.
+/// Neither admission nor a missing surface establishes an applied policy.
+@MainActor
+final class Win32NativeTimerPolicyCoordinator {
+    typealias Completion = @MainActor (Result<Win32NativeTimerPolicyReceipt, NativeWindowOwnerFailure>) -> Void
+
+    private(set) var desiredPolicy: Win32NativeTimerPolicy?
+    private(set) var inFlightRequest: Win32NativeTimerPolicyRequest?
+    private(set) var lastSuccessfulReceipt: Win32NativeTimerPolicyReceipt?
+    private(set) var lastFailure: NativeWindowOwnerFailure?
+    private var windowKey: NativeWindowKey?
+    private var surfaceGeneration: UInt64?
+    private var commandSink: (any NativeWindowCommandSink)?
+    private var isRevoked = false
+    private let onCompletion: Completion
+
+    init(onCompletion: @escaping Completion = { _ in }) {
+        self.onCompletion = onCompletion
+    }
+
+    var appliedPolicy: Win32NativeTimerPolicy? {
+        guard let windowKey, let surfaceGeneration, let receipt = lastSuccessfulReceipt,
+            receipt.request.windowKey == windowKey,
+            receipt.appliedSurfaceGeneration == surfaceGeneration
+        else { return nil }
+        return receipt.request.policy
+    }
+
+    /// Precreation requests remain desired values. Binding a lifetime alone
+    /// cannot send them: only adoption of its real surface admits a command.
+    func bind(windowKey: NativeWindowKey, commandSink: any NativeWindowCommandSink) {
+        self.windowKey = windowKey
+        self.commandSink = commandSink
+        surfaceGeneration = nil
+        inFlightRequest = nil
+        lastSuccessfulReceipt = nil
+        lastFailure = nil
+        isRevoked = false
+    }
+
+    /// Repeated declarations do not retry a failed application. A changed
+    /// policy or adoption of a new surface can admit another request.
+    func setDesired(_ policy: Win32NativeTimerPolicy) {
+        guard !isRevoked, desiredPolicy != policy else { return }
+        desiredPolicy = policy
+        submitLatestIfNeeded()
+    }
+
+    func observeSurface(_ surface: NativeWindowSurface?) {
+        guard !isRevoked, let windowKey else { return }
+        if let surface, surface.key != windowKey { return }
+        let generation = surface?.generation
+        // Normal ticks and input events change geometry sequence/revision,
+        // not this scope. They must not retry a previously failed request.
+        guard generation != surfaceGeneration else { return }
+        surfaceGeneration = generation
+        submitLatestIfNeeded()
+    }
+
+    func revoke() {
+        isRevoked = true
+        windowKey = nil
+        surfaceGeneration = nil
+        desiredPolicy = nil
+        inFlightRequest = nil
+        lastSuccessfulReceipt = nil
+        commandSink = nil
+    }
+
+    private func submitLatestIfNeeded() {
+        guard !isRevoked, inFlightRequest == nil,
+            let windowKey, let surfaceGeneration, let commandSink, let desiredPolicy
+        else { return }
+        if let receipt = lastSuccessfulReceipt,
+            receipt.request.windowKey == windowKey, receipt.request.policy == desiredPolicy
+        {
+            // A native result can precede the actor's newer geometry event.
+            // Keep its truthful receipt, but do not call it applied to an old
+            // actor surface or repost the same policy while waiting for it.
+            if receipt.appliedSurfaceGeneration >= surfaceGeneration { return }
+            // An older reply can require one reapplication after the actor
+            // advances. An attempt already made for this actor generation
+            // must not become a success-to-resubmit loop on another old reply.
+            if receipt.request.capturedSurfaceGeneration >= surfaceGeneration { return }
+        }
+        let request = Win32NativeTimerPolicyRequest(
+            requestID: NativeWindowRequestID(), windowKey: windowKey,
+            capturedSurfaceGeneration: surfaceGeneration, policy: desiredPolicy)
+        inFlightRequest = request
+        let reply = NativeWindowReply<Win32NativeTimerPolicyReceipt> { [weak self] result in
+            Task { @MainActor [weak self] in self?.receive(request, result: result) }
+        }
+        // The reservation is visible before submit: rejection may complete
+        // inline, but its actor delivery still consumes this exact request.
+        _ = commandSink.submit(Win32NativeTimerPolicyCommand(request: request, reply: reply))
+    }
+
+    func receive(
+        _ request: Win32NativeTimerPolicyRequest,
+        result: Result<Win32NativeTimerPolicyReceipt, NativeWindowOwnerFailure>
+    ) {
+        guard !isRevoked, windowKey == request.windowKey, inFlightRequest == request else { return }
+        inFlightRequest = nil
+        switch result {
+        case .success(let receipt):
+            guard receipt.request == request else {
+                finishFailure(.execution("Native timer reply does not match its admitted policy request"))
+                return
+            }
+            lastSuccessfulReceipt = receipt
+            submitLatestIfNeeded()
+            onCompletion(.success(receipt))
+        case .failure(let failure):
+            finishFailure(failure)
+        }
+    }
+
+    private func finishFailure(_ failure: NativeWindowOwnerFailure) {
+        // The owner can replace/stop the old timer before a later native call
+        // fails. Its previous success no longer establishes the current state.
+        lastSuccessfulReceipt = nil
+        lastFailure = failure
+        // State is settled before this callout can reenter or bind a new
+        // lifetime. Failure itself never schedules an automatic retry.
+        onCompletion(.failure(failure))
+    }
+}
+
+struct Win32NativeTimerPolicyCommand: NativeWindowOwnerCommand {
+    let request: Win32NativeTimerPolicyRequest
+    let reply: NativeWindowReply<Win32NativeTimerPolicyReceipt>
+    var commandReply: NativeWindowCommandReply { reply.commandReply }
+    var windowKey: NativeWindowKey { request.windowKey }
+    var requestID: NativeWindowRequestID { request.requestID }
+    // A timer is not geometric. A queued policy remains valid across resize;
+    // the actual native generation qualifies the returned cache evidence.
+    var expectedSurfaceGeneration: UInt64? { nil }
+
+    func execute(in context: any NativeWindowOwnerContext) throws {
+        guard context.surface.key == request.windowKey else { throw NativeWindowOwnerFailure.staleWindow }
+        guard let native = context as? Win32NativeWindowState else {
+            throw NativeWindowOwnerFailure.execution("Native timer policy requires its window owner context")
+        }
+        guard
+            case .completed = try native.executeOperation(
+                .animationTimer(
+                    enabled: request.policy.enabled, interval: request.policy.intervalMilliseconds,
+                    highResolution: request.policy.highResolution))
+        else {
+            throw NativeWindowOwnerFailure.execution("Native timer policy returned a different operation result")
+        }
+        reply.complete(
+            .success(
+                Win32NativeTimerPolicyReceipt(
+                    request: request, appliedSurfaceGeneration: context.surface.generation)))
+    }
+
+    func reject(_ failure: NativeWindowOwnerFailure) { reply.complete(.failure(failure)) }
+}
+
 /// Callback context for the high-resolution animation timer.
 ///
 /// `CreateTimerQueueTimer` fires on an arbitrary thread-pool thread while the
@@ -558,6 +744,38 @@ public struct Win32PlatformError: Error, CustomStringConvertible, Sendable {
 }
 @MainActor
 public final class Win32Window: PlatformWindow {
+    // The production owner is deliberately separate from this actor facade.
+    // A legacy window keeps the original HWND path and all headless seams.
+    private var nativePump: Win32NativePump?
+    private var nativeIngress: Win32NativeEventIngress?
+    private var nativePublishedSource: Win32NativeSnapshotSource?
+    private var nativeLifetimeKey: NativeWindowKey?
+    private var nativeReceivedSequence: UInt64 = 0
+    private var nativeStartInProgress = false
+    private var nativeCloseInProgress = false
+    private var nativeClosePrepared = false
+    private var hasObservedNativeDestruction = false
+    private var hasDeliveredNativeTerminalClose = false
+    private var nativeObservation: Win32NativeWindowObservation?
+    private var nativeCreatedSurface: NativeWindowSurface?
+    private var lastSubmittedNativeCaret: Rect?
+    private var lastSubmittedNativeCaretGeneration: UInt64?
+    private(set) lazy var nativeAnimationTimerPolicy = Win32NativeTimerPolicyCoordinator { [weak self] result in
+        guard case .failure(let failure) = result else { return }
+        self?.recordNativeFailure(failure)
+    }
+    package private(set) var lastNativeOwnerFailure: NativeWindowOwnerFailure?
+    package var onNativeCloseRequested: (@MainActor (NativeWindowSurface) -> Void)?
+    package var onNativeClosePrepared: (@MainActor (Win32NativeCloseReservation) -> Void)?
+    package var onNativeStartupDiscardPrepared: (@MainActor () -> Void)?
+    package var onNativeOwnerFailure: (@MainActor (NativeWindowOwnerFailure) -> Void)?
+    package var onNativeCaretRectRequested: (@MainActor (UInt64, UInt64) -> Rect?)?
+
+    package var usesNativeOwner: Bool { nativePump != nil }
+    package var nativeCommandSink: (any NativeWindowCommandSink)? { nativePump }
+    package var nativeSnapshotSource: (any NativeWindowSnapshotSource)? { nativePublishedSource }
+    package var nativeWindowKey: NativeWindowKey? { nativeLifetimeKey }
+    package var nativeSurface: NativeWindowSurface? { nativeObservation?.surface ?? nativeCreatedSurface }
     public weak var delegate: WindowDelegate? {
         didSet {
             if oldValue !== delegate { closeControl.noteTopologyChanged() }
@@ -761,6 +979,7 @@ public final class Win32Window: PlatformWindow {
     }
 
     public var nativeHandle: NativeWindowHandle? {
+        if usesNativeOwner { return nativeSurface?.descriptor.windowHandle }
         let rawHandle: UnsafeMutableRawPointer? = unsafeBitCast(hwnd, to: UnsafeMutableRawPointer?.self)
         return NativeWindowHandle(rawPointer: rawHandle)
     }
@@ -805,6 +1024,7 @@ public final class Win32Window: PlatformWindow {
     }
 
     public var scaleFactor: Double {
+        if usesNativeOwner { return nativeSurface?.geometry.scaleFactor ?? 1 }
         if let testScaleFactorOverride {
             return testScaleFactorOverride
         }
@@ -854,6 +1074,7 @@ public final class Win32Window: PlatformWindow {
     /// driver round-trip per message on the UI thread, inside the modal move
     /// loop.
     public var monitorRefreshRate: UINT {
+        if usesNativeOwner { return nativeSurface?.geometry.monitorRefreshRate ?? cachedRefreshRate }
         guard refreshRateDirty else {
             return cachedRefreshRate
         }
@@ -875,6 +1096,7 @@ public final class Win32Window: PlatformWindow {
     /// scale, reduce motion). Sampled lazily on first access and re-sampled
     /// after `WM_SETTINGCHANGE` / `WM_SYSCOLORCHANGE`.
     public var systemAppearance: SystemAppearanceSnapshot {
+        if usesNativeOwner { return nativeObservation?.systemAppearance ?? .unavailable }
         if let cachedSystemAppearance {
             return cachedSystemAppearance
         }
@@ -1126,7 +1348,363 @@ public final class Win32Window: PlatformWindow {
         return UInt(bitPattern: MonitorFromWindow(hwnd, DWORD(MONITOR_DEFAULTTONEAREST)))
     }
 
+    /// Creates a hidden HWND on the native owner. Host installation and native
+    /// presenter attachment happen before the coordinator explicitly activates
+    /// it, so initial input cannot reach legacy dialog or presentation hooks.
+    package func startNative(on pump: Win32NativePump) async throws -> NativeWindowSurface {
+        if let surface = nativeSurface { return surface }
+        guard hwnd == nil, !ownsRetainedSelfReference, !nativeStartInProgress, !nativeCloseInProgress else {
+            throw NativeWindowOwnerFailure.execution("Window is already creating or closing")
+        }
+        nativeStartInProgress = true
+        defer { nativeStartInProgress = false }
+        nativePump = pump
+        hasDeliveredWillClose = false
+        nativeClosePrepared = false
+        hasObservedNativeDestruction = false
+        hasDeliveredNativeTerminalClose = false
+        nativeReceivedSequence = 0
+        nativeObservation = nil
+        nativeCreatedSurface = nil
+        lastSubmittedNativeCaret = nil
+        lastSubmittedNativeCaretGeneration = nil
+        windowLifetimeGeneration &+= 1
+        let key = NativeWindowKey(windowID: pointerInputIdentity)
+        nativeLifetimeKey = key
+        nativeAnimationTimerPolicy.bind(windowKey: key, commandSink: pump)
+        let lifetime = closeControl.beginLifetime(generation: windowLifetimeGeneration, id: key.lifetimeID)
+        let published = Win32NativeSnapshotSource()
+        nativePublishedSource = published
+        let ingress = Win32NativeEventIngress(
+            receiveFailure: { [weak self] terminal in
+                guard let self, self.nativeLifetimeKey == terminal.windowKey else { return }
+                // A reserved failure is independent of the record queue and
+                // never masquerades as a delivered native input sequence.
+                self.recordNativeFailure(terminal.failure)
+            },
+            receive: { [weak self] record in self?.receiveNativeEvent(record) })
+        nativeIngress = ingress
+        let caretQuery = Win32NativeCaretQuery { [weak self] captured in
+            guard let self, self.nativeLifetimeKey == captured.key, !self.nativeClosePrepared,
+                !self.hasDeliveredWillClose
+            else { return .failure(.closed) }
+            switch self.flushNativeEvents(through: captured.geometry.nativeSequence) {
+            case .failure(let failure): return .failure(failure)
+            case .success: break
+            }
+            guard self.nativeLifetimeKey == captured.key, !self.nativeClosePrepared,
+                self.nativeSurface?.generation == captured.generation
+            else { return .failure(.staleWindow) }
+            if let query = self.onNativeCaretRectRequested {
+                return .success(query(captured.geometry.nativeSequence, captured.generation))
+            }
+            return .success(self.delegate?.windowTextInputCaretRect(self))
+        }
+        guard
+            closeControl.installNativeDeferredWake({ [weak self] handle, nonce in
+                self?.submitNativeDeferredWake(handle: handle, nonce: nonce) ?? .rejected(.unavailable)
+            })
+        else {
+            closeControl.creationFailed(lifetime)
+            throw NativeWindowOwnerFailure.execution(
+                "Cannot install native deferred-close delivery during active close work")
+        }
+        do {
+            try await pump.start()
+            let created: NativeWindowSurface = try await withCheckedThrowingContinuation { continuation in
+                let reply = NativeWindowReply<NativeWindowSurface> { result in
+                    continuation.resume(with: result.mapError { $0 as any Error })
+                }
+                pump.createWindow(
+                    Win32NativeWindowCreation(
+                        key: key, title: title, logicalClientSize: requestedLogicalClientSize,
+                        titleBarVisibility: titleBarVisibility, configuration: configuration,
+                        ingress: ingress, snapshotSource: published, caretQuery: caretQuery, reply: reply))
+            }
+            guard nativeLifetimeKey == key else { throw NativeWindowOwnerFailure.staleWindow }
+            nativeCreatedSurface = created
+            try flushNativeEvents(through: created.geometry.nativeSequence).get()
+            // The retained host can set this before any HWND exists. Replay
+            // its copied policy even when the ordinary setter coalesces an
+            // unchanged value; this command precedes explicit activation.
+            submitNativeOperation(.closeButton(isCloseButtonEnabled))
+            nativeAnimationTimerPolicy.observeSurface(nativeSurface)
+            return nativeSurface ?? created
+        } catch {
+            if nativeCreatedSurface == nil { closeControl.creationFailed(lifetime) }
+            let failure = error as? NativeWindowOwnerFailure ?? .execution(String(describing: error))
+            recordNativeFailure(failure)
+            throw error
+        }
+    }
+
+    package func activateNative() async throws -> Bool {
+        let result = try await performNativeOperation(.activate)
+        guard case .activated(let didActivate) = result else {
+            throw NativeWindowOwnerFailure.execution("Activation completed without its native result")
+        }
+        return didActivate
+    }
+
+    @discardableResult
+    package func flushNativeEvents(through sequence: UInt64) -> Result<Void, NativeWindowOwnerFailure> {
+        guard let nativeIngress else { return .failure(.unavailable) }
+        return nativeIngress.flush(through: sequence)
+    }
+
+    package func updateNativeCaretRect(_ rect: Rect?, forSurfaceGeneration generation: UInt64) {
+        guard usesNativeOwner, !nativeClosePrepared,
+            lastSubmittedNativeCaret != rect || lastSubmittedNativeCaretGeneration != generation
+        else { return }
+        lastSubmittedNativeCaret = rect
+        lastSubmittedNativeCaretGeneration = generation
+        submitNativeOperation(.caret(rect, generation: generation))
+    }
+
+    package func closeNative(ticket: Win32CloseTicket? = nil) async -> Win32CloseAttemptOutcome {
+        guard let nativePump, let key = nativeLifetimeKey, let handle = nativeHandle?.rawValue,
+            !hasDeliveredWillClose
+        else { return .unavailable }
+        guard !nativeCloseInProgress else { return .busy(.closeInProgress) }
+        nativeCloseInProgress = true
+        defer {
+            nativeCloseInProgress = false
+            deliverNativeTerminalCloseIfReady()
+        }
+        var participants: [AnyObject] = [self]
+        if let delegate {
+            participants.append(delegate)
+            if let adapter = delegate as? Win32PlatformWindowHostAdapter {
+                if let downstream = adapter.downstream { participants.append(downstream) }
+                if let host = adapter.host { participants.append(host) }
+            }
+        }
+        let preparation = closeControl.prepareNativeClose(
+            windowKey: key, requestID: NativeWindowRequestID(), expectedHandle: handle, ticket: ticket,
+            participants: participants, preflight: { self.delegate?.windowShouldClose(self) ?? true })
+        switch preparation {
+        case .completed(let outcome): return outcome
+        case .reserved(let reservation):
+            nativeClosePrepared = true
+            nativeAnimationTimerPolicy.revoke()
+            onNativeClosePrepared?(reservation)
+            let result: Result<Win32NativeCloseDestruction, NativeWindowOwnerFailure> = await withCheckedContinuation {
+                continuation in
+                nativePump.completeClose(reservation, reply: NativeWindowReply { continuation.resume(returning: $0) })
+            }
+            if case .failure(let failure) = result { recordNativeFailure(failure) }
+            let outcome =
+                closeControl.completeNativeClose(reservation, result: result)
+                ?? .destructionFailed(
+                    .owner(.execution("Native close acknowledgement did not finish the reserved actor attempt")))
+            _ = nativeIngress?.flush()
+            return outcome
+        }
+    }
+
+    package func discardNativeFailedStartup() async throws {
+        guard let nativePump, let key = nativeLifetimeKey else { return }
+        guard !nativeCloseInProgress else { throw NativeWindowOwnerFailure.closing }
+        nativeCloseInProgress = true
+        defer {
+            nativeCloseInProgress = false
+            deliverNativeTerminalCloseIfReady()
+        }
+        nativeClosePrepared = true
+        nativeAnimationTimerPolicy.revoke()
+        closeControl.revokeForForcedTeardown()
+        onNativeStartupDiscardPrepared?()
+        let result: Result<Win32NativeCloseDestruction, NativeWindowOwnerFailure> = await withCheckedContinuation {
+            continuation in
+            nativePump.discardWindow(key: key, reply: NativeWindowReply { continuation.resume(returning: $0) })
+        }
+        let destruction = try result.get()
+        guard destruction.didObserveNonClientDestruction, destruction.didUnwindNativeDispatch else {
+            if case .failed(let code) = destruction.nativeResult {
+                throw NativeWindowOwnerFailure.native(operation: "DestroyWindow(startup rollback)", code: Int64(code))
+            }
+            throw NativeWindowOwnerFailure.execution("Startup rollback has not observed native destruction and unwind")
+        }
+        _ = nativeIngress?.flush()
+    }
+
+    private func performNativeOperation(_ operation: Win32NativeWindowOperation) async throws
+        -> Win32NativeWindowOperationResult
+    {
+        guard let nativePump, let key = nativeLifetimeKey, !hasDeliveredWillClose else {
+            throw NativeWindowOwnerFailure.unavailable
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            nativePump.submit(
+                Win32NativeWindowOperationCommand(
+                    windowKey: key, operation: operation,
+                    reply: NativeWindowReply { result in
+                        continuation.resume(with: result.mapError { $0 as any Error })
+                    }))
+        }
+    }
+
+    private func submitNativeOperation(_ operation: Win32NativeWindowOperation) {
+        guard let nativePump, let key = nativeLifetimeKey, nativeSurface != nil,
+            !hasDeliveredWillClose, !nativeClosePrepared
+        else { return }
+        nativePump.submit(
+            Win32NativeWindowOperationCommand(
+                windowKey: key, operation: operation,
+                reply: NativeWindowReply { [weak self] result in
+                    guard case .failure(let failure) = result else { return }
+                    Task { @MainActor [weak self] in
+                        guard let self, self.nativeLifetimeKey == key else { return }
+                        if self.nativeClosePrepared || self.hasDeliveredWillClose {
+                            switch failure {
+                            case .closing, .closed, .staleWindow, .ownerStopped:
+                                self.lastNativeOwnerFailure = failure
+                                return
+                            default: break
+                            }
+                        }
+                        self.recordNativeFailure(failure)
+                    }
+                }))
+    }
+
+    private func submitNativeDeferredWake(handle: UInt, nonce: UInt) -> NativeWindowSubmission {
+        guard let nativePump, let key = nativeLifetimeKey, nativeHandle?.rawValue == handle else {
+            closeControl.revokeForForcedTeardown()
+            recordNativeFailure(.staleWindow)
+            return .rejected(.staleWindow)
+        }
+        let submission = nativePump.submit(
+            Win32NativeWindowOperationCommand(
+                windowKey: key, operation: .deferredCloseWake(nonce),
+                reply: NativeWindowReply { [weak self] result in
+                    guard case .failure(let failure) = result else { return }
+                    Task { @MainActor [weak self] in
+                        guard let self, self.nativeLifetimeKey == key else { return }
+                        self.recordNativeFailure(failure)
+                        if case .postFailed(let code) = failure {
+                            self.closeControl.failDeferredWake(nonce: nonce, code: code)
+                        } else {
+                            self.closeControl.revokeForForcedTeardown()
+                        }
+                    }
+                }))
+        if case .rejected(let failure) = submission {
+            recordNativeFailure(failure)
+            if case .postFailed = failure {} else { closeControl.revokeForForcedTeardown() }
+        }
+        return submission
+    }
+
+    private func recordNativeFailure(_ failure: NativeWindowOwnerFailure) {
+        lastNativeOwnerFailure = failure
+        onNativeOwnerFailure?(failure)
+    }
+
+    private func deliverNativeTerminalCloseIfReady() {
+        guard hasObservedNativeDestruction, !nativeCloseInProgress, !hasDeliveredNativeTerminalClose else { return }
+        hasDeliveredNativeTerminalClose = true
+        delegate?.windowWillClose(self)
+    }
+
+    private func receiveNativeEvent(_ record: Win32NativeWindowEventRecord) {
+        let surface = record.observation.surface
+        guard surface.key == nativeLifetimeKey,
+            surface.geometry.nativeSequence > nativeReceivedSequence
+        else { return }
+        nativeReceivedSequence = surface.geometry.nativeSequence
+        if hasDeliveredWillClose { return }
+        nativeObservation = record.observation
+        nativeCreatedSurface = surface
+        clientSize = surface.geometry.clientSize
+        isMinimized = surface.geometry.isMinimized
+        isFullscreen = record.observation.isFullscreen
+        if nativeClosePrepared {
+            switch record.event {
+            case .destroyed, .ownerFailure: break
+            default: return
+            }
+        }
+        switch record.event {
+        case .destroyed, .ownerFailure: break
+        default: nativeAnimationTimerPolicy.observeSurface(surface)
+        }
+        switch record.event {
+        case .created:
+            if let lifetime = closeControl.lifetime, lifetime.id == surface.key.lifetimeID,
+                let handle = surface.descriptor.windowHandle?.rawValue
+            {
+                closeControl.didCreate(lifetime, handle: handle)
+            }
+            delegate?.windowDidCreate(self)
+        case .geometryChanged: delegate?.windowDidChangeDisplay(self)
+        case .resized: delegate?.window(self, didResizeTo: surface.geometry.clientSize)
+        case .needsDisplay: delegate?.windowNeedsDisplay(self)
+        case .animationFrame(let timestamp): delegate?.window(self, animationFrameAt: timestamp)
+        case .pointer(let kind, let point):
+            guard permitsPointerInput(lifetimeID: surface.key.lifetimeID), capturedPointerInputSequence < UInt64.max
+            else { return }
+            capturedPointerInputSequence += 1
+            deliverCapturedPointerInput(
+                Win32CapturedPointerInput(
+                    kind: kind, point: point, scaleFactor: surface.geometry.effectiveScaleFactor,
+                    windowIdentity: pointerInputIdentity, lifetimeID: surface.key.lifetimeID,
+                    sequence: capturedPointerInputSequence))
+        case .pointerExited: delegate?.windowPointerDidLeave(self)
+        case .pointerCancelled: delegate?.windowDidCancelPointerInteraction(self)
+        case .scroll(let point, let delta, let axis):
+            if axis == .horizontal {
+                delegate?.window(self, horizontalScrollAt: point, delta: delta, source: .systemManaged)
+            } else {
+                delegate?.window(self, mouseWheelAt: point, delta: delta, source: .systemManaged)
+            }
+        case .rightClick(let event): delegate?.windowDidReceiveRightClick(self, event: event)
+        case .doubleClick(let event): delegate?.windowDidReceiveDoubleClick(self, event: event)
+        case .middleButton(let point, let phase):
+            if phase == .down {
+                delegate?.window(self, middleMouseDownAt: point)
+            } else {
+                delegate?.window(self, middleMouseUpAt: point)
+            }
+        case .keyDown(let event): delegate?.window(self, keyDown: event)
+        case .textInput(let text): delegate?.window(self, didInputText: text)
+        case .keyboardFocusLost: delegate?.windowDidLoseKeyboardFocus(self)
+        case .activeChanged(let active): delegate?.windowDidChangeActiveState(self, isActive: active)
+        case .visibilityChanged(let visible): delegate?.windowDidChangeVisibility(self, isVisible: visible)
+        case .systemAppearanceChanged: delegate?.windowDidChangeSystemSettings(self)
+        case .imeComposition(let event): delegate?.window(self, imeComposition: event)
+        case .touch(let phase, let points):
+            switch phase {
+            case .began: delegate?.window(self, touchBegan: points)
+            case .moved: delegate?.window(self, touchMoved: points)
+            case .ended: delegate?.window(self, touchEnded: points)
+            }
+        case .filesDropped(let payload): delegate?.window(self, didReceiveFileDrop: payload)
+        case .closeRequested:
+            if !nativeClosePrepared { onNativeCloseRequested?(surface) }
+        case .deferredCloseWake(let nonce):
+            Win32DispatchScope.withWindowDispatch { closeControl.receiveDeferredWake(nonce: nonce) }
+        case .destroyed:
+            hasDeliveredWillClose = true
+            nativeClosePrepared = true
+            nativeAnimationTimerPolicy.revoke()
+            hasObservedNativeDestruction = true
+            nativeObservation = nil
+            nativeCreatedSurface = nil
+            if let lifetime = closeControl.lifetime, lifetime.id == surface.key.lifetimeID {
+                closeControl.beginDestruction(lifetime)
+                closeControl.completeDestruction(lifetime)
+            }
+            deliverNativeTerminalCloseIfReady()
+        case .ownerFailure(let failure): recordNativeFailure(failure)
+        }
+    }
+
     public func create() throws {
+        guard !usesNativeOwner else {
+            if nativeSurface != nil { return }
+            throw NativeWindowOwnerFailure.execution("Use startNative(on:) for a native-owner window")
+        }
         let rejectsNativeCreation = rejectNextNativeCreationForTesting
         rejectNextNativeCreationForTesting = false
         // During early creation and NC teardown, the native backpointer can
@@ -1422,6 +2000,10 @@ public final class Win32Window: PlatformWindow {
     }
 
     public func show() {
+        if usesNativeOwner {
+            submitNativeOperation(.show)
+            return
+        }
         guard let hwnd else {
             return
         }
@@ -1437,6 +2019,7 @@ public final class Win32Window: PlatformWindow {
     /// must not interpret a denial as a missing window or create a duplicate.
     @discardableResult
     public func activate() -> Bool {
+        precondition(!usesNativeOwner, "A native-owner window requires await activateNative() for the actual result")
         guard let hwnd else {
             return false
         }
@@ -1450,6 +2033,10 @@ public final class Win32Window: PlatformWindow {
 
     public func invalidate() {
         invalidateRequestCount &+= 1
+        if usesNativeOwner {
+            submitNativeOperation(.invalidate)
+            return
+        }
         guard let hwnd else {
             return
         }
@@ -1487,6 +2074,11 @@ public final class Win32Window: PlatformWindow {
     }
 
     public func requestClose() {
+        if usesNativeOwner {
+            guard !nativeCloseInProgress, !hasDeliveredWillClose else { return }
+            submitNativeOperation(.requestClose)
+            return
+        }
         guard let hwnd, !isHandlingCloseRequest, !hasDeliveredWillClose else {
             return
         }
@@ -1508,6 +2100,7 @@ public final class Win32Window: PlatformWindow {
     /// a second untagged WM_CLOSE. The returned outcome describes this attempt,
     /// not merely successful message submission.
     package func attemptClose(ticket: Win32CloseTicket) -> Win32CloseAttemptOutcome {
+        guard !usesNativeOwner else { return .busy(.ownerOperation) }
         guard let hwnd, !hasDeliveredWillClose else { return .unavailable }
         return performCloseAttempt(handle: hwnd, ticket: ticket)
     }
@@ -1543,6 +2136,7 @@ public final class Win32Window: PlatformWindow {
     /// retain an unowned window after its renderer has already been released.
     /// Ordinary application dismissal must use `requestClose()` instead.
     public func destroyForFailedStartup() {
+        precondition(!usesNativeOwner, "A native-owner rollback requires await discardNativeFailedStartup()")
         let failedHandle = hwnd
         let failedGeneration = windowLifetimeGeneration
         let failedLifetime = closeControl.lifetime
@@ -1563,6 +2157,10 @@ public final class Win32Window: PlatformWindow {
         guard isCloseButtonEnabled != enabled else { return }
         isCloseButtonEnabled = enabled
         closeControl.isCloseEnabled = enabled
+        if usesNativeOwner {
+            submitNativeOperation(.closeButton(enabled))
+            return
+        }
         applyCloseButtonEnabled()
     }
 
@@ -1587,6 +2185,10 @@ public final class Win32Window: PlatformWindow {
     /// still fires while the user is dragging the window. It is also the one
     /// that cannot pile up — a watchdog that queued would be a second bug.
     public func scheduleCloseWatchdog(afterSeconds seconds: Double) {
+        if usesNativeOwner {
+            submitNativeOperation(.closeWatchdog(seconds))
+            return
+        }
         guard let hwnd, seconds > 0 else {
             return
         }
@@ -1610,6 +2212,16 @@ public final class Win32Window: PlatformWindow {
             // survives a stop/start cycle (and so tests can drive the plan
             // without an HWND). The *installed* interval is separate state.
             requestedAnimationTimerIntervalMilliseconds = max(1, intervalMilliseconds)
+        }
+
+        // A native lifetime is selected after the first retained build, so
+        // keep precreation intent even before usesNativeOwner becomes true.
+        nativeAnimationTimerPolicy.setDesired(
+            Win32NativeTimerPolicy(
+                enabled: enabled, intervalMilliseconds: intervalMilliseconds, highResolution: useHighResolutionTimer))
+        if usesNativeOwner {
+            nativeAnimationTimerPolicy.observeSurface(nativeSurface)
+            return
         }
 
         guard hwnd != nil else {
@@ -1683,6 +2295,13 @@ public final class Win32Window: PlatformWindow {
     /// accessibility bridge, which must report bounds in screen space.
     /// Returns the input unchanged when the window has no handle yet.
     public func clientRectToScreen(_ rect: Rect) -> Rect {
+        if usesNativeOwner {
+            guard let geometry = nativeSurface?.geometry else { return rect }
+            guard let mapped = geometry.clientRectToScreen(rect) else {
+                preconditionFailure("Native client rectangle is outside representable screen coordinates")
+            }
+            return mapped
+        }
         guard let hwnd else {
             return rect
         }
@@ -1707,6 +2326,10 @@ public final class Win32Window: PlatformWindow {
     }
 
     public func toggleFullscreen() {
+        if usesNativeOwner {
+            submitNativeOperation(.toggleFullscreen)
+            return
+        }
         guard let hwnd else {
             return
         }
@@ -1767,6 +2390,7 @@ public final class Win32Window: PlatformWindow {
     /// Not an HMONITOR: monitor handles are not stable across sessions, and
     /// the whole point of this identity is to outlive the process.
     public func displayIdentity() -> String {
+        if usesNativeOwner { return nativeObservation?.displayIdentity ?? "no-display" }
         if let testDisplayIdentityOverride {
             return testDisplayIdentityOverride
         }
@@ -1946,7 +2570,7 @@ public final class Win32Window: PlatformWindow {
     /// the host coalesce those messages down to one relayout per frame and
     /// hold back the notifications a drag has no business emitting a hundred
     /// times (`raiseStructureChanged`).
-    public var isInLiveResize: Bool { isInSizeMove }
+    public var isInLiveResize: Bool { nativeObservation?.isInLiveResize ?? isInSizeMove }
 
     private func refreshAnimationTimerIfNeeded() {
         guard isAnimationTimerRunning else {
@@ -2023,6 +2647,7 @@ public final class Win32Window: PlatformWindow {
     /// Every real create owns a distinct close-lifetime UUID, even if its HWND
     /// or diagnostic generation is later reused. This reads no close approval.
     private func permitsPointerInput(lifetimeID: Foundation.UUID?) -> Bool {
+        if usesNativeOwner, nativeClosePrepared { return false }
         guard !hasDeliveredWillClose, closeControl.lifetime?.id == lifetimeID else { return false }
         guard let lifetime = closeControl.lifetime else { return hwnd == nil && !ownsRetainedSelfReference }
         return !lifetime.destructionStarted && !lifetime.destructionCompleted && !lifetime.creationFailed
@@ -3184,12 +3809,19 @@ public enum Win32Application {
 /// windows and runs their event loop without naming D3D11, Metal, Vulkan, or
 /// any other graphics backend.
 @MainActor
-public struct Win32PlatformHostFactory: PlatformHostFactory {
+public protocol Win32NativePlatformHostFactory: PlatformHostFactory {
+    func makeNativePump() -> Win32NativePump
+}
+
+@MainActor
+public struct Win32PlatformHostFactory: Win32NativePlatformHostFactory {
     public init() {}
 
     public var platformName: String {
         "Windows / Win32"
     }
+
+    public func makeNativePump() -> Win32NativePump { Win32NativePump() }
 
     public func makeWindow(configuration: PlatformWindowConfiguration) throws -> any PlatformWindow {
         Win32Window(

@@ -35,9 +35,8 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
     // The host owns its runtime. An accessibility bridge may outlive that
     // owner, so keep the projection source without keeping the view tree alive.
     private weak var runtime: RetainedViewRuntime?
-    /// Maps root-view-space bounds to screen coordinates; injected so tests
-    /// can run headlessly (identity) and the window host can supply the real
-    /// client-to-screen conversion.
+    /// Legacy/headless mapping. Production native requests supply their copied
+    /// geometry explicitly and never call this potentially effectful closure.
     private let screenBoundsMapper: (Rect) -> Rect
     private var idsByNode: [ObjectIdentifier: UInt64] = [:]
     private var nodesByID: [UInt64: WeakNode] = [:]
@@ -51,6 +50,21 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
     // MARK: - UIAElementTreeSource
 
     func uiaElementSnapshots() -> [UIAElementSnapshot] {
+        elementSnapshots(screenBoundsMapper: screenBoundsMapper)
+    }
+
+    func uiaElementSnapshots(geometry: NativeWindowGeometry) throws -> [UIAElementSnapshot] {
+        try elementSnapshots { bounds in
+            guard let mapped = geometry.clientRectToScreen(bounds) else {
+                throw UIAProviderRequestFailure.invalidGeometry
+            }
+            return mapped
+        }
+    }
+
+    private func elementSnapshots(
+        screenBoundsMapper: (Rect) throws -> Rect
+    ) rethrows -> [UIAElementSnapshot] {
         guard let runtime else { return [] }
         defer { withExtendedLifetime(runtime) {} }
         pruneDeadNodes()
@@ -58,8 +72,10 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
             return []
         }
         var snapshots: [UIAElementSnapshot] = []
-        let rootBounds = screenBoundsMapper(root.bounds)
-        appendSnapshots(for: root, parentID: nil, rootBounds: rootBounds, into: &snapshots)
+        let rootBounds = try screenBoundsMapper(root.bounds)
+        try appendSnapshots(
+            for: root, parentID: nil, rootBounds: rootBounds, into: &snapshots,
+            screenBoundsMapper: screenBoundsMapper)
         // Transparent retained containers are flattened by the accessibility
         // projection, so the nearest projected parent is the honest UIA
         // Selection container even when it is the window's root pane.
@@ -303,8 +319,9 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
         for element: AccessibilityElementProjection,
         parentID: UInt64?,
         rootBounds: Rect,
-        into list: inout [UIAElementSnapshot]
-    ) {
+        into list: inout [UIAElementSnapshot],
+        screenBoundsMapper: (Rect) throws -> Rect
+    ) rethrows {
         let id: UInt64
         if parentID == nil {
             id = UIAProviderBridge.rootElementID
@@ -316,7 +333,7 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
             id = nextEphemeralID()
         }
 
-        let screenBounds = screenBoundsMapper(element.bounds)
+        let screenBounds = try screenBoundsMapper(element.bounds)
         let isPassword = element.traits.contains(.isSecureTextInput)
         let supportsValue = element.controlType == .edit && !isPassword
         let isSelected: Bool? = element.traits.contains(.isSelectable) ? element.isSelected : nil
@@ -353,7 +370,9 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
         )
 
         for child in element.children {
-            appendSnapshots(for: child, parentID: id, rootBounds: rootBounds, into: &list)
+            try appendSnapshots(
+                for: child, parentID: id, rootBounds: rootBounds, into: &list,
+                screenBoundsMapper: screenBoundsMapper)
         }
     }
 

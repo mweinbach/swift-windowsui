@@ -82,15 +82,24 @@ package protocol FileDialogOutcomeProvider: FileDialogProvider {
     ) -> FileDialogOutcome<URL>
 }
 
+/// A concrete native provider may also contain injected native-call fakes.
+/// Capability is explicit so those fakes keep their synchronous test behavior.
+@MainActor
+package protocol NativeOwnerFileDialogProvider: FileDialogProvider {
+    var supportsNativeOwnerRequests: Bool { get }
+}
+
 /// Live Win32 common-dialog provider.
 @MainActor
-public final class Win32FileDialogProvider: FileDialogOutcomeProvider {
+public final class Win32FileDialogProvider: FileDialogOutcomeProvider, NativeOwnerFileDialogProvider {
+    package let supportsNativeOwnerRequests: Bool
     private let openDialog: @MainActor (inout OPENFILENAMEW) -> Bool
     private let saveDialog: @MainActor (inout OPENFILENAMEW) -> Bool
     private let extendedError: @MainActor () -> DWORD
     private let activeWindow: @MainActor () -> HWND?
 
     public init() {
+        supportsNativeOwnerRequests = true
         openDialog = { GetOpenFileNameW(&$0) }
         saveDialog = { GetSaveFileNameW(&$0) }
         extendedError = { CommDlgExtendedError() }
@@ -105,6 +114,7 @@ public final class Win32FileDialogProvider: FileDialogOutcomeProvider {
         extendedError: @escaping @MainActor () -> DWORD,
         activeWindow: @escaping @MainActor () -> HWND?
     ) {
+        supportsNativeOwnerRequests = false
         self.openDialog = openDialog
         self.saveDialog = saveDialog
         self.extendedError = extendedError
@@ -260,14 +270,14 @@ public final class Win32FileDialogProvider: FileDialogOutcomeProvider {
     /// Keeps every pointer in `OPENFILENAMEW` valid throughout the synchronous
     /// common-dialog call. A pointer returned from `withUnsafeBufferPointer`
     /// cannot be stored and used after that closure has returned.
-    static func withConfiguredDialog<Result>(
+    nonisolated static func withConfiguredDialog<Result>(
         fileBuffer: inout [WCHAR],
         allowedExtensions: [String]?,
         defaultDirectory: URL?,
         title: String?,
         flags: DWORD,
         ownerHandle: HWND? = nil,
-        perform: @MainActor (inout OPENFILENAMEW) -> Result
+        perform: (inout OPENFILENAMEW) -> Result
     ) -> Result {
         let titleBuffer: [WCHAR] = title.map { Array($0.utf16) + [0] } ?? []
         let directoryBuffer: [WCHAR] = defaultDirectory.map { Array($0.path.utf16) + [0] } ?? []
@@ -296,7 +306,7 @@ public final class Win32FileDialogProvider: FileDialogOutcomeProvider {
     /// Decodes the bounded UTF-16 list `OFN_EXPLORER` writes: one selected
     /// file is a complete path; multiple selections are directory, filename,
     /// filename, and an empty terminator. All paths are filesystem URLs.
-    static func selectedFileURLs(from buffer: [WCHAR], allowsMultipleSelection: Bool) -> [URL] {
+    nonisolated static func selectedFileURLs(from buffer: [WCHAR], allowsMultipleSelection: Bool) -> [URL] {
         var components: [String] = []
         var index = buffer.startIndex
 
@@ -332,7 +342,7 @@ public final class Win32FileDialogProvider: FileDialogOutcomeProvider {
     /// "*.ext;*.ext2"). Empty when there is nothing to filter on. Null code
     /// units are stripped from extensions: one would silently truncate the
     /// joined pattern mid-list. Internal so hostile-input tests can drive it.
-    static func makeFilterBuffer(allowedExtensions: [String]?) -> [WCHAR] {
+    nonisolated static func makeFilterBuffer(allowedExtensions: [String]?) -> [WCHAR] {
         guard let allowedExtensions = allowedExtensions, !allowedExtensions.isEmpty else {
             return []
         }
@@ -368,6 +378,107 @@ public enum FileDialogManager {
     /// inject a fake `FileDialogProvider` and restore this afterwards.
     public static var provider: any FileDialogProvider = Win32FileDialogProvider()
 
+    package static var providerSupportsNativeOwnerRequests: Bool {
+        (provider as? any NativeOwnerFileDialogProvider)?.supportsNativeOwnerRequests == true
+    }
+
+    /// Hosted built-ins use completion-based selection. Legacy providers still
+    /// complete inline; only an explicitly native-capable provider leaves A.
+    package static func requestOpenFileDialog(
+        allowedExtensions: [String]? = nil,
+        allowsMultipleSelection: Bool = false,
+        defaultDirectory: URL? = nil,
+        title: String? = nil,
+        owner: FileDialogOwner = .standalone,
+        nativeSession: NativeDialogSession?,
+        isCurrent: @escaping @MainActor () -> Bool = { true },
+        completion: @escaping @MainActor (DialogRequestOutcome<[URL]>) -> Void
+    ) {
+        if let nativeSession, providerSupportsNativeOwnerRequests {
+            nativeSession.request(
+                .openFile(
+                    allowedExtensions: allowedExtensions, allowsMultipleSelection: allowsMultipleSelection,
+                    defaultDirectory: defaultDirectory, title: title),
+                isCurrent: isCurrent
+            ) { response in
+                switch response {
+                case .selectedFiles(let urls):
+                    completion(urls.isEmpty ? .failed(FileDialogError.invalidSelection) : .selected(urls))
+                case .cancelled: completion(.cancelled)
+                case .failed(let error): completion(.failed(error.fileDialogError))
+                case .revoked: completion(.revoked)
+                default: completion(.failed(NativeDialogFailure.unexpectedResult))
+                }
+            }
+            return
+        }
+        switch openFileDialogOutcome(
+            allowedExtensions: allowedExtensions, allowsMultipleSelection: allowsMultipleSelection,
+            defaultDirectory: defaultDirectory, title: title, owner: owner
+        ) {
+        case .selected(let urls): completion(.selected(urls))
+        case .cancelled: completion(.cancelled)
+        case .failed(let error): completion(.failed(error))
+        }
+    }
+
+    package static func requestSaveFileDialog(
+        defaultFilename: String? = nil,
+        allowedExtensions: [String]? = nil,
+        defaultDirectory: URL? = nil,
+        title: String? = nil,
+        owner: FileDialogOwner = .standalone,
+        nativeSession: NativeDialogSession?,
+        isCurrent: @escaping @MainActor () -> Bool = { true },
+        completion: @escaping @MainActor (DialogRequestOutcome<URL>) -> Void
+    ) {
+        if let nativeSession, providerSupportsNativeOwnerRequests {
+            nativeSession.request(
+                .saveFile(
+                    defaultFilename: defaultFilename, allowedExtensions: allowedExtensions,
+                    defaultDirectory: defaultDirectory, title: title),
+                isCurrent: isCurrent
+            ) { response in
+                switch response {
+                case .selectedFiles(let urls):
+                    guard urls.count == 1, let url = urls.first else {
+                        completion(.failed(FileDialogError.invalidSelection))
+                        return
+                    }
+                    completion(.selected(url))
+                case .cancelled: completion(.cancelled)
+                case .failed(let error): completion(.failed(error.fileDialogError))
+                case .revoked: completion(.revoked)
+                default: completion(.failed(NativeDialogFailure.unexpectedResult))
+                }
+            }
+            return
+        }
+        switch saveFileDialogOutcome(
+            defaultFilename: defaultFilename, allowedExtensions: allowedExtensions,
+            defaultDirectory: defaultDirectory, title: title, owner: owner
+        ) {
+        case .selected(let url): completion(.selected(url))
+        case .cancelled: completion(.cancelled)
+        case .failed(let error): completion(.failed(error))
+        }
+    }
+
+    package static func requestMoveToRecycleBin(
+        fileURLs: [URL], nativeSession: NativeDialogSession?,
+        isCurrent: @escaping @MainActor () -> Bool = { true }
+    ) {
+        guard let nativeSession else {
+            moveToRecycleBin(fileURLs: fileURLs)
+            return
+        }
+        // This button has no result callback, but the session retains the real
+        // native failure instead of reporting queue admission as completed IO.
+        nativeSession.request(.recycleFiles(fileURLs), isCurrent: isCurrent) { _ in }
+    }
+
+    /// Synchronous standalone/provider compatibility. Hosted controls use the
+    /// request API; this entry point cannot service an N-to-A result transaction.
     public static func showOpenFileDialog(
         allowedExtensions: [String]? = nil,
         allowsMultipleSelection: Bool = false,
@@ -382,6 +493,7 @@ public enum FileDialogManager {
         )
     }
 
+    /// Synchronous standalone/provider compatibility; see `showOpenFileDialog`.
     public static func showSaveFileDialog(
         defaultFilename: String? = nil,
         allowedExtensions: [String]? = nil,
@@ -473,7 +585,7 @@ public enum FileDialogManager {
     /// skipped: one would split the list and make `SHFileOperationW` act on a
     /// truncated, different path — fail closed instead. Returns `nil` when no
     /// usable paths remain. Internal so hostile-input tests can drive it.
-    static func makeRecycleSourceList(_ paths: [String]) -> [WCHAR]? {
+    nonisolated static func makeRecycleSourceList(_ paths: [String]) -> [WCHAR]? {
         var buffer: [WCHAR] = []
         for path in paths {
             guard !path.utf16.contains(0) else { continue }

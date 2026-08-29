@@ -70,17 +70,17 @@ private struct FrameClipStackEntry {
     var operation: ClipOperation
 }
 
-public final class D3D11Renderer: RenderBackend {
-    public private(set) var isAttached = false {
-        didSet { isAttachedMirror = isAttached }
-    }
+/// Owns frame-presentation resources on the thread that creates and uses it.
+/// The legacy MainActor facade and the native presentation owner each create
+/// their own kernel; this mutable COM owner is deliberately not Sendable.
+final class D3D11FrameKernel {
+    private(set) var isAttached = false
 
-    /// Sendable mirror of ``isAttached`` so `deinit` — which is nonisolated
-    /// and therefore cannot read main-actor state — can still tell whether
-    /// the owner forgot to call ``detach()``.
-    private nonisolated(unsafe) var isAttachedMirror = false
-
-    public private(set) var isDirect2DEnabled = false
+    private(set) var isDirect2DEnabled = false
+    /// Replaced for every render attempt. Only an actual Present result can
+    /// mark work submitted; rebuilding a lost device does not submit a frame.
+    private(set) var lastFrameSubmission: BackendFrameSubmission?
+    private var frameCounter: UInt64 = 0
     /// Controls vertical sync. When true, `Present` uses sync interval 1 —
     /// unless the pacing watchdog has taken the pacing job away from a
     /// compositor that could not do it; when false, sync interval 0 (and the
@@ -89,7 +89,7 @@ public final class D3D11Renderer: RenderBackend {
     /// Stored in the pacing policy rather than beside it so there is exactly
     /// one answer to "does the next present wait", and an explicit override
     /// and a watchdog decision cannot contradict each other.
-    public var vsyncEnabled: Bool {
+    var vsyncEnabled: Bool {
         get { !presentPacingPolicy.isUnsynchronizedByRequest }
         set { presentPacingPolicy.setUnsynchronizedByRequest(!newValue) }
     }
@@ -102,15 +102,15 @@ public final class D3D11Renderer: RenderBackend {
     private var lastPresentSeconds: Double = 0
     private var frameDrawStartedAt: Double = 0
 
-    public var presentPacing: PresentPacingStatus {
+    var presentPacing: PresentPacingStatus {
         presentPacingPolicy.status
     }
 
-    public func setDisplayFrameInterval(_ seconds: Double) {
+    func setDisplayFrameInterval(_ seconds: Double) {
         presentPacingPolicy.setDisplayFrameInterval(seconds)
     }
 
-    public func adoptRememberedSelfPacing() {
+    func adoptRememberedSelfPacing() {
         presentPacingPolicy.adoptRememberedSelfPacing()
     }
 
@@ -126,11 +126,11 @@ public final class D3D11Renderer: RenderBackend {
         }
         return Double(counter.QuadPart) / Double(frequency.QuadPart)
     }
-    public var backendDisplayName: String {
+    var backendDisplayName: String {
         isDirect2DEnabled ? "DIRECT2D" : "2D RENDERER"
     }
 
-    public var backendStatusDescription: String {
+    var backendStatusDescription: String {
         if isDirect2DEnabled {
             return "DIRECT2D 1.1 ACTIVE"
         }
@@ -143,6 +143,9 @@ public final class D3D11Renderer: RenderBackend {
     }
 
     private let configuration: D3D11RendererConfiguration
+    /// The native host already captured a scale for the command's generation.
+    /// Legacy actor callers keep the historical live HWND query.
+    private let usesCapturedSurfaceScale: Bool
 
     private var surface: SurfaceDescriptor?
     private var hwnd: HWND?
@@ -171,12 +174,7 @@ public final class D3D11Renderer: RenderBackend {
 
     // MARK: - Device Loss
 
-    public private(set) var presentationState = PresentationState()
-
-    /// Process-wide source of device generations, so no two `ID3D11Device`s
-    /// this module creates ever share an identity token even when the
-    /// allocator reuses an address.
-    private static var nextDeviceGeneration: UInt64 = 1
+    private(set) var presentationState = PresentationState()
 
     /// Identity token for the device currently held, or `0` when detached.
     private(set) var deviceGeneration: UInt64 = 0
@@ -191,9 +189,9 @@ public final class D3D11Renderer: RenderBackend {
     /// back blank.
     private var skipNextFrameAfterDeviceLoss = false
 
-    /// Test seam for the recovery wait; production blocks the main actor for
-    /// a beat, which is what the driver needs.
-    internal var deviceLostBackoffHandler: (Double) -> Void = { seconds in
+    /// Test seam for the recovery wait; production blocks the kernel's owner
+    /// thread for a beat, which is what the driver needs.
+    var deviceLostBackoffHandler: (Double) -> Void = { seconds in
         Thread.sleep(forTimeInterval: seconds)
     }
 
@@ -203,8 +201,12 @@ public final class D3D11Renderer: RenderBackend {
     /// Backends for which an end-of-frame skip summary has already been emitted.
     private var loggedUnsupportedFrameSummaries: Set<String> = []
 
-    public init(configuration: D3D11RendererConfiguration = D3D11RendererConfiguration()) {
+    init(
+        configuration: D3D11RendererConfiguration = D3D11RendererConfiguration(),
+        usesCapturedSurfaceScale: Bool = false
+    ) {
         self.configuration = configuration
+        self.usesCapturedSurfaceScale = usesCapturedSurfaceScale
     }
 
     static func validateShaderSourceForTesting() throws {
@@ -232,7 +234,7 @@ public final class D3D11Renderer: RenderBackend {
         }
     }
 
-    public func attach(to surface: SurfaceDescriptor) throws {
+    func attach(to surface: SurfaceDescriptor) throws {
         guard let windowHandle = surface.windowHandle,
             let hwnd = unsafeBitCast(windowHandle.rawPointer, to: HWND?.self)
         else {
@@ -273,9 +275,9 @@ public final class D3D11Renderer: RenderBackend {
     /// swap chain's back buffer, so Direct2D goes first; then the pipeline
     /// is unbound from the immediate context and flushed; then views before
     /// the resources they view, and the swap chain (which pins the HWND)
-    /// before the device that created it. Everything runs on the main actor,
-    /// where the immediate context is used.
-    public func detach() {
+    /// before the device that created it. Everything runs on the kernel's
+    /// owner thread, where the immediate context is used.
+    func detach() {
         releaseDirect2DResources()
 
         if let deviceContext {
@@ -315,19 +317,18 @@ public final class D3D11Renderer: RenderBackend {
         // judge the one that replaces it; the mode itself survives.
         presentPacingPolicy.reset()
         isAttached = false
+        lastFrameSubmission = nil
         // `deviceLostRecoveryAttempts` deliberately survives: detach is a
         // *step* of device-loss recovery, and resetting the budget here
         // would make the bounded retry unbounded.
     }
 
     deinit {
-        // Backstop, not a teardown path — see `RendererTeardownBackstop`
-        // for why a nonisolated deinit cannot free any of this. The host
-        // calls `detach()` from `windowWillClose` and on every presenter
-        // switch; reaching here still attached means one of those call
-        // sites was missed, and the report is emitted in release builds
-        // too, because that is where the leak actually costs something.
-        if isAttachedMirror {
+        // Backstop, not a teardown path: the last release need not run on
+        // the thread that owns the immediate context. The owner must call
+        // detach before releasing the kernel or destroying its HWND. Only
+        // the kernel reports this fault; its facade owns no COM resources.
+        if isAttached {
             RendererTeardownBackstop.reportUndetachedTeardown(
                 "D3D11Renderer was deallocated while still attached — its device, swap chain and Direct2D "
                     + "resources leak. Call detach() from the owner's teardown."
@@ -335,7 +336,7 @@ public final class D3D11Renderer: RenderBackend {
         }
     }
 
-    public func resize(to size: IntSize) throws {
+    func resize(to size: IntSize) throws {
         surface?.pixelSize = size
 
         guard isAttached, let swapChain else {
@@ -368,7 +369,17 @@ public final class D3D11Renderer: RenderBackend {
         configureDirect2DIfPossible()
     }
 
-    public func render(frame: RenderFrame) throws {
+    /// Native commands carry size and scale from one surface generation.
+    func resize(to surface: SurfaceDescriptor) throws {
+        self.surface?.scaleFactor = surface.scaleFactor
+        try resize(to: surface.pixelSize)
+    }
+
+    func render(frame: RenderFrame) throws {
+        // A no-op must never retain an earlier frame's successful outcome.
+        // The frame path issues no GPU timing queries.
+        lastFrameSubmission = BackendFrameSubmission(outcome: .skipped, gpuTimingStatus: .disabled)
+        lastPresentSeconds = 0
         guard isAttached, let swapChain, let surface else {
             return
         }
@@ -415,6 +426,7 @@ public final class D3D11Renderer: RenderBackend {
             let direct2DDeviceContext,
             let direct2DTargetBitmap
         {
+            beginFrameSubmission()
             do {
                 try renderWithDirect2D(
                     frame: frame,
@@ -457,6 +469,10 @@ public final class D3D11Renderer: RenderBackend {
             return
         }
 
+        // A Direct2D draw failure retries through this pipeline under the
+        // same frame identity. An absent pipeline before any drawing leaves
+        // the attempt skipped; a failed Direct2D attempt remains aborted.
+        beginFrameSubmission()
         var targetView: UnsafeMutablePointer<ID3D11RenderTargetView>? = renderTargetView
         deviceContext.pointee.lpVtbl.pointee.OMSetRenderTargets(deviceContext, 1, &targetView, nil)
 
@@ -582,6 +598,16 @@ public final class D3D11Renderer: RenderBackend {
         try presentFrame(swapChain: swapChain)
     }
 
+    private func beginFrameSubmission() {
+        guard lastFrameSubmission?.id == nil else { return }
+        frameCounter &+= 1
+        lastFrameSubmission = BackendFrameSubmission(
+            id: BackendFrameID(deviceGeneration: deviceGeneration, frameNumber: frameCounter),
+            outcome: .aborted,
+            gpuTimingStatus: .disabled
+        )
+    }
+
     /// The one place this renderer presents. Both draw paths end here, so a
     /// frame can never be presented twice and a present HRESULT is always
     /// classified the same way.
@@ -591,6 +617,9 @@ public final class D3D11Renderer: RenderBackend {
     /// written for, `Present(1)` blocked ~252 ms per frame through *both*
     /// renderers. A fallback that slideshows is not a fallback.
     private func presentFrame(swapChain: UnsafeMutablePointer<IDXGISwapChain1>) throws {
+        // Keep this frame's identity separate from mutable renderer state
+        // before entering DXGI or any recovery that replaces the device.
+        var submission = lastFrameSubmission ?? BackendFrameSubmission(outcome: .failed)
         let waitsForVBlank = presentPacingPolicy.presentsOnVBlank
         let syncInterval: UINT = waitsForVBlank ? 1 : 0
         var presentFlags: UINT = 0
@@ -609,6 +638,16 @@ public final class D3D11Renderer: RenderBackend {
             frameCostSeconds: max(0, presentStartedAt - frameDrawStartedAt),
             at: presentEndedAt
         )
+        // A nonthrowing recovery still failed to submit this frame.
+        switch DeviceLostPolicy.outcome(forPresent: hr) {
+        case .presented:
+            submission.outcome = .submitted
+        case .occluded:
+            submission.outcome = .occluded
+        case .deviceLost, .failed:
+            submission.outcome = .failed
+        }
+        defer { lastFrameSubmission = submission }
         try handlePresentResult(hr)
     }
 
@@ -652,8 +691,7 @@ public final class D3D11Renderer: RenderBackend {
                 releaseCOM(&self.deviceContext)
                 self.device = createdDevice
                 self.deviceContext = createdContext
-                self.deviceGeneration = Self.nextDeviceGeneration
-                Self.nextDeviceGeneration &+= 1
+                self.deviceGeneration = RendererDeviceGeneration.next()
             } else {
                 releaseCOM(&createdContext)
                 releaseCOM(&createdDevice)
@@ -1597,7 +1635,7 @@ public final class D3D11Renderer: RenderBackend {
     }
 
     private func currentScaleFactor() -> Double {
-        if let hwnd {
+        if !usesCapturedSurfaceScale, let hwnd {
             let dpi = GetDpiForWindow(hwnd)
             if dpi > 0 {
                 let scaleFactor = Double(dpi) / logicalDpi

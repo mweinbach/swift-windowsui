@@ -129,6 +129,60 @@ typedef struct SWUUIACallbacks {
     uint64_t (*focusedElement)(void *context);
 } SWUUIACallbacks;
 
+// Explicit-call peers for a native-owner provider. Payload values retain the
+// legacy meanings above; transport/lifetime HRESULTs use SWU_UIACallFail and
+// must never be returned in a boolean payload. A call is an owned heap token,
+// not a stack address. Retain it before queuing actor work and release it after
+// that work's final access, including cancellation before actor admission.
+typedef struct SWUUIACall SWUUIACall;
+typedef struct SWUUIACallCallbacks {
+    void *context;
+    uint64_t (*navigate)(SWUUIACall *call, uint64_t element, int32_t direction);
+    int32_t (*getRuntimeId)(SWUUIACall *call, uint64_t element, int32_t *buffer, int32_t capacity);
+    void (*getBoundingRectangle)(
+        SWUUIACall *call, uint64_t element, double *left, double *top, double *width, double *height);
+    uint16_t *(*copyStringProperty)(SWUUIACall *call, uint64_t element, int32_t property);
+    int32_t (*getControlType)(SWUUIACall *call, uint64_t element);
+    int32_t (*getBoolProperty)(SWUUIACall *call, uint64_t element, int32_t property);
+    int32_t (*hasInvokeAction)(SWUUIACall *call, uint64_t element);
+    void (*invokeDefaultAction)(SWUUIACall *call, uint64_t element);
+    int32_t (*supportsPattern)(SWUUIACall *call, uint64_t element, int32_t pattern);
+    int32_t (*setValue)(SWUUIACall *call, uint64_t element, const uint16_t *value, int32_t length);
+    int32_t (*getToggleState)(SWUUIACall *call, uint64_t element);
+    int32_t (*toggle)(SWUUIACall *call, uint64_t element);
+    int32_t (*select)(SWUUIACall *call, uint64_t element);
+    int32_t (*addToSelection)(SWUUIACall *call, uint64_t element);
+    int32_t (*removeFromSelection)(SWUUIACall *call, uint64_t element);
+    uint64_t (*getSelectionContainer)(SWUUIACall *call, uint64_t element);
+    int32_t (*getSelection)(SWUUIACall *call, uint64_t element, uint64_t *buffer, int32_t capacity);
+    int32_t (*realizeVirtualizedItem)(SWUUIACall *call, uint64_t element);
+    void (*setFocus)(SWUUIACall *call, uint64_t element);
+    uint64_t (*elementFromPoint)(SWUUIACall *call, double x, double y);
+    uint64_t (*focusedElement)(SWUUIACall *call);
+} SWUUIACallCallbacks;
+
+// Invoked once after irreversible revocation and final full-call release. The
+// signal must be nonblocking and must not wait for the actor or native owner.
+// It runs outside the admission lock and may run on any releasing thread.
+// A failed signal is retained verbatim; its owner must also finish a pending
+// close with that failure without relying on delivery of the failed wake.
+typedef struct SWUUIADrainWake {
+    void *context;
+    int32_t (*signal)(void *context);
+    void (*releaseContext)(void *context);
+} SWUUIADrainWake;
+
+void SWU_UIARetainCall(SWUUIACall *call);
+void SWU_UIAReleaseCall(SWUUIACall *call);
+void *SWU_UIACallOwnerContext(SWUUIACall *call);
+// S_OK while usable; owner revocation takes precedence over a recorded failure.
+int32_t SWU_UIACallStatus(SWUUIACall *call);
+// Records the first failed HRESULT only. Successful HRESULTs are ignored.
+void SWU_UIACallFail(SWUUIACall *call, int32_t failure);
+// An absent owner is terminal for its whole family. Ordinary element/action
+// failures use CallFail instead. Revocation never waits for the caller's lease.
+void SWU_UIACallRevokeOwner(SWUUIACall *call);
+
 // A shared native lifetime for one provider tree. Creation copies the callback
 // table and adopts one reference to callbacks->context only on success. The
 // release hook runs exactly once, on whichever thread releases the final native
@@ -138,10 +192,19 @@ typedef struct SWUUIACallbacks {
 typedef struct SWUUIAProviderContext SWUUIAProviderContext;
 SWUUIAProviderContext *SWU_UIACreateProviderContext(
     const SWUUIACallbacks *callbacks, void (*releaseContext)(void *));
+// Copies both tables and adopts their context references only on success.
+// Full-call admission covers native output marshalling and retained actor work.
+SWUUIAProviderContext *SWU_UIACreateProviderContextWithCalls(
+    const SWUUIACallCallbacks *callbacks, void (*releaseContext)(void *), const SWUUIADrainWake *drainWake);
 void SWU_UIARetainProviderContext(SWUUIAProviderContext *context);
 void SWU_UIAReleaseProviderContext(SWUUIAProviderContext *context);
 void SWU_UIARevokeProviderContext(SWUUIAProviderContext *context);
 int SWU_UIAProviderContextIsAvailable(SWUUIAProviderContext *context);
+// True only after revocation and release of every admitted call token.
+int SWU_UIAProviderContextIsQuiescent(SWUUIAProviderContext *context);
+// S_OK before notification and after a successful notification, otherwise the
+// signal's exact failed HRESULT. It does not replace the owner's typed failure.
+int32_t SWU_UIAProviderContextDrainWakeResult(SWUUIAProviderContext *context);
 void *SWU_UIACreateRootProviderWithContext(SWUUIAProviderContext *context, void *hwnd);
 void *SWU_UIACreateElementProviderWithContext(
     SWUUIAProviderContext *context, void *hwnd, uint64_t element);

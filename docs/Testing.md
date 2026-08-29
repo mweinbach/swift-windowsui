@@ -213,9 +213,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   load/retry/cancel workflow.
   Observed-model changes already published on the UI thread have a native
   invalidation/frame-flush path; this is not MainActor job execution.
-  The Win32-loop/MainActor queue integration gap and the earlier Unicode
-  failure are recorded in `goal.md`. Native pump/probe work is not an
-  implemented fix.
+  The native-capable App source now places the Win32 owner on a separate
+  thread and uses the public main-dispatch entry point for actor work.
+  The standalone scheduling premise does not qualify this host integration.
+  Compilation and native UIA, modal, rendering, input, failure, and idle-wake
+  gates remain open; the legacy synchronous loop still has the original
+  limitation. Historical experiments and the earlier Unicode failure remain
+  recorded in `goal.md`.
   The batch host cases do not prime lifecycle by rendering a fallback frame first.
   Quick also runs `RuntimeDirtyFlagIntegrityTests`: a Canvas callback changes
   an already-painted sibling, while a separate appearance callback changes it
@@ -241,6 +245,37 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   real app composition uses independently injectable platform and renderer
   factories, offscreen-only backends cannot masquerade as window presenters,
   and software fallback actually blits its offscreen CPU output.
+- The native ownership source adds controlled, headless suites for copied
+  geometry and one-shot replies (`NativeWindowOwnerValueTests`), transport
+  admission (`Win32NativeOwnerTransportTests`), actual close and full C-call
+  leases (`Win32NativeCloseControlTests`, `UIAProviderCallLeaseTests`), and UIA
+  request status/projection (`UIANativeRequestTests`,
+  `UIANativeGeometryProjectionTests`). `NativePresentationCommandTests`,
+  `NativeSoftwarePresentationTests`, `NativeHostPresentationQueueTests`, and
+  `LiveDiagnosticsNativeAcknowledgementTests` cover real receipts and teardown
+  ordering through controlled fakes. `NativeWindowCoordinatorTests` covers
+  startup and release reentry, deduplication, normal close, failed cleanup, and
+  owner stop. `NativeDialogOwnershipTests`, `NativeDialogStartupDeferralTests`,
+  and `NativeOpenURLTests` cover deferred native effects. These new suites
+  are unrun at source handoff. Their actor-isolated XCTest methods are async;
+  generated registration adapters still require inspection after compilation.
+  An existing Quick or Full filter is not evidence that every new class ran.
+- `Win32NativeIngressBoundsTests` adds controlled saturation, payload accounting,
+  finite automatic turns, captured synchronous boundaries, token/refill races,
+  fixed backing storage and reserved terminal-delivery cases.
+  `Win32NativePumpMailboxTests` covers bounded ordinary/lifecycle admission,
+  queued versus executing control slots, cancellation/rearm nonce identity,
+  waiter limits, exact stop epochs, shared-reply aliases and failed-batch
+  reentrant completion cases. `NativeWindowOwnerValueTests` separately checks
+  terminal claim before deferred delivery, stable capability identity, one-shot
+  delivery, concurrent claims and captured-object release outside reply locks.
+  `Win32NativeTimerPolicyTests` checks one in-flight timer policy, actual receipt
+  generations, ahead-generation replies, failure and lifetime revocation.
+  `UIANativeRequestTests` additionally drives a real C provider query/action
+  against a terminal ingress at an older committed sequence. These source-only
+  additions are uncompiled and unrun at handoff. Injected scheduling and native
+  posting never qualify real pump fairness, modal exhaustion, memory pressure,
+  or settled idle; those require separately bounded native process evidence.
 - `BindingTransactionTests` covers binding write scopes, projection propagation,
   explicit animation suppression, and state-driven intermediate animation.
   `BindingHostTransactionTests` checks that real controls preserve captured

@@ -21,7 +21,15 @@ param(
 
     # Resume an interrupted serial run without repeating already verified shards.
     # A release-quality validation still starts from the default first shard.
-    [int]$StartShard = 1
+    [int]$StartShard = 1,
+
+    # Opt-in sanitized stdout evidence for the explicit CoreLogic shard plan.
+    # A fresh destination below this checkout's artifacts directory is required.
+    [string]$EvidenceDirectory = "",
+
+    # Optional identity held by the caller before this evidence attempt.
+    # Invalid bound values fail evidence setup inside its existing catch.
+    [AllowNull()]$EvidenceSessionId = $null
 )
 
 $ErrorActionPreference = "Stop"
@@ -29,6 +37,8 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $withSwift = Join-Path $PSScriptRoot "with-swift.ps1"
 $testSources = Join-Path $repoRoot "Tests\SwiftWindowsCoreLogicTests"
 $testModule = "SwiftWindowsCoreLogicTests"
+$script:swiftTestEvidenceSession = $null
+$evidenceSessionIdWasSupplied = $PSBoundParameters.ContainsKey('EvidenceSessionId')
 
 function Get-ReportedExitCode {
     if ($null -eq $LASTEXITCODE) {
@@ -201,7 +211,8 @@ function Get-FiltersForTarget {
 function Invoke-SwiftTest {
     param(
         [string[]]$Filters = @(),
-        [string]$Label = ""
+        [string]$Label = "",
+        [int]$EvidenceIndex = 0
     )
 
     $argsList = [System.Collections.Generic.List[string]]::new()
@@ -235,8 +246,37 @@ function Invoke-SwiftTest {
     }
 
     $invocationArgs = $argsList.ToArray()
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $withSwift swift @invocationArgs | Out-Host
+    $swiftTestRecorder = $null
+    if ($null -ne $script:swiftTestEvidenceSession -and $EvidenceIndex -gt 0) {
+        try { $swiftTestRecorder = Start-SwiftTestEvidenceShard $script:swiftTestEvidenceSession $EvidenceIndex }
+        catch {
+            try { Add-SwiftTestEvidenceProblem $script:swiftTestEvidenceSession 'observer-call-failed' } catch { }
+        }
+    }
+    if ($null -eq $swiftTestRecorder) {
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $withSwift swift @invocationArgs | Out-Host
+    } else {
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $withSwift swift @invocationArgs | ForEach-Object {
+            # Preserve the original stream object, even when catch rebinds $_.
+            $swiftTestOriginalOutput = $_
+            try { Add-SwiftTestEvidenceOutput $swiftTestRecorder $swiftTestOriginalOutput }
+            catch {
+                try { Add-SwiftTestEvidenceProblem $swiftTestRecorder 'observer-call-failed' } catch { }
+            }
+            & {
+                [CmdletBinding()]
+                param()
+                $PSCmdlet.WriteObject($swiftTestOriginalOutput, $false)
+            }
+        } | Out-Host
+    }
     $code = Get-ReportedExitCode
+    if ($null -ne $swiftTestRecorder) {
+        try { Save-SwiftTestEvidenceShard $script:swiftTestEvidenceSession $swiftTestRecorder $code }
+        catch {
+            try { Add-SwiftTestEvidenceProblem $script:swiftTestEvidenceSession 'observer-call-failed' } catch { }
+        }
+    }
 
     if ($null -eq $code) {
         Write-Host "FAILED: swift test reported no exit code [$Label]" -ForegroundColor Red
@@ -383,6 +423,9 @@ if ($StartShard -lt 1) {
 if ($StartShard -ne 1 -and -not $Sharded) {
     throw "-StartShard is only supported with -Sharded."
 }
+if (-not [string]::IsNullOrWhiteSpace($EvidenceDirectory) -and -not $Sharded) {
+    throw "-EvidenceDirectory is only supported with -Sharded."
+}
 
 $targets = Get-DiscoveredTestTargets -SourceRoot $testSources
 
@@ -417,6 +460,24 @@ if ($Sharded) {
         Write-Host "Resuming at shard $StartShard/$shardTotal; earlier shards are intentionally skipped."
     }
 
+    if (-not [string]::IsNullOrWhiteSpace($EvidenceDirectory)) {
+        try {
+            . (Join-Path $PSScriptRoot 'swift-test-evidence.ps1')
+            $evidenceSessionArguments = @{
+                WorkspaceRoot = $repoRoot; Directory = $EvidenceDirectory
+                Shards = $executionShards; StartShard = $StartShard
+            }
+            if ($evidenceSessionIdWasSupplied) {
+                $evidenceSessionArguments['SessionId'] = $EvidenceSessionId
+            }
+            $script:swiftTestEvidenceSession = New-SwiftTestEvidenceSession @evidenceSessionArguments
+        } catch {
+            # Evidence failure must not prevent the original test invocation or
+            # mask its eventual nonzero exit. Full checks evidence separately.
+            Write-Host 'CoreLogic evidence setup failed; original tests will still run.' -ForegroundColor Yellow
+        }
+    }
+
     foreach ($shard in $executionShards) {
         $shardIndex++
         if ($shardIndex -lt $StartShard) {
@@ -427,10 +488,13 @@ if ($Sharded) {
         $context = "{0}/{1} {2}" -f $shardIndex, $shardTotal, ($targetNames -join ", ")
         Write-Host ""
         Write-Host "==> Shard $context"
-        $code = Invoke-SwiftTest -Filters @($shard.Filter) -Label $context
+        $code = Invoke-SwiftTest -Filters @($shard.Filter) -Label $context -EvidenceIndex $shardIndex
         if ($code -ne 0) {
             Write-Host ""
             Write-Host "Sharded test run FAILED at shard $context (exit code $code)." -ForegroundColor Red
+            if ($null -ne $script:swiftTestEvidenceSession) {
+                try { Complete-SwiftTestEvidenceSession $script:swiftTestEvidenceSession $code } catch { }
+            }
             exit $code
         }
     }
@@ -441,6 +505,9 @@ if ($Sharded) {
     } else {
         $executedShardCount = $shardTotal - $StartShard + 1
         Write-Host "Resumed sharded test run PASSED ($executedShardCount of $shardTotal serial invocation(s))." -ForegroundColor Green
+    }
+    if ($null -ne $script:swiftTestEvidenceSession) {
+        try { Complete-SwiftTestEvidenceSession $script:swiftTestEvidenceSession 0 } catch { }
     }
     exit 0
 }

@@ -6081,3 +6081,178 @@ no root/goal/index edits, source or binary replay, workloads, or memory changes.
 Owned evidence here does not establish root Quick/Full, hosted CI or broader native parity.
 
 Local evidence map: [snapshot 0457](artifacts/goal-seventh-owned-ledger-intake-v1/0457/primary-evidence.json). The intake retains the referenced metadata as data; it does not repeat the underlying workloads.
+
+### 2026-08-29: further owned validation evidence after the 04:57 ledger
+
+Evidence addition after the 04:57 ledger freeze, as of 2026-08-29T05:53:34.8212739Z.
+This addition records later archive closure, passive verification, observed attempts and held source compositions.
+It preserves the earlier ledger and every failed attempt. All nine original completion gates remain open.
+Metadata hashes below identify evidence; they do not extend any result to root Quick/Full, hosted CI or native parity.
+
+The Lazy1968 failure now has a completed archive and an independent archive closure.
+On owned HEAD87d88f57/tree4964de1a, session37826 closed at actual tool6761f3 with exit1.
+The run still has 260 starts and terminals: 259 passes, one failed case and two assertion diagnostics.
+The first16 calls passed all235 Stage2 cases; call17 ran all25 cases and failed
+`ComponentHostTests.testReloadReusesNodeWithFreshStateAndHandlers` on caret and selection preservation.
+The remaining1708 cases and83 partitions did not run. The 553.547s runner value precedes final serialization.
+The finalized archive contains927 payloads/929 readonly files, including the54 runtime payloads;
+the independent closure checked archive integrity and agrees with the already sealed failed-run accounting.
+It does not turn this attempt into a1968-case pass or prove native XCTest exits or descendant closure.
+[Lazy final outcome](C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-owned1968-failure-freeze-6_d_ktls/OUTCOME.json)
+and [archive closure](C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-owned1968-failed-archive-closure-174b27da99944c0e91c20a10a9eef6e9/CLOSURE.json)
+bind manifest421b8dc6/seal829ecd4f; earlier archive-reader failures remain metadata incidents, not additional test attempts.
+
+A separate Lazy source correction is now frozen at staged tree79fbc275, derived from the failed owned tree.
+It adds13 Host lines to retain incoming-controller ownership and restore scalar caret/selection only when no
+incoming controller owns them, plus five new private-fixture tests; the prior test bodies remain unchanged.
+Contracts, strict lint and independent source/integrity reviews passed, but no build or test ran for this correction.
+The source census is5608 XCTest declarations plus134 Swift Testing declarations.
+The unchanged100-filter/1968-case plan excludes the five new methods; neither that plan nor a larger run has passed.
+[Source handoff](C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-lazy-list-controller-restoration-w2o3lf83/artifacts/controller-restoration-source-freeze-v1/HANDOFF.md)
+and [source closure](C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-controller-freeze-closure-1nkxiv6_/REVIEW.json)
+bind the842-payload source packet. Public lazy construction and the earlier runtime failure remain unresolved.
+
+FilePreview392 now has final passive verification after its previously recorded successful build.
+The build remains the one session89825/actual90cfe6 exit0: 414.60s in the compiler log,
+421.0004914s in the supervisor receipt; these are different timing boundaries.
+On owned tree22857650, capture7939cc/0 and copied-data reconciliation8e591a/0 were followed by seal254c03/0.
+The sealed25-payload/27-file packet and independent review reconcile5414 generated XCTest identifiers
+to source:5397 CoreLogic plus17 Portable, with392 selected async methods across30 classes and23 filters.
+The separate134 Swift Testing declarations have no compiled-listing or execution qualification here.
+One filter's generated source order differs from the planned order; actual test-listing order was not observed.
+The executable was hashed and its bounded header read, but was neither copied nor executed.
+All392 runtime cases remain unrun, including the two earlier UIA failure witnesses; neither failure is cleared.
+[Passive handoff](C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-file-preview392-discovery-zt8a6isd/checkout/artifacts/file-preview392-passive-admission-v1/HANDOFF.md)
+binds manifestbed7bdb7/seal80abad6d. This adds metadata evidence, not a FilePreview, UIA or full-suite pass.
+
+Disclosure18 now has a sealed independent outcome audit for owned HEAD3e30a746/treea66fee16.
+All18 selected async tests passed once:12 new and6 existing cases, with no failures, skips, duplicates or unrun cases.
+Session7758 closed at actual34f8ad/0; retained PS5 PID29664 exited0.
+The383.890s supervisor value precedes final serialization; the build log separately records374.34s.
+Passive capturef43b02/0 copied eight text artifacts and read executable hash/header metadata without executing the PE.
+The final independent audit reconciles all5473 generated XCTest identifiers and async flags against source
+(5456 CoreLogic+17 Portable;5121 async/352 synchronous), but qualifies execution only for the18 selected cases.
+The remaining5455 XCTest registrations and134 source Swift Testing declarations did not run.
+[Independent outcome review](C:/Users/maxw6/AppData/Local/Temp/progress-style-production-review-1f15e13bee9d440886b2292b6f5bd0a4/disclosure-lifetime-owned-outcome-audit-v1/compiled-capture-audit-v1/REVIEW.md)
+binds AUDIT8be98a81 and seal308866fb. The owner's additional aggregate wrapper is pending at this freeze;
+the earlier capture's pending label remains historical. Native exits, descendants, image identity and root Quick/Full remain unproved.
+
+The corrected Date161 source001f3b5/tree4d64fcb was attempted once and failed at runtime.
+Session35776 closed at actuale28f02/1 after two direct PS5 partitions exited0 then1.
+The owner reconciliation records27 starts,26 passes and one failed test with six assertion diagnostics;
+134 cases remain unrun, comprising8 new mounted cases and126 existing cases.
+The failing width comparison recorded280 against220.51. Its cause is not established by this ledger.
+Runner elapsed389.079s precedes final serialization; no timeout, termination or retry was reported.
+The original zero-case compiler failure and the earlier metadata admission refusal remain separate historical events.
+[Actual closure](C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-date-picker-calendar-hover-9464-hzk375ok/repo/artifacts/date-picker-calendar161-run-v2-failure-v1/TOOL-CLOSED.json)
+and [owner reconciliation](C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-date-picker-calendar-hover-9464-hzk375ok/repo/artifacts/date-picker-calendar161-run-v2-failure-v1/RAW-RECONCILIATION.json)
+are verified standalone receipts, not a final aggregate failure seal. Independent closure and final capture remain pending.
+No correction or successful retry, native XCTest exit, descendant retirement or observed528-hit claim follows.
+
+The CI fixture successor e97ef4f7 was initially source-only: strict UTF8 decoding supplies the copied source
+to the filename-preserving ParseInput overload, without EOL normalization or weakening the old235 case bodies.
+Its two added cases contain seven assertions, giving237 cases/727 assertions; the source packet records
+the inverse proof and independent source review. The original235 failed pair and the AST observations remain intact.
+A later single pair actually ran: initiald93c43/session12496 closed at actual0d47f9/0.
+The outer native receipt reports10542ms; the launcher reports9972ms; the outside request-to-observation
+interval is23.008s. PS5 andPS7 exited naturally0 in5857ms and3916ms respectively.
+Each structured report records237 passes, zero failures and727 observed assertions with no setup failure.
+These are observed report counts; independent case/capture audits and the final whole-packet seal are still pending.
+All four redirected streams opened on the first attempt, so the sharing-retry branch was not exercised.
+[Actual pair closure](C:/Users/maxw6/AppData/Local/Temp/ste-237-launch-70620cbd50c14c329fbc779ceea3e4ae/ACTUAL-PAIR-TOOL.json)
+and [local audit](C:/Users/maxw6/AppData/Local/Temp/ste-237-launch-70620cbd50c14c329fbc779ceea3e4ae/POSTRUN-LOCAL-AUDIT.json)
+preserve that pending qualification. No real Swift workload, hosted CI, LF-checkout, EOF or descendant proof is claimed.
+
+Four separately frozen source compositions start from committed root46d22ff; none has a joined runtime result.
+The table records owned source identities and authored selections, not new passes or current root integration.
+
+| Composition | Owned commit / tree | Authored selection | Full source XCTest census |
+| --- | --- | --- | --- |
+| Grid | 69c321df / b1dc4d98 | 170 async;13 filters | 5497 |
+| Label | 3d4c387a / a1364970 | 141;6 filters | 5486 =5469 CoreLogic+17 Portable |
+| Document | 716bc41f / b0fe6777 | 1287 async;63 filters | 5555 |
+| Hover | 850fb5bd /92ba9e6d | 55 async;4 filters | 5499 =5482 CoreLogic+17 Portable |
+
+Grid retains the36 new cases and two fixture migrations from its earlier isolated170 pass, plus a provenance note.
+Label keeps the same141 identifiers and case bodies; its17 Portable methods are XCTest, not Swift Testing.
+Document keeps all94 additions and the63-filter selection, but its inherited mounted observer/UIA behavior differs
+from the isolated c615 tree; the prior1287 pass cannot establish equivalence of this combination.
+Hover preserves the root baseline and adds38 cases; its packet corrects the older Core-only5482 count.
+These packets record static/source reviews, not emitted registrations, new builds, native effects or runtime cleanup.
+[Grid source seal](C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-grid-join-46d22ff-s4hfb8n0/repo/artifacts/grid-join-source-freeze-v1/SEAL.json),
+[Label handoff](C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-label141-rebind-3d4c387-2c1f7a6190ec/candidate-v2/HANDOFF.md),
+[Document handoff](C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-document-root46-join-imlwz_ye/source-composition-v1/HANDOFF.md),
+and [Hover handoff](C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-hover-reentry-46d22ff-c3aac2c943bd/artifacts/hover-reentry-runner-proposal-v1/HANDOFF.md)
+bind their separate held source states. Lazy's restoration above belongs to its failed owned base, not this shared root46 census.
+
+No earlier failure, pending-at-the-time entry or validation boundary is rewritten by this addition.
+Original goal sections1-9 and all nine unchecked completion gates are unchanged.
+
+The 51 primary metadata references and the exact frozen draft are copied in
+[the local evidence archive](artifacts/goal-seventh-ci237-evidence-v1/COPY-MANIFEST.json).
+This copy preserves their original timing and qualification boundaries.
+
+### 2026-08-29: accepted CI evidence correction and combined validation intake
+
+The CI237 results described as pending at the preceding 05:53 freeze now have
+completed independent case and capture audits. The single serial pair passed
+237 distinct cases and 727 assertions on each of Windows PowerShell 5.1.26100.9223
+and installed PowerShell 7.6.5. The original 235 cases and 720 assertions were
+preserved; two strict UTF8 source-decoding regressions add seven assertions.
+Actual session12496 closed at tool0d47f9/0. The outside interval was23.008s,
+with outer10542ms and controller9972ms recorded at their separate boundaries.
+The 237 PASSED records and seven intentional negative-control diagnostics in
+each stdout were reconciled with the structured results. PS5 LF and PS7 CRLF
+stdout remain distinct raw files. All four stream snapshots qualified on their
+first open; no sharing-retry branch, EOF or descendant closure was proved.
+
+The complete new692-member pair and36-member source packet are copied locally
+under [CI237 evidence](artifacts/goal-seventh-ci237-evidence-v1/COPY-MANIFEST.json).
+The [accepted handoff](artifacts/goal-seventh-ci237-evidence-v1/pair/HANDOFF.md)
+and [final audit](artifacts/goal-seventh-ci237-evidence-v1/pair/FINAL-AUDIT.json)
+bind pair manifestdead00c4, case auditfac09de5 and capture auditb463308a.
+The original failed235 generation and both AST diagnostic packets remain
+unchanged. These results qualify the frozen CRLF synthetic inputs, not an LF
+checkout, a real Swift workload, hosted CI or a release gate.
+
+Six CI files were applied over rootc0e901b using the reviewed source composition:
+the Windows workflow, agent-check/test wrappers, evidence helper, synthetic
+fixture and Testing documentation. Opted-in Full now retains a caller-held
+request identity, preserves the original test invocation and exit policy, checks
+evidence separately after successful tests, and withholds stale case records
+during sanitized publication. Current-invocation matching is not authenticated
+freshness. The source
+fixture reads UTF8 explicitly without relaxing its existing hash guards.
+All five code files match the tested raw bytes. The documentation adds exactly
+147 CI lines while preserving every existing byte, including the23 Progress
+lines. Intake ffcfc3/session51049 closed at77b9ea/0; its
+[receipt](artifacts/goal-seventh-ci-root6-intake-v3/INTAKE.json) records794 regular
+source files after the two additions and unchanged unrelated source/index/goal
+bytes. The unexecuted v2 intake control's incomplete failure-path accounting
+was corrected in v3 before this sole application.
+
+Root contract checks passed immediately before and after intake at44383e/0
+and ae9b3b/0. Strict lint covered all59 Swift files changed sincec7e7987,
+closing session94170 atb81abc/0; all59 hashes were unchanged. These checks do
+not substitute for fresh combined Quick/Full validation, which remains pending
+at this checkpoint. No push or hosted qualification is claimed here.
+
+Separately, the [Pure207 outcome](artifacts/goal-seventh-ci237-evidence-v1/pure207/OUTCOME.json)
+is now sealed and independently accepted:207 cases,635 assertions and zero
+failures, comprising169 clock,24 envelope and14 preservation controls.
+Actual tool1fd79e and its child returned0. The original outside interval5.395s
+and complete outside tail0.424067s fit this phase's60/15-second bounds; capture
+return3.65645s fits45 seconds. This did not run StageA61, its old374/4453
+preservation census, Swift or a native UI fixture. The historical A61 failure,
+missing4453-after evidence, StageA300/60 budget and Quick performance target
+remain unresolved; a pure-controller pass cannot repair or qualify them.
+
+Disclosure18's owner aggregate subsequently closed too. Its
+[qualification](artifacts/goal-seventh-ci237-evidence-v1/disclosure18/QUALIFICATION.json)
+and manifest47b8eb9a/sealcf714822 preserve the independently accepted18-case
+pass and5473-entry registration audit already described above. Only18 tests
+executed;5455 other XCTest registrations and134 Swift Testing declarations
+remain unrun in that owned attempt. Root integration remains a later slice.
+
+These additions preserve original sections1-9, all nine unchecked completion
+gates, earlier failed attempts and every earlier evidence boundary.

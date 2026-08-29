@@ -476,6 +476,153 @@ existing `WinSwiftUITextTests`, `WinSwiftUIGeometryAndFocusTests`,
 more methods to `WinSwiftUITests` can also exceed the Swift compiler's type
 checking budget for its generated test-discovery array.
 
+## Optional CoreLogic XCTest evidence
+
+The existing stock sharded runner can retain a sanitized journal without
+changing Swift arguments, filter batching, serial order, resumed shard behavior,
+or the original test exit decision:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Full -EvidenceDirectory artifacts/swift-test-evidence/local-attempt-1
+
+# For a standalone invocation, retain a request ID before attempting the tests.
+$evidenceSessionId = [Guid]::NewGuid().ToString('N')
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Sharded -EvidenceDirectory artifacts/swift-test-evidence/focused-attempt-1 -EvidenceSessionId $evidenceSessionId
+if ($LASTEXITCODE -eq 0) {
+    powershell -NoProfile -ExecutionPolicy Bypass -File scripts/swift-test-evidence.ps1 -EvidenceAction Check -ReceiptDirectory artifacts/swift-test-evidence/focused-attempt-1 -ExpectedSessionId $evidenceSessionId
+}
+```
+
+The directory must be a new descendant of this checkout's `artifacts` directory.
+Traversal, alternate data streams, reserved names, reparse points at the
+destination or its workspace ancestors, and existing destinations are refused;
+files are written exclusively and never overwritten. Use a new attempt name,
+not an existing journal. `test.ps1 -EvidenceDirectory` requires `-Sharded`.
+An explicitly supplied session ID must be an actual string of 32 lowercase
+hexadecimal characters. Without that optional argument, standalone collection
+retains its existing behavior of generating an ID after creating a fresh
+directory. An ID read back only from a saved journal does not establish that a
+later test invocation produced it.
+
+For `agent-check.ps1 -Full` only, an omitted `-EvidenceDirectory` uses
+`SWIFT_WINDOWSUI_TEST_EVIDENCE_DIRECTORY` if set. An explicit argument wins;
+an explicit empty string disables the environment opt-in. Quick,
+ContractsOnly, the default Quick mode, and Full without either opt-in keep
+their existing behavior. Windows CI sets this tooling variable only in its
+Full job, using the run ID and attempt number; its Full command block is
+unchanged. This setting does not select fonts, an OS image, or a visual profile.
+
+Opted-in Full generates and retains a fresh request ID before attempting its
+ordinary sharded tests, and passes that ID into collection. The separate Check
+requires the caller-held ID as well as a complete strict journal with unchanged
+working input hashes. It compares identity and completeness using the same
+parsed bundle. Reusing an old complete directory therefore cannot satisfy a new
+Full request after fresh setup is refused. The CLI Check rejects a missing or
+malformed expected ID; it never discovers an expected ID from the journal.
+The dot-sourced `Test-SwiftTestEvidenceComplete` helper remains available for
+explicit offline consistency checks of stored evidence. That unbound helper is
+not Full's current-invocation gate.
+
+The journal writes a plan before the first shard, a start marker before each
+observed wrapper invocation, a result after its forwarded exit, and a final
+aggregate. Its V1 journal schema remains unchanged. It counts recognized XCTest
+starts and passed, failed or skipped terminals, distinct IDs, repeated executions
+and unfinished starts. The root framework total includes skips. Nested suite
+totals are not added, and assertion failures are not treated as a count of failed
+cases. Unsupported grammar, conflicting or missing terminals, unknown output
+objects, bounded-data overflow, unexplained framework totals, and journal write
+failures leave completeness false. Partial observed counters remain partial;
+`completeCounts` is null. A zero-test root summary only proves the observed zero
+XCTest count, not that the source-discovered plan ran every intended test.
+
+No durable start marker and a durable start without a result are separate
+states; neither infers process termination. A resumed run records its omitted
+shards and cannot earn whole-plan completeness. The observation covers decoded
+stdout objects immediately before the existing `Out-Host` boundary and the
+PowerShell wrapper's forwarded exit. Original objects and stderr flow stay
+unchanged. It does not retain raw stdout/stderr bytes or direct SwiftPM/XCTest
+process handles, and it does not establish descendant cleanup. Portable tests,
+Swift Testing counts and PowerShell fixture totals remain explicitly outside
+this scope.
+
+Evidence setup, request generation or output-bridge errors cannot replace an
+original nonzero test exit or prevent the original invocation from running.
+Full checks requested evidence in a separate step only after the sharded test
+step returns zero. That step fails if the current request or a required output
+bridge was unavailable. Standalone `test.ps1` keeps the same exit policy; use
+the separate bound Check to assess its journal. An incomplete receipt failure is
+a tooling failure, not a new failed-test count.
+
+Only opted-in Full with `GITHUB_ACTIONS` exactly `true` uses the Actions output
+bridge. It appends one `corelogic_evidence_request_id` record to the supplied
+existing `GITHUB_OUTPUT` file under the supplied non-root `RUNNER_TEMP` directory.
+The bridge permits bounded regular local files, checks ancestors for reparse
+points, refuses aliases and traversal, and holds the stream against competing
+writes or deletion. It accepts only complete printable ASCII `KEY=VALUE` lines,
+rejects duplicate keys ignoring case, and limits both existing and final bytes
+to 64 KiB. It never prints control-file paths, contents or arbitrary exceptions.
+The CI publisher receives the Full step's explicit output; local Full does not
+write an Actions control file.
+
+This transport assumes a trusted fresh Actions output file and a single writer.
+It does not authenticate the runner or freeze ancestor identity. Refusing an
+already present key leaves its old value intact, and an append, flush or close
+failure may leave a complete new record visible. Full still retains its own new
+ID and readiness result, so a required bridge failure fails its separate
+post-test gate. A publisher supplied with an ID that matches a saved journal
+proves only that match; it does not independently prove generation, transport or
+freshness. A conflicted output channel is outside the fresh single-writer
+assumption, even when its value happens to match an old plan.
+
+After Full, CI always attempts bound publication. The CLI PublishCI emits V2
+summary and manifest records, while the journal stays V1 and the sanitized
+case-record shape is unchanged. It adopts identity, completeness, metadata and counts from one
+strict bundle only when the caller-supplied expected ID matches. Missing IDs,
+mismatches, and unavailable journals have distinct statuses; missing ID means
+`current-test-invocation-not-observed`, not that the test phase certainly never
+ran. Those states withhold old counts, case records, filters and journal
+metadata. Matching valid partial journals retain only their actual partial
+observations. Each V2 `currentInvocation` explicitly labels generation and
+transport as `not-independently-observed` and qualification as
+`caller-supplied-id-match-only; not-authenticated-freshness`.
+
+CI uploads only three fixed sanitized files, and only after that publication
+step succeeds: `published/summary.json`, `published/cases.ndjson` and
+`published/manifest.json`. Publication refuses an existing destination and
+returns success only after all three newly written files match their expected
+sizes and hashes; a failed attempt cannot qualify a previous or partial set for
+this upload. The summary preserves Full's original outcome, including failure
+after completed tests. Legacy direct three-argument calls to the dot-sourced
+`Publish-SwiftTestEvidenceCI` helper retain explicit offline V1 semantics; they
+are not the CLI or CI publication path.
+
+Case records contain only restricted test identifiers and numeric counts.
+Existing initial/render font profiles and gallery reports are linked by size
+and SHA256, with absent files left unavailable; those links do not prove the
+files came from the same invocation. Raw journal content, arbitrary output,
+test payloads, absolute paths and exception text are not uploaded. Cancellation
+or runner termination can prevent even `always()` steps from finishing; missing
+publication is not evidence of test success.
+
+Provenance is deliberately limited: five working input files are hashed before
+and after, and expected `GITHUB_SHA`, declared Swift selectors, run/attempt,
+PowerShell version and OS/image fields are recorded when available. Runtime Git
+and compiler identity and compiled-binary provenance are not observed. The
+receipt does not attest that the expected commit was actually built, qualify
+fonts or historical baselines, repair the earlier unavailable hosted test
+counts, or satisfy the exact-release-commit CI/visual gate by itself. Separate
+version and checkout attestation work is deferred.
+
+The pure `scripts/test-swift-test-evidence.ps1` fixtures exercise parser,
+serialization, limits, path refusal, publication and forwarding behavior with
+authored data. They do not run Swift, render, inspect fonts or reproduce a real
+hosted test run. Output-bridge fixtures use explicit owned temporary control
+files, never an ambient `GITHUB_OUTPUT`. A reviewed real run must still reconcile
+the new receipts with its actual output, including a later failed gate retaining
+completed test evidence and Full's failure. Any future alternative direct-runner
+integration requires its own explicit compatibility/refusal behavior; passive
+observation of this stock boundary does not cover a bypass.
+
 ## GPU Tests (WARP)
 
 Every test that touches real D3D11 goes through the one harness in

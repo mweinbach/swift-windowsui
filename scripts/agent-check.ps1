@@ -3,7 +3,8 @@ param(
     [switch]$Full,
     [switch]$Format,
     [switch]$ContractsOnly,
-    [switch]$GalleryCompare
+    [switch]$GalleryCompare,
+    [string]$EvidenceDirectory = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,6 +22,13 @@ function Get-ReportedExitCode {
         return $null
     }
     return [int]$LASTEXITCODE
+}
+
+function Resolve-SwiftTestEvidenceRequest {
+    param([bool]$Full, [bool]$Explicit, [AllowNull()][string]$ExplicitValue, [AllowNull()][string]$EnvironmentValue)
+    if (-not $Full) { return '' }
+    if ($Explicit) { return [string]$ExplicitValue }
+    return [string]$EnvironmentValue
 }
 
 function Invoke-Step {
@@ -149,12 +157,58 @@ Invoke-Step "portable core, graphics, layout, and CPU backend tests" {
 }
 
 if ($Full) {
+    $fullEvidenceDirectory = Resolve-SwiftTestEvidenceRequest -Full ([bool]$Full) `
+        -Explicit ($PSBoundParameters.ContainsKey('EvidenceDirectory')) -ExplicitValue $EvidenceDirectory `
+        -EnvironmentValue ([Environment]::GetEnvironmentVariable('SWIFT_WINDOWSUI_TEST_EVIDENCE_DIRECTORY', 'Process'))
+    $fullEvidenceRequest = $null
+    $fullEvidenceSessionId = 'unavailable'
+    if (-not [string]::IsNullOrWhiteSpace($fullEvidenceDirectory)) {
+        try {
+            . (Join-Path $PSScriptRoot 'swift-test-evidence.ps1')
+            $fullEvidenceRequest = New-SwiftTestEvidenceRequest `
+                -GitHubActions ([Environment]::GetEnvironmentVariable('GITHUB_ACTIONS', 'Process') -ceq 'true') `
+                -GitHubOutputPath ([Environment]::GetEnvironmentVariable('GITHUB_OUTPUT', 'Process')) `
+                -RunnerTemp ([Environment]::GetEnvironmentVariable('RUNNER_TEMP', 'Process'))
+            if ($fullEvidenceRequest.SessionId -is [string] -and
+                $fullEvidenceRequest.SessionId -cmatch '\A[0-9a-f]{32}\z') {
+                $fullEvidenceSessionId = $fullEvidenceRequest.SessionId
+            }
+        } catch {
+            # Request/bridge failure must not suppress or replace the test exit.
+            Write-Host 'CoreLogic evidence request setup failed; original tests will still run.' -ForegroundColor Yellow
+        }
+    }
     # Prefer sharded full tests: class/suite filters plus method batches for
     # oversized XCTest classes (avoids Windows error 206 on huge filter expansion).
     # Plain `scripts/test.ps1` (no -Sharded) remains available for a single
     # unfiltered `swift test` invocation.
     Invoke-Step "swift test (sharded full suite)" {
-        & $testScript -Sharded
+        if ([string]::IsNullOrWhiteSpace($fullEvidenceDirectory)) {
+            & $testScript -Sharded
+        } else {
+            & $testScript -Sharded -EvidenceDirectory $fullEvidenceDirectory -EvidenceSessionId $fullEvidenceSessionId
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($fullEvidenceDirectory)) {
+        # Reached only after the original test step returns zero. A receipt
+        # failure is a distinct tooling gate, never a replacement test exit.
+        Invoke-Step "CoreLogic XCTest evidence completeness" {
+            $evidenceCheckArguments = @(
+                '-NoProfile', '-ExecutionPolicy', 'Bypass',
+                '-File', (Join-Path $PSScriptRoot 'swift-test-evidence.ps1'),
+                '-EvidenceAction', 'Check', '-EvidenceWorkspaceRoot', $repoRoot,
+                '-ReceiptDirectory', $fullEvidenceDirectory
+            )
+            if ($null -ne $fullEvidenceRequest -and
+                $fullEvidenceRequest.Ready -is [bool] -and $fullEvidenceRequest.Ready -and
+                $fullEvidenceRequest.ExpectedSessionId -is [string] -and
+                $fullEvidenceRequest.ExpectedSessionId -cmatch '\A[0-9a-f]{32}\z') {
+                $evidenceCheckArguments += @('-ExpectedSessionId', $fullEvidenceRequest.ExpectedSessionId)
+            }
+            # Omission is intentional: bound CLI Check rejects missing identity.
+            # The expectation is never recovered from an existing journal.
+            & powershell @evidenceCheckArguments
+        }
     }
     Invoke-Step "swift build swift-windowsui" {
         & $buildScript -Product "swift-windowsui"

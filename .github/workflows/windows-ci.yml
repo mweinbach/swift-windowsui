@@ -108,6 +108,9 @@ jobs:
       github.event_name == 'schedule' ||
       (github.event_name == 'workflow_dispatch' && inputs.run_full)
     timeout-minutes: 150
+    env:
+      # Tooling-only opt-in. Each run/attempt must use a new journal directory.
+      SWIFT_WINDOWSUI_TEST_EVIDENCE_DIRECTORY: artifacts/swift-test-evidence/${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -158,6 +161,42 @@ jobs:
           # gate (gallery-compare.ps1) serially.
           powershell -NoProfile -ExecutionPolicy Bypass `
             -File scripts/agent-check.ps1 -Full
+
+      - name: Publish sanitized CoreLogic test evidence
+        id: publish_corelogic_evidence
+        if: always()
+        timeout-minutes: 2
+        env:
+          FULL_AGENT_CHECK_OUTCOME: ${{ steps.full_checks.outcome || 'skipped' }}
+          EXPECTED_CORELOGIC_EVIDENCE_SESSION_ID: ${{ steps.full_checks.outputs.corelogic_evidence_request_id }}
+        shell: pwsh
+        run: |
+          # The expected ID comes from this Full caller, never the old plan.
+          # Missing transport is unobserved; a matched ID is not authentication.
+          $publishArguments = @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass',
+            '-File', 'scripts/swift-test-evidence.ps1',
+            '-EvidenceAction', 'PublishCI',
+            '-ReceiptDirectory', $env:SWIFT_WINDOWSUI_TEST_EVIDENCE_DIRECTORY,
+            '-CIOutcome', $env:FULL_AGENT_CHECK_OUTCOME
+          )
+          if (-not [string]::IsNullOrEmpty($env:EXPECTED_CORELOGIC_EVIDENCE_SESSION_ID)) {
+            $publishArguments += @('-ExpectedSessionId', $env:EXPECTED_CORELOGIC_EVIDENCE_SESSION_ID)
+          }
+          & powershell @publishArguments
+          exit $LASTEXITCODE
+
+      - name: Upload sanitized CoreLogic test evidence
+        if: always() && steps.publish_corelogic_evidence.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-corelogic-test-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.SWIFT_WINDOWSUI_TEST_EVIDENCE_DIRECTORY }}/published/summary.json
+            ${{ env.SWIFT_WINDOWSUI_TEST_EVIDENCE_DIRECTORY }}/published/cases.ndjson
+            ${{ env.SWIFT_WINDOWSUI_TEST_EVIDENCE_DIRECTORY }}/published/manifest.json
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Upload screenshot artifacts
         if: always()

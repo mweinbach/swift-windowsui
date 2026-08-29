@@ -19,20 +19,38 @@ struct SwiftWindowsUIGalleryTool {
         var bitmapFontAttributionInvocation: String?
         var bitmapFontAttributionVersion = NativeBitmapFontAttributionVersion.v1
         var bitmapFontVersionSupplied = false
+        var geometryDiagnosticDirectory: String?
+        var geometryDiagnosticInvocation: String?
+        var rawEntryFilter: [String]?
+        var entryArgumentCount = 0
+        var ignoredArgumentEncountered = false
+        var malformedOutputArgumentEncountered = false
         var argumentIndex = 1
         let arguments = CommandLine.arguments
+        let geometryFlagsAttempted = arguments.dropFirst().contains {
+            $0.hasPrefix("--geometry-diagnostics")
+        }
         while argumentIndex < arguments.count {
             let argument = arguments[argumentIndex]
+            if argument == "--entries" { entryArgumentCount += 1 }
+            if argument == "--output-dir" {
+                if argumentIndex + 1 >= arguments.count
+                    || arguments[argumentIndex + 1].hasPrefix("--")
+                    || arguments[argumentIndex + 1].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                {
+                    // Remember every malformed occurrence, including one overwritten by a later output-dir.
+                    malformedOutputArgumentEncountered = true
+                }
+            }
             if argument == "--output-dir", argumentIndex + 1 < arguments.count {
                 outputDirPath = arguments[argumentIndex + 1]
                 argumentIndex += 1
             } else if argument == "--entries", argumentIndex + 1 < arguments.count {
-                entryFilter = Set(
-                    arguments[argumentIndex + 1]
-                        .split(separator: ",")
-                        .map { $0.trimmingCharacters(in: .whitespaces) }
-                        .filter { !$0.isEmpty }
-                )
+                let ids = arguments[argumentIndex + 1]
+                    .split(separator: ",", omittingEmptySubsequences: false)
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                rawEntryFilter = ids
+                entryFilter = Set(ids.filter { !$0.isEmpty })
                 argumentIndex += 1
             } else if argument == "--bitmap-font-attribution-dir" {
                 guard bitmapFontAttributionDirectory == nil, argumentIndex + 1 < arguments.count else {
@@ -57,10 +75,48 @@ struct SwiftWindowsUIGalleryTool {
                 bitmapFontVersionSupplied = true
                 bitmapFontAttributionVersion = version
                 argumentIndex += 1
+            } else if argument == "--geometry-diagnostics-dir" {
+                guard geometryDiagnosticDirectory == nil, argumentIndex + 1 < arguments.count,
+                    !arguments[argumentIndex + 1].hasPrefix("--")
+                else { throw GalleryError.invalidGeometryDiagnostics }
+                geometryDiagnosticDirectory = arguments[argumentIndex + 1]
+                argumentIndex += 1
+            } else if argument == "--geometry-diagnostics-invocation" {
+                guard geometryDiagnosticInvocation == nil, argumentIndex + 1 < arguments.count,
+                    !arguments[argumentIndex + 1].hasPrefix("--")
+                else { throw GalleryError.invalidGeometryDiagnostics }
+                geometryDiagnosticInvocation = arguments[argumentIndex + 1]
+                argumentIndex += 1
+            } else if argument.hasPrefix("--geometry-diagnostics") {
+                throw GalleryError.invalidGeometryDiagnostics
+            } else {
+                // Preserve ordinary CLI permissiveness, but refuse these
+                // arguments when a strict diagnostic invocation was requested.
+                ignoredArgumentEncountered = true
             }
             argumentIndex += 1
         }
 
+        let geometryOptions = try GalleryGeometryCLIOptions.validate(
+            directory: geometryDiagnosticDirectory, invocationID: geometryDiagnosticInvocation,
+            rawEntries: rawEntryFilter, entryArgumentCount: entryArgumentCount,
+            bitmapArgumentsPresent: bitmapFontAttributionDirectory != nil
+                || bitmapFontAttributionInvocation != nil || bitmapFontVersionSupplied
+        )
+        guard !geometryFlagsAttempted || geometryOptions != nil else {
+            throw GalleryError.invalidGeometryDiagnostics
+        }
+        let geometryOverrideState: String?
+        if geometryOptions != nil {
+            guard !ignoredArgumentEncountered, !malformedOutputArgumentEncountered else {
+                throw GalleryError.invalidGeometryDiagnostics
+            }
+            let override = ProcessInfo.processInfo.environment["SWIFT_WINDOWSUI_CLASSIC_UI_FONT"]
+            guard override == nil || override == "1" else { throw GalleryError.invalidGeometryDiagnostics }
+            geometryOverrideState = override == nil ? "absent" : "1"
+        } else {
+            geometryOverrideState = nil
+        }
         let outputDir = URL(fileURLWithPath: outputDirPath)
         let fontAttributionOutput: URL?
         if let directory = bitmapFontAttributionDirectory, let invocation = bitmapFontAttributionInvocation {
@@ -91,6 +147,21 @@ struct SwiftWindowsUIGalleryTool {
             throw GalleryError.invalidBitmapFontAttribution
         } else {
             fontAttributionOutput = nil
+        }
+        let geometryOutput: URL?
+        if let geometryOptions {
+            let directory = URL(fileURLWithPath: geometryOptions.directory).standardizedFileURL
+            guard directory.path.caseInsensitiveCompare(outputDir.standardizedFileURL.path) != .orderedSame,
+                !FileManager.default.fileExists(atPath: outputDir.appendingPathComponent("index.html").path),
+                GalleryGeometryCLIOptions.entryIDs.allSatisfy({
+                    !FileManager.default.fileExists(atPath: outputDir.appendingPathComponent("\($0).png").path)
+                })
+            else { throw GalleryError.geometryDiagnosticsOutputUnavailable }
+            let created = directory.path.withCString(encodedAs: UTF16.self) { CreateDirectoryW($0, nil) }
+            guard created else { throw GalleryError.geometryDiagnosticsOutputUnavailable }
+            geometryOutput = directory
+        } else {
+            geometryOutput = nil
         }
         try FileManager.default.createDirectory(
             at: outputDir,
@@ -1456,6 +1527,7 @@ struct SwiftWindowsUIGalleryTool {
 
         var entries: [GalleryEntry] = []
         let displayScale = 1.0
+        var geometryDiagnosticFailed = false
 
         for spec in gallerySpecs {
             if let entryFilter, !entryFilter.contains(spec.id) {
@@ -1470,7 +1542,15 @@ struct SwiftWindowsUIGalleryTool {
             }
             defer { fontSession?.close() }
             let snapshot: WinSwiftUIRenderSnapshot
-            if let fontSession {
+            if geometryOptions != nil {
+                guard spec.interaction == nil, spec.size.width == 320, spec.size.height == 240,
+                    spec.colorScheme == .dark, displayScale == 1
+                else { throw GalleryError.invalidGeometryDiagnostics }
+                snapshot = WinSwiftUIRendererSnapshotter.snapshot(
+                    of: spec.view, size: spec.size, displayScale: displayScale, colorScheme: spec.colorScheme,
+                    clearColor: galleryClearColor(for: spec.colorScheme), timestamp: 0, geometryDiagnostics: true
+                )
+            } else if let fontSession {
                 snapshot = WinSwiftUIRendererSnapshotter.snapshot(
                     of: spec.view, size: spec.size, displayScale: displayScale, colorScheme: spec.colorScheme,
                     clearColor: galleryClearColor(for: spec.colorScheme), bitmapFontAttribution: fontSession
@@ -1506,6 +1586,26 @@ struct SwiftWindowsUIGalleryTool {
             let filename = "\(spec.id).png"
             let url = outputDir.appendingPathComponent(filename)
             try bitmap.writePNG(to: url)
+            if let geometryOptions, let geometryOutput, let geometryOverrideState {
+                do {
+                    let sidecar = try GalleryGeometryDiagnosticWriter.encode(
+                        diagnostic: snapshot.sceneGeometryDiagnostic, scene: scene,
+                        fixtureID: spec.id, invocationID: geometryOptions.invocationID,
+                        overrideState: geometryOverrideState, pngFileName: filename,
+                        size: snapshot.size, displayScale: displayScale,
+                        appearance: spec.colorScheme == .dark ? "dark" : "light"
+                    )
+                    try sidecar.data.write(
+                        to: geometryOutput.appendingPathComponent("\(spec.id).geometry.json"),
+                        options: .withoutOverwriting
+                    )
+                    geometryDiagnosticFailed = geometryDiagnosticFailed || !sidecar.isComplete
+                } catch {
+                    geometryDiagnosticFailed = true
+                    FileHandle.standardError.write(
+                        Data("Geometry diagnostic sidecar unavailable; PNG retained.\n".utf8))
+                }
+            }
             if let fontSession, let fontAttributionOutput, let bitmapFontAttributionInvocation {
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.sortedKeys]
@@ -1556,6 +1656,221 @@ struct SwiftWindowsUIGalleryTool {
         try writeGalleryHTML(entries: entries, to: indexURL)
         print("Gallery=\(indexURL.path)")
         print("Entries=\(entries.count)")
+        if geometryDiagnosticFailed { throw GalleryError.geometryDiagnosticsIncomplete }
+    }
+}
+
+// MARK: - Opt-in geometry diagnostics
+
+package struct GalleryGeometryCLIOptions: Sendable {
+    package static let entryIDs: Set<String> = ["typography-scale", "canvas-donut"]
+    package let directory: String
+    package let invocationID: String
+
+    package static func validate(
+        directory: String?, invocationID: String?, rawEntries: [String]?,
+        entryArgumentCount: Int, bitmapArgumentsPresent: Bool
+    ) throws -> GalleryGeometryCLIOptions? {
+        guard directory != nil || invocationID != nil else { return nil }
+        guard let directory, !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            let invocationID, invocationID.utf8.count == 32,
+            invocationID.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
+            let rawEntries, entryArgumentCount == 1, rawEntries.count == 2,
+            Set(rawEntries) == entryIDs, !bitmapArgumentsPresent
+        else { throw GalleryError.invalidGeometryDiagnostics }
+        return GalleryGeometryCLIOptions(directory: directory, invocationID: invocationID)
+    }
+}
+
+package struct GalleryGeometryEncodedSidecar {
+    package let data: Data
+    package let isComplete: Bool
+}
+
+@MainActor
+package enum GalleryGeometryDiagnosticWriter {
+    package static func encode(
+        diagnostic: RetainedSceneGeometryDiagnostic?, scene: GPUIScene,
+        fixtureID: String, invocationID: String, overrideState: String,
+        pngFileName: String, size: IntSize, displayScale: Double, appearance: String
+    ) throws -> GalleryGeometryEncodedSidecar {
+        var issues: [String] = []
+        if !GalleryGeometryCLIOptions.entryIDs.contains(fixtureID) {
+            issues.append("unexpected-fixture")
+        }
+        if size.width != 320 || size.height != 240 || displayScale != 1 || appearance != "dark" {
+            issues.append("unexpected-render-configuration")
+        }
+        if overrideState != "absent" && overrideState != "1" {
+            issues.append("mode-key-state-unavailable")
+        }
+
+        let reportedNodes = diagnostic?.nodes ?? []
+        let nodes = reportedNodes.count <= RetainedSceneGeometryLimits.maxNodes ? reportedNodes : []
+        if nodes.count != reportedNodes.count { issues.append("node-count-limit") }
+        if nodes.contains(where: { $0.path.count > RetainedSceneGeometryLimits.maxDepth }) {
+            issues.append("node-depth-limit")
+        }
+        if Set(nodes.map(\.path)).count != nodes.count {
+            issues.append("duplicate-node-path")
+        }
+
+        var captureObject: Any = NSNull()
+        if let diagnostic {
+            if diagnostic.status != .captured { issues.append("runtime-capture-unavailable") }
+            if diagnostic.phase != "paintedSceneBeforeEndRenderPass" {
+                issues.append("capture-phase-unavailable")
+            }
+            if nodes.count == reportedNodes.count {
+                do {
+                    let encoder = JSONEncoder()
+                    encoder.outputFormatting = [.sortedKeys]
+                    let captureData = try encoder.encode(diagnostic)
+                    if captureData.count <= RetainedSceneGeometryLimits.maxSidecarBytes {
+                        captureObject = try JSONSerialization.jsonObject(with: captureData)
+                    } else {
+                        issues.append("capture-byte-limit")
+                    }
+                } catch {
+                    issues.append("capture-encoding-unavailable")
+                }
+            }
+        } else {
+            issues.append("runtime-capture-missing")
+        }
+
+        let roleTexts = expectedTexts(for: fixtureID)
+        let textRoleMatches = roleTexts.map { text in nodes.filter { $0.text == text }.map(\.path) }
+        let textRoles = roleTexts.enumerated().map { index, text -> [String: Any] in
+            let matches = textRoleMatches[index]
+            if matches.count != 1 { issues.append("text-role-match-\(index)") }
+            return [
+                "role": "text-\(index)",
+                "text": text,
+                "matchingTreePaths": matches,
+                "status": matches.count == 1 ? "unique" : "unavailable",
+            ]
+        }
+        let allCanvasPaths = nodes.filter(\.hasCanvas).map(\.path)
+        let canvasMatches =
+            fixtureID == "canvas-donut"
+            ? donutCanvasCandidates(allCanvasPaths: allCanvasPaths, textRoleMatches: textRoleMatches)
+            : allCanvasPaths
+        let expectedCanvasCount = fixtureID == "canvas-donut" ? 1 : 0
+        if canvasMatches.count != expectedCanvasCount { issues.append("canvas-role-match") }
+        let selectedCanvasPath: Any
+        if canvasMatches.count == 1 {
+            selectedCanvasPath = canvasMatches[0]
+        } else {
+            selectedCanvasPath = NSNull()
+        }
+
+        let inventory = SnapshotSceneGeometryDiagnostics.pathInventory(scene: scene)
+        issues.append(contentsOf: inventory.issues)
+        let overrideValue: Any
+        if overrideState == "1" {
+            overrideValue = "1"
+        } else {
+            overrideValue = NSNull()
+        }
+        var object: [String: Any] = [
+            "schemaVersion": 1,
+            "kind": "retained-gallery-geometry-diagnostic",
+            "status": issues.isEmpty ? "captured" : "unavailable",
+            "issues": issues,
+            "qualification": "unqualified",
+            "invocationID": invocationID,
+            "fixtureID": fixtureID,
+            "pngFileName": pngFileName,
+            "size": [Int(size.width), Int(size.height)],
+            "displayScale": displayScale,
+            "appearance": appearance,
+            "timestamp": 0,
+            "clearColor": "gallery-black",
+            "selectedScene": "initial-snapshot-scene",
+            "sourceExecutableBinding": "external-receipt-required",
+            "pngBinding": "same-invocation-output-external-hash-required",
+            "uiFontOverride": [
+                "name": "SWIFT_WINDOWSUI_CLASSIC_UI_FONT",
+                "state": overrideState,
+                "value": overrideValue,
+            ],
+            "capture": captureObject,
+            "reportedNodeCount": reportedNodes.count,
+            "textRoles": textRoles,
+            "allCanvasNodeCount": allCanvasPaths.count,
+            "canvasSelector": fixtureID == "canvas-donut"
+                ? "common-ancestor-with-84%-and-capacity-excluding-all-three-legend-texts"
+                : "no-canvas-node-expected",
+            "canvasMatchingTreePaths": canvasMatches,
+            "selectedCanvasTreePath": selectedCanvasPath,
+            "expectedCanvasCount": expectedCanvasCount,
+            "pathInventory": inventory.object,
+            "limits": [
+                "maxNodes": RetainedSceneGeometryLimits.maxNodes,
+                "maxDepth": RetainedSceneGeometryLimits.maxDepth,
+                "maxPaths": RetainedSceneGeometryLimits.maxPaths,
+                "maxPathElements": RetainedSceneGeometryLimits.maxPathElements,
+                "maxSidecarBytes": RetainedSceneGeometryLimits.maxSidecarBytes,
+            ],
+            "limitations": [
+                "Stored cache sizes are constrained resolved measurements, not raw natural text widths.",
+                "Requested text styles do not identify loaded font faces or bytes.",
+                "Scene-local primitive references do not establish cross-variant correspondence or Canvas ownership.",
+                "Captured describes bounded value coverage, not layout settlement or causal qualification.",
+            ],
+        ]
+        do {
+            return GalleryGeometryEncodedSidecar(
+                data: try SnapshotSceneGeometryDiagnostics.encodeSidecar(object), isComplete: issues.isEmpty)
+        } catch SnapshotSceneGeometryDiagnostics.EncodingError.sidecarTooLarge {
+            // A small unavailable receipt is useful, but must never acquire
+            // the status of the complete capture that exceeded the byte cap.
+            object["status"] = "unavailable"
+            object["issues"] = issues + ["sidecar-byte-limit"]
+            object["capture"] = NSNull()
+            object["textRoles"] = []
+            object["canvasMatchingTreePaths"] = []
+            object["selectedCanvasTreePath"] = NSNull()
+            object["pathInventory"] = [
+                "status": "unavailable", "issues": ["sidecar-byte-limit"],
+                "scope": "top-level-presented-path-primitives", "canvasOwnership": "unobserved",
+            ]
+            return GalleryGeometryEncodedSidecar(
+                data: try SnapshotSceneGeometryDiagnostics.encodeSidecar(object), isComplete: false)
+        }
+    }
+
+    package static func expectedTexts(for fixtureID: String) -> [String] {
+        switch fixtureID {
+        case "typography-scale":
+            return [
+                "Design system", "A complete type hierarchy", "Headline · Information that matters",
+                "Body · Every detail, beautifully clear.", "CAPTION · UPDATED JUST NOW",
+            ]
+        case "canvas-donut":
+            return ["84%", "capacity", "Compute", "Storage", "Network"]
+        default:
+            return []
+        }
+    }
+
+    package static func donutCanvasCandidates(
+        allCanvasPaths: [[Int]], textRoleMatches: [[[Int]]]
+    ) -> [[Int]] {
+        guard textRoleMatches.count == 5, textRoleMatches.allSatisfy({ $0.count == 1 }) else { return [] }
+        let centerPaths = textRoleMatches.prefix(2).map { $0[0] }
+        let legendPaths = textRoleMatches.suffix(3).map { $0[0] }
+        // The fixture puts Canvas and both center texts in one ZStack, with
+        // the three legend Labels in its sibling VStack. Icon fallbacks may
+        // also have canvasDraw; size alone does not identify the authored Canvas.
+        return allCanvasPaths.filter { candidate in
+            var ancestor = candidate
+            for centerPath in centerPaths {
+                while !centerPath.starts(with: ancestor) { ancestor.removeLast() }
+            }
+            return legendPaths.allSatisfy { !$0.starts(with: ancestor) }
+        }
     }
 }
 
@@ -1928,6 +2243,9 @@ private enum GalleryError: Error, CustomStringConvertible {
     case unknownLightTierSource(id: String)
     case invalidBitmapFontAttribution
     case bitmapFontAttributionOutputUnavailable
+    case invalidGeometryDiagnostics
+    case geometryDiagnosticsOutputUnavailable
+    case geometryDiagnosticsIncomplete
 
     var description: String {
         switch self {
@@ -1935,6 +2253,13 @@ private enum GalleryError: Error, CustomStringConvertible {
             return "Bitmap font attribution requires paired output/invocation flags and only symbol-palette or stepper."
         case .bitmapFontAttributionOutputUnavailable:
             return "Bitmap font attribution requires fresh owned output and a bounded writable sidecar."
+        case .invalidGeometryDiagnostics:
+            return
+                "Geometry diagnostics require paired flags, exact typography-scale/canvas-donut selection, known arguments, no bitmap attribution, default-or-1 UI-font mode, and fixed noninteractive fixtures."
+        case .geometryDiagnosticsOutputUnavailable:
+            return "Geometry diagnostics require fresh PNG/index outputs and a new separate sidecar directory."
+        case .geometryDiagnosticsIncomplete:
+            return "Geometry diagnostic evidence is unavailable or incomplete; PNG and index outputs were retained."
         case .interactionHadNoEffect(let id, let state):
             return """
                 Gallery entry '\(id)' declares the '\(state)' state but renders \

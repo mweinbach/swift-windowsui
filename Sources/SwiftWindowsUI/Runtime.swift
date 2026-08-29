@@ -9342,12 +9342,243 @@ private final class RetainedFocusOperation {
     }
 }
 
+/// Fixed bounds for the opt-in, two-fixture gallery diagnostic.
+package enum RetainedSceneGeometryLimits {
+    package static let maxNodes = 128
+    package static let maxDepth = 32
+    package static let maxPaths = 256
+    package static let maxPathElements = 4096
+    package static let maxSidecarBytes = 256 * 1024
+}
+
+/// Stored values from one painted scene, not a layout-settlement or font-face receipt.
+package struct RetainedSceneGeometryDiagnostic: Encodable, Equatable, Sendable {
+    package enum Status: String, Encodable, Equatable, Sendable {
+        case captured
+        case unavailable
+    }
+
+    package struct Measurement: Encodable, Equatable, Sendable {
+        /// minWidth, maxWidth, minHeight, maxHeight. A null maximum is unbounded.
+        package let constraints: [Double?]
+        package let unbounded: [Bool]
+        package let displayScale: Double
+    }
+
+    package struct RequestedTextStyle: Encodable, Equatable, Sendable {
+        package let fontFamily: String
+        package let nativeFontSize: Double?
+        package let scale: Double
+        package let weight: String
+        package let fontWidth: String
+        package let isItalic: Bool
+        package let letterSpacing: Double
+        package let nativeLetterSpacing: Double?
+        package let lineSpacing: Double
+        /// top, leading, bottom, trailing, in the node's stored style.
+        package let insets: [Double]
+        package let maximumNumberOfLines: Int?
+        package let minimumNumberOfLines: Int?
+        package let minimumScaleFactor: Double
+        /// Only the base requested style is copied; spans are not font ownership.
+        package let hasSpans: Bool
+    }
+
+    package struct Node: Encodable, Equatable, Sendable {
+        /// Child-index paths describe this tree only; match variants by unique fixture roles.
+        package let path: [Int]
+        package let parentPath: [Int]?
+        package let text: String?
+        package let hasCanvas: Bool
+        /// Node-local x, y, width, height. This is not the authored frame or a screen rectangle.
+        package let resolvedFrame: [Double]
+        package let resolvedContentSize: [Double]
+        /// Resolved scroll offset, overshoot, presentation delta.
+        package let scrollOffsets: [Double]
+        package let declaredFillAxes: [Bool]
+        package let inheritedFillAxes: [Bool]
+        /// Constrained/explicit-size-adjusted cache, never a new natural-text measurement.
+        package let cachedMeasuredSize: [Double]?
+        package let measurement: Measurement?
+        package let requestedTextStyle: RequestedTextStyle?
+        package let subtreeDirtyFlags: UInt8
+        package let hasPendingLayoutKey: Bool
+    }
+
+    package let status: Status
+    package let reason: String?
+    package let phase: String?
+    package let layoutPassID: UInt64?
+    package let contentRevisionBeforePublish: UInt64?
+    package let geometryRevision: UInt64?
+    package let pendingDirtyFlags: UInt8?
+    package let nodes: [Node]
+
+    fileprivate static func unavailable(_ reason: String) -> Self {
+        Self(
+            status: .unavailable, reason: reason, phase: nil, layoutPassID: nil,
+            contentRevisionBeforePublish: nil, geometryRevision: nil, pendingDirtyFlags: nil, nodes: []
+        )
+    }
+}
+
+@MainActor
+package final class RetainedSceneGeometryDiagnosticRequest {
+    package private(set) var result: RetainedSceneGeometryDiagnostic?
+
+    fileprivate func finish(_ value: RetainedSceneGeometryDiagnostic) {
+        // A nested render cannot replace either an earlier failure or a frozen first scene.
+        guard result == nil else { return }
+        result = value
+    }
+}
+
 @MainActor
 public final class RetainedViewRuntime {
     private static let buttonRepeatInitialDelay = 0.45
     private static let buttonRepeatInterval = 0.08
 
     public let root: ViewNode
+    private var sceneGeometryDiagnosticRequest: RetainedSceneGeometryDiagnosticRequest?
+
+    /// Arms one diagnostic only. It never refreshes layout, a cache, or a font probe.
+    package func requestSceneGeometryDiagnostic() -> RetainedSceneGeometryDiagnosticRequest {
+        let request = RetainedSceneGeometryDiagnosticRequest()
+        if let previous = sceneGeometryDiagnosticRequest {
+            previous.finish(.unavailable("overlappingRequest"))
+            sceneGeometryDiagnosticRequest = nil
+            request.finish(.unavailable("overlappingRequest"))
+        } else if isRendering {
+            request.finish(.unavailable("requestDuringRender"))
+        } else {
+            sceneGeometryDiagnosticRequest = request
+        }
+        return request
+    }
+
+    private func sceneGeometryDiagnostic(
+        nodes: [RetainedSceneGeometryDiagnostic.Node] = [], reason: String? = nil
+    ) -> RetainedSceneGeometryDiagnostic {
+        RetainedSceneGeometryDiagnostic(
+            status: reason == nil ? .captured : .unavailable, reason: reason,
+            phase: "paintedSceneBeforeEndRenderPass", layoutPassID: layoutPassID,
+            contentRevisionBeforePublish: contentRevision, geometryRevision: layoutSettlementGeometryRevision,
+            pendingDirtyFlags: pendingDirtyFlags.rawValue, nodes: nodes
+        )
+    }
+
+    /// Copies fields only, at the selected paint. No layout/measurement getter or app closure is called.
+    private func captureSceneGeometryDiagnostic() -> RetainedSceneGeometryDiagnostic {
+        guard !isLayoutInProgress, !layoutSettlementGenerationsExhausted,
+            pendingDirtyFlags.intersection([.layout, .children]).isEmpty
+        else {
+            return sceneGeometryDiagnostic(reason: "layoutUnavailable")
+        }
+        var nodes: [RetainedSceneGeometryDiagnostic.Node] = []
+        var pending: [(node: ViewNode, path: [Int])] = [(root, [])]
+        var visited: Set<ObjectIdentifier> = []
+        var stringBytes = 0
+        while let entry = pending.popLast() {
+            guard entry.path.count <= RetainedSceneGeometryLimits.maxDepth else {
+                return sceneGeometryDiagnostic(reason: "depthLimitExceeded")
+            }
+            guard nodes.count < RetainedSceneGeometryLimits.maxNodes else {
+                return sceneGeometryDiagnostic(reason: "nodeLimitExceeded")
+            }
+            let node = entry.node
+            guard visited.insert(ObjectIdentifier(node)).inserted else {
+                return sceneGeometryDiagnostic(reason: "invalidStoredGeometry")
+            }
+            let frame = node.resolvedFrame
+            let frameValues = [frame.origin.x, frame.origin.y, frame.size.width, frame.size.height]
+            let contentValues = [node.resolvedContentSize.width, node.resolvedContentSize.height]
+            let scrollValues = [node.resolvedScrollOffset, node.scrollOvershoot, node.scrollPresentedDelta]
+            let cachedSize = node.cachedMeasuredSize.map { [$0.width, $0.height] }
+            var finiteValues = frameValues + contentValues + scrollValues + (cachedSize ?? [])
+            var measurement: RetainedSceneGeometryDiagnostic.Measurement?
+            if let key = node.cachedMeasureKey {
+                let constraints = key.constraints
+                guard constraints.minWidth.isFinite, constraints.minHeight.isFinite,
+                    constraints.maxWidth.isFinite || constraints.maxWidth == .infinity,
+                    constraints.maxHeight.isFinite || constraints.maxHeight == .infinity,
+                    key.displayScale.isFinite
+                else {
+                    return sceneGeometryDiagnostic(reason: "invalidStoredGeometry")
+                }
+                measurement = .init(
+                    constraints: [
+                        constraints.minWidth, constraints.maxWidth.isFinite ? constraints.maxWidth : nil,
+                        constraints.minHeight, constraints.maxHeight.isFinite ? constraints.maxHeight : nil,
+                    ],
+                    unbounded: [false, constraints.maxWidth == .infinity, false, constraints.maxHeight == .infinity],
+                    displayScale: key.displayScale
+                )
+            }
+            var requestedStyle: RetainedSceneGeometryDiagnostic.RequestedTextStyle?
+            if node.text != nil {
+                let style = node.textStyle
+                let insets = [style.insets.top, style.insets.leading, style.insets.bottom, style.insets.trailing]
+                let weight: String
+                switch style.weight {
+                case .regular: weight = "regular"
+                case .medium: weight = "medium"
+                case .semibold: weight = "semibold"
+                case .bold: weight = "bold"
+                }
+                let fontWidth: String
+                switch style.fontWidth {
+                case .compressed: fontWidth = "compressed"
+                case .condensed: fontWidth = "condensed"
+                case .standard: fontWidth = "standard"
+                case .expanded: fontWidth = "expanded"
+                }
+                finiteValues +=
+                    [
+                        style.scale, style.letterSpacing, style.lineSpacing, style.minimumScaleFactor,
+                    ] + insets
+                if let value = style.nativeFontSize { finiteValues.append(value) }
+                if let value = style.nativeLetterSpacing { finiteValues.append(value) }
+                requestedStyle = .init(
+                    fontFamily: style.fontFamily, nativeFontSize: style.nativeFontSize, scale: style.scale,
+                    weight: weight, fontWidth: fontWidth,
+                    isItalic: style.isItalic, letterSpacing: style.letterSpacing,
+                    nativeLetterSpacing: style.nativeLetterSpacing, lineSpacing: style.lineSpacing, insets: insets,
+                    maximumNumberOfLines: style.maximumNumberOfLines, minimumNumberOfLines: style.minimumNumberOfLines,
+                    minimumScaleFactor: style.minimumScaleFactor, hasSpans: style.spans?.isEmpty == false
+                )
+            }
+            guard finiteValues.allSatisfy({ $0.isFinite }) else {
+                return sceneGeometryDiagnostic(reason: "invalidStoredGeometry")
+            }
+            for value in [node.text, requestedStyle?.fontFamily] {
+                let count = value?.utf8.count ?? 0
+                guard count <= RetainedSceneGeometryLimits.maxSidecarBytes - stringBytes else {
+                    return sceneGeometryDiagnostic(reason: "sidecarLimitExceeded")
+                }
+                stringBytes += count
+            }
+            nodes.append(
+                .init(
+                    path: entry.path, parentPath: entry.path.isEmpty ? nil : Array(entry.path.dropLast()),
+                    text: node.text, hasCanvas: node.canvasDraw != nil, resolvedFrame: frameValues,
+                    resolvedContentSize: contentValues, scrollOffsets: scrollValues,
+                    declaredFillAxes: [node.layoutFillAxes.horizontal, node.layoutFillAxes.vertical],
+                    inheritedFillAxes: [node.inheritedStackFillAxes.horizontal, node.inheritedStackFillAxes.vertical],
+                    cachedMeasuredSize: cachedSize, measurement: measurement, requestedTextStyle: requestedStyle,
+                    subtreeDirtyFlags: node.subtreeDirtyFlags.rawValue,
+                    hasPendingLayoutKey: node.pendingLayoutKey != nil
+                )
+            )
+            guard node.children.count <= RetainedSceneGeometryLimits.maxNodes - nodes.count - pending.count else {
+                return sceneGeometryDiagnostic(reason: "nodeLimitExceeded")
+            }
+            for index in node.children.indices.reversed() {
+                pending.append((node.children[index], entry.path + [index]))
+            }
+        }
+        return sceneGeometryDiagnostic(nodes: nodes)
+    }
+
     private var activeAccessibilityMutation: RetainedAccessibilityMutation?
 
     public var displayScale: Double {
@@ -10231,6 +10462,10 @@ public final class RetainedViewRuntime {
     }
 
     public func renderFrame(at timestamp: Double = 0) -> RenderFrame {
+        if let request = sceneGeometryDiagnosticRequest {
+            request.finish(.unavailable(isRendering ? "nestedRender" : "frameRender"))
+            sceneGeometryDiagnosticRequest = nil
+        }
         if scrollObserverRegistry?.isDelivering == true, let cachedFrame {
             return cachedFrame
         }
@@ -10320,6 +10555,19 @@ public final class RetainedViewRuntime {
 
     /// Render the current view tree as a GPUIScene for batch rendering.
     public func renderScene(at timestamp: Double = 0) -> GPUIScene {
+        let geometryRequest = sceneGeometryDiagnosticRequest
+        if isRendering, let geometryRequest {
+            geometryRequest.finish(.unavailable("nestedRender"))
+            sceneGeometryDiagnosticRequest = nil
+        }
+        defer {
+            if let geometryRequest {
+                geometryRequest.finish(.unavailable("noFreshScene"))
+                if sceneGeometryDiagnosticRequest === geometryRequest {
+                    sceneGeometryDiagnosticRequest = nil
+                }
+            }
+        }
         discardSceneWithStaleAtlas()
         if scrollObserverRegistry?.isDelivering == true {
             if let cachedScene { return shippable(cachedScene) }
@@ -10403,6 +10651,15 @@ public final class RetainedViewRuntime {
             overlays: transitionOverlays
         )
         let scene = paintedSnapshot.scene
+        if let geometryRequest {
+            if geometryRequest.result == nil {
+                geometryRequest.finish(captureSceneGeometryDiagnostic())
+            }
+            // Clear before endRenderPass delivers callbacks; the first-scene result is now frozen.
+            if sceneGeometryDiagnosticRequest === geometryRequest {
+                sceneGeometryDiagnosticRequest = nil
+            }
+        }
         prepaintState.deferredDraws = deferredDraws
         if collectsPhaseTimings {
             let paintEndedAt = PlatformClock.now()

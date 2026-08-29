@@ -1236,6 +1236,57 @@ for ad-hoc filtered renders. With no arguments it renders the full gallery to
 appearance-aware fixture cards, responsive filters, category counts, and
 copyable fixture identifiers without external assets or network access.
 
+The optional geometry diagnostic is limited to exactly
+`--entries typography-scale,canvas-donut`, with one occurrence of each ID and
+one `--entries` argument. Supply both `--geometry-diagnostics-dir <new-directory>`
+and `--geometry-diagnostics-invocation <32-lowercase-hex-digits>`. The sidecar
+directory must be new; diagnostic mode refuses to overwrite the two PNGs or
+index. It cannot be combined with bitmap-font attribution. Ordinary gallery
+invocations do not collect this diagnostic.
+
+Each `<fixture>.geometry.json` records stored node-local frames, ancestor paths,
+constrained measurement-cache values, requested text styles, and a bounded
+inventory of the selected scene's path primitives. The runtime copies the node
+values immediately after the first scene paint, before deferred callbacks; the
+snapshotter preserves them before its existing auxiliary frame render. No
+additional layout, measurement, paint, application callback or font probe is
+performed by the diagnostic. Cached/paced/early or nested renders, missing
+roles, pending layout invalidation, invalid stored numbers, unsupported path
+coverage, and exceeded limits remain unavailable. Required diagnostic failure keeps any ordinary outputs but
+makes the invocation fail; there is no automatic retry.
+
+The fixed bounds are 128 nodes, depth 32 (root depth zero), 256 presented paths,
+4,096 path elements, and 256 KiB per encoded sidecar. Cache sizes are constrained
+layout results, not natural text widths. Requested families are not loaded-font
+receipts. Tree paths and layer/primitive indexes describe one capture; compare
+unique fixture roles and require unambiguous path correspondence across variants.
+The diagnostic does not infer Canvas pixel ownership or use translation-invariant
+`shapeHash` values as stable identities.
+
+For a default/classic comparison, use the same source-bound gallery executable
+in two fresh children and change only that child's
+`SWIFT_WINDOWSUI_CLASSIC_UI_FONT` key (absent versus exactly `1`). The font
+selection is memoized per process. Keep both fixtures at their existing 320×240,
+scale-1, dark settings and preserve baseline bytes and thresholds. Bind actual
+PNGs/sidecars to the child launch and executable/build receipt; CLI metadata does
+not attest a binary's source. `gallery-compare.ps1` collects font provenance even
+with `-SkipRender`, so it is not a passive comparator for this experiment.
+
+`RetainedGeometryCaptureTests` supplies focused source tests for the disabled
+path, first-scene timing, early/nested/cached/unavailable paths, bounds and
+unchanged rendering/measurement counts. This implementation's initial handoff
+has contracts, formatting and source-review evidence only: compiling these tests
+and executing the two-child experiment remain separate validation steps. It
+does not qualify a font cause, replace the gallery gate, or authorize baseline
+updates.
+
+Optional cache/style keys are absent when no stored value exists; unbounded
+constraint maxima use JSON null with matching flags. The donut Canvas selector
+uses the reported branch shared with `84%`/`capacity` and excludes branches that
+contain legend text. Icon fallbacks can themselves be canvas-bearing nodes, so
+size or all-tree Canvas counts are not sufficient. Missing or ambiguous matches
+remain unavailable and do not identify the Canvas's primitive ownership.
+
 `-UpdateBaselines` is not a way to make the gate green — it records what the
 renderer now produces. **Open every regenerated PNG before committing it**, and
 say in the commit which entries moved and why. A baseline accepted unseen turns

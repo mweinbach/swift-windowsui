@@ -7368,3 +7368,48 @@ inspection and hosted CI are still pending.** The private WARP-first harness
 can fall back to hardware and does not qualify a hardware configuration,
 performance, native test-process exit or descendant-process closure. All nine
 original completion gates remain open.
+
+### 2026-08-29: bounded first-scene diagnostics for gallery investigation
+
+The reviewed geometry diagnostic from private `722668460` is integrated on
+`f374636`, preserving the material target-size cache key and existing List/Arc
+changes. Its five-path context patch has SHA-256
+`e90c448422f6787fc6867251ea448fb919f88ec4d1667d4262e69819dfd9ec19`.
+This adds investigation tools; it does not fix or excuse the 67 gallery
+failures observed in the earlier `3fcdf14` hosted run.
+
+The runtime can accept one explicit package-owned capture request. It copies
+stored node-local frames, ancestor paths, constrained measurement-cache values
+and requested text styles immediately after the first scene paint, before
+end-of-pass callbacks. Snapshotter retains that value before its existing
+auxiliary frame render. The default path does not traverse for diagnostics;
+the source introduces no extra layout, measurement, paint, user callback or
+font probe. Overlap, nested/frame-only renders, cached/paced early returns,
+pending layout, invalid data and exceeded bounds produce explicit unavailable
+results rather than forcing another pass or borrowing later geometry.
+
+The gallery opt-in requires paired directory/invocation flags, a 32-character
+lowercase hexadecimal invocation ID, and exactly the existing
+`typography-scale` and `canvas-donut` fixtures. It rejects unknown or swallowed
+diagnostic flags and bitmap-attribution combinations, keeps the existing
+320x240/scale-1/dark/timestamp-zero settings, and refuses output replacement.
+Limits are 128 nodes, depth 32, 256 paths, 4,096 path elements and 256 KiB of
+encoded sidecar output. The byte cap is not a streaming memory limit. Standard
+SecureField display data stays masked; ordinary custom node text is not a
+general-purpose secret-redaction boundary.
+
+Scene paths follow `presentationOrder()` and carry scene-local references,
+not invented cross-variant identities. Child-pass and gradient-coordinate
+coverage remain explicitly unavailable. The donut selector requires unique
+center/legend roles and distinguishes the authored Canvas from icon fallback
+canvases. Neither that role nor primitive indexes prove pixel ownership.
+
+Contracts before/after integration, strict lint of four Swift files and
+independent source reviews passed. The intake receipt is
+`artifacts/goal-eighth-geometry-diagnostic-intake-v1.json`. All **22 new async
+tests are still uncompiled and unexecuted** at this checkpoint. The planned
+causal experiment uses the same built gallery in two fresh children, varying
+only the child-local classic-font override while preserving baseline pixels
+and comparison thresholds. A font cause, runtime noninterference, native
+parity and the hosted gallery gate remain unqualified. All original goal
+requirements and nine open completion gates are unchanged.

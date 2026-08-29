@@ -362,6 +362,10 @@ struct ViewPaintCacheKey: Equatable, Sendable {
     var hoverEffect: RetainedHoverEffect?
     var isFocused: Bool
     var isFocusEffectDisabled: Bool
+    /// Scene cache eligibility can depend on the enclosing device target even
+    /// when a deferred subtree has no clip. Prepaint and the legacy frame walk
+    /// do not own a render target and leave this scene-only input unspecified.
+    var surfaceSize: Size? = nil
 }
 struct ViewMeasureCacheKey: Equatable, Sendable {
     var constraints: LayoutConstraints

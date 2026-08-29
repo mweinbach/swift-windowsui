@@ -141,6 +141,13 @@ public enum GPUIRawSceneRasterizer {
             case .image:
                 for index in run.range {
                     let textureID = layer.images[index].textureID
+                    if imageBindings[textureID] == nil, let pass = passes[textureID], pass.input == .currentTarget {
+                        rasterizeCurrentTargetImage(
+                            layer.images[index], pass: pass, target: &target,
+                            imageRenderPassDepth: imageRenderPassDepth,
+                            imageRenderPassBudget: &imageRenderPassBudget)
+                        continue
+                    }
                     if resolvedImages[textureID] == nil, let pass = passes[textureID] {
                         if pass.hasValidExtent,
                             pass.colorEffects.count <= GPUISceneLimits.maxColorEffects,
@@ -169,6 +176,37 @@ public enum GPUIRawSceneRasterizer {
                 for index in run.range { target.drawPath(layer.paths[index]) }
             }
         }
+    }
+
+    private static func rasterizeCurrentTargetImage(
+        _ image: ImagePrimitive, pass: GPUISceneImageRenderPass,
+        target: inout RasterTarget, imageRenderPassDepth: Int,
+        imageRenderPassBudget: inout GPUISceneImageRenderPassBudget
+    ) {
+        let parentSize = IntSize(width: Int32(target.width), height: Int32(target.height))
+        guard let region = pass.currentTargetRegion(for: image, parentSize: parentSize),
+            imageRenderPassDepth < GPUISceneLimits.maxImageRenderPassDepth,
+            imageRenderPassBudget.consume(size: pass.size)
+        else {
+            // Preserve the software reference's visible rejection diagnostic,
+            // without caching a result whose input belongs to one occurrence.
+            let diagnostic = BitmapSurface(
+                width: 2, height: 2, bytesPerRow: 8,
+                pixels: Data([255, 0, 255, 255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 0, 255, 255]))
+            target.drawImage(image, bitmap: diagnostic)
+            return
+        }
+
+        // Copy the current prefix only after admission and the execution charge.
+        // This target owns straight-alpha bytes, just like its enclosing target;
+        // a premultiplied conversion here would needlessly quantize the seed.
+        var child = RasterTarget(cropping: target, to: region)
+        let bindings = Dictionary(
+            pass.scene.imageResources.map { ($0.textureID, $0.bitmap) }, uniquingKeysWith: { _, latest in latest })
+        rasterizeLayerOperations(
+            in: pass.scene, target: &child, imageBindings: bindings,
+            imageRenderPassDepth: imageRenderPassDepth + 1, imageRenderPassBudget: &imageRenderPassBudget)
+        target.replaceImage(image, with: child, in: region)
     }
 }
 /// One axis of a bilinear tap, matching `D3D11_FILTER_MIN_MAG_MIP_LINEAR`
@@ -302,6 +340,21 @@ private struct RasterTarget {
             for x in 0..<width {
                 writeOpaque(color, x: x, y: y)
             }
+        }
+    }
+
+    /// Called only with a wholly contained 1:1 region admitted against `parent`.
+    /// Copy all seed pixels before drawing the child; output clipping is separate.
+    init(cropping parent: RasterTarget, to region: SubTextureRegion) {
+        width = region.width
+        height = region.height
+        pixels = Array(repeating: 0, count: width * height * 4)
+        let rowBytes = width * 4
+        for row in 0..<height {
+            let source = ((region.originY + row) * parent.width + region.originX) * 4
+            let destination = row * rowBytes
+            pixels.replaceSubrange(
+                destination..<(destination + rowBytes), with: parent.pixels[source..<(source + rowBytes)])
         }
     }
 
@@ -801,6 +854,58 @@ private struct RasterTarget {
             return nil
         }
         return Double(atlas.pixels[offset + 3]) / 255.0
+    }
+
+    /// The source already includes the admitted parent crop. Its alpha is not
+    /// output coverage: retain `(1 - coverage)` of the old destination, unlike
+    /// source-over's `(1 - sourceAlpha * coverage)`. Admission makes each source
+    /// pixel correspond exactly to one parent pixel, so no resampling is needed.
+    mutating func replaceImage(_ image: ImagePrimitive, with source: RasterTarget, in region: SubTextureRegion) {
+        guard
+            !GPUIClipEncoding.isEmpty(
+                clipX: image.clipX, clipY: image.clipY, clipWidth: image.clipWidth,
+                clipHeight: image.clipHeight)
+        else { return }
+        let opacity = clamp(image.opacity, lower: 0, upper: 1)
+        guard opacity > 0 else { return }
+        let clip = GPUIClipRegion(
+            x: image.clipX, y: image.clipY, width: image.clipWidth, height: image.clipHeight,
+            cornerRadius: image.clipCornerRadius)
+        for row in 0..<region.height {
+            let y = region.originY + row
+            for column in 0..<region.width {
+                let x = region.originX + column
+                let coverage = opacity * Float(clip.alpha(atPixelX: x, y: y))
+                guard coverage > 0 else { continue }
+                let destination = pixelOffset(x: x, y: y)
+                let input = (row * source.width + column) * 4
+                // Preserve untouched bytes exactly, including transparent hidden
+                // RGB. All other colors are combined in premultiplied space.
+                if pixels[destination] == source.pixels[input],
+                    pixels[destination + 1] == source.pixels[input + 1],
+                    pixels[destination + 2] == source.pixels[input + 2],
+                    pixels[destination + 3] == source.pixels[input + 3]
+                {
+                    continue
+                }
+                let sourceAlpha = Float(source.pixels[input + 3]) / 255
+                let destinationAlpha = Float(pixels[destination + 3]) / 255
+                let weightedSourceAlpha = sourceAlpha * coverage
+                let retainedAlpha = destinationAlpha * (1 - coverage)
+                let outputAlpha = weightedSourceAlpha + retainedAlpha
+                let unpremultiply: Float = outputAlpha > 0 ? 1 / outputAlpha : 0
+                pixels[destination] = byte(
+                    (Float(source.pixels[input]) / 255 * weightedSourceAlpha
+                        + Float(pixels[destination]) / 255 * retainedAlpha) * unpremultiply)
+                pixels[destination + 1] = byte(
+                    (Float(source.pixels[input + 1]) / 255 * weightedSourceAlpha
+                        + Float(pixels[destination + 1]) / 255 * retainedAlpha) * unpremultiply)
+                pixels[destination + 2] = byte(
+                    (Float(source.pixels[input + 2]) / 255 * weightedSourceAlpha
+                        + Float(pixels[destination + 2]) / 255 * retainedAlpha) * unpremultiply)
+                pixels[destination + 3] = byte(outputAlpha)
+            }
+        }
     }
 
     mutating func drawImage(_ image: ImagePrimitive, bitmap: BitmapSurface) {

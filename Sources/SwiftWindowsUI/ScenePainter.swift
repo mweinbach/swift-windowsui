@@ -797,7 +797,8 @@ public enum ScenePainter {
             isHovered: node.isHovered,
             hoverEffect: resolvedHoverEffect,
             isFocused: node.isFocused,
-            isFocusEffectDisabled: node.isFocusEffectDisabled
+            isFocusEffectDisabled: node.isFocusEffectDisabled,
+            surfaceSize: surfaceSize
         )
         guard opacity > 0 else {
             if !skipCacheUpdates {
@@ -1456,10 +1457,10 @@ public enum ScenePainter {
                         traversal.append(.finish(group.finishState))
                         traversal.append(
                             .paint { @MainActor scene, _, usedNativeGlyphs, usedPixelGlyphs, _, _ in
-                                let bitmap = rasterizeCompositingGroup(
+                                let image = resolveCompositingGroup(
                                     group, into: &scene,
                                     usedNativeGlyphs: &usedNativeGlyphs, usedPixelGlyphs: &usedPixelGlyphs)
-                                appendCompositingGroupBitmap(bitmap, group: group, into: &scene)
+                                appendCompositingGroupImage(image, group: group, into: &scene)
                             })
                         return
                     } else {
@@ -1680,6 +1681,11 @@ public enum ScenePainter {
         }
     }
 
+    private enum CompositingGroupImage {
+        case bitmap(BitmapSurface)
+        case currentTarget(GPUIScene)
+    }
+
     @inline(never)
     private static func cachedCompositingGroupBitmap(_ group: CompositingGroupPaintContext) -> BitmapSurface? {
         // Rasterizing the group means walking and CPU-rasterizing its
@@ -1702,15 +1708,15 @@ public enum ScenePainter {
     }
 
     @inline(never)
-    private static func rasterizeCompositingGroup(
+    private static func resolveCompositingGroup(
         _ group: CompositingGroupPaintContext,
         into scene: inout GPUIScene,
         usedNativeGlyphs: inout Bool,
         usedPixelGlyphs: inout Bool
-    ) -> BitmapSurface {
+    ) -> CompositingGroupImage {
         if let bitmap = cachedCompositingGroupBitmap(group) {
             scene.paintMetrics.compositingGroupsReused += 1
-            return bitmap
+            return .bitmap(bitmap)
         }
         let recording = CompositingGroupRecording(clearColor: group.buffer.clearColor)
         for child in group.children {
@@ -1742,26 +1748,29 @@ public enum ScenePainter {
         into scene: inout GPUIScene,
         usedNativeGlyphs: inout Bool,
         usedPixelGlyphs: inout Bool
-    ) -> BitmapSurface {
+    ) -> CompositingGroupImage {
         recording.scene.finish()
-        // The sub-scene is rasterized on the CPU right here, and
-        // `RasterTarget.drawGlyph` returns immediately when its atlas is
-        // nil — which is why every piece of text inside `.drawingGroup()`
-        // used to vanish. The peek below deliberately does *not* consume
-        // the atlas dirty region: the frame has a single consumer at the
-        // end of `paint`, and letting the sub-scene call
-        // `snapshotIfUsedInCurrentFrame()` would hand the outer scene an
-        // empty dirty region for glyphs it still has to upload.
-        attachCachedGlyphAtlases(to: &recording.scene)
         // Glyph usage inside the group is glyph usage for the frame: the
         // atlas-recovery retry and the outer snapshot both key off it.
         // A reused bitmap has its glyphs baked in and needs neither.
         usedNativeGlyphs = usedNativeGlyphs || recording.usedNativeGlyphs
         usedPixelGlyphs = usedPixelGlyphs || recording.usedPixelGlyphs
 
+        let node = group.finishState.node
+        if canPromoteBackdropGroup(recording.scene, group: group) {
+            // The external backdrop is not part of this subtree's paint key.
+            // Cache/replay its records, never pixels containing an old parent.
+            node.releaseCompositingGroupCache()
+            return .currentTarget(recording.scene)
+        }
+
+        // Only the immediate CPU fallback needs an intermediate snapshot.
+        // Promoted scenes receive the completed attempt's atlases through the
+        // final recursive attachment, avoiding copies during later glyph writes.
+        // The peek does not consume the frame's atlas dirty region.
+        attachCachedGlyphAtlases(to: &recording.scene)
         let bitmap = GPUIRawSceneRasterizer.rasterize(recording.scene, size: group.buffer.size)
         scene.paintMetrics.compositingGroupsRasterized += 1
-        let node = group.finishState.node
         if recording.usedNativeGlyphs, NativeGlyphAtlas.shared.atlasGeneration != recording.sourceAtlasGeneration {
             // The outer attempt must retry. Do not let stale UVs
             // baked into this image become a post-recycle cache.
@@ -1774,15 +1783,88 @@ public enum ScenePainter {
             node.cachedCompositingGroupAtlasGeneration =
                 recording.usedNativeGlyphs ? NativeGlyphAtlas.shared.atlasGeneration : nil
         }
-        return bitmap
+        return .bitmap(bitmap)
+    }
+
+    private static func canPromoteBackdropGroup(
+        _ source: GPUIScene, group: CompositingGroupPaintContext
+    ) -> Bool {
+        // Detached color/content-blur/Canvas sources can be cropped or rebased
+        // later and have no enclosing-window backdrop. Keep their existing path.
+        guard !group.finishState.skipCacheUpdates, !group.routesRotatedClip, containsBackdropReader(source),
+            imagePassDepthIsAdmitted(source, depth: group.colorEffectPassDepth + 1)
+        else { return false }
+
+        let pass = GPUISceneImageRenderPass(
+            textureID: 0, scene: source, size: group.buffer.size, input: .currentTarget)
+        let parentSize = IntSize(
+            width: Int32(clamping: GPUISceneValue.int(group.surfaceSize.width.rounded(.up))),
+            height: Int32(clamping: GPUISceneValue.int(group.surfaceSize.height.rounded(.up))))
+        guard
+            pass.currentTargetRegion(for: compositingGroupPrimitive(group, textureID: 0), parentSize: parentSize)
+                != nil,
+            GPUIScene(imageRenderPasses: [pass]).validate().isEmpty
+        else { return false }
+
+        // Replayed sources bypass a fresh painter reservation. Keep eligible
+        // records lazy even under frame-wide pressure: structural validation
+        // and each renderer's execution budget reject explicitly. Baking a
+        // budget-only fallback here could survive after outside siblings leave.
+        return true
+    }
+
+    /// An independent child owns a different backdrop. Do not infer access to
+    /// a grandparent through its filters or through a CPU-baked content blur.
+    private static func containsBackdropReader(_ scene: GPUIScene) -> Bool {
+        let dependentIDs = Set(scene.imageRenderPasses.lazy.filter { $0.input == .currentTarget }.map(\.textureID))
+        for run in scene.presentationOrder() {
+            for index in run.range {
+                switch scene.primitive(kind: run.kind, inLayer: run.layerIndex, at: index) {
+                case .quad(let quad) where quad.blurRadius > 0:
+                    return true
+                case .image(let image):
+                    if dependentIDs.contains(image.textureID) { return true }
+                default:
+                    break
+                }
+            }
+        }
+        return false
+    }
+
+    private static func imagePassDepthIsAdmitted(_ scene: GPUIScene, depth: Int) -> Bool {
+        var pending = [(scene, depth)]
+        var remaining = GPUISceneLimits.maxImageRenderPassCount
+        while let (source, sourceDepth) = pending.popLast() {
+            guard sourceDepth <= GPUISceneLimits.maxImageRenderPassDepth else { return false }
+            for pass in source.imageRenderPasses {
+                guard remaining > 0, sourceDepth < GPUISceneLimits.maxImageRenderPassDepth else { return false }
+                remaining -= 1
+                pending.append((pass.scene, sourceDepth + 1))
+            }
+        }
+        return true
     }
 
     @inline(never)
-    private static func appendCompositingGroupBitmap(
-        _ bitmap: BitmapSurface,
+    private static func appendCompositingGroupImage(
+        _ image: CompositingGroupImage,
         group: CompositingGroupPaintContext,
         into scene: inout GPUIScene
     ) {
+        let textureID: Int32
+        switch image {
+        case .bitmap(let bitmap):
+            textureID = scene.registerImageResource(bitmap)
+        case .currentTarget(let source):
+            textureID = scene.registerImageRenderPass(source, size: group.buffer.size, input: .currentTarget)
+        }
+        scene.addImage(compositingGroupPrimitive(group, textureID: textureID), toLayer: group.finishState.layerIndex)
+    }
+
+    private static func compositingGroupPrimitive(
+        _ group: CompositingGroupPaintContext, textureID: Int32
+    ) -> ImagePrimitive {
         let node = group.finishState.node
         let buffer = group.buffer
         let displayScale = group.displayScale
@@ -1792,8 +1874,6 @@ public enum ScenePainter {
         let effectiveClip = group.finishState.effectiveClip
         let primitiveOpacity = group.primitiveOpacity
         let placement = group.finishState.placement
-        let layerIndex = group.finishState.layerIndex
-        let textureID = scene.registerImageResource(bitmap)
         let scaledFrame = scaleRect(buffer.frame, by: displayScale)
         // On the rotated route the node's own clip is the bitmap, so
         // the composite carries only what its ancestors imposed;
@@ -1816,10 +1896,7 @@ public enum ScenePainter {
                 compositeClip.resolvedCornerRadius(forQuadRect: buffer.frame) * displayScale),
             textureID: textureID
         )
-        scene.addImage(
-            routesRotatedClip
-                ? placement.rotating(composite, displayScale: displayScale) : composite,
-            toLayer: layerIndex)
+        return routesRotatedClip ? placement.rotating(composite, displayScale: displayScale) : composite
     }
 
     private static func finishPaintNode(
@@ -2690,9 +2767,9 @@ public enum ScenePainter {
             IntSize(width: Int32(pass.target.width), height: Int32(pass.target.height))
         }
 
-        /// What the sub-scene clears to. A transparent clear is what makes
-        /// the pass an *isolation*: nothing painted before it is in the
-        /// bitmap, which is exactly why a Material inside one blurs nothing
+        /// The independent pass's clear color. Transparent isolates it from
+        /// earlier parent pixels. An admitted current-target group preserves
+        /// this declaration but copies its parent seed instead of clearing
         /// (see `docs/GPURenderingPipeline.md`).
         var clearColor: Color { pass.target.clearColor ?? .clear }
     }
@@ -4040,7 +4117,25 @@ public enum ScenePainter {
                 continue
             }
             let startPaintRecord = scene.paintRecordCount
-            if let previousScene, let previousSceneIdentity,
+            // This fast path precedes the node's own scene-key comparison.
+            // A clean deferred group can become contained after a resize while
+            // keeping its frame and nil clip, so do not replay its old fallback.
+            // Only borrow a key from the same snapshot as the deferred range:
+            // a separate public paint can replace the node's live key first.
+            var canReplayInTarget = true
+            if case .subtree(let payload) = deferredDraws[deferredDrawIndex].payload {
+                if let node = payload.node,
+                    let cachedSurfaceSize = node.cachedSceneKey?.surfaceSize,
+                    let cachedIdentity = node.cachedSceneSnapshotIdentity
+                {
+                    canReplayInTarget =
+                        cachedSurfaceSize == surfaceSize
+                        && cachedIdentity == deferredDraws[deferredDrawIndex].cachedSceneSnapshotIdentity
+                } else {
+                    canReplayInTarget = false
+                }
+            }
+            if canReplayInTarget, let previousScene, let previousSceneIdentity,
                 deferredDraws[deferredDrawIndex].cachedSceneSnapshotIdentity == previousSceneIdentity,
                 let cachedScenePaintRange = deferredDraws[deferredDrawIndex].cachedScenePaintRange
             {

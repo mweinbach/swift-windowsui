@@ -141,6 +141,15 @@ public enum SceneColorEffects {
     }
 }
 
+/// How a scene-backed image obtains its initial pixels and composites its result.
+public enum GPUISceneImageRenderPassInput: Equatable, Sendable {
+    /// Clear to the child scene's color and composite the result source-over.
+    case independent
+    /// Copy the current enclosing target at this image occurrence, then replace
+    /// destination coverage with the composed result, including its alpha.
+    case currentTarget
+}
+
 /// A renderer-neutral image source drawn from another scene. The image ID
 /// belongs to its enclosing scene; the child owns its own resource namespace.
 /// Backends resolve the source at the ImagePrimitive's presentation position.
@@ -150,12 +159,17 @@ public struct GPUISceneImageRenderPass: Equatable, Sendable {
     public var scene: GPUIScene
     public var size: IntSize
     public var colorEffects: [SceneColorEffect]
+    public var input: GPUISceneImageRenderPassInput
 
-    public init(textureID: Int32, scene: GPUIScene, size: IntSize, colorEffects: [SceneColorEffect] = []) {
+    public init(
+        textureID: Int32, scene: GPUIScene, size: IntSize, colorEffects: [SceneColorEffect] = [],
+        input: GPUISceneImageRenderPassInput = .independent
+    ) {
         self.textureID = textureID
         self.scene = scene
         self.size = size
         self.colorEffects = colorEffects.map(\.sanitized)
+        self.input = input
     }
 
     /// Checked before allocation by both renderers. Invalid sources remain
@@ -166,12 +180,69 @@ public struct GPUISceneImageRenderPass: Equatable, Sendable {
             && Int(size.height) <= GPUISceneLimits.maxSurfaceDimension
             && Int64(size.width) * Int64(size.height) <= Int64(GPUISceneLimits.maxImageRenderPassPixels)
     }
+
+    /// The same admission runs before CPU allocation and GPU copy. A crop is
+    /// relative to its consuming image and immediate target, never a cached
+    /// enclosing-frame rectangle. No clamping, resampling or padded reads are
+    /// admitted: each child pixel must have exactly one available parent pixel.
+    public func currentTargetRegion(for image: ImagePrimitive, parentSize: IntSize) -> SubTextureRegion? {
+        guard input == .currentTarget, hasValidExtent,
+            currentTargetSourceDefect == nil, currentTargetImageDefect(image) == nil,
+            parentSize.width > 0, parentSize.height > 0,
+            Int(parentSize.width) <= GPUISceneLimits.maxSurfaceDimension,
+            Int(parentSize.height) <= GPUISceneLimits.maxSurfaceDimension,
+            image.screenX + image.screenW <= Float(parentSize.width),
+            image.screenY + image.screenH <= Float(parentSize.height)
+        else { return nil }
+
+        // The image check bounds these exact even integers before conversion.
+        return SubTextureRegion(
+            originX: Int(image.screenX), originY: Int(image.screenY),
+            width: Int(size.width), height: Int(size.height),
+            textureWidth: Int(parentSize.width), textureHeight: Int(parentSize.height))
+    }
+
+    var currentTargetSourceDefect: String? {
+        guard input == .currentTarget else { return nil }
+        guard scene.clearColor == .clear else {
+            return "current-target sources must declare a transparent clear color"
+        }
+        guard colorEffects.isEmpty else {
+            return "current-target sources do not support post-filter chains"
+        }
+        return nil
+    }
+
+    /// Checks the mapping without pretending that structural validation knows
+    /// the root render target's dimensions. Actual containment is checked above.
+    func currentTargetImageDefect(_ image: ImagePrimitive) -> String? {
+        guard input == .currentTarget else { return nil }
+        guard image.textureID == textureID,
+            image.screenW == Float(size.width), image.screenH == Float(size.height),
+            image.uvX == 0, image.uvY == 0, image.uvW == 1, image.uvH == 1,
+            image.rotationRadians == 0, image.hasIdentityAffineTransform
+        else {
+            return "current-target images require a matching source, full UVs and identity 1:1 placement"
+        }
+        // Preserve the two-by-two derivative phase of the enclosing target.
+        let limit = Float(GPUISceneLimits.maxSurfaceDimension)
+        guard image.screenX.isFinite, image.screenY.isFinite,
+            image.screenX >= 0, image.screenY >= 0,
+            image.screenX + image.screenW <= limit, image.screenY + image.screenH <= limit,
+            image.screenX.truncatingRemainder(dividingBy: 2) == 0,
+            image.screenY.truncatingRemainder(dividingBy: 2) == 0
+        else {
+            return "current-target images require bounded nonnegative even pixel origins"
+        }
+        return nil
+    }
 }
 
 /// A cumulative budget for scene-backed image sources. Structural walks
 /// charge each declared source in each child namespace; execution charges
-/// each actual realization before allocating it. Reusing a resolved CPU
-/// image spends nothing, while a repeated GPU realization spends again.
+/// each actual realization before allocating it. Reusing an independent
+/// resolved CPU image spends nothing. Current-target sources realize and
+/// spend again at every occurrence on both backends.
 /// This accounts source pixels, not filter outputs or total process memory.
 public struct GPUISceneImageRenderPassBudget: Sendable {
     public private(set) var remainingPasses: Int

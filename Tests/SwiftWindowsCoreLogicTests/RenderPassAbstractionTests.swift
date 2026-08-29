@@ -477,10 +477,10 @@ final class RenderPassAbstractionTests: XCTestCase {
         XCTAssertLessThan(
             inlineContrast, 20,
             "painted inline, the material blurs the stripes under it into a smooth field")
-        XCTAssertGreaterThan(
-            groupedContrast, 100,
-            "inside a compositing group the same material has no backdrop to blur, so the stripes "
-                + "under it stay sharp — the divergence this test records")
+        XCTAssertLessThan(
+            groupedContrast, 20,
+            "inside an admitted compositing group the material reads the enclosing backdrop "
+                + "and smooths the same stripes as the inline material")
         XCTAssertGreaterThan(
             blurredContrast, 100,
             "and inside a `.blur()` isolation pass too: the pass clears to transparent for its own "

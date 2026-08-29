@@ -730,6 +730,49 @@ float4 psMain(VSOutput input) : SV_Target
 }
 """#
 
+// A current-target source already includes its destination. The second
+// output retains only uncovered destination pixels, independently of the
+// sampled alpha. This reuses the ordinary image geometry and clip mapping.
+let batchImageReplacementShaderSource = batchImageShaderSharedSource + "\n" + #"""
+struct ImageReplacementPSOutput
+{
+    float4 color : SV_Target0;
+    float4 coverage : SV_Target1;
+};
+
+ImageReplacementPSOutput psMain(VSOutput input)
+{
+    float clipAlpha = 1.0;
+    if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
+    {
+        if (input.pixelPosition.x < input.clipRect.x || input.pixelPosition.y < input.clipRect.y ||
+            input.pixelPosition.x >= input.clipRect.x + input.clipRect.z ||
+            input.pixelPosition.y >= input.clipRect.y + input.clipRect.w)
+        {
+            discard;
+        }
+
+        if (input.clipRadius > 0.0)
+        {
+            float clipDistance = imageClipDistance(
+                input.pixelPosition - input.clipRect.xy, input.clipRect.zw, input.clipRadius);
+            float clipAA = max(fwidth(clipDistance), 0.75);
+            clipAlpha = saturate(0.5 - clipDistance / clipAA);
+            if (clipAlpha <= 0.0)
+            {
+                discard;
+            }
+        }
+    }
+
+    float coverage = input.opacity * clipAlpha;
+    ImageReplacementPSOutput output;
+    output.color = imageTexture.Sample(imageSampler, input.uv) * coverage;
+    output.coverage = float4(0.0, 0.0, 0.0, coverage);
+    return output;
+}
+"""#
+
 // An isolated pass is filtered at its original texel resolution before its
 // image primitive scales or rotates it. Filtering after bilinear sampling
 // would change contrast/brightness clamping at transparent and colored edges.

@@ -7317,3 +7317,54 @@ The local `origin/main` tracking ref was observed at `4fdfa2d` during this
 intake, with an update-by-push reflog entry. This observation is not a fresh
 hosted-CI result or a test result for the pointer or UIA additions. All nine
 original completion gates remain open.
+
+### 2026-08-29: enclosing-backdrop groups joined after focused execution
+
+The fourteen-path material implementation is integrated as a context patch
+from `46d22ff` to private `7359e463`, on top of root `add2485`. Patch SHA-256:
+`7e671b8214b9224a3aea445e5f12dc356bc6f167aea97b826d2926543fdbebc6`.
+Separate Graphics/runtime and D3D11/test source reviews were clear. The root's
+newer List, Arc, captured-pointer and UIA changes remain intact; Runtime gains
+only the four-line optional `surfaceSize` cache-key addition. Ten other changed
+production/test files match the qualified private endpoint's Git blobs exactly.
+
+Eligible plain drawing/compositing groups now retain a scene with explicit
+`currentTarget` input. Each image occurrence reads its immediate parent's
+already-painted prefix in `GPUIScene.presentationOrder()`, including replay
+after an outside-only change. CPU copies the bounded parent region; D3D11
+copies between GPU textures without rasterizing or reading back the window.
+Opacity and clip coverage replace the seeded destination as
+`k * child + (1 - k) * destination`, including alpha, rather than blending the
+same translucent backdrop twice. Final-attempt glyph atlases and target-size
+and snapshot-identity guards preserve deferred replay and resize behavior.
+
+Admission remains explicit: transparent clear, no post-filter, full UVs,
+identity 1:1 placement, a nonnegative even device-pixel origin and containment
+inside the immediate target. Odd extents are supported. Existing source-count,
+pixel and depth budgets remain unchanged; every actual occurrence is charged
+before allocation. These limits do not bound all process or driver memory.
+Independent content-blur, color-effect and Canvas captures, unsupported
+mapping/rotation cases, arbitrary blend modes and native SwiftUI parity remain
+open. This capability does not close the full composition or renderer gates.
+
+The isolated material run on `7359e463` completed **199 XCTest passes,
+14 Swift Testing passes and one existing named skip**, with all eleven stock
+PowerShell calls returning zero. Its independent copy-only audit reconciled
+all 214 selected start/terminal lifecycles and the complete 5,486-method
+generated XCTest registry (5,134 async and 352 direct methods). All 25 new
+material tests passed. The capacity case now constructs the same 1,024 small
+quads independently for its CPU oracle and first asserts their expected pixels;
+the GPU tolerance and required match ratio were not loosened. Earlier failed
+compile and capacity runs remain separate evidence. The remaining
+`RenderPassAbstractionTests.testMaterialInsideADrawingGroupBlursNothing` skip
+still records the unresolved content-blur arm; it is not counted as a pass.
+
+The audit's final manifest SHA-256 is
+`f5dfdb22dc1d8f8f169197f0760e2851bf188e616fc65675572fabdb82320e8f`.
+Root intake evidence is `artifacts/goal-eighth-material-intake-after-v1.json`.
+Joined-root contracts, strict lint of eleven Swift files and whitespace checks
+passed. **Joined-root compilation, focused execution, Full, retained visual
+inspection and hosted CI are still pending.** The private WARP-first harness
+can fall back to hardware and does not qualify a hardware configuration,
+performance, native test-process exit or descendant-process closure. All nine
+original completion gates remain open.

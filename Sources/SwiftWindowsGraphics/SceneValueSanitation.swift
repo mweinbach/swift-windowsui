@@ -729,6 +729,7 @@ extension GPUIScene {
         }
 
         var imageIDs = Set(imageResources.map(\.textureID))
+        var currentTargetSources: [Int32: GPUISceneImageRenderPass] = [:]
         for pass in imageRenderPasses {
             // Charge each declared namespace independently, even when its
             // value arrays share storage with another branch. Stop rejected
@@ -747,6 +748,8 @@ extension GPUIScene {
                 reason = "texture ID is negative or has more than one source"
             } else if pass.colorEffects.count > GPUISceneLimits.maxColorEffects {
                 reason = "effect chain exceeds \(GPUISceneLimits.maxColorEffects) operations"
+            } else if let inputDefect = pass.currentTargetSourceDefect {
+                reason = inputDefect
             } else if imageRenderPassDepth >= GPUISceneLimits.maxImageRenderPassDepth {
                 reason = "nesting exceeds \(GPUISceneLimits.maxImageRenderPassDepth) passes"
             } else {
@@ -756,10 +759,26 @@ extension GPUIScene {
                 defects.append(SceneDefect(kind: .invalidImageRenderPass(textureID: pass.textureID, reason: reason)))
                 if !admitted { break }
             } else {
+                if pass.input == .currentTarget { currentTargetSources[pass.textureID] = pass }
                 defects.append(
                     contentsOf: pass.scene.validate(
                         imageRenderPassDepth: imageRenderPassDepth + 1,
                         imageRenderPassBudget: &imageRenderPassBudget))
+            }
+        }
+
+        // The dictionary contains only admitted sources, so an invalid graph
+        // cannot bypass the traversal budget by requesting mapping diagnostics.
+        if !currentTargetSources.isEmpty {
+            for layer in layers {
+                for image in layer.images {
+                    if let pass = currentTargetSources[image.textureID],
+                        let reason = pass.currentTargetImageDefect(image)
+                    {
+                        defects.append(
+                            SceneDefect(kind: .invalidImageRenderPass(textureID: pass.textureID, reason: reason)))
+                    }
+                }
             }
         }
 

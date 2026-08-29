@@ -724,9 +724,12 @@ corners out of four rendered thin or gapped. Every corner's arc boxes
 now union to the full `radius × radius` corner square.
 
 **Compositing groups** (`.drawingGroup()`, `.compositingGroup()`)
-rasterize their children into an offscreen `BitmapSurface` and composite
-it as one `ImagePrimitive`. `offscreenPassBuffer` — shared with the
-content-blur isolation pass — decides whether that is possible at all:
+record their children into a separate scene. Ordinary groups rasterize
+that scene into an offscreen `BitmapSurface` and composite it as one
+`ImagePrimitive`. An admitted group containing a backdrop reader instead
+retains a current-target scene source, described below. `offscreenPassBuffer`
+— shared with the content-blur isolation pass — decides whether either
+route can size its buffer:
 
 - the group's frame is **clamped to the effective clip** before sizing —
   pixels outside it could not survive the clip anyway, and sizing from the
@@ -738,16 +741,20 @@ content-blur isolation pass — decides whether that is possible at all:
 - when the buffer cannot be sized, the group **falls back to inline
   painting** rather than dropping its children.
 
-The sub-scene carries the glyph atlases. `RasterTarget.drawGlyph` returns
+The CPU sub-scene carries the glyph atlases. `RasterTarget.drawGlyph` returns
 immediately on a nil atlas, so without them every piece of text inside a
 `drawingGroup` silently disappeared. The sub-scene reads the atlas via
 `NativeGlyphAtlas.currentSnapshot()`, which deliberately does **not** mark
 the atlas clean: a frame has many readers but exactly one consumer of the
 dirty region (the outer scene, at the end of `paint`), and consuming it
 mid-traversal would hand the GPU backend an empty dirty region for glyphs
-it still had to upload.
+it still had to upload. A promoted current-target scene receives the
+completed paint attempt's atlas through the final recursive attachment;
+it does not take an intermediate snapshot while later glyph writes can
+still change the atlas. Its glyph-use flags still participate in the
+existing recovery retry.
 
-The bitmap is **cached on the node**, under the same condition the paint
+An ordinary group's bitmap is **cached on the node**, under the same condition the paint
 record replay uses: the node's `ViewPaintCacheKey` is unchanged and its
 subtree is clean (the key covers the group itself, `subtreeDirtyFlags`
 covers its descendants). Rasterizing a group walks and CPU-rasterizes its
@@ -2675,50 +2682,111 @@ same type saying different things.
 
 The separate `GPUISceneImageRenderPass` source contract adds a capability:
 backends can resolve an ordinary image primitive from a child scene and an
-ordered filter chain. The colour-effect section above describes that route;
-it does not turn the existing CPU drawing-group cache into a GPU group cache.
+ordered filter chain. The colour-effect section above describes the default
+independent input. A current-target input supplies the bounded material-group
+route below; ordinary drawing-group bitmaps keep their existing CPU cache.
 
-### Residual: a Material inside a pass cannot sample the enclosing backdrop
+### Bounded enclosing-backdrop input for material groups
 
-An offscreen sub-scene clears to **transparent**, and a Material samples
-only pixels painted earlier inside that pass. It cannot see the enclosing
-scene's wallpaper or siblings. Where no earlier child content exists, it
-composites its tint over transparency and the outside backdrop stays sharp.
+An independent offscreen scene clears to **transparent**. A Material in it
+samples only earlier pixels inside that pass, so an otherwise empty child
+cannot frost the enclosing wallpaper. Simply baking the wallpaper into a
+group bitmap would be incorrect too: the subtree-local cache key does not
+change when an outside sibling moves, and ordinary source-over composition
+would count a translucent backdrop twice.
 
-This holds for `.drawingGroup()`, `.compositingGroup()`, `.blur(radius:)`
-isolation, and the scene-backed colour-effect route. Content blur clears to
-transparent for a reason of its own: that transparent margin is what lets
-a blur fade out to nothing instead of smearing a neighbour into the
-subtree.
+`GPUISceneImageRenderPass.input == .currentTarget` pairs an explicit parent
+load with coverage replacement. At each consuming image's position in
+`GPUIScene.presentationOrder()`, the CPU copies the corresponding parent
+rectangle into a separate child target. D3D11 copies that rectangle between
+GPU textures, then draws the recorded child on the same device. Normal D3D11
+presentation does not rasterize the enclosing scene on the CPU or read it
+back for this operation. The child retains its own image and atlas namespace;
+a nested current-target source reads its immediate parent, not an implied
+window or grandparent.
 
-Importing the already-painted enclosing backdrop requires explicit
-dependency, load, and composite semantics. The older CPU group/blur routes
-also have these constraints:
+The shared admission requires full UVs, identity 1:1 image placement, a
+nonnegative even device-pixel origin, and an extent wholly inside the actual
+parent surface. Odd widths and heights are valid. The source must declare a
+transparent clear and no post-filter chain. Both backends recheck the actual
+parent before allocating or copying a child target; structural scene
+validation alone cannot know the root surface dimensions. Even origins keep
+the D3D derivative phase aligned. There is no padded, clamped, or resampled
+parent crop. Blur taps at the child boundary still obey that child's extent;
+this is not a general claim of equality to an unisolated material at every
+edge.
 
-1. **The pixels do not exist yet.** At that point the outer scene is a
-   *scene* — a paint-record stream — not pixels. Turning it into pixels
-   costs a full-surface CPU rasterization per pass per frame, on a path
-   (D3D11) that otherwise never rasterizes on the CPU at all, and
-   `.drawingGroup()` exists to make a subtree cheaper, not to make the
-   whole surface expensive.
-2. **It fights the bitmap cache.** `cachedCompositingGroupBitmap` is
-   keyed on the node's paint key plus a clean subtree — both entirely
-   subtree-local. A backdrop baked into the bitmap goes stale the moment
-   anything *outside* the group moves, and the key cannot see that; the
-   alternative is making any group containing a Material uncacheable,
-   which is the exact case the cache is worth the most on.
-3. **The composite is source-over, and only source-over** (see
-   *Blend modes* above). A bitmap that already contained the backdrop
-   would draw that backdrop a second time everywhere the pass is not
-   fully opaque. Getting it right needs a replace/copy blend, which the
-   contract does not have.
+For premultiplied child result `R`, destination `D`, and group opacity times
+output-clip coverage `k`, the composite is `k * R + (1 - k) * D`, including
+alpha. Coverage is not the result's alpha. CPU interpolation and D3D11's
+dual-source blend implement this replacement only for current-target images;
+the ordinary image shader, image geometry ABI, and source-over path remain
+unchanged. D3D restores the parent target, dimensions, resources, uniforms,
+and blend state on normal return and failure.
 
-The colour-effect route already uses a real GPU target, but clearing it to
-transparent does not import the enclosing backdrop or resolve the composite
-semantics. A GPU target alone does not close this gap. Recorded and skipped by
-`RenderPassAbstractionTests.testMaterialInsideADrawingGroupBlursNothing`,
-whose assertions pin what happens today for both the compositing-group
-and the content-blur route.
+`ScenePainter` promotes only otherwise-admitted plain groups with a recorded
+backdrop reader. It releases their bitmap cache and preserves their source
+records for clean-subtree and ancestor replay. Neither backend caches a
+current-target result by texture ID: repeated uses observe their own current
+prefix, and replayed groups therefore follow outside-only changes without
+global invalidation. Groups inside independent content-blur, color-effect,
+or Canvas captures keep their existing route; those captures can later be
+cropped or rebased and do not implicitly gain an enclosing-window backdrop.
+
+Scene cache keys also include the current device-target `surfaceSize`. This
+matters for deferred subtrees: prepaint can carry no inherited clip, so a
+fixed 60x60 material group at (20,20) is outside a 64x64 target but contained
+when only that target grows to 100x100. Reusing its independent fallback
+bitmap or paint records would skip the newly valid promotion. ScenePainter
+supplies the size for node and bitmap cache equality, and the earlier deferred
+subtree replay path requires the same nonnil cached size before replaying.
+The node key must belong to the deferred range's snapshot: an intervening
+public paint may otherwise update the live key while the older range survives.
+Unchanged-size replay remains available; scroll-indicator replay is unchanged.
+The optional key field stays nil for prepaint and the legacy frame walk,
+which do not own a render target. No clip, mapping admission or budget changes
+are implied by this cache dependency.
+
+Existing source limits still apply: 1024 passes, 4194304 pixels per source,
+16777216 cumulative source pixels, and depth 32. Registration stores scene
+values, not child pixel targets. Eligible groups stay lazy under whole-frame
+pressure, because a budget-only baked fallback could remain stale after
+outside siblings disappear. Whole-scene validation reports excess declared
+sources; execution charges every actual current-target occurrence before
+child allocation. CPU rejection draws its existing diagnostic tile, while
+D3D11 throws a scene-content error. A late execution failure does not roll
+back earlier draws. These limits bound source payload, not all process or GPU
+memory.
+
+The source tests `MaterialDrawingGroupBackdropTests` and
+`D3D11MaterialDrawingGroupBackdropTests` cover the positive stripe fixture,
+translucent replacement, ordering, replay, bounds, resource restoration,
+capacity rejection, and recovery. The original 22 methods are preserved.
+Three additional retained regressions cover outer deferred replay
+and bitmap reuse without a previous snapshot, with clean nodes, same-size
+controls, growth, shrink-back, fresh-paint equality and positive blur pixels.
+The third retains an older deferred snapshot across an intervening public
+paint, then checks that its old range is rejected and steady replay recovers.
+All 25 methods passed in the isolated `7359e463` material run, which completed
+199 XCTest and 14 Swift Testing passes plus one existing named skip. Its
+independent audit reconciled all 214 selected lifecycles and the complete
+5,486-method generated XCTest registry. This is focused execution, not a
+full-suite result, joined-root validation, native-reference parity or hardware
+performance qualification. The original source freeze and failed capacity
+oracle run remain recorded separately, not relabeled as passing. The corrected
+capacity oracle independently builds the same 1,024 small quads as the GPU
+prefix and checks its CPU pixels before applying the unchanged GPU tolerance.
+The historical `RenderPassAbstractionTests.testMaterialInsideADrawingGroupBlursNothing`
+keeps its name and remaining skip, but now requires the admitted plain-group
+arm to satisfy the existing `<20` contrast oracle. Its inline arm and
+content-blur defect arm are unchanged.
+
+Content blur still needs a transparent margin to fade the subtree out instead
+of importing a neighbour. Material access through that isolation or an
+independent post-filter pass remains unresolved, as do rotated, odd/fractional
+origin, off-surface, and resampled group mappings. Drawing-group opaque and
+color-mode options, arbitrary blend modes, general clip semantics, and full
+SwiftUI/native fidelity remain separate open work.
 
 ### `SubTextureRegion`: one clamp, and the stale-texel class
 

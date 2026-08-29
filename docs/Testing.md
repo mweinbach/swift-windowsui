@@ -925,9 +925,34 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   UV the way the tap model assumes. Plus the downsample chain — invisible
   across its threshold, still honouring the radius, and agreeing across
   backends at the suite parity floor both at quarter resolution and over
-  an odd (5 device pixel) region. Carries two recorded residuals as
-  `XCTSkip`s: rotated clipping, and a Material inside a `drawingGroup`
-  having no backdrop to blur.
+  an odd (5 device pixel) region. Rotated clipping has active coverage.
+  `testMaterialInsideADrawingGroupBlursNothing` retains its historical name
+  and remaining `XCTSkip`: the plain compositing-group arm now requires
+  the existing positive `<20` contrast oracle, while the unchanged
+  content-blur arm still records the unresolved enclosing-backdrop defect.
+- `MaterialDrawingGroupBackdropTests` — 16 cases for
+  admitted plain groups, public Material fixtures at aligned 1×/2× scales,
+  independent premultiplied-alpha oracles, clipping, per-occurrence order,
+  clean group/ancestor replay, deferred target-size and snapshot-identity recovery, immediate-parent nesting, mapping admission,
+  ordinary bitmap cache preservation, and explicit capacity/recovery.
+  The 1025-producer painter arm inspects an invalid scene without rendering
+  it, then removes outside siblings and checks replay recovery. A synthetic
+  atlas-generation mismatch checks the cache guard; it is not a real glyph
+  recycle or UV qualification.
+- `D3D11MaterialDrawingGroupBackdropTests` — nine cases
+  for actual child-target composition, analytic alpha values, repeated and
+  nested sources, translated replay, odd crop extents, failure restoration,
+  material degradation, bitmap-upload separation, and declared/executed
+  source-budget rejection followed by recovery. The capacity case uses
+  2×2 sources at the unchanged 1024 limit. Its harness prefers WARP but can
+  fall back to hardware; this is not software-only or hardware qualification.
+  Both classes passed in the isolated `7359e463` material run: 199 XCTest
+  and 14 Swift Testing passes plus the one named content-blur skip across
+  214 selected cases. Independent reconciliation checked every selected
+  lifecycle and all 5,486 generated XCTest registrations. Joined-root
+  execution remains pending. The pixel tolerances and remaining skip are
+  unchanged; the capacity oracle now constructs the same 1,024 small quads
+  independently on the CPU and checks their expected pixels first.
 - `ContentBlurRenderPassTests` — `.blur()` as an **isolated** content
   blur: one pass over 50 backgrounded rows rather than 50 backdrop blurs,
   a Material background that does not frost the cards inside it, nested

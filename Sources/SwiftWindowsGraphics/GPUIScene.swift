@@ -698,11 +698,13 @@ public struct GPUIScene: Equatable, Sendable {
 
     @discardableResult
     public mutating func registerImageRenderPass(
-        _ scene: GPUIScene, size: IntSize, colorEffects: [SceneColorEffect] = []
+        _ scene: GPUIScene, size: IntSize, colorEffects: [SceneColorEffect] = [],
+        input: GPUISceneImageRenderPassInput = .independent
     ) -> Int32 {
         let textureID = nextImageTextureID
         imageRenderPasses.append(
-            GPUISceneImageRenderPass(textureID: textureID, scene: scene, size: size, colorEffects: colorEffects))
+            GPUISceneImageRenderPass(
+                textureID: textureID, scene: scene, size: size, colorEffects: colorEffects, input: input))
         return textureID
     }
 

@@ -105,6 +105,14 @@ Invoke-Step "SwiftUI API audit ledger fixtures (synthetic only)" {
     & (Join-Path $PSScriptRoot "test-swiftui-api-audit.ps1")
 }
 
+Invoke-Step "SwiftUI API audit publication recovery fixtures (synthetic only)" {
+    & (Join-Path $PSScriptRoot "test-swiftui-api-audit-publication-recovery.ps1")
+}
+
+Invoke-Step "SwiftUI API audit publication diagnostic fixtures (synthetic only)" {
+    & (Join-Path $PSScriptRoot "test-swiftui-api-audit-publication-diagnostics.ps1")
+}
+
 Invoke-Step "SwiftUI API audit bounded-memory fixtures (synthetic only)" {
     # The peak working set covers a process lifetime, including earlier suites.
     $memoryFixtureShellName = if ($PSVersionTable.PSEdition -eq "Core") { "pwsh" } else { "powershell" }

@@ -7595,3 +7595,93 @@ phase, asset density/orientation, RTL mirroring, full aspect negotiation and
 native pixels remain required future work, documented in `BitmapImageSizing.md`.
 Typed refusal of those inputs does not exempt them from the full Image goal.
 All original requirements and all nine completion gates remain unchanged.
+
+### Eighth validation checkpoint: CoreLogic outcomes reconciled
+
+The copied evidence for the clean `b660e9e` stock sharded run has now been
+reconciled against its exact source plan and generated registration. Across
+285 invocations, all 5,642 selected XCTest methods have paired starts and
+outcomes: 5,641 passed and one existing material-content case skipped. All
+134 selected Swift Testing declarations passed. There were no failures,
+missing, extra, duplicated, or unmatched cases. The 17 Portable methods were
+registered but not selected by this CoreLogic command.
+
+The skip is
+`RenderPassAbstractionTests.testMaterialInsideADrawingGroupBlursNothing`;
+the test reaches its existing skip after its preceding assertions. The stale
+broad skip message does not establish that every material capability is
+missing, and the content-isolation requirement remains open. The sealed
+57-payload reconciliation is retained in
+`artifacts/goal-eighth-sharded-b660e9e-reconciled-v1`. This completes the
+previous checkpoint's pending per-case audit, not the Full gate, and does
+not transfer the older execution result to the subsequent image changes.
+
+### Eighth implementation pass: bounded audit publication recovery
+
+Audit publication retains its original directory move, with at most two
+additional attempts after fixed 25 and 100 millisecond delays. Recovery is
+eligible only for the exact access-denied or sharing-violation leaf error
+through the admitted PowerShell invocation wrappers. Each additional attempt
+requires the original staging and parent identities, canonical paths without
+reparse ancestors, the original manifest digest and seal, and a destination
+confirmed missing by its attributes. Windows identities include the full
+128-bit file identifier and volume; unavailable identity information leaves
+the original single-attempt behavior intact.
+
+Every failed move writes a new diagnostic receipt before any retry. Receipt
+failure stops recovery. Success reports the recovery; persistent failure
+retains the original error, and cleanup failures are aggregated. Cleanup
+refuses a substituted staging directory. There is no copy fallback, overwrite,
+ACL change, reset retry budget, or suppression of a persistent failure.
+This bounded response to observed failures does not identify the cause of
+the earlier synthetic access-denied result. Filesystem calls are not hard
+time-bounded; path observations are not an atomic defense against an
+adversarial replacement race, and other sealed payloads are not rehashed on
+each retry.
+
+The final private Windows PowerShell 5 fixtures passed 301 recovery,
+558 diagnostic, and 393 ledger assertions, preserving the 99 bound script
+and baseline files in each run. Recovery includes 16 real filesystem cases,
+11 error-classification cases, and missing-ownership controls. Independent
+review found and corrected a post-publication warning that could throw under
+`WarningAction Stop`: reporting now explicitly continues, and the regression
+exercises both inherited and explicit Stop behavior through the actual
+post-finally return. The failing negative control remains retained.
+
+The eight-path join into root exactly matches the reviewed source endpoints;
+root contract checks passed. Quick and Full now run both publication suites,
+in addition to the existing audit suites. The pinned macOS capture workflow
+still does not invoke those two additional suites; its documentation now
+states that distinction. The direct private fixture runs are not a Quick or
+Full pass. Intake is recorded in
+`artifacts/goal-eighth-publication-root-intake-v4.json`; the combined root
+compiler, Full tooling, runtime, and retained-render checks remain pending.
+
+### Eighth API inventory checkpoint: raw structural reconciliation passed
+
+The retained macOS capture from run `33250300319`, attempt 1, artifact
+`9714411359` has completed structural validation. The successful process and
+controller exited naturally with zero codes, in 98.233 and 102.813 seconds
+respectively. It reconciled 22 symbol graphs, 134,147 precise identifiers,
+300,436 declaration occurrences, 309,048 relationship occurrences, and six
+public interfaces containing 137,973 lines. All 39 retained raw and metadata
+inputs, eight frozen source/document files, and 21 ledger payloads were
+hashed by that run. Its small reports and bindings are copied under
+`artifacts/goal-eighth-api-structural-v2-intake`; the large payloads remain
+at their original bound paths.
+
+The preceding attempt failed naturally when inherited `PSModulePath` made
+`Get-FileHash` unavailable to the PowerShell 5 child. The second attempt
+removed that key only from the private child launch environment, without
+recording its values or changing the frozen generator, capture, parser,
+baseline, scope, budgets, or prerequisite. The first failure is preserved.
+Sampled resource bounds remained untriggered; sampling is not proof of hard
+OS caps or that every short-lived descendant was observed.
+
+The ledger remains unreviewed and identity pins remain held. Zero captured
+overlay definitions is an empty set, not evidence that no applicable overlay
+exists. Discovery roots, exported modules beyond the extractor allowlist,
+Cxx conditions, the loaded interface variants, and extension/overlay linkage
+still require review. Structural reconciliation is not API matching, source
+compatibility, native behavior, or release qualification. No original
+requirement or completion gate has been removed or closed by these updates.

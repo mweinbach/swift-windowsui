@@ -1,5 +1,6 @@
 # Loaded only after Directory.Move fails. These bounded observations do not
-# establish a cause, change the original error, retry publication, or alter cleanup.
+# establish a cause or change the original error. The separate publication
+# helper controls the Windows retry policy and preserves each failed attempt.
 
 function Get-SwiftUIAuditPublicationExceptionFacts {
     param([Parameter(Mandatory)][System.Exception]$Exception)
@@ -66,7 +67,8 @@ function Write-SwiftUIAuditPublicationFailureDiagnostic {
         [Parameter(Mandatory)][string]$OutputParent,
         [Parameter(Mandatory)][string]$StagingLeaf,
         [Parameter(Mandatory)][string]$ManifestSha256,
-        [Parameter(Mandatory)][string]$AttemptedAtUTC
+        [Parameter(Mandatory)][string]$AttemptedAtUTC,
+        [ValidateRange(1, 3)][int]$AttemptNumber = 1
     )
 
     if ($StagingLeaf -cnotmatch '\A\.swiftui-api-audit-[0-9a-f]{32}\z' -or
@@ -87,7 +89,8 @@ function Write-SwiftUIAuditPublicationFailureDiagnostic {
         (([System.IO.File]::GetAttributes($parent)) -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
         throw "Refusing unsafe publication diagnostic destination."
     }
-    $diagnosticPath = Join-Path $parent ($StagingLeaf + ".publication-failure.json")
+    $suffix = if ($AttemptNumber -eq 1) { '' } else { '-' + $AttemptNumber }
+    $diagnosticPath = Join-Path $parent ($StagingLeaf + ".publication-failure" + $suffix + ".json")
     if ([System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($diagnosticPath)) -cne $parent) {
         throw "Publication diagnostic must remain in its owned parent."
     }
@@ -98,6 +101,7 @@ function Write-SwiftUIAuditPublicationFailureDiagnostic {
         schemaVersion = 1
         evidenceKind = "api-audit-publication-failure-diagnostic"
         operation = "System.IO.Directory.Move"
+        attemptNumber = $AttemptNumber
         attemptedAtUTC = $AttemptedAtUTC
         observedAtUTC = [DateTime]::UtcNow.ToString("o")
         auditManifestSha256 = $ManifestSha256
@@ -130,4 +134,45 @@ function Write-SwiftUIAuditPublicationFailureDiagnostic {
         if ($null -ne $stream) { $stream.Dispose() }
     }
     return $diagnosticPath
+}
+
+function Write-SwiftUIAuditPublicationRecoveryDiagnostic {
+    param([Parameter(Mandatory)]$Ownership, [Parameter(Mandatory)][string]$ManifestSha256,
+        [Parameter(Mandatory)]$Result)
+
+    $parent = $Ownership.OutputParent
+    if ($parent.Length -gt 32768 -or [IO.Path]::GetFullPath($parent) -cne $parent -or
+        (Resolve-SwiftUIBaselineFileSystemPath -Path $parent) -cne $parent -or
+        $Ownership.StagingLeaf -cnotmatch '\A\.swiftui-api-audit-[0-9a-f]{32}\z' -or
+        $ManifestSha256 -cnotmatch '\A[0-9a-f]{64}\z' -or $Result.attempts -lt 1 -or $Result.attempts -gt 3 -or
+        @($Result.failedAttemptDiagnostics).Count -gt 3 -or @($Result.retryDelaysMilliseconds).Count -gt 2 -or
+        @($Result.failedAttempts).Count -gt 3) {
+        throw 'Invalid publication recovery diagnostic identity or bounds.'
+    }
+    if (([IO.File]::GetAttributes($parent) -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'Publication recovery diagnostic parent must not be a reparse point.'
+    }
+    $report = [ordered]@{
+        schemaVersion = 1; evidenceKind = 'api-audit-publication-recovery-diagnostic'
+        observedAtUTC = [DateTime]::UtcNow.ToString('o'); auditManifestSha256 = $ManifestSha256
+        publicationSucceeded = [bool]$Result.published; recovered = [bool]$Result.recovered
+        attempts = [int]$Result.attempts; maximumAttempts = 3; stopReason = [string]$Result.stopReason
+        retryDelaysMilliseconds = @($Result.retryDelaysMilliseconds)
+        failedAttemptDiagnostics = @($Result.failedAttemptDiagnostics)
+        failedAttempts = @($Result.failedAttempts)
+        validationError = $Result.validationError
+        failureCauseEstablished = $false
+    }
+    $path = Join-Path $parent ($Ownership.StagingLeaf + '.publication-recovery.json')
+    $json = ConvertTo-Json -InputObject $report -Depth 8 -Compress -WarningAction Stop
+    $bytes = [Text.UTF8Encoding]::new($false, $true).GetBytes($json + "`n")
+    if ($bytes.Length -gt 256KB) { throw 'Publication recovery diagnostic exceeds its byte bound.' }
+    $stream = $null
+    try {
+        $stream = [IO.FileStream]::new($path, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::Read)
+        $stream.Write($bytes, 0, $bytes.Length)
+    } finally {
+        if ($null -ne $stream) { $stream.Dispose() }
+    }
+    return $path
 }

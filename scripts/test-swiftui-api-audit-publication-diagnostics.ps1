@@ -96,9 +96,9 @@ function New-PublicationFixture {
 }
 
 function New-PublicationError {
-    param([string]$Target)
+    param([string]$Target, [int]$HResult = -2147024864)
     # Synthetic HRESULT 0x80070020; this is not an observed Windows sharing violation.
-    $exception = [IO.IOException]::new('Synthetic publication failure.', [int]-2147024864)
+    $exception = [IO.IOException]::new('Synthetic publication failure.', $HResult)
     return [Management.Automation.ErrorRecord]::new($exception, 'SyntheticPublicationMove',
         [Management.Automation.ErrorCategory]::WriteError, $Target)
 }
@@ -115,12 +115,14 @@ function Read-PublicationDiagnostic {
 
 $builderPath = Join-Path $fixtureScriptsRoot 'build-swiftui-api-audit.ps1'
 $helperPath = Join-Path $fixtureScriptsRoot 'swiftui-api-audit-publication-diagnostics.ps1'
+$publicationHelperPath = Join-Path $fixtureScriptsRoot 'swiftui-api-audit-publication.ps1'
 $ledgerTestPath = Join-Path $fixtureScriptsRoot 'test-swiftui-api-audit.ps1'
 $sourcePins = [ordered]@{}
-foreach ($path in @($builderPath, $helperPath, $ledgerTestPath, $PSCommandPath)) {
+foreach ($path in @($builderPath, $helperPath, $publicationHelperPath, $ledgerTestPath, $PSCommandPath)) {
     $sourcePins[$path] = Get-PublicationHash $path
 }
 . $helperPath
+. $publicationHelperPath
 . (Join-Path $fixtureScriptsRoot 'swiftui-baseline-common.ps1')
 
 # Exercise the real primitive projection without serializing a live ErrorRecord.
@@ -350,8 +352,11 @@ foreach ($name in @('failure', 'published', 'publicationAttempted', 'publication
 }
 $catchBody = $publicationTry.CatchClauses[0].Body
 Assert-Publication ($catchBody.Statements[0].Extent.Text -match '^\$failure\s*=\s*\$_$') 'catch captures the actual original ErrorRecord first'
-$rethrow = $catchBody.Statements[$catchBody.Statements.Count - 1]
-Assert-Publication ($rethrow -is [Management.Automation.Language.ThrowStatementAst] -and $null -eq $rethrow.Pipeline) 'catch ends with a bare rethrow'
+$rethrowGuard = $catchBody.Statements[$catchBody.Statements.Count - 1]
+Assert-Publication ($rethrowGuard -is [Management.Automation.Language.IfStatementAst] -and
+    $rethrowGuard.Clauses.Count -eq 1 -and $rethrowGuard.Clauses[0].Item1.Extent.Text -ceq '-not $published') 'only a successful publication suppresses the original rethrow'
+$rethrow = $rethrowGuard.Clauses[0].Item2.Statements[0]
+Assert-Publication ($rethrow -is [Management.Automation.Language.ThrowStatementAst] -and $null -eq $rethrow.Pipeline) 'failed publication retains a bare original rethrow'
 $diagnosticCalls = @($builderAst.FindAll({ param($node)
     $node -is [Management.Automation.Language.CommandAst] -and
     $node.GetCommandName() -ceq 'Write-SwiftUIAuditPublicationFailureDiagnostic'
@@ -359,9 +364,13 @@ $diagnosticCalls = @($builderAst.FindAll({ param($node)
 Assert-Publication ($diagnosticCalls.Count -eq 1 -and
     $diagnosticCalls[0].Extent.StartOffset -gt $catchBody.Extent.StartOffset -and
     $diagnosticCalls[0].Extent.EndOffset -lt $catchBody.Extent.EndOffset) 'only the failure catch invokes diagnostics'
-$helperMentions = @([regex]::Matches($builderSource, 'swiftui-api-audit-publication-diagnostics\.ps1'))
-Assert-Publication ($helperMentions.Count -eq 1 -and $helperMentions[0].Index -gt $catchBody.Extent.StartOffset -and
-    $helperMentions[0].Index -lt $catchBody.Extent.EndOffset) 'helper is loaded only in the publication failure catch'
+$helperLoads = @($builderAst.FindAll({ param($node)
+    $node -is [Management.Automation.Language.CommandAst] -and
+    $node.InvocationOperator -eq [Management.Automation.Language.TokenKind]::Dot -and
+    $node.Extent.Text.Contains('swiftui-api-audit-publication-diagnostics.ps1')
+}, $true))
+Assert-Publication ($helperLoads.Count -eq 1 -and $helperLoads[0].Extent.StartOffset -gt $catchBody.Extent.StartOffset -and
+    $helperLoads[0].Extent.EndOffset -lt $catchBody.Extent.EndOffset) 'diagnostic helper is loaded only in the publication failure catch'
 $tailStart = $guard.Extent.StartOffset
 $tailEnd = $bodyStatements[$bodyStatements.Count - 1].Extent.EndOffset
 $tail = $builderSource.Substring($tailStart, $tailEnd - $tailStart)
@@ -390,6 +399,9 @@ function Invoke-PublicationFlowCase {
     $stagingPath = $fixture.Staging; $stagingLeaf = $fixture.Leaf
     $outputPath = $fixture.Destination; $outputParent = $fixture.Parent
     $manifestHash = $fixture.ManifestHash
+    $publicationOwnership = New-SwiftUIAuditPublicationOwnership -StagingPath $stagingPath -OutputPath $outputPath `
+        -OutputParent $outputParent -StagingLeaf $stagingLeaf
+    $publication = [pscustomobject]@{ published = $false; attempts = 1; recovered = $false; failedAttemptDiagnostics = @() }
     $state = [pscustomobject]@{ Name = $Name; MoveCalls = 0; DiagnosticCalls = 0; DiagnosticInput = $null; DiagnosticPath = $null }
     if ($Name -eq 'prepublication') {
         [void][IO.Directory]::CreateDirectory($outputPath)
@@ -403,7 +415,9 @@ function Invoke-PublicationFlowCase {
         param([string]$SourcePath, [string]$DestinationPath)
         $state.MoveCalls++
         if ($state.Name -eq 'success') { [IO.Directory]::Move($SourcePath, $DestinationPath); return }
-        throw (New-PublicationError $SourcePath)
+        # This legacy failure/diagnostic suite retains a non-retryable error.
+        # The recovery suite separately exercises eligible real held-file failures.
+        throw (New-PublicationError $SourcePath -HResult -2147024809)
     }
     function Invoke-PublicationFixtureDiagnostic {
         param([Management.Automation.ErrorRecord]$ErrorRecord, [string]$StagingPath, [string]$OutputPath,
@@ -476,8 +490,13 @@ $ledgerReport = [IO.File]::ReadAllText((Join-Path $ledgerRoot 'test-results.json
 Assert-Publication ($ledgerReport.evidenceKind -ceq 'synthetic-api-audit-tooling-tests-only') 'existing ledger suite completed with its original evidence kind'
 Assert-Publication ([int]$ledgerReport.assertions -ge 391) 'existing ledger suite retained at least its 391 baseline assertions'
 Assert-Publication (-not $ledgerReport.nativeExportPerformed -and -not $ledgerReport.behaviorConformanceAssessed) 'existing ledger suite remains synthetic only'
-$ledgerDiagnostics = @(Get-ChildItem -LiteralPath $ledgerRoot -File -Force -Recurse -Filter '*.publication-failure.json')
-Assert-Publication ($ledgerDiagnostics.Count -eq 0) 'existing success and prepublication-rejection cases create no publication diagnostics'
+$ledgerDiagnostics = @(Get-ChildItem -LiteralPath $ledgerRoot -File -Force -Recurse -Filter '*.publication-failure*.json')
+Assert-Publication (@($ledgerReport.publicationResults).Count -eq 2) 'both real ledger publications report their actual recovery state'
+$reportedLedgerDiagnostics = @($ledgerReport.publicationResults | ForEach-Object { $_.failedAttemptDiagnostics })
+Assert-Publication ($ledgerDiagnostics.Count -eq $reportedLedgerDiagnostics.Count) 'ledger diagnostics exist only for reported failed publication attempts, never prepublication rejection'
+foreach ($diagnostic in $ledgerDiagnostics) {
+    Assert-Publication ($diagnostic.FullName -cin $reportedLedgerDiagnostics) 'each retained ledger diagnostic belongs to a reported failed attempt'
+}
 foreach ($path in $sourcePins.Keys) {
     Assert-Publication ((Get-PublicationHash $path) -ceq $sourcePins[$path]) 'production and fixture source bytes remain unchanged'
 }

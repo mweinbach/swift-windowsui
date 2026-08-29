@@ -23,6 +23,7 @@ param(
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "swiftui-api-audit-common.ps1")
 . (Join-Path $PSScriptRoot "swiftui-baseline-streaming.ps1")
+. (Join-Path $PSScriptRoot "swiftui-api-audit-publication.ps1")
 $capture = Read-SwiftUIAuditCapture -CaptureRoot $CaptureRoot -ManifestPath $ManifestPath -MaximumMetadataBytes $MaximumMetadataBytes
 
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
@@ -47,11 +48,15 @@ $failure = $null
 $published = $false
 $publicationAttempted = $false
 $publicationAttemptedAtUTC = $null
+$publicationOwnership = $null
+$publication = [pscustomobject]@{ published = $false; attempts = 1; recovered = $false; failedAttemptDiagnostics = @() }
 
 try {
     if ((Resolve-SwiftUIBaselineFileSystemPath -Path $stagingPath) -cne [System.IO.Path]::GetFullPath($stagingPath)) {
         throw "Audit staging directory must not be substituted by a filesystem alias."
     }
+    $publicationOwnership = New-SwiftUIAuditPublicationOwnership -StagingPath $stagingPath -OutputPath $outputPath `
+        -OutputParent $outputParent -StagingLeaf $stagingLeaf
     Initialize-SwiftUIBaselineStreaming
     $options = [SwiftUIBaseline.Streaming.AuditLedgerOptions]::new()
     $options.BaselineId = $capture.baselineManifest.baselineId
@@ -212,7 +217,8 @@ try {
         }
         generatorSources = @(
             foreach ($name in @("build-swiftui-api-audit.ps1", "swiftui-api-audit-common.ps1",
-                    "swiftui-baseline-common.ps1", "swiftui-baseline-streaming.ps1")) {
+                    "swiftui-baseline-common.ps1", "swiftui-baseline-streaming.ps1",
+                    "swiftui-api-audit-publication.ps1", "swiftui-api-audit-publication-diagnostics.ps1")) {
                 [ordered]@{
                     path = "scripts/" + $name
                     sha256 = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot $name) -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -242,35 +248,56 @@ try {
     if ($publicationAttempted -and -not $published) {
         try {
             . (Join-Path $PSScriptRoot "swiftui-api-audit-publication-diagnostics.ps1")
-            [void](Write-SwiftUIAuditPublicationFailureDiagnostic -ErrorRecord $failure `
+            $firstDiagnostic = Write-SwiftUIAuditPublicationFailureDiagnostic -ErrorRecord $failure `
                 -StagingPath $stagingPath -OutputPath $outputPath -OutputParent $outputParent `
-                -StagingLeaf $stagingLeaf -ManifestSha256 $manifestHash -AttemptedAtUTC $publicationAttemptedAtUTC)
+                -StagingLeaf $stagingLeaf -ManifestSha256 $manifestHash -AttemptedAtUTC $publicationAttemptedAtUTC
+            $publication = Complete-SwiftUIAuditPublicationAfterFailure -Ownership $publicationOwnership `
+                -OriginalError $failure -FirstDiagnosticPath $firstDiagnostic -ManifestSha256 $manifestHash
+            $published = $publication.published
         } catch {
-            # Diagnostics are best effort; preserve the original publication ErrorRecord.
+            # A failed first diagnostic prevents retry. Preserve the original
+            # publication ErrorRecord even when a later diagnostic/check fails.
         }
     }
-    throw
+    if (-not $published) { throw }
 } finally {
-    if (-not $published -and (Test-Path -LiteralPath $stagingPath)) {
-        try {
-            $resolved = Resolve-SwiftUIBaselineFileSystemPath -Path $stagingPath
-            if ($resolved -cne [System.IO.Path]::GetFullPath($stagingPath) -or
-                [System.IO.Path]::GetDirectoryName($resolved) -cne $outputParent -or
-                [System.IO.Path]::GetFileName($resolved) -cne $stagingLeaf -or
-                ((Get-Item -LiteralPath $stagingPath -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
-                throw "Refusing unsafe audit staging cleanup."
+    try {
+        if (-not $published -and (Test-Path -LiteralPath $stagingPath)) {
+            try {
+                $resolved = Resolve-SwiftUIBaselineFileSystemPath -Path $stagingPath
+                if ($resolved -cne [System.IO.Path]::GetFullPath($stagingPath) -or
+                    [System.IO.Path]::GetDirectoryName($resolved) -cne $outputParent -or
+                    [System.IO.Path]::GetFileName($resolved) -cne $stagingLeaf -or
+                    ((Get-Item -LiteralPath $stagingPath -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                    throw "Refusing unsafe audit staging cleanup."
+                }
+                if ($null -ne $publicationOwnership) {
+                    Assert-SwiftUIAuditPublicationOwnership -Ownership $publicationOwnership
+                }
+                Remove-Item -LiteralPath $resolved -Recurse -Force -ErrorAction Stop
+            } catch {
+                if ($null -ne $failure) {
+                    throw [System.AggregateException]::new("Audit creation failed and owned staging cleanup also failed.",
+                        [Exception[]]@($failure.Exception, $_.Exception))
+                }
+                throw
             }
-            Remove-Item -LiteralPath $resolved -Recurse -Force -ErrorAction Stop
-        } catch {
-            if ($null -ne $failure) {
-                throw [System.AggregateException]::new("Audit creation failed and owned staging cleanup also failed.",
-                    [Exception[]]@($failure.Exception, $_.Exception))
-            }
-            throw
+        }
+    } finally {
+        if ($null -ne $publicationOwnership) {
+            $publicationOwnership.StagingIdentity.Dispose()
+            $publicationOwnership.ParentIdentity.Dispose()
         }
     }
 }
 
+$publication.published = $published
+if ($publication.recovered) {
+    Write-Host "Audit publication recovered after $($publication.attempts) attempts; every failed-attempt diagnostic is retained beside the output."
+    if ($null -ne $publication.outcomeDiagnosticError) {
+        Write-Warning "The rename succeeded, but its separate recovery summary could not be written; failed-attempt diagnostics remain available." -WarningAction Continue
+    }
+}
 Write-Host "Created $($result.Inventory.PreciseSymbols) unreviewed identifier records with every occurrence retained."
 Write-Host "Audit evidence: $outputPath"
 Write-Host "No declaration, source-compatibility, overlay, identity or behavior qualification was performed."
@@ -280,4 +307,5 @@ Write-Host "No declaration, source-compatibility, overlay, identity or behavior 
     manifestSha256 = $manifestHash
     counts = $manifest.counts
     reviewStatus = "unreviewed"
+    publication = $publication
 }

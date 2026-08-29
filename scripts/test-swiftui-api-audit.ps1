@@ -109,6 +109,10 @@ Assert-Audit ($audit.sourceCapture.syntheticFixtureAsReported.kind -ceq "swiftui
 Assert-Audit ($audit.sourceCapture.inventorySha256 -ceq (Hash-AuditFile $fixture.InventoryPath)) "actual streamed inventory hash is recorded"
 Assert-Audit ($audit.sourceCapture.graphSetSha256 -ceq $fixture.GraphSetSha256) "actual graph-set hash is recorded"
 Assert-Audit ((Hash-AuditFile $created.manifestPath) -ceq $created.manifestSha256) "manifest result seals published bytes"
+Assert-Audit ($created.publication.published -and $created.publication.attempts -ge 1 -and
+    $created.publication.attempts -le 3 -and
+    $created.publication.recovered -eq ($created.publication.attempts -gt 1)) "successful publication reports its bounded actual attempt count"
+Assert-Audit (@($created.publication.failedAttemptDiagnostics).Count -eq ($created.publication.attempts - 1)) "successful publication retains every reported failed-attempt diagnostic"
 Assert-Audit ((Read-SmallAuditText (Join-Path $defaultPath "audit.sha256")) -ceq ($created.manifestSha256 + "  audit.json" + [char]10)) "manifest sidecar seals published bytes"
 Assert-Audit ((Source-AuditFingerprint) -ceq $fingerprint) "successful audit does not edit the source"
 
@@ -268,6 +272,7 @@ $report = [ordered]@{
     powerShellVersion = $PSVersionTable.PSVersion.ToString()
     outputRoot = $OutputRoot
     fixtureCounts = $fixture.Counts
+    publicationResults = @($created.publication, $filtered.publication)
     nativeExportPerformed = $false
     behaviorConformanceAssessed = $false
 }

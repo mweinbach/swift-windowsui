@@ -293,14 +293,62 @@ cleanup of the checked, owned staging directory; a cleanup failure is also
 reported. This publication boundary is not a hardware-durability guarantee.
 The source capture remains read-only throughout.
 
+On Windows, an access-denied (`0x80070005`) or sharing-violation
+(`0x80070020`) failure of this final rename can receive two retries, after
+fixed 25 ms and 100 ms delays. There are at most three `Directory.Move`
+calls including the original attempt. Other errors, an incomplete exception
+chain, or failure to retain a failed-attempt diagnostic stop recovery. There
+is no copy fallback, destination replacement, permission change, input
+revalidation bypass, or new processing budget.
+
+Before generating the ledger, Windows pins the staging and parent directories
+with handles that permit renaming and records their volume and full 128-bit
+file identities. Before each retry it checks those identities, canonical
+sibling paths without reparse ancestors, the original `audit.json` digest
+and exact `audit.sha256` bytes, and an attribute-confirmed absent destination.
+A replacement staging directory is rejected even if it has the same creation
+time and seal. Cleanup also refuses to remove a substituted directory. These
+checks are observations around the rename, not an atomic transaction against
+an adversary changing paths between filesystem calls. Other files named by
+the sealed manifest are not all rehashed for a retry.
+
+The first failure retains the existing sibling
+`.swiftui-api-audit-<id>.publication-failure.json` diagnostic; later failed
+attempts use `publication-failure-2.json` and `publication-failure-3.json`
+with the same staging prefix. All receipts use `CreateNew`. A separate
+`publication-recovery.json` records recovery or refusal, the attempt count,
+scheduled delays, and failed exception observations. The returned
+`publication` object and console output distinguish successful recovery.
+If writing that final summary fails after a successful rename, the result
+still reports publication success and the summary error separately; it does
+not undo or pretend to fail the rename. Persistent failure rethrows the first
+publication error, with cleanup errors aggregated as before. Failure
+diagnostics remain best effort when the filesystem refuses their creation;
+such a failure never enables another retry.
+
+An owned child file opened without delete sharing reproduces one recoverable
+Windows rename failure. It does not establish the cause of earlier audit
+failures. The maximum scheduled delay total is 125 ms; individual filesystem calls and
+scheduler delays have no hard wall-clock bound. Non-Windows publication
+retains one rename attempt and does not compile or call the Windows identity
+helper. If a Windows native identity query is unavailable, the original
+single-attempt publication path remains available, but recovery is disabled;
+retry ownership checks require `FileIdInfo` support.
+
 ## Validation workflow
 
-Quick, Full, and the pinned macOS capture workflow run these synthetic tooling
-tests serially. They can also be invoked directly:
+Quick and Full run the capture-intake, ledger, publication-recovery,
+publication-diagnostics, bounded-memory, and workflow-handoff suites serially.
+The pinned macOS capture workflow runs capture-intake, ledger, bounded-memory,
+and workflow-handoff suites; it does not invoke the two publication suites.
+The optional `-Large` memory fixture remains opt-in. The scripts can also be
+invoked directly:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-swiftui-api-audit-capture.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-swiftui-api-audit.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-swiftui-api-audit-publication-recovery.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-swiftui-api-audit-publication-diagnostics.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-swiftui-api-audit-memory.ps1
 
 # Explicit larger generated stress fixture; allow substantial disk/time.

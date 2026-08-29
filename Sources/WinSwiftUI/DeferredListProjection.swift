@@ -635,7 +635,7 @@ final class DeferredListBindingSource<Element, ID: Hashable> {
             let membership = attribution?.native.logicalMembership
             let admission = attribution?.admission
             let coordinator = ViewBuildContextScope.current?.stateMountCoordinator
-            let isCurrent = {
+            let isCurrent: @MainActor @Sendable () -> Bool = {
                 guard !lease.retired, generation.isCurrent else { return false }
                 guard let membership else { return true }
                 return membership.isDeclared || (membership.phase == .proposed && admission?.isCurrent == true)

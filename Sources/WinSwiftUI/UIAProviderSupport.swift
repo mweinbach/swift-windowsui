@@ -185,9 +185,12 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
         }
 
         let node = runtime.realizedLazyListAccessibilityNodes(for: target).flatMap { roots in
-            snapshots.lazy.filter { !$0.isVirtualizedPlaceholder }.compactMap { nodesByID[$0.id]?.node }.first { node in
-                Self.isInsideLogicalRoots(node, roots: roots)
-            }
+            snapshots.lazy
+                .filter { !$0.isVirtualizedPlaceholder }
+                .compactMap { self.nodesByID[$0.id]?.node }
+                .first { node in
+                    Self.isInsideLogicalRoots(node, roots: roots)
+                }
         }
         let id: UInt64
         if let node {

@@ -6393,6 +6393,8 @@ public final class ViewNode {
     /// The demo's deepest screen reaches 42 (`maxObservedTraversalDepth`), so
     /// the cap leaves ~6× headroom for real trees.
     internal static var maximumTraversalDepth = 256
+    /// Package consumers share the cap without being able to change the policy.
+    package static var retainedTraversalDepthLimit: Int { maximumTraversalDepth }
     private static var traversalDepth = 0
     private static var hasReportedTraversalDepthOverflow = false
     /// Number of subtrees dropped by the depth cap since process start.

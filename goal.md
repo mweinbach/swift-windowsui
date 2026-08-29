@@ -8319,3 +8319,40 @@ level was broadened, no new API was added and no test source changed.
 Contracts before and after the change, strict formatting, exact two-edit
 preservation and whitespace checks passed. Compilation and execution still
 need a fresh attempt; all original goal gates remain open.
+
+### Ninth validation pass: explicit facade imports, actor closures and List scopes (2026-08-29)
+
+The compile at `8a17ce9c846d2b490cab4ff499440767922024b5`
+advanced through SwiftWindowsUI and stopped in WinSwiftUI before tests. The
+direct child exited naturally with code 1 after 30.828 seconds, without timeout
+or termination, with unchanged tracked-source and index endpoints. The
+59,318-byte log has SHA-256
+`26c9f3cea6e3e6722145c09ab9f0261b5eaafdf11af93875d4f331008ccdcf2e`.
+Thirteen distinct source diagnostic locations reduce to missing dialog type
+imports, actor closure annotations, List scope/access mismatches and an explicit
+self capture. None is an executed test failure.
+
+Core now explicitly imports its already-declared SwiftWindowsPlatform
+dependency for NativeDialogSession. The local scroll-request predicate, the
+List binding predicate and Group's deferred materializer explicitly carry
+MainActor/Sendable function types for their actor-owned work. Their bodies, capture values,
+predicate ordering and invocation sites remain unchanged. UIA's lazy node
+lookup makes its existing self capture explicit; the chain is only rewrapped
+to retain the formatter's 120-character limit. The initial strict-format
+refusal for that longer line is retained separately from the corrected pass.
+
+Managed List predecessor replacement now unwraps the actual descriptor scope
+before staging. Predecessor lookup accepts an optional scope but only returns
+an attached adapter with a current managed logical binding. Ordinary standalone
+adapters have no such binding and still take the existing new-source path.
+A scope-free attempt to reuse managed state is refused without inventing a
+scope or silently starting a replacement source. The standalone lease reads
+the existing traversal cap through a package read-only getter; the internal
+mutable policy, bound and ancestry walk remain unchanged.
+
+The separate four-file List repair patch has SHA-256
+`d612e6245b66860df1e45d3fe9d1935a4a1d71f25e1969d2d73dcf1aaebf5887`.
+The combined six-file correction preserves all existing test files and their
+oracles. Source review, contracts and strict formatting passed. Compilation,
+the requested portable cases and the larger native/List cohort still require
+a fresh run. No original completion gate or compatibility requirement changes.

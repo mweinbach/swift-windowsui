@@ -3886,7 +3886,7 @@ public struct Group: View, StateMountDeclarationView, ViewListProjectionProvider
     public typealias Body = Never
 
     private let deferredContent: ViewListProjection
-    private let materializeContent: () -> [AnyView]
+    private let materializeContent: @MainActor @Sendable () -> [AnyView]
     private var content: [AnyView] { materializeContent() }
 
     public init<Content: View>(@ViewBuilder content: () -> Content) {

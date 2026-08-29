@@ -2,6 +2,7 @@ import Foundation
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 import SwiftWindowsLayout
+import SwiftWindowsPlatform
 import SwiftWindowsUI
 
 // Expose the original wrapper so both import paths resolve the same Binding
@@ -17673,6 +17674,7 @@ final class ScrollViewProxyStorage {
         // realization all spend the same retained element/round allowance.
         runtime.withLazyListResolutionBudget {
             for request in queuedRequests {
+                @MainActor @Sendable
                 func isCurrent() -> Bool {
                     observedIdentity != nil && latestRequestIdentity === observedIdentity
                         && attachmentIdentity === observedAttachment

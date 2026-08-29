@@ -107,10 +107,10 @@ func makeDeferredListComponent(
         let predecessor = runtime.lazyListPredecessor(for: listIdentity, during: receipt?.nativeScope)
         let source: RetainedLazyListDataSource<DeferredListRecord, [ViewNode]>
         if let previous = predecessor?.dataSource(for: DeferredListRecord.self) {
-            guard
+            guard let nativeScope = receipt?.nativeScope,
                 let staged = previous.stagedReplacement(
                     records, id: \.identity, identityRoot: listIdentity,
-                    descriptorBuildScope: receipt?.nativeScope, rowContent: buildRows)
+                    descriptorBuildScope: nativeScope, rowContent: buildRows)
             else { return rejectedRetainedViewNode() }
             source = staged
         } else {
@@ -300,7 +300,7 @@ private final class StandaloneDeferredListLease: RetainedSubtreeBuildLease {
         else { return false }
         var ancestor: ViewNode? = container
         var depth = 0
-        while let node = ancestor, depth < ViewNode.maximumTraversalDepth {
+        while let node = ancestor, depth < ViewNode.retainedTraversalDepthLimit {
             if node === runtime.root { return true }
             ancestor = node.parent
             depth += 1

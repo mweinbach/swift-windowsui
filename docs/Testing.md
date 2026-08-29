@@ -1185,3 +1185,26 @@ What to read the manifest for:
 A capture run's frame times are not comparable with a normal run's: the
 readback is a full-surface GPU stall on every frame. Use it for pixels and
 `--diagnostics-no-vsync` for timings.
+
+## ProgressView style source increment
+
+`ProgressViewStyleConfigurationTests`, `ProgressViewStyleEnvironmentTests`,
+and `ProgressViewStyleMountedTests` are the focused suites for custom struct
+progress styles. Their 38 cases passed within the root 171-case Windows run
+recorded in [ProgressViewStyles.md](ProgressViewStyles.md#validation-status).
+That run used seven frozen NONSharded full-ID filters and selected zero Swift
+Testing cases. The ordinary selector below selects the three style suites:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Sharded -Filter ProgressViewStyle
+```
+
+Before collecting a result, verify the complete discovered set and the exact
+filter expansion; the source case list is not an execution receipt. Mounted
+fixtures use the existing fake-backend host construction pattern without
+creating an HWND, but retained text paths can still call DirectWrite/GDI.
+Test-owned nil-HWND providers may also emit OS accessibility focus notifications.
+These tests do not establish native SwiftUI style semantics or interactive Windows
+qualification. Existing progress appearance, geometry, accessibility, form,
+public-facade, and mount tests stay unchanged. Quick registration and broader
+joined-root Quick/Full validation remain separate work. See [ProgressViewStyles.md](ProgressViewStyles.md).

@@ -330,3 +330,24 @@ synthetic and remain unreviewed. Its hash-resealing helper is only for owned
 test fixtures and must not be used to repair native artifacts. Test results,
 integration commits, and any later native capture/review must be recorded
 separately; this document supplies no native run result or conformance count.
+
+## Candidate evidence update: 2026-08-28
+
+`artifacts/goal-sdk-33135644721/extracted/audit/` contains the stage-1 ledger
+for the successful SDK candidate now recorded in [SwiftUIBaseline.md](SwiftUIBaseline.md).
+Earlier pending-capture statements predate this evidence. Its audit manifest
+SHA-256 is
+`868d79adb9de34ea74f875bb9aaa8a179bf3177e2dfcee16daf6a8b14b34db63`;
+the local frozen metadata was rechecked for this update, without a new hosted
+or native run.
+
+The ledger records 22 graph partitions, 134,147 precise identifiers, 300,436
+declaration occurrences, 309,048 relationships, six public-interface files
+with 137,973 lines, and 182 lexical queue records. All identity records remain
+`unreviewed`; zero captured overlay files does not establish complete overlay
+discovery. A selected StateObject review unit retains one identifier's four
+occurrences and four incident relationships, with declaration, source, and
+behavior claims still `unverified`. These are exported records, not an
+implementation percentage or approved desktop applicability count. No
+baseline identity/evidence flag, captured metadata, review claim, or goal gate
+was changed by this documentation correction.

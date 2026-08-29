@@ -402,3 +402,23 @@ reconcile interfaces/overlays, or change the pinned baseline manifest.
 Source and output ancestors are resolved before the containment check,
 including Windows junctions and macOS aliases such as `/tmp` to `/private/tmp`.
 Output through an alias into the capture is rejected before writing.
+
+## Candidate evidence update: 2026-08-28
+
+The successful SDK candidate preserved under
+`artifacts/goal-sdk-33135644721/extracted/capture/` is available. Earlier
+statements in this document that a successful native candidate was still
+pending describe the state before that capture. Its recorded status is
+`exported-awaiting-inventory-and-behavior-review`; it reports Xcode 26.6 build
+`17F113`, macOS SDK 26.5 build `25F70`, and Apple Swift 6.3.3. Its capture
+manifest SHA-256 is
+`f900bef9de2e5c37b8145ad6bdae7a3fe1c9b679f15b324175e3f1c89797057d`.
+These local frozen bytes were rechecked for this documentation update; no new
+hosted or native run is implied.
+
+Those observed values have not been promoted into `reviewedIdentity`.
+Public-interface/overlay review, Windows API mapping, native behavior
+conformance, and release qualification remain incomplete. The full pinned
+baseline, empty exception list, original capture bytes, earlier failed
+export/reindexing evidence, and goal requirements are unchanged. The interface
+producer/compiler metadata remains distinct from the extraction compiler.

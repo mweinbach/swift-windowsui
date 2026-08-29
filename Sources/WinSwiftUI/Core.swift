@@ -6520,7 +6520,11 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var menuStyle: MenuStyle
     public var controlGroupStyle: ControlGroupStyle
     public var buttonStyle: ButtonStyle
-    public var progressViewStyle: ProgressViewStyle
+    /// Windows compatibility profile; assigning it explicitly replaces custom styles.
+    public var progressViewStyle: ProgressViewStyleProfile {
+        didSet { progressViewStyleInstallation = nil }
+    }
+    var progressViewStyleInstallation: RetainedProgressViewStyleInstallation? = nil
     public var gaugeStyle: GaugeStyle
     public var tipViewStyle: TipViewStyle
     public var productViewStyle: ProductViewStyle?
@@ -6747,7 +6751,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         menuStyle: MenuStyle = .automatic,
         controlGroupStyle: ControlGroupStyle = .automatic,
         buttonStyle: ButtonStyle = .automatic,
-        progressViewStyle: ProgressViewStyle = .automatic,
+        progressViewStyle: ProgressViewStyleProfile = .automatic,
         gaugeStyle: GaugeStyle = .automatic,
         tipViewStyle: TipViewStyle = .automatic,
         productViewStyle: ProductViewStyle? = nil,
@@ -8832,7 +8836,7 @@ public struct ViewBuildContext {
         environmentValuesProvider().navigationStackStyle
     }
 
-    public var progressViewStyle: ProgressViewStyle {
+    public var progressViewStyle: ProgressViewStyleProfile {
         environmentValuesProvider().progressViewStyle
     }
 
@@ -14953,37 +14957,6 @@ public struct AccessoryCircularCapacityGaugeStyle: Sendable, Equatable {
     public init() {}
 }
 public struct StepperStyle: Sendable, Equatable {
-    public init() {}
-}
-public struct ProgressViewStyle: Sendable, Equatable {
-    enum Kind: Sendable, Equatable {
-        case automatic
-        case linear
-        case circular
-        case timer
-    }
-
-    let kind: Kind
-
-    private init(kind: Kind) {
-        self.kind = kind
-    }
-
-    public static let automatic = ProgressViewStyle(kind: .automatic)
-    public static let linear = ProgressViewStyle(kind: .linear)
-    public static let circular = ProgressViewStyle(kind: .circular)
-    public static let timer = ProgressViewStyle(kind: .timer)
-}
-public struct DefaultProgressViewStyle: Sendable, Equatable {
-    public init() {}
-}
-public struct LinearProgressViewStyle: Sendable, Equatable {
-    public init() {}
-}
-public struct CircularProgressViewStyle: Sendable, Equatable {
-    public init() {}
-}
-public struct TimerProgressViewStyle: Sendable, Equatable {
     public init() {}
 }
 public struct DatePickerStyle: Sendable, Equatable {
@@ -24630,26 +24603,10 @@ extension View {
         controlGroupStyle(.palette)
     }
 
-    public func progressViewStyle(_ style: ProgressViewStyle) -> some View {
+    public func progressViewStyle<Style: ProgressViewStyle>(_ style: Style) -> some View {
         ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context.withEnvironmentValue(\.progressViewStyle, style))
+            content.makeComponent(context: context.withProgressViewStyle(style))
         }
-    }
-
-    public func progressViewStyle(_ style: DefaultProgressViewStyle) -> some View {
-        progressViewStyle(.automatic)
-    }
-
-    public func progressViewStyle(_ style: LinearProgressViewStyle) -> some View {
-        progressViewStyle(.linear)
-    }
-
-    public func progressViewStyle(_ style: CircularProgressViewStyle) -> some View {
-        progressViewStyle(.circular)
-    }
-
-    public func progressViewStyle(_ style: TimerProgressViewStyle) -> some View {
-        progressViewStyle(.timer)
     }
 
     public func gaugeStyle(_ style: GaugeStyle) -> some View {

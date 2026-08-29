@@ -19943,6 +19943,21 @@ public struct ProgressView: View {
     private let total: Double
     private let label: [AnyView]
     private let currentValueLabel: [AnyView]
+    private var primitiveStyle: ProgressViewStyleProfile? = nil
+    private var usesConfigurationLabelIdentity = false
+
+    public init(_ configuration: ProgressViewStyleConfiguration) {
+        self.value = configuration.retainedValue
+        self.total = configuration.retainedTotal
+        self.label = configuration.label?.retainedViews ?? []
+        self.currentValueLabel = configuration.currentValueLabel?.retainedViews ?? []
+        self.usesConfigurationLabelIdentity = true
+    }
+
+    init(_ configuration: ProgressViewStyleConfiguration, primitiveStyle: ProgressViewStyleProfile) {
+        self.init(configuration)
+        self.primitiveStyle = primitiveStyle
+    }
 
     public init<Value: BinaryFloatingPoint>(value: Value?, total: Value = 1.0) {
         self.init(value: value.map { Double($0) }, total: Double(total))
@@ -20064,15 +20079,23 @@ public struct ProgressView: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
+        let context = primitiveStyle.map { context.withEnvironmentValue(\.progressViewStyle, $0) } ?? context
+        if let installation = context.environmentValues.progressViewStyleInstallation {
+            let configuration = ProgressViewStyleConfiguration(
+                value: value, total: total, label: label, currentValueLabel: currentValueLabel)
+            return installation.makeComponent(configuration: configuration, context: context)
+        }
+        // Configuration has two independent label roles even when their
+        // source arrays contain the same concrete stateful view type.
         let labelComponent = composeComponent(
             from: label,
-            context: context,
+            context: usesConfigurationLabelIdentity ? context.withViewIdentityRole(.label) : context,
             fallbackLayout: .stack(.vertical(spacing: 0, alignment: .leading)),
             isHitTestVisible: false
         )
         let currentValueLabelComponent = composeComponent(
             from: currentValueLabel,
-            context: context,
+            context: usesConfigurationLabelIdentity ? context.withViewIdentityRole(.value) : context,
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
             isHitTestVisible: false
         )

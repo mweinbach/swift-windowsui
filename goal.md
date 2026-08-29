@@ -5699,3 +5699,142 @@ SHA256 `8fa2d250bcf1029ca078d1c727cd39c34ab3ca9df67fa5a00825412a2500f612`.
 Preservation records account for 741 prior inputs plus the two outputs. No F9 payload
 staging, native executable, DLL load, validator invocation or runtime authority follows.
 Earlier P6/F9 failures remain unchanged.
+
+### Seventh batch: custom ProgressViewStyle and 171 root cases
+
+ProgressViewStyle is now a main-actor protocol with a typed ViewBuilder body and
+configuration labels. Supported struct styles use the normal mounted dynamic-property
+and view-body path. Each consuming control keeps its own state ownership; replacing
+its style type, removing it, or closing its host retires that ownership. Configuration
+delegates preserve the original value/total and distinct label/current-value identities.
+Consuming one style installation exposes the remaining inherited chain, without
+sharing mounted state between sibling controls or implicitly calling itself again.
+
+The former concrete profile is named ProgressViewStyleProfile. Its built-in values
+and Windows environment compatibility surface remain available; an explicit profile
+assignment clears inherited custom installations even when the profile value is the
+same. The original built-in rendering path is preserved. Explicit annotations of the
+old concrete ProgressViewStyle type require the documented migration.
+
+The source intake applied exactly twelve paths: three production files, three new
+test files and six documentation files. All 467 prior Tests files stayed unchanged;
+the new suites contain 38 methods. The integrated test source was HEAD
+`d5ef2f7352a1d1ff68a1458ab6fa11fbebb110ea`, staged tree
+`05759e76c9b0f2bb3c0675efc6a690ba04a9dece`, with physical index SHA256
+`a3282e42fa5c3daf0fcebfb5209a1f54b6a4562f3ab5a0e2970846c71aa8912b`.
+Fresh ContractsOnly checks before and after intake and strict lint for all six changed
+Swift files returned zero. No earlier owned-tree pass was substituted for this run.
+
+One integrated run passed exactly 171 XCTest cases once: 38 new and 133 preserved,
+168 async and three sync. All seven serial stock NONSharded calls returned direct PS5
+exit zero, with seven successful zero-test Swift Testing envelopes. There were no
+failed, skipped, extra, duplicate, missing or unfinished selected cases. The parent
+observed actual supervisor closure at exit zero in session 45834/tool `f088d7`, and
+the one approved closed capture found no finalization-overrun marker. The recorded
+365.984 seconds precedes final receipt serialization; it is not a performance gate.
+
+Independent copied discovery reconciles all 5,461 generated XCTest IDs and expected
+async flags: 5,444 CoreLogic plus 17 Portable, across 385 class tables, with 5,109 async
+and 352 sync methods. All seven filters select exactly their frozen IDs. The other
+5,290 XCTest cases and all 134 authored Swift Testing methods did not run in this
+selection. Generated discovery is not evidence that those unselected tests passed.
+
+The final audit seal is SHA256
+`d8efbdd79ceb6fe6f81c8465acce34972858087543274fe32555dcbf249cc92e`.
+The parent copied 79 of 80 verified evidence files into
+`artifacts/goal-seventh-progress171-completion-intake-v1`; the separately sealed test
+image was verified in place. Its intake receipt is SHA256
+`e0109c647bfb200cfcc995385d1a52b8093e68f8cb2240e3a9d2f4207b0e63f7`.
+Fresh parent sweeps verified all 792 regular source files and the physical index
+unchanged before and after the intake. Native test OS exits, descendant closure,
+continuous source monitoring and a complete loaded-tool identity remain unproved.
+
+A later stock raw retained-runtime dashboard snapshot also passed: direct PS5 PID
+46892 and outer tool `b64aa3` returned zero, with all 792 source files and index
+preserved. Its 8.844-second observation includes preflight and precedes serialization.
+The dark 1280-by-720 PNG and raw BMP are byte-identical to the preceding Shape capture;
+parent inspection found the header, navigation, cards and chart intact, with the same
+lower Activity clipping at the fixed viewport. Evidence and inspection are retained
+in `artifacts/goal-seventh-progress-style-demo-v1`. This single CPU scene is not a
+dedicated custom-style pixel, whole-gallery, D3D11, hardware or native-parity result.
+
+Class/enum style installation, native generic ProgressView syntax, constructor and
+isolation parity, nonfinite primitive inputs, native chained-style behavior, timer
+ticking and full animation remain open. This focused result does not qualify the
+current tree for Full, Quick, hosted CI or release, and does not close any original gate.
+
+After that validation, only four Progress documentation status passages were
+refreshed to report the observed run and retain the native/Full limitations.
+The resulting documentation tree is `ab8f41e8f408a1a0e32914139bff62c5b924fd44`;
+all 788 other regular files, including every production and test file, remain
+identical to the tested tree. The documentation intake is retained under
+`artifacts/goal-seventh-progress-doc-status-intake-v1`, with receipt SHA256
+`1d178975b03e519331145e99e5573845db80d8d0c8d76a541f6f386fc95981bb`.
+
+### Seventh batch: owned Task95 failure, correction and focused pass
+
+The first Task95 attempt stopped on two helper compiler diagnostics after a reported
+168.937 seconds, with zero test starts and all 95 cases unrun. That failure and its
+partial build remain preserved. A separate candidate changed only two private helpers
+to snapshot `self` in `let probe`, retaining the outer weak capture and synchronous
+actor check. All 51 new test bodies and the same 95 selected IDs remained unchanged.
+The failed build was not reused.
+
+Fresh owned tree `7d34203e62d412af7d1ef803f949412c2de19b63` then passed all 95 cases
+once across six stock calls, with six direct PS5 zeros and six zero-test Swift Testing
+envelopes. Actual closure was `0fc320`, session 33520, exit 0; the reported interval was
+435.609 seconds. Independent review reconciled all 5,458 source/compiled XCTest IDs,
+but only 95 ran. The 40-member pass packet is not root integration or Full/native parity.
+Unmounted ID tasks, lazy-row activity and native scheduling remain limited; native test
+OS exits and descendant closure remain unknown.
+
+### Seventh batch: document1287 failure and source-only fixture alignment
+
+The one owned `e2c47c747a207dc6907d80eaefc9dfafb61e2968` attempt failed at call 45:
+771 starts, 768 passes, three failed cases and 516 unrun. Calls 1-44 passed; calls 46-63
+did not run. All 94 new cases and the prior 571-case selection passed within that prefix;
+these overlapping populations do not make the complete 1,287-case attempt pass.
+Four assertion diagnostics came from three older text-input fixtures. The supervisor
+closed at exit 1 in session 96306/`29c5d2`; the independent audit confirms the failure.
+
+The 96-member alignment packet freezes `c6151ed3d3c14a6a4ea4013a00ddc66da03c2178`.
+It changes exactly those three fixture bodies to versions already present on root since
+`1ce6b9a0fa478fc5e636a146073b58dfd6ad9201`; it changes no production behavior or
+selected IDs. Contracts and strict lint passed; the source-only freeze adds no compiled
+or runtime qualification. Neither source diagnosis nor the passing prefix qualifies a complete native
+document workflow or replaces any earlier failed run.
+
+### Seventh batch: one exploratory debugged P7 F9 pass
+
+One controlled P7 F9 experiment passed its fixed WM_CHAR sequence, task-thread checks,
+quit code 73 and 17 application-local module origins at three checkpoints. Recorded
+native, controller, validator and outer-tool exits were 0. Final receipt preservation
+was reported at 91.6861809 seconds within the original 600-second phase. That final tool
+observation is separate from the 91.1517672-second checkpoint retained with the 48-member packet.
+
+This was a debugger-attached experiment, not an ordinary launch or a native product,
+general ABI, physical-key translation or general scheduling qualification. Independent
+review was reported clear in a message; no separate durable review receipt is claimed.
+The older P6 runtime failure and historical F9 compiler/collector failure remain failed.
+
+### Seventh batch: preservation-only timing observation
+
+One preservation-only attempt completed naturally with child, parent and tool exits 0.
+The outside interval was 33.746 seconds; the single preservation call itself took
+27.9070594 seconds. Its snapshot covered 374 fixed rows, seven roots, 4,453 regular
+files, two junctions and 2,408 directories; the before/after 41 input pins matched.
+The current snapshot matched its saved reference, without another census attempt.
+
+Only this subset fit its separate 60-second experiment. Original Stage A's 300-second
+total and 60-second finalization reserve remain unchanged and unqualified as a whole.
+The failed Stage A still has 61 unrun cases and an unresolved historical 4,453-file
+after-checkpoint gap. No real DirectRunner, Swift product, complete Stage A or Quick
+speed claim follows. The three later metadata-audit incidents remain preserved.
+These entries leave original sections 1-9 and all nine completion gates unchanged and open.
+
+The four owned follow-up records above are backed by 27 verified metadata
+references copied into `artifacts/goal-seventh-progress-followup-ledger-intake-v1`.
+Its intake receipt is SHA256
+`1a511b9f469539d7e2c83544945d5f58c2dc77770bc1cce0ff3d393fbcaf4cae`.
+That intake verifies the named metadata, not a new transitive replay of old
+source, raw logs or binaries, and it does not transfer owned results to root.

@@ -9507,10 +9507,11 @@ private enum ListSelectionMode {
     }
 
     @discardableResult
-    func activate(_ value: AnyHashable) -> Bool {
+    func activate(_ value: AnyHashable, isCurrent: () -> Bool = { true }) -> Bool {
+        guard isCurrent() else { return false }
         switch self {
         case .single(let get, let set):
-            guard get() != value else {
+            guard get() != value, isCurrent() else {
                 return false
             }
             set(value)
@@ -9522,6 +9523,7 @@ private enum ListSelectionMode {
             } else {
                 values.insert(value)
             }
+            guard isCurrent() else { return false }
             set(values)
             return true
         }
@@ -9535,13 +9537,16 @@ private enum ListSelectionMode {
     func moveSelection(
         within orderedTags: [AnyHashable],
         indicesByTag: [AnyHashable: Int],
-        delta: Int
+        delta: Int,
+        isCurrent: () -> Bool,
+        prepareTarget: (AnyHashable) -> Bool
     ) -> AnyHashable? {
-        guard case .single(let get, let set) = self, !orderedTags.isEmpty, delta != 0 else {
+        guard case .single(let get, let set) = self, !orderedTags.isEmpty, delta != 0, isCurrent() else {
             return nil
         }
 
         let current = get()
+        guard isCurrent() else { return nil }
         let nextIndex: Int
         if let current, let currentIndex = indicesByTag[current] {
             nextIndex = min(max(currentIndex + delta, 0), orderedTags.count - 1)
@@ -9550,7 +9555,7 @@ private enum ListSelectionMode {
         }
 
         let next = orderedTags[nextIndex]
-        guard next != current else {
+        guard next != current, isCurrent(), prepareTarget(next), isCurrent() else {
             return nil
         }
 
@@ -9567,26 +9572,26 @@ private enum ListSelectionMode {
 /// mirroring frames through `onLayout` would lose precisely those rows.
 @MainActor
 private final class ListKeyboardNavigationState {
-    @MainActor
-    private final class RowEntry {
-        weak var node: ViewNode?
-
-        init(node: ViewNode) {
-            self.node = node
-        }
-    }
-
-    private weak var runtime: RetainedViewRuntime?
+    private let scope: RetainedListNavigationOwner
     private var orderedRowTags: [AnyHashable] = []
-    private var entriesByTag: [AnyHashable: RowEntry] = [:]
+    private var entriesByTag: [AnyHashable: RetainedListNavigationOwner] = [:]
     private var indicesByTag: [AnyHashable: Int] = [:]
 
     init(runtime: RetainedViewRuntime) {
-        self.runtime = runtime
+        scope = RetainedListNavigationOwner(runtime: runtime)
+    }
+
+    func installScope(on node: ViewNode) {
+        guard !orderedRowTags.isEmpty else { return }
+        scope.install(on: node)
+    }
+
+    func makeRowOwner(on node: ViewNode) -> RetainedListNavigationOwner {
+        scope.makeRowOwner(on: node)
     }
 
     func registerRow(tag: AnyHashable, node: ViewNode) {
-        let entry = RowEntry(node: node)
+        guard let entry = node.listNavigationOwner else { return }
         let index = orderedRowTags.count
         orderedRowTags.append(tag)
 
@@ -9598,31 +9603,31 @@ private final class ListKeyboardNavigationState {
         }
     }
 
-    func rowNode(for tag: AnyHashable) -> ViewNode? {
-        entriesByTag[tag]?.node
+    func activate(
+        _ tag: AnyHashable, mode: ListSelectionMode, source: RetainedListNavigationOwner, invalidate: () -> Void
+    ) {
+        guard let receipt = scope.prepareAction(from: source),
+            mode.activate(tag, isCurrent: { receipt.permitsBindingWrite })
+        else { return }
+        invalidate()
     }
 
-    func moveSelection(_ mode: ListSelectionMode, delta: Int) -> AnyHashable? {
-        mode.moveSelection(within: orderedRowTags, indicesByTag: indicesByTag, delta: delta)
-    }
-
-    /// Uses the already-placed row frame rather than a lifecycle callback, so
-    /// keyboard selection can reach a row whose subtree is still deferred.
-    func scrollRowIntoView(tag: AnyHashable) {
-        guard
-            let entry = entriesByTag[tag],
-            let rowNode = entry.node
-        else {
-            return
-        }
-
-        if !rowNode.scrollIntoView(), let runtime {
-            let requestKey = "list.selection.\(String(describing: tag.base))"
-            runtime.scheduleAfterLayout(key: requestKey) { [weak runtime, weak rowNode] in
-                guard let runtime, let rowNode else { return }
-                _ = runtime.scrollToDescendant(rowNode)
-            }
-        }
+    func moveSelection(
+        _ mode: ListSelectionMode, source: RetainedListNavigationOwner, delta: Int, invalidate: () -> Void
+    ) {
+        guard let receipt = scope.prepareAction(from: source),
+            mode.moveSelection(
+                within: orderedRowTags, indicesByTag: indicesByTag, delta: delta,
+                isCurrent: { receipt.permitsBindingWrite },
+                prepareTarget: { tag in
+                    guard let owner = self.entriesByTag[tag] else { return false }
+                    return receipt.prepareTarget(owner)
+                }) != nil
+        else { return }
+        // The accepted write still needs its original invalidation even if a
+        // callback supersedes focus. Only the prepared focus/reveal can stop.
+        invalidate()
+        receipt.finishNavigation()
     }
 }
 @MainActor
@@ -9928,6 +9933,7 @@ public struct List: View {
             // A List is greedy on macOS: it takes the space it is offered
             // and proposes the row width across, instead of shrink-wrapping
             // its widest row.
+            navigationState.installScope(on: node)
             node.layoutFillAxes = .both
             node.horizontalScrollBounceBehavior = context.horizontalScrollBounceBehavior.description
             node.verticalScrollBounceBehavior = context.verticalScrollBounceBehavior.description
@@ -10157,12 +10163,11 @@ public struct List: View {
         // Hover chrome repaints through the retained runtime: `isHovered`
         // invalidates paint automatically when a hover effect is installed.
         rowNode.hoverEffect = .highlight
+        let owner = navigationState.makeRowOwner(on: rowNode)
         rowNode.onActivate = {
-            if selectionMode.activate(tag) {
-                context.invalidate()
-            }
+            navigationState.activate(tag, mode: selectionMode, source: owner, invalidate: context.invalidate)
         }
-        rowNode.onKeyDown = { [weak runtime] event in
+        rowNode.onKeyDown = { event in
             guard event.modifiers.isEmpty else {
                 return
             }
@@ -10176,16 +10181,7 @@ public struct List: View {
                 return
             }
 
-            guard let target = navigationState.moveSelection(selectionMode, delta: delta)
-            else {
-                return
-            }
-
-            context.invalidate()
-            if let targetNode = navigationState.rowNode(for: target) {
-                runtime?.requestFocus(targetNode)
-            }
-            navigationState.scrollRowIntoView(tag: target)
+            navigationState.moveSelection(selectionMode, source: owner, delta: delta, invalidate: context.invalidate)
         }
         return rowNode
     }

@@ -1715,6 +1715,7 @@ private final class ViewNodeInteractionHandlers {
     var imeComposition: ((IMECompositionEvent) -> Void)?
     var textInputCaretRectProvider: (() -> Rect?)?
     var textInputController: (any RetainedTextInputController)?
+    var listNavigationOwner: RetainedListNavigationOwner?
     var keyUp: ((KeyboardEvent) -> Void)?
     var activate: (() -> Void)?
     var repeatActivate: (() -> Void)?
@@ -2395,6 +2396,7 @@ public final class ViewNode {
 
     public var scrollAxis: ScrollAxis? {
         didSet {
+            listNavigationOwner?.revokeIfRoleIsUnavailable()
             if scrollAxis != oldValue {
                 runtime?.cancelScrollMomentum(for: self)
                 runtime?.cancelScrollPresentedTween(for: self)
@@ -2528,6 +2530,7 @@ public final class ViewNode {
 
     public var isFocusable: Bool {
         didSet {
+            listNavigationOwner?.revokeIfRoleIsUnavailable()
             if !isFocusable, runtime?.focusedNode === self {
                 runtime?.requestFocus(nil)
             }
@@ -2586,7 +2589,10 @@ public final class ViewNode {
     }
 
     public var accessibilityTraits: RetainedAccessibilityTraits {
-        didSet { invalidateRuntime(.paint) }
+        didSet {
+            listNavigationOwner?.revokeIfRoleIsUnavailable()
+            invalidateRuntime(.paint)
+        }
     }
 
     public var accessibilityChildBehavior: RetainedAccessibilityChildBehavior? {
@@ -2818,7 +2824,10 @@ public final class ViewNode {
     }
 
     public var isFocusEnabled: Bool {
-        didSet { invalidateRuntime(.paint) }
+        didSet {
+            listNavigationOwner?.revokeIfRoleIsUnavailable()
+            invalidateRuntime(.paint)
+        }
     }
 
     public var pointerStyle: RetainedPointerStyle? {
@@ -3395,11 +3404,40 @@ public final class ViewNode {
             if runtime != nil { newValue?.attach(to: self) }
         }
     }
+
+    /// List-only ownership stays in optional interaction storage. The facade
+    /// captures this declaration; adoption redirects it to the retained node.
+    package var listNavigationOwner: RetainedListNavigationOwner? {
+        get { interactionHandlers?.listNavigationOwner }
+        set { setInteractionHandler(newValue, at: \.listNavigationOwner) }
+    }
+
+    func installListNavigationOwner(_ owner: RetainedListNavigationOwner) {
+        listNavigationOwner = owner
+        if let runtime { owner.didAttach(to: runtime) }
+    }
+
+    func hasListNavigationRuntime(_ expected: RetainedViewRuntime?) -> Bool {
+        runtime === expected
+    }
+
+    @discardableResult
+    func adoptListNavigationOwner(from source: ViewNode) -> RetainedListNavigationOwner? {
+        guard source !== self else { return nil }
+        let incoming = source.listNavigationOwner
+        incoming?.adopt(from: listNavigationOwner, onto: self, runtime: runtime)
+        listNavigationOwner = incoming
+        // Disposing the fresh build must not revoke the retained attachment.
+        source.listNavigationOwner = nil
+        return incoming
+    }
     /// When true, unmodified up/down arrow keys are delivered to this node's
     /// `onKeyDown` before the runtime's scroll-key handling, so a focused node
     /// (e.g. a selectable list row) can claim vertical arrows for navigation.
     /// Text inputs also claim Up/Down/Home/End with Shift and/or Control.
-    public var interceptsVerticalArrowKeys = false
+    public var interceptsVerticalArrowKeys = false {
+        didSet { listNavigationOwner?.revokeIfRoleIsUnavailable() }
+    }
     public var onKeyUp: ((KeyboardEvent) -> Void)? {
         get { interactionHandlers?.keyUp }
         set { setInteractionHandler(newValue, at: \.keyUp) }
@@ -4587,6 +4625,7 @@ public final class ViewNode {
             // earlier branch must not use a later departing presenter's lease.
             node.fileDialogPresenterIsDeparting = true
             node.fileDialogPresenterLease?.invalidate()
+            node.listNavigationOwner?.revokeForDeparture()
             node.textInputController?.revokeOwnership(from: node)
         }
     }
@@ -4665,6 +4704,7 @@ public final class ViewNode {
             runtime?.registerAnimatingNode(self)
         }
         self.runtime = runtime
+        if let runtime { listNavigationOwner?.didAttach(to: runtime) }
         if runtime != nil, didChangeRuntime {
             fileDialogPresenterIsDeparting = false
             fileDialogPreparedRevocations = 0
@@ -9281,11 +9321,12 @@ private final class RetainedFocusOperation {
     var beganAttached: Bool
     var revision: UInt64?
     var mutationWitness: UInt64
+    let listNavigationReceipt: RetainedListNavigationReceipt?
     var remainingQualificationQueries = 4
 
     init(
         target: ViewNode?, origin: RetainedFocusOrigin, beganAttached: Bool,
-        revision: UInt64?, mutationWitness: UInt64
+        revision: UInt64?, mutationWitness: UInt64, listNavigationReceipt: RetainedListNavigationReceipt? = nil
     ) {
         self.target = target
         self.hasTarget = target != nil
@@ -9293,6 +9334,7 @@ private final class RetainedFocusOperation {
         self.beganAttached = beganAttached
         self.revision = revision
         self.mutationWitness = mutationWitness
+        self.listNavigationReceipt = listNavigationReceipt
     }
 }
 
@@ -9495,6 +9537,7 @@ public final class RetainedViewRuntime {
         var anchorX: Double?
         var anchorY: Double?
         var expectedOffset: Double
+        var listNavigation: RetainedListNavigationReceipt? = nil
     }
     private var pendingPreciseScrollAlignments: [PendingPreciseScrollAlignment] = []
     private var cachedFrameSnapshot: FramePaintSnapshot?
@@ -10975,6 +11018,14 @@ public final class RetainedViewRuntime {
         updateFocusTarget(to: node)
     }
 
+    /// List navigation adds its physical attachment check to ordinary focus.
+    /// It never grants eligibility to a still-deferred or detached target.
+    @discardableResult
+    package func requestListNavigationFocus(_ node: ViewNode, receipt: RetainedListNavigationReceipt) -> Bool {
+        guard receipt.permitsFocusEntry(in: self, target: node) else { return false }
+        return updateFocusTarget(to: node, listNavigationReceipt: receipt)
+    }
+
     /// External focus needs an actually attached, currently projected owner.
     /// False can follow a callback that already changed focus; it is never a
     /// request to retry the operation or undo a newer accepted focus choice.
@@ -11906,6 +11957,234 @@ public final class RetainedViewRuntime {
         withExtendedLifetime(retiredValues) {}
     }
 
+    /// A setter may synchronously rebuild the List. Query the actual retained
+    /// target once, then validate after layout callbacks and their cleanup.
+    func prepareListNavigationTarget(_ target: ViewNode, receipt: RetainedListNavigationReceipt) -> Bool {
+        guard receipt.permitsContinuation, canPrepareLayoutSettlement,
+            queryListNavigationLayout(target), receipt.permitsContinuation,
+            case .settled(let settlement) = layoutSettlementStatus,
+            isLayoutSettlementReceiptCurrent(settlement), receipt.permitsContinuation,
+            receipt.recordPreparedLayoutSettlement(settlement)
+        else { return false }
+        receipt.recordGeometryRevision(layoutSettlementGeometryRevision)
+        return true
+    }
+
+    func isListNavigationTargetDeferred(_ target: ViewNode) -> Bool {
+        var candidate: ViewNode? = target
+        var depth = 0
+        while let node = candidate, depth < ViewNode.maximumTraversalDepth {
+            if node.isLayoutDeferredByVirtualization { return true }
+            if node === root { return false }
+            candidate = node.parent
+            depth += 1
+        }
+        return false
+    }
+
+    /// The offset has already been accepted. This is one bounded settlement,
+    /// not a paint, a UIA Realize, or permission to focus deferred descendants.
+    func settleRevealedListNavigationTarget(_ target: ViewNode, receipt: RetainedListNavigationReceipt) -> Bool {
+        guard receipt.permitsReveal(in: self, target: target), canPrepareLayoutSettlement,
+            queryListNavigationLayout(target),
+            receipt.permitsReveal(in: self, target: target),
+            case .settled(let settlement) = layoutSettlementStatus,
+            isLayoutSettlementReceiptCurrent(settlement),
+            receipt.permitsReveal(in: self, target: target),
+            isPresentationNodeAvailable(target, requiresEnabled: false),
+            !isListNavigationTargetDeferred(target)
+        else { return false }
+        return true
+    }
+
+    @inline(never)
+    private func queryListNavigationLayout(_ target: ViewNode) -> Bool {
+        resolvedLayoutFrame(of: target) != nil
+    }
+
+    func isListNavigationGeometryCurrent(_ receipt: RetainedListNavigationReceipt) -> Bool {
+        !layoutSettlementGenerationsExhausted && receipt.geometryRevision == layoutSettlementGeometryRevision
+    }
+
+    /// Enqueueing this one reveal invalidates layout itself. Acknowledge only
+    /// that owned write, after displaced callback captures finish retiring.
+    func scheduleListNavigationReveal(
+        key: String, target: ViewNode, receipt: RetainedListNavigationReceipt
+    ) {
+        guard receipt.permitsReveal(in: self, target: target) else { return }
+        let mutationBeforeRetirement = presentationMutationRevision
+        let layoutBeforeRetirement = layoutPassID
+        let priorIndex = retirePendingListNavigationReveal(key: key)
+        guard presentationMutationRevision == mutationBeforeRetirement,
+            layoutPassID == layoutBeforeRetirement,
+            receipt.permitsReveal(in: self, target: target),
+            pendingAfterLayoutActions[key] == nil,
+            !pendingAfterLayoutActionKeys.contains(key),
+            priorIndex.map({ $0 <= pendingAfterLayoutActionKeys.count }) ?? true
+        else {
+            receipt.cancelReveal()
+            return
+        }
+
+        invalidate(.layout)
+        receipt.recordGeometryRevision(layoutSettlementGeometryRevision)
+        guard receipt.permitsReveal(in: self, target: target) else {
+            receipt.cancelReveal()
+            return
+        }
+        pendingAfterLayoutActions[key] = { [receipt, weak self, weak target] in
+            guard let self, let target, receipt.permitsReveal(in: self, target: target) else { return }
+            _ = self.revealListNavigationTarget(target, receipt: receipt)
+        }
+        if let priorIndex {
+            pendingAfterLayoutActionKeys.insert(key, at: priorIndex)
+        } else {
+            pendingAfterLayoutActionKeys.append(key)
+        }
+    }
+
+    @inline(never)
+    private func retirePendingListNavigationReveal(key: String) -> Int? {
+        let priorIndex = pendingAfterLayoutActionKeys.firstIndex(of: key)
+        var displaced = pendingAfterLayoutActions.removeValue(forKey: key)
+        pendingAfterLayoutActionKeys.removeAll { $0 == key }
+        withExtendedLifetime(displaced) {}
+        displaced = nil
+        return priorIndex
+    }
+
+    package func revealListNavigationTarget(_ target: ViewNode, receipt: RetainedListNavigationReceipt) -> Bool {
+        guard receipt.permitsReveal(in: self, target: target) else { return false }
+        var transaction = currentTransaction ?? Transaction()
+        if currentTransaction == nil, let animation = currentAnimationTransaction {
+            transaction.animation = Animation(duration: animation.duration, easing: animation.easing)
+        }
+        let animation =
+            transaction.disablesAnimations
+            ? nil
+            : transaction.animation.map {
+                AnimationTransaction(duration: $0.duration, easing: $0.easing)
+            }
+        guard let timestamp = listNavigationClock(receipt) else { return false }
+        let performed = performProgrammaticScroll(
+            to: target, anchorX: nil, anchorY: nil, animation: animation, at: timestamp, listNavigation: receipt)
+        return performed && receipt.permitsReveal(in: self, target: target)
+    }
+
+    private func listNavigationClock(_ receipt: RetainedListNavigationReceipt) -> Double? {
+        let revision = presentationMutationRevision
+        let sequence = pointerSequence
+        guard revision != UInt64.max else {
+            receipt.cancelReveal()
+            return nil
+        }
+        // This existing noninline helper releases the exact sampled callback
+        // before any result can authorize a scroll write.
+        let timestamp = sampleFocusClock()
+        guard presentationMutationRevision == revision, pointerSequence == sequence else {
+            receipt.cancelReveal()
+            return nil
+        }
+        return timestamp
+    }
+
+    private func permitsListScrollCancellation(of container: ViewNode) -> Bool {
+        guard scrollDragState?.node === container || activeScrollIndicatorNode === container else { return true }
+        return nodeDragState == nil && longPressAttempt == nil && pressedNode == nil && buttonRepeatState == nil
+            && (scrollDragState == nil || scrollDragState?.node === container)
+            && (activeScrollIndicatorNode == nil || activeScrollIndicatorNode === container)
+    }
+
+    private func listScrollCancellationHasNoReplacement(_ sequence: UInt64) -> Bool {
+        pointerSequence == sequence && scrollDragState == nil && activeScrollIndicatorNode == nil
+            && hoveredNode == nil && hoveredScrollIndicatorNode == nil
+            && nodeDragState == nil && longPressAttempt == nil && pressedNode == nil && buttonRepeatState == nil
+    }
+
+    /// Only a matching scroll interaction is cancelled here. Publish cleared
+    /// ownership before exit, and never enter legacy pointerCancelled from a
+    /// List receipt. Public input and UIA retain their separate paths.
+    @inline(never)
+    private func cancelListScrollPointer(
+        for container: ViewNode, target: ViewNode, receipt: RetainedListNavigationReceipt, at timestamp: Double
+    ) -> (sequence: UInt64, mutation: UInt64)? {
+        guard permitsListScrollCancellation(of: container), receipt.permitsReveal(in: self, target: target) else {
+            return nil
+        }
+        let next = pointerSequence.addingReportingOverflow(1)
+        guard !next.overflow, next.partialValue != UInt64.max else { return nil }
+        let previousHover = hoveredNode
+        let previousIndicator = hoveredScrollIndicatorNode
+        let activeIndicator = activeScrollIndicatorNode
+
+        pointerSequence = next.partialValue
+        scrollDragState = nil
+        activeScrollIndicatorNode = nil
+        hoveredNode = nil
+        hoveredScrollIndicatorNode = nil
+        previousHover?.isHovered = false
+        receipt.recordGeometryRevision(layoutSettlementGeometryRevision)
+
+        let mutationBeforeExit = presentationMutationRevision
+        deliverListNavigationHoverExit(previousHover)
+        guard presentationMutationRevision == mutationBeforeExit,
+            receipt.permitsReveal(in: self, target: target), listScrollCancellationHasNoReplacement(next.partialValue)
+        else { return nil }
+
+        applyInteractionChrome(to: previousHover, at: timestamp)
+        if let previousIndicator {
+            animateColor(
+                .scrollIndicator, of: previousIndicator, to: previousIndicator.restingScrollIndicatorColor,
+                duration: 0.12, at: timestamp)
+        }
+        receipt.recordGeometryRevision(layoutSettlementGeometryRevision)
+        if let activeIndicator {
+            let mutation = recordListNavigationScrollPhase(.idle, for: activeIndicator, receipt: receipt)
+            guard presentationMutationRevision == mutation, receipt.permitsReveal(in: self, target: target),
+                listScrollCancellationHasNoReplacement(next.partialValue)
+            else { return nil }
+            animateColor(
+                .scrollIndicator, of: activeIndicator, to: activeIndicator.restingScrollIndicatorColor,
+                duration: 0.12, at: timestamp)
+            receipt.recordGeometryRevision(layoutSettlementGeometryRevision)
+        }
+        let mutation = presentationMutationRevision
+        withExtendedLifetime((previousHover, previousIndicator, activeIndicator)) {}
+        // The caller checks this witness after all three node pins retire.
+        return (next.partialValue, mutation)
+    }
+
+    @inline(never)
+    private func deliverListNavigationHoverExit(_ node: ViewNode?) {
+        var callback = node?.onPointerExit
+        callback?()
+        callback = nil
+    }
+
+    @inline(never)
+    private func recordListNavigationScrollPhase(
+        _ phase: RetainedScrollPhase, for node: ViewNode, receipt: RetainedListNavigationReceipt
+    ) -> UInt64 {
+        var retiredValues: [Any] = []
+        if let registry = scrollObserverRegistry {
+            for reference in registry.nodes {
+                guard let owner = reference.node, owner.runtime === self,
+                    let storage = owner.scrollObserverStorage, !storage.phase.isEmpty
+                else { continue }
+                for observer in storage.geometry {
+                    if let value = observer.previousValue { retiredValues.append(value) }
+                }
+            }
+        }
+        recordScrollPhase(phase, for: node)
+        receipt.recordGeometryRevision(layoutSettlementGeometryRevision)
+        let mutation = presentationMutationRevision
+        withExtendedLifetime(retiredValues) {}
+        // Never acknowledge destruction of an authored Any payload as an
+        // owned geometry change. The caller validates after this frame ends.
+        return mutation
+    }
+
     @inline(never)
     private func performProgrammaticScroll(
         to descendant: ViewNode,
@@ -11913,8 +12192,10 @@ public final class RetainedViewRuntime {
         anchorY: Double?,
         animation: AnimationTransaction?,
         at timestamp: Double,
-        accessibility: RetainedAccessibilityScrollContinuation? = nil
+        accessibility: RetainedAccessibilityScrollContinuation? = nil,
+        listNavigation: RetainedListNavigationReceipt? = nil
     ) -> Bool {
+        if let listNavigation, !listNavigation.permitsReveal(in: self, target: descendant) { return false }
         guard descendant.runtime === self, layoutPassID != 0, !Self.hasHiddenAncestor(descendant) else {
             return false
         }
@@ -11922,9 +12203,11 @@ public final class RetainedViewRuntime {
         guard let (target, scrollContainer) = descendant.nearestScrollTarget(),
             let axis = scrollContainer.scrollAxis,
             !isLayoutInProgress,
-            // UIA's settled query retains render dirty flags. Its continuation
-            // is validated below; public scrolling still requires no pending layout.
-            accessibility != nil || !hasPendingLayout,
+            // Settled queries retain render dirty flags. A deferred List row
+            // needs its exact preparation proof before focus; public scrolling
+            // and already-realized List rows keep their pending-layout policy.
+            accessibility != nil || !hasPendingLayout
+                || listNavigation?.permitsPreparedLayoutReveal(in: self, target: descendant) == true,
             scrollContainer.cachedLayoutKey != nil,
             scrollContainer.pendingLayoutKey == nil
         else {
@@ -11936,6 +12219,10 @@ public final class RetainedViewRuntime {
                 permitsAccessibilityScrollCancellation(of: scrollContainer),
                 validateAccessibilityScroll(accessibility)
             else { return false }
+        }
+        if let listNavigation, !permitsListScrollCancellation(of: scrollContainer) {
+            listNavigation.cancelReveal()
+            return false
         }
 
         let anchor = axis == .horizontal ? anchorX : anchorY
@@ -11954,13 +12241,36 @@ public final class RetainedViewRuntime {
         // tween or wheel glide that this request interrupts. The logical
         // target changes immediately while every presented consumer shares
         // the lag delta, including the lazy-layout viewport.
+        if let listNavigation,
+            scrollDragState?.node === scrollContainer || activeScrollIndicatorNode === scrollContainer
+        {
+            let layoutBeforeCancellation = layoutPassID
+            let offsetBeforeCancellation = scrollContainer.scrollOffset
+            guard
+                let cancelled = cancelListScrollPointer(
+                    for: scrollContainer, target: descendant, receipt: listNavigation, at: timestamp),
+                presentationMutationRevision == cancelled.mutation,
+                listScrollCancellationHasNoReplacement(cancelled.sequence),
+                listNavigation.permitsReveal(in: self, target: descendant),
+                layoutPassID == layoutBeforeCancellation,
+                scrollContainer.scrollOffset == offsetBeforeCancellation,
+                scrollContainer.scrollAxis == axis, !isLayoutInProgress,
+                !hasPendingLayout || listNavigation.permitsPreparedLayoutReveal(in: self, target: descendant),
+                scrollContainer.cachedLayoutKey != nil, scrollContainer.pendingLayoutKey == nil
+            else {
+                listNavigation.cancelReveal()
+                return false
+            }
+        }
         let presentedOffset = scrollContainer.effectiveScrollOffset
         cancelScrollMomentum(for: scrollContainer)
         cancelScrollPresentedTween(for: scrollContainer)
         // These cancellations touch only owned scalar/weak-node scroll state.
         // A later application callback may not rebase this geometry witness.
         if let accessibility { recordOwnedAccessibilityScrollEffects(accessibility) }
-        if scrollDragState?.node === scrollContainer || activeScrollIndicatorNode === scrollContainer {
+        if listNavigation == nil,
+            scrollDragState?.node === scrollContainer || activeScrollIndicatorNode === scrollContainer
+        {
             if let accessibility {
                 guard cancelAccessibilityScrollPointer(accessibility, at: timestamp),
                     accessibilityScrollContinuationIsCurrent(accessibility)
@@ -11969,6 +12279,9 @@ public final class RetainedViewRuntime {
                 pointerCancelled()
             }
         }
+        // This proof admits one offset attempt. The later realization query
+        // must produce its own settlement; no callback may refresh this proof.
+        listNavigation?.consumePreparedLayoutSettlement()
         _ = scrollContainer.setScrollOffset(requestedOffset)
         accessibility?.expectedOffset = scrollContainer.scrollOffset
         let delta = presentedOffset - scrollContainer.scrollOffset
@@ -11991,6 +12304,16 @@ public final class RetainedViewRuntime {
                 invalidate(.paint)
                 recordOwnedAccessibilityScrollEffects(accessibility)
                 recordAccessibilityScrollPhase(.animating, for: scrollContainer, continuation: accessibility)
+            } else if let listNavigation {
+                invalidate(.paint)
+                let mutation = recordListNavigationScrollPhase(
+                    .animating, for: scrollContainer, receipt: listNavigation)
+                guard presentationMutationRevision == mutation,
+                    listNavigation.permitsReveal(in: self, target: descendant)
+                else {
+                    listNavigation.cancelReveal()
+                    return false
+                }
             } else {
                 recordScrollPhase(.animating, for: scrollContainer)
                 invalidate(.paint)
@@ -11999,6 +12322,14 @@ public final class RetainedViewRuntime {
             if let accessibility {
                 recordOwnedAccessibilityScrollEffects(accessibility)
                 recordAccessibilityScrollPhase(.idle, for: scrollContainer, continuation: accessibility)
+            } else if let listNavigation {
+                let mutation = recordListNavigationScrollPhase(.idle, for: scrollContainer, receipt: listNavigation)
+                guard presentationMutationRevision == mutation,
+                    listNavigation.permitsReveal(in: self, target: descendant)
+                else {
+                    listNavigation.cancelReveal()
+                    return false
+                }
             } else {
                 recordScrollPhase(.idle, for: scrollContainer)
             }
@@ -12021,12 +12352,14 @@ public final class RetainedViewRuntime {
                     containerEpoch: scrollContainer.scrollSourceEpoch,
                     anchorX: anchorX,
                     anchorY: anchorY,
-                    expectedOffset: scrollContainer.scrollOffset
+                    expectedOffset: scrollContainer.scrollOffset,
+                    listNavigation: listNavigation
                 )
             )
         }
         accessibility?.expectedOffset = scrollContainer.scrollOffset
         accessibility?.completionRevision = accessibility?.mutation.revision
+        listNavigation?.recordGeometryRevision(layoutSettlementGeometryRevision)
         return true
     }
 
@@ -13141,6 +13474,13 @@ public final class RetainedViewRuntime {
         permitsRenderLifecycleCallbacks = false
         renderLifecycleRevision &+= 1
         for request in pendingPresentationFocusRequests { request.revoke() }
+        var nodes = [root] + transitionOverlays
+        var visited = Set<ObjectIdentifier>()
+        while let node = nodes.popLast() {
+            guard visited.insert(ObjectIdentifier(node)).inserted else { continue }
+            nodes.append(contentsOf: node.children)
+            node.listNavigationOwner?.revoke()
+        }
     }
 
     /// Cancel a closed host's tasks only after its editor and State writes
@@ -13967,6 +14307,7 @@ public final class RetainedViewRuntime {
         var didResolve = false
         for alignment in alignments {
             guard let target = alignment.target, let container = alignment.container,
+                alignment.listNavigation?.permitsReveal(in: self, target: target) ?? true,
                 target.runtime === self, container.runtime === self,
                 container.scrollSourceEpoch == alignment.containerEpoch,
                 container.scrollOffset == alignment.expectedOffset,
@@ -13989,7 +14330,13 @@ public final class RetainedViewRuntime {
             }
 
             var continuation: AnimationTransaction?
-            var timestamp = clock()
+            var timestamp: Double
+            if let listNavigation = alignment.listNavigation {
+                guard let sample = listNavigationClock(listNavigation) else { continue }
+                timestamp = sample
+            } else {
+                timestamp = clock()
+            }
             if let tween, case .programmatic(let easing) = tween.origin {
                 // A more precise target uses the remaining authored time.
                 // This is a correction to the same request, not a second
@@ -14001,7 +14348,7 @@ public final class RetainedViewRuntime {
             }
             if performProgrammaticScroll(
                 to: target, anchorX: alignment.anchorX, anchorY: alignment.anchorY,
-                animation: continuation, at: timestamp)
+                animation: continuation, at: timestamp, listNavigation: alignment.listNavigation)
             {
                 didResolve = true
             }
@@ -14561,6 +14908,11 @@ public final class RetainedViewRuntime {
         }
         guard operation.hasTarget else { return true }
         guard let target = operation.target else { return false }
+        if let receipt = operation.listNavigationReceipt,
+            !receipt.permitsFocusOwnership(in: self, target: target)
+        {
+            return false
+        }
         return focusTargetIsEligible(target, origin: operation.origin, beganAttached: operation.beganAttached)
     }
 
@@ -14647,6 +14999,7 @@ public final class RetainedViewRuntime {
         // chrome, or explicit invalidation writes below. This does not alter
         // the runtime's global prepaint or layout settlement authority.
         operation.mutationWitness = presentationMutationRevision
+        operation.listNavigationReceipt?.recordGeometryRevision(layoutSettlementGeometryRevision)
     }
 
     // Separate non-inlined frames make callback capture release precede the
@@ -14689,7 +15042,10 @@ public final class RetainedViewRuntime {
     }
 
     @discardableResult
-    private func updateFocusTarget(to nextFocusedNode: ViewNode?, origin: RetainedFocusOrigin = .ordinary) -> Bool {
+    private func updateFocusTarget(
+        to nextFocusedNode: ViewNode?, origin: RetainedFocusOrigin = .ordinary,
+        listNavigationReceipt: RetainedListNavigationReceipt? = nil
+    ) -> Bool {
         let isCleanup = origin == .cleanup && nextFocusedNode == nil
         guard permitsRenderLifecycleCallbacks || isCleanup else { return false }
         let beganAttached =
@@ -14706,7 +15062,8 @@ public final class RetainedViewRuntime {
         guard revision != nil || isCleanup else { return false }
         let operation = RetainedFocusOperation(
             target: nextFocusedNode, origin: origin, beganAttached: beganAttached,
-            revision: revision, mutationWitness: presentationMutationRevision)
+            revision: revision, mutationWitness: presentationMutationRevision,
+            listNavigationReceipt: listNavigationReceipt)
         let completed = performFocusTransition(operation, to: nextFocusedNode)
         // The inner frame has released its old node and callback captures.
         // Final notification/cleanup can make an already performed transition
@@ -14735,15 +15092,21 @@ public final class RetainedViewRuntime {
         var previousNode = focusedNode
         var previousTimestamp = 0.0
         if previousNode?.interactionSurface != nil, permitsRenderLifecycleCallbacks {
+            let mutationBeforeClock = presentationMutationRevision
             previousTimestamp = sampleFocusClock()
+            if presentationMutationRevision != mutationBeforeClock { operation.listNavigationReceipt?.cancelReveal() }
             guard validateFocusOperation(operation, expectedFocus: previousNode, mayQuery: true) else { return false }
         }
         focusedNode = nil
         previousNode?.isFocused = false
         applyInteractionChrome(to: previousNode, animated: permitsRenderLifecycleCallbacks, at: previousTimestamp)
         recordOwnedFocusEffects(operation)
+        let mutationBeforeExit = presentationMutationRevision
         deliverFocusExit(previousNode)
         previousNode = nil
+        // Include the old node's final payload release as well as the exit
+        // helper's callback-capture cleanup before recording owned effects.
+        if presentationMutationRevision != mutationBeforeExit { operation.listNavigationReceipt?.cancelReveal() }
         guard validateFocusOperation(operation, expectedFocus: nil, mayQuery: true) else { return false }
 
         focusedNode = nextFocusedNode
@@ -14752,7 +15115,9 @@ public final class RetainedViewRuntime {
         let entry = nextFocusedNode.map { RetainedFocusEntry(target: $0, beganAttached: operation.beganAttached) }
         currentFocusEntry = entry
         defer { clearFocusEntry(entry) }
+        let mutationBeforeEnter = presentationMutationRevision
         deliverFocusEnter(nextFocusedNode)
+        if presentationMutationRevision != mutationBeforeEnter { operation.listNavigationReceipt?.cancelReveal() }
         return finishFocusEntry(operation, to: nextFocusedNode, entry: entry)
     }
 
@@ -14771,7 +15136,9 @@ public final class RetainedViewRuntime {
         recordOwnedFocusEffects(operation)
         var timestamp = sampledTimestamp ?? 0
         if sampledTimestamp == nil, nextFocusedNode?.interactionSurface != nil, permitsRenderLifecycleCallbacks {
+            let mutationBeforeClock = presentationMutationRevision
             timestamp = sampleFocusClock()
+            if presentationMutationRevision != mutationBeforeClock { operation.listNavigationReceipt?.cancelReveal() }
             adoptFocusReaffirmation(entry, into: operation)
             guard validateFocusOperation(operation, expectedFocus: nextFocusedNode, mayQuery: true) else {
                 withdrawFocusOperation(operation)
@@ -14782,7 +15149,11 @@ public final class RetainedViewRuntime {
         invalidate()
         recordOwnedFocusEffects(operation)
         clearFocusEntry(entry)
+        let mutationBeforeNotification = presentationMutationRevision
         deliverAccessibilityFocusNotification(nextFocusedNode)
+        if presentationMutationRevision != mutationBeforeNotification {
+            operation.listNavigationReceipt?.cancelReveal()
+        }
         return true
     }
 }

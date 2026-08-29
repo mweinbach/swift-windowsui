@@ -798,6 +798,7 @@ public final class ComponentHost {
     }
 
     private static func revokeDepartingTextInputOwnership(source: ViewNode, target: ViewNode) {
+        target.listNavigationOwner?.prepareForAdoption(of: source.listNavigationOwner)
         target.revokeFileDialogPresentation(ifAbsentFrom: source)
         if let controller = source.textInputController {
             controller.prepareForReconciliation(from: target.textInputController, onto: target)
@@ -946,6 +947,8 @@ public final class ComponentHost {
     /// Copy visual / layout properties from `source` onto `target`, keeping
     /// `target`'s identity (parent, runtime, callbacks) intact.
     private static func updateNodeProperties(target: ViewNode, source: ViewNode) {
+        let listNavigationOwner = target.adoptListNavigationOwner(from: source)
+        defer { listNavigationOwner?.finishAdoption() }
         defer { target.finishFileDialogConfigurationAdoption() }
         let oldFrame = target.frame
         let oldOpacity = target.opacity

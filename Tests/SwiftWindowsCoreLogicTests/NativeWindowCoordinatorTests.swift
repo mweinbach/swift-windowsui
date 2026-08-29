@@ -392,7 +392,7 @@ final class NativeWindowCoordinatorTests: XCTestCase {
         let primary = await driver.observeStart()
         driver.completeStart(primary)
         _ = try await coordinator.bootPrimaryNativeWindow()
-        let reopen = primary.windowEnvironment.openSettings
+        let reopen = try XCTUnwrap(primary.windowEnvironment).openSettings
         let observation = NativeCoordinatorReleaseObservation()
         driver.makeReleaseProbe = { configuration in
             guard configuration.isSettingsWindow, observation.probeInstallations == 0 else { return nil }
@@ -450,7 +450,7 @@ final class NativeWindowCoordinatorTests: XCTestCase {
         defer { driver.clearCallbacks() }
         let coordinator = makeCoordinator(driver, usesNativeOwner: false)
         let primary = try coordinator.bootPrimaryWindow()
-        let reopen = primary.windowEnvironment.openSettings
+        let reopen = try XCTUnwrap(primary.windowEnvironment).openSettings
         let observation = NativeCoordinatorReleaseObservation()
         driver.makeReleaseProbe = { configuration in
             guard configuration.isSettingsWindow, observation.probeInstallations == 0 else { return nil }

@@ -882,7 +882,8 @@ private final class LazyTaskRunProbe {
                 }
             },
             onCancel: { [weak self] in
-                MainActor.assumeIsolated { self?.cancel(label) }
+                guard let self else { return }
+                MainActor.assumeIsolated { self.cancel(label) }
             })
     }
 

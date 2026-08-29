@@ -340,7 +340,7 @@ private final class PublicLazyRuntimeFixture {
                     gap.retainedViewIdentity = rowIdentity.appending(.role(.background))
                     gap.retainedLazyListGap = styles[leaf]
                     gap.isSeparatorRule = true
-                    gap.accessibilityHidden = true
+                    gap.isAccessibilityHidden = true
                     return [gap, node]
                 }
             })

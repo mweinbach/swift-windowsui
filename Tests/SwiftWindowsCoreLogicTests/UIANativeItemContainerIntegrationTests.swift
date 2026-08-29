@@ -37,6 +37,8 @@ private class NativeItemTreeSource: UIAElementTreeSource {
     var snapshotGeometries: [NativeWindowGeometry] = []
     var legacySnapshotReads = 0
 
+    @MainActor init() {}
+
     func uiaElementSnapshots() -> [UIAElementSnapshot] {
         legacySnapshotReads += 1
         return [root]

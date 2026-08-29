@@ -506,7 +506,7 @@ final class CanonicalViewBuilderMetadataTests: XCTestCase {
         let node = AnyView(view).makeComponent(context: context).makeNode(runtime: runtime)
         if allNodes(in: node).contains(where: { $0.retainedLazyListAdapter != nil }) {
             runtime.root.addChild(node)
-            runtime.setRootSize(IntSize(width: Int(size.width), height: Int(size.height)))
+            runtime.setRootSize(IntSize(width: Int32(size.width), height: Int32(size.height)))
             node.frame = Rect(origin: .zero, size: size)
             _ = runtime.renderFrame()
         }

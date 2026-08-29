@@ -83,6 +83,14 @@ final class Win32NativeIngressBoundsTests: XCTestCase {
         }
     }
 
+    private func assertSuccess(
+        _ result: Result<Void, NativeWindowOwnerFailure>, file: StaticString = #filePath, line: UInt = #line
+    ) {
+        if case .failure(let failure) = result {
+            XCTFail("Expected native input admission to succeed, got \(failure)", file: file, line: line)
+        }
+    }
+
     func testConservativeDefaultsBoundSlotsPayloadAndAutomaticTurn() async {
         let limits = Win32NativeIngressLimits()
         XCTAssertEqual(limits.maximumRecords, 1_024)
@@ -260,7 +268,7 @@ final class Win32NativeIngressBoundsTests: XCTestCase {
         receiver.duringDelivery = { [self] value in
             let sequence = value.observation.surface.geometry.nativeSequence
             guard sequence <= 6 else { return }
-            XCTAssertNoThrow(try ingress.enqueue(record(sequence + 3, key: key)).get())
+            assertSuccess(ingress.enqueue(record(sequence + 3, key: key)))
         }
         defer { receiver.duringDelivery = nil }
         scheduler.enqueue { receiver.unrelatedWorkObservations.append(receiver.delivered) }
@@ -286,7 +294,7 @@ final class Win32NativeIngressBoundsTests: XCTestCase {
         receiver.duringDelivery = { [self] value in
             let sequence = value.observation.surface.geometry.nativeSequence
             guard sequence <= 3 else { return }
-            XCTAssertNoThrow(try ingress.enqueue(record(sequence + 3, key: key)).get())
+            assertSuccess(ingress.enqueue(record(sequence + 3, key: key)))
         }
         defer { receiver.duringDelivery = nil }
         try ingress.flush().get()
@@ -357,7 +365,7 @@ final class Win32NativeIngressBoundsTests: XCTestCase {
         receiver.duringDelivery = { [self] value in
             XCTAssertEqual(ingress.snapshot.queuedRecords, 0)
             if value.observation.surface.geometry.nativeSequence == 1 {
-                XCTAssertNoThrow(try ingress.enqueue(record(2, key: key)).get())
+                assertSuccess(ingress.enqueue(record(2, key: key)))
                 XCTAssertEqual(scheduler.count, 0, "The current automatic turn still owns its reservation")
             }
         }
@@ -380,7 +388,7 @@ final class Win32NativeIngressBoundsTests: XCTestCase {
         let failure = NativeWindowOwnerFailure.capacityExceeded(resource: "nativeInputRecords", limit: 1)
         receiver.duringDelivery = { [self] value in
             guard value.observation.surface.geometry.nativeSequence == 1 else { return }
-            XCTAssertNoThrow(try ingress.enqueue(record(2, key: key)).get())
+            assertSuccess(ingress.enqueue(record(2, key: key)))
             assertFailure(ingress.enqueue(record(3, key: key)), failure)
             assertFailure(ingress.flush(through: 1), failure)
             ingress.fail(failure, windowKey: key)

@@ -31,7 +31,7 @@ final class RetainedLazyListTextInputMetadataTests: XCTestCase {
             XCTAssertEqual(result.children.count, 1)
             XCTAssertTrue(result.children.first === retained)
             XCTAssertTrue(retained.parent === fixture.container)
-            XCTAssertTrue(retained.runtime === fixture.runtime)
+            XCTAssertTrue(retained.retainedLazyListRuntime === fixture.runtime)
             XCTAssertEqual(retained.textInputCaretOffset, 4)
             XCTAssertEqual(retained.textInputSelection, selection)
             XCTAssertNil(retained.textInputController)
@@ -215,7 +215,7 @@ final class RetainedLazyListTextInputMetadataTests: XCTestCase {
                     fixture.provider.close()
                 } else {
                     fixture.container.removeChild(node)
-                    sawDetachedNode = node.parent == nil && node.runtime == nil
+                    sawDetachedNode = node.parent == nil && node.retainedLazyListRuntime == nil
                     fixture.container.addChild(node)
                 }
                 events.append(interruption)
@@ -237,7 +237,7 @@ final class RetainedLazyListTextInputMetadataTests: XCTestCase {
             XCTAssertEqual(result.children.count, 1, interruption)
             XCTAssertTrue(result.children.first === retained, interruption)
             XCTAssertTrue(retained.parent === fixture.container, interruption)
-            XCTAssertTrue(retained.runtime === fixture.runtime, interruption)
+            XCTAssertTrue(retained.retainedLazyListRuntime === fixture.runtime, interruption)
             if closesProvider {
                 XCTAssertTrue(attachment.isCurrent)
                 XCTAssertEqual(controller.detachCalls, 1)
@@ -307,7 +307,7 @@ final class RetainedLazyListTextInputMetadataTests: XCTestCase {
         XCTAssertEqual(result.children.count, 1)
         XCTAssertTrue(result.children.first === retained)
         XCTAssertTrue(retained.parent === fixture.container)
-        XCTAssertTrue(retained.runtime === fixture.runtime)
+        XCTAssertTrue(retained.retainedLazyListRuntime === fixture.runtime)
         finishAndCheck(fixture)
         XCTAssertEqual(events, ["detach", "release"])
     }
@@ -339,8 +339,8 @@ final class RetainedLazyListTextInputMetadataTests: XCTestCase {
         fixture.finish()
         XCTAssertFalse(fixture.runtime.retainedBuildCoordinator.isBuilding, file: file, line: line)
         XCTAssertTrue(fixture.runtime.root.children.isEmpty, file: file, line: line)
-        XCTAssertNil(fixture.retained.runtime, file: file, line: line)
-        XCTAssertNil(fixture.incoming.runtime, file: file, line: line)
+        XCTAssertNil(fixture.retained.retainedLazyListRuntime, file: file, line: line)
+        XCTAssertNil(fixture.incoming.retainedLazyListRuntime, file: file, line: line)
     }
 }
 

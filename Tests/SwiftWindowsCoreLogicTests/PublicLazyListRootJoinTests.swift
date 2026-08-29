@@ -1,5 +1,6 @@
 import Foundation
 import SwiftWindowsCore
+import SwiftWindowsGraphics
 @preconcurrency import XCTest
 
 @testable import SwiftWindowsUI

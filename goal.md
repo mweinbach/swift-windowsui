@@ -8389,3 +8389,50 @@ Contracts, strict formatting and narrow-diff checks passed for these source
 corrections. All test source remains unchanged. The opaque host expression
 diagnostic and the local-function rejection are retained; fresh compilation
 and test execution remain required. No original completion gate is changed.
+
+### Ninth validation pass: production compilation and preserved fixture assertions (2026-08-29)
+
+The compile at `b58aee5b7089540b1248a6f295d05d1c2893871b`
+compiled the production targets and linked the app, gallery and snapshot
+executables. It then stopped in test compilation, with 26 distinct diagnostic
+locations in nine test files. No XCTest or Swift Testing case began. The
+direct child exited naturally with code 1 after 121.187 seconds, without
+timeout or termination; tracked-source and index endpoints were unchanged.
+The 2,845,477-byte log has SHA-256
+`1aca5574e6f8cc689d89580ce67698ea621537635d214c4355448e09653651aa`.
+Linking these executables does not qualify their native behavior.
+
+The nine fixture corrections preserve all 125 existing test method names and
+headers. They add the missing Graphics import, use Int32 for the existing
+bounded IntSize fixture, read the existing accessibility-hidden property and
+read-only List runtime getter, and explicitly isolate the UIA fixture's base
+initializer to MainActor. Two required window environments are unwrapped
+rather than accessed through an optional. The cancellation probe strengthens
+its weak self reference before its existing synchronous MainActor assertion;
+it does not add a task hop or change the cancellation expectations.
+
+Four reentrant ingress callbacks now check their Result with a nonthrowing
+assertion helper. Each enqueue still occurs exactly once at its original
+callback position, and every failure remains an XCTest failure with the
+caller's source location. No event is moved out of a reentrant callback and
+no admission failure is discarded. The dialog fixture captures a throwing
+driver operation in Result while the temporary build context is active, then
+rethrows after that context is restored and before awaiting delivery. Both
+context assertions remain inside the scoped operation.
+
+The modal fixture sets the existing modal accessibility trait, uses a checked
+public root-layout query instead of the private layout helper, and makes three
+existing presenter self captures explicit. The public query requires an
+attached root and its normal query guard; it performs the existing layout work
+and subsequent focus/retained-callback/reveal settlement. That wrapper is part
+of the fixture behavior and is not claimed to be a byte-identical helper call.
+The root stays attached at both calls, including after removing its container.
+
+Source review, exact postimage checks, strict formatting, contracts and
+whitespace checks passed. The dialog postimage matches its separately reviewed
+source packet exactly; the parent's earlier equivalent Result variable name
+and both patch histories are retained. No production implementation, existing
+test identity, baseline or comparison tolerance changes in this correction.
+The selected native test runner must bind the four changed selected fixtures
+before execution. Fresh compilation and test results are still required;
+all original completion gates remain open.

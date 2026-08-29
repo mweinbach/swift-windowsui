@@ -918,11 +918,14 @@ final class NativeDialogOwnershipTests: XCTestCase {
                 canvasSizeProvider: { Size(width: 999, height: 777) }, invalidateHandler: {},
                 environmentValuesProvider: { EnvironmentValues(colorScheme: .dark) })
 
-            try ViewBuildContextScope.withCurrent(unrelated) {
-                try driver.performNext()
-                XCTAssertTrue(state.results.isEmpty, "Native execution cannot invoke retained callbacks inline.")
-                XCTAssertEqual(ViewBuildContextScope.current?.canvasSize, Size(width: 999, height: 777))
+            let execution: Result<Void, Error> = ViewBuildContextScope.withCurrent(unrelated) {
+                Result {
+                    try driver.performNext()
+                    XCTAssertTrue(state.results.isEmpty, "Native execution cannot invoke retained callbacks inline.")
+                    XCTAssertEqual(ViewBuildContextScope.current?.canvasSize, Size(width: 999, height: 777))
+                }
             }
+            try execution.get()
             await state.delivered.wait()
 
             XCTAssertNil(ViewBuildContextScope.current)
@@ -1087,7 +1090,7 @@ final class NativeDialogOwnershipTests: XCTestCase {
         let overlay = ViewNode()
         overlay.frame = container.frame
         overlay.layoutMode = .absolute
-        overlay.isModalPresentationScope = true
+        overlay.accessibilityTraits.insert(.isModal)
         overlay.isHitTestVisible = true
         let importButton = ImportButton(
             supportedContentTypes: [.plainText], label: { Color.clear },
@@ -1103,7 +1106,7 @@ final class NativeDialogOwnershipTests: XCTestCase {
         container.addChild(overlay)
         runtime.root.addChild(container)
         declaration.materialize(on: container, runtime: runtime)
-        runtime.updateResolvedLayout()
+        _ = try XCTUnwrap(runtime.resolvedLayoutFrame(of: runtime.root))
         XCTAssertTrue(runtime.presentationModalSnapshot === overlay)
         XCTAssertTrue(runtime.permitsPresentationAction(on: button, within: overlay))
 
@@ -1114,7 +1117,7 @@ final class NativeDialogOwnershipTests: XCTestCase {
             "The retained alert receipt must admit the actual ImportButton without bypassing owner acquisition.")
         XCTAssertFalse(owner.isLive, "Alert reset retires the construction owner before the native result.")
         container.removeFromParent()
-        runtime.updateResolvedLayout()
+        _ = try XCTUnwrap(runtime.resolvedLayoutFrame(of: runtime.root))
         return (owner, runtime)
     }
 
@@ -1732,9 +1735,9 @@ private final class NativeDialogOwnershipPresenter {
         let completion: (Result<URL, Error>) -> Void = { [weak self, payload] result in
             withExtendedLifetime(payload) {
                 guard let self else { return }
-                results.append(result)
-                events.append("completion")
-                onCompletion?()
+                self.results.append(result)
+                self.events.append("completion")
+                self.onCompletion?()
             }
         }
         switch kind {

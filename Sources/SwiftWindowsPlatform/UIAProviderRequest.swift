@@ -20,6 +20,8 @@ package enum UIAProviderRequest: Equatable, Sendable {
     case removeFromSelection(element: UInt64)
     case selectionContainer(element: UInt64)
     case selection(element: UInt64)
+    case logicalItemState(element: UInt64)
+    case findItem(container: UInt64, afterElement: UInt64?)
     case realizeVirtualizedItem(element: UInt64)
     case setFocus(element: UInt64)
     case elementFromPoint(x: Double, y: Double)
@@ -35,6 +37,7 @@ package enum UIAProviderReply: Equatable, Sendable {
     case string(String?)
     case integer(Int32)
     case selection([UInt64]?)
+    case itemLookup(UIAItemContainerResult)
     case completed
 }
 
@@ -54,6 +57,7 @@ package struct UIAProviderRequestEnvelope: Equatable, Sendable {
 
 package enum UIAProviderRequestFailure: Error, Equatable, Sendable {
     case invalidGeometry
+    case unsupportedNativeItemLookup
 }
 
 /// Actor-prepared event values. The native owner checks actual client presence

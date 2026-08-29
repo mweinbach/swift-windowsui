@@ -175,11 +175,197 @@ final class RetainedScrollPhaseObserver {
     }
 }
 
+/// A finite native source-to-target boundary. These supplemental property
+/// facts never stand in for checked node completion or a Task declaration.
+@MainActor
+private final class RetainedScrollObserverPublication {
+    static let fields: [PartialKeyPath<ViewNode>] = [
+        \ViewNode.retainedScrollGeometryPayloads,
+        \ViewNode.retainedScrollPhasePayloads,
+        \ViewNode.retainedScrollVisibilityPayloads,
+    ]
+
+    let admission: RetainedLazyListAdoptionAdmission?
+    let journal: RetainedLazyListAdoptionJournal?
+    let taskAdoption: RetainedTaskAdoptionContext?
+    weak var sourceNode: ViewNode?
+    weak var targetNode: ViewNode?
+    let sourceAttachment: RetainedLazyListAttachmentProof
+    let targetAttachment: RetainedLazyListAttachmentProof
+    let sourceIdentity: RetainedLazyListViewIdentityProof
+    let targetIdentity: RetainedLazyListViewIdentityProof
+    private let checksContinuation: Bool
+    private var preparedFields: Set<AnyKeyPath> = []
+
+    init(
+        from source: ViewNode, to target: ViewNode,
+        admission: RetainedLazyListAdoptionAdmission?, journal: RetainedLazyListAdoptionJournal?,
+        taskAdoption: RetainedTaskAdoptionContext?
+    ) {
+        self.admission = admission
+        self.journal = journal
+        self.taskAdoption = taskAdoption
+        sourceNode = source
+        targetNode = target
+        sourceAttachment = source.captureLazyListAttachmentProof()
+        targetAttachment = target.captureLazyListAttachmentProof()
+        sourceIdentity = source.captureLazyListIdentityProof()
+        targetIdentity = target.captureLazyListIdentityProof()
+        checksContinuation = admission != nil || journal?.isOrdinaryAdoption == false
+    }
+
+    var isCurrent: Bool {
+        sourceNode != nil && targetNode != nil && admission?.isCurrent != false
+            && journal?.canContinueAdoption != false && sourceAttachment.isCurrent && targetAttachment.isCurrent
+            && sourceIdentity.isCurrent && targetIdentity.isCurrent
+    }
+
+    var canContinue: Bool { !checksContinuation || isCurrent }
+
+    func prepare(_ field: PartialKeyPath<ViewNode>) -> Bool {
+        guard isCurrent, let sourceNode, let targetNode,
+            journal?.preparePropertyCopy(from: sourceNode, to: targetNode, keyPath: field) != false
+        else { return false }
+        preparedFields.insert(field)
+        return true
+    }
+
+    func prepareAllFields() -> Bool {
+        for field in Self.fields {
+            let prepared = prepare(field)
+            if checksContinuation && !prepared { return false }
+        }
+        return canContinue
+    }
+
+    func markMutationStarted() -> Bool {
+        guard isCurrent, journal?.markMutationStarted() != false else { return false }
+        admission?.markMutationStarted()
+        return isCurrent
+    }
+
+    func record(_ field: PartialKeyPath<ViewNode>) {
+        guard preparedFields.remove(field) != nil, isCurrent,
+            let journal, let sourceNode, let targetNode
+        else { return }
+        for group in journal.recordAcceptedProperty(from: sourceNode, to: targetNode, keyPath: field) {
+            taskAdoption?.associateLazyAccepted(group, journal: journal)
+        }
+        for group in journal.takeAcceptedDescriptorTaskGroups() {
+            taskAdoption?.associateDescriptorAccepted(group, journal: journal)
+        }
+    }
+
+    func recordAllFields() {
+        for field in Self.fields { record(field) }
+    }
+}
+
 @MainActor
 final class RetainedScrollObserverStorage {
-    var geometry: [RetainedScrollGeometryObserver] = []
-    var phase: [RetainedScrollPhaseObserver] = []
-    var visibility: [RetainedScrollVisibilityObserver] = []
+    fileprivate final class MutationIdentity {}
+
+    /// An opaque history value can run cleanup when replaced. A nested
+    /// reconcile/reset/source change revokes this operation before that cleanup
+    /// returns, independently of whether it also changed the list's provider.
+    @MainActor
+    private final class CheckedOperation {
+        let admission: RetainedLazyListAdoptionAdmission?
+        let publication: RetainedScrollObserverPublication?
+        let nativeCheck: ComponentHost.NodeReconcileAdmission?
+        let targetAttachment: RetainedLazyListAttachmentProof?
+        let sourceAttachment: RetainedLazyListAttachmentProof?
+        private weak var storage: RetainedScrollObserverStorage?
+        private weak var owner: ViewNode?
+        private let ownerIdentity: RetainedLazyListViewIdentityProof?
+        private let checksOwnerBinding: Bool
+        fileprivate var expectedMutation: MutationIdentity
+        private weak var incoming: RetainedScrollObserverStorage?
+        private let incomingMutation: MutationIdentity?
+        private weak var sourceStorage: RetainedScrollObserverStorage?
+        private let checksSourceStorage: Bool
+        private weak var selectedSourceNode: ViewNode?
+        private let hadSelectedSourceNode: Bool
+        private let selectedSourceEpoch: RetainedScrollSourceEpoch?
+        var isValid = true
+
+        init(
+            admission: RetainedLazyListAdoptionAdmission?,
+            targetAttachment: RetainedLazyListAttachmentProof?,
+            sourceAttachment: RetainedLazyListAttachmentProof?, storage: RetainedScrollObserverStorage,
+            incoming: RetainedScrollObserverStorage?, selectedSourceNode: ViewNode?,
+            publication: RetainedScrollObserverPublication?, nativeCheck: ComponentHost.NodeReconcileAdmission?,
+            owner: ViewNode?, ownerIdentity: RetainedLazyListViewIdentityProof?
+        ) {
+            self.admission = admission
+            self.publication = publication
+            self.nativeCheck = nativeCheck
+            self.targetAttachment = targetAttachment
+            self.sourceAttachment = sourceAttachment
+            self.storage = storage
+            self.owner = owner
+            self.ownerIdentity = ownerIdentity
+            self.checksOwnerBinding = owner != nil || ownerIdentity != nil
+            self.expectedMutation = storage.captureMutationIdentity()
+            self.incoming = incoming === storage ? nil : incoming
+            self.incomingMutation = incoming === storage ? nil : incoming?.captureMutationIdentity()
+            self.sourceStorage = incoming
+            self.checksSourceStorage = incoming != nil
+            self.selectedSourceNode = selectedSourceNode
+            self.hadSelectedSourceNode = selectedSourceNode != nil
+            self.selectedSourceEpoch = selectedSourceNode?.scrollSourceEpoch
+        }
+
+        var isCurrent: Bool {
+            guard isValid, admission?.isCurrent != false, publication?.isCurrent != false,
+                nativeCheck?.isCurrent != false,
+                targetAttachment?.isCurrent != false,
+                sourceAttachment?.isCurrent != false, let storage, storage.mutationIdentity === expectedMutation
+            else { return false }
+            if checksOwnerBinding {
+                guard let owner, let ownerIdentity, ownerIdentity.isCurrent,
+                    owner.scrollObserverStorage === storage
+                else { return false }
+            }
+            if let incomingMutation {
+                guard let incoming, incoming.mutationIdentity === incomingMutation else { return false }
+            }
+            if let publication {
+                guard publication.targetNode?.scrollObserverStorage === storage else { return false }
+                if checksSourceStorage {
+                    guard let sourceStorage, publication.sourceNode?.scrollObserverStorage === sourceStorage else {
+                        return false
+                    }
+                }
+            }
+            if hadSelectedSourceNode {
+                guard let selectedSourceNode, selectedSourceNode.scrollSourceEpoch == selectedSourceEpoch else {
+                    return false
+                }
+            }
+            return true
+        }
+
+        func markMutationStarted() -> Bool {
+            guard isCurrent, publication?.markMutationStarted() != false,
+                nativeCheck?.markMutationStarted() != false
+            else { return false }
+            if publication == nil && nativeCheck == nil { admission?.markMutationStarted() }
+            return isCurrent
+        }
+    }
+
+    private var checkedOperation: CheckedOperation?
+    private var mutationIdentity: MutationIdentity?
+    var geometry: [RetainedScrollGeometryObserver] = [] {
+        didSet { invalidateMutationIdentity() }
+    }
+    var phase: [RetainedScrollPhaseObserver] = [] {
+        didSet { invalidateMutationIdentity() }
+    }
+    var visibility: [RetainedScrollVisibilityObserver] = [] {
+        didSet { invalidateMutationIdentity() }
+    }
     weak var source: ViewNode?
     private var selectedSourceIdentifier: ObjectIdentifier?
     private var selectedSourceEpoch: RetainedScrollSourceEpoch?
@@ -188,9 +374,53 @@ final class RetainedScrollObserverStorage {
     var phaseChanges: [RetainedScrollPhaseObserver.Change] { phase.flatMap(\.changes) }
     var reportedMultipleSources = false
 
-    func reconcile(from incoming: RetainedScrollObserverStorage) {
-        // Fresh closures may remove registrations or change their transforms.
-        // Pending actions from the old declaration must not run afterward.
+    @discardableResult
+    func reconcile(
+        from incoming: RetainedScrollObserverStorage, admission: RetainedLazyListAdoptionAdmission? = nil,
+        targetAttachment: RetainedLazyListAttachmentProof? = nil,
+        sourceAttachment: RetainedLazyListAttachmentProof? = nil,
+        sourceNode: ViewNode? = nil, targetNode: ViewNode? = nil,
+        lazyJournal: RetainedLazyListAdoptionJournal? = nil,
+        taskAdoption: RetainedTaskAdoptionContext? = nil
+    ) -> Bool {
+        let publication: RetainedScrollObserverPublication?
+        if lazyJournal != nil, let sourceNode, let targetNode {
+            publication = RetainedScrollObserverPublication(
+                from: sourceNode, to: targetNode, admission: admission, journal: lazyJournal,
+                taskAdoption: taskAdoption)
+        } else {
+            // Present managed authority never becomes an ordinary transfer just
+            // because its original native source or target was not supplied.
+            guard lazyJournal?.isOrdinaryAdoption != false else { return false }
+            publication = nil
+        }
+        if admission == nil && lazyJournal?.isOrdinaryAdoption != false {
+            let operation = beginCheckedOperation(
+                admission: nil, targetAttachment: nil, sourceAttachment: nil,
+                incoming: incoming, publication: publication)
+            reconcileOrdinaryPayloads(from: incoming, operation: operation)
+            finishCheckedOperation(operation)
+            return true
+        }
+        guard admission?.isCurrent != false, targetAttachment?.isCurrent != false,
+            sourceAttachment?.isCurrent != false, publication?.isCurrent != false
+        else { return false }
+        let operation = beginCheckedOperation(
+            admission: admission, targetAttachment: targetAttachment, sourceAttachment: sourceAttachment,
+            incoming: incoming, publication: publication)
+        let completed = reconcilePayloads(from: incoming, operation: operation)
+        // All old array/history payloads in reconcilePayloads have unwound.
+        let remainsCurrent = operation?.isCurrent != false
+        finishCheckedOperation(operation)
+        return completed && remainsCurrent
+    }
+
+    /// Keep the existing nil-admission transfer and its cleanup order intact.
+    /// Native witness invalidation above does not invoke application code.
+    private func reconcileOrdinaryPayloads(
+        from incoming: RetainedScrollObserverStorage, operation: CheckedOperation? = nil
+    ) {
+        if let operation, operation.isCurrent { _ = operation.markMutationStarted() }
         generation &+= 1
         for index in incoming.geometry.indices where geometry.indices.contains(index) {
             if incoming.geometry[index].valueType == geometry[index].valueType {
@@ -203,43 +433,298 @@ final class RetainedScrollObserverStorage {
         for index in incoming.phase.indices where phase.indices.contains(index) {
             incoming.phase[index].reconcile(from: phase[index])
         }
-        geometry = incoming.geometry
-        visibility = incoming.visibility
+        if let operation {
+            replaceOwnedPayload(
+                \.geometry, with: incoming.geometry, operation: operation,
+                field: \ViewNode.retainedScrollGeometryPayloads, preservesOrdinaryContinuation: true)
+            replaceOwnedPayload(
+                \.visibility, with: incoming.visibility, operation: operation,
+                field: \ViewNode.retainedScrollVisibilityPayloads, preservesOrdinaryContinuation: true)
+        } else {
+            geometry = incoming.geometry
+            visibility = incoming.visibility
+        }
         if phase.isEmpty || incoming.phase.isEmpty {
             currentPhase = .idle
         }
-        phase = incoming.phase
+        if let operation {
+            replaceOwnedPayload(
+                \.phase, with: incoming.phase, operation: operation,
+                field: \ViewNode.retainedScrollPhasePayloads, preservesOrdinaryContinuation: true)
+        } else {
+            phase = incoming.phase
+        }
     }
 
-    func reset() {
+    private func reconcilePayloads(from incoming: RetainedScrollObserverStorage, operation: CheckedOperation?) -> Bool {
+        guard operation?.isCurrent != false else { return false }
+        // Fresh closures may remove registrations or change their transforms.
+        // Pending actions from the old declaration must not run afterward.
+        guard operation?.markMutationStarted() != false else { return false }
+        generation &+= 1
+        let previousGeometry = geometry
+        let previousVisibility = visibility
+        let previousPhase = phase
+        let incomingGeometry = incoming.geometry
+        let incomingVisibility = incoming.visibility
+        let incomingPhase = incoming.phase
+        for index in incomingGeometry.indices where previousGeometry.indices.contains(index) {
+            guard operation?.isCurrent != false else { return false }
+            if incomingGeometry[index].valueType == previousGeometry[index].valueType {
+                Self.replacePinnedPayload(
+                    \.previousValue, on: incomingGeometry[index], with: previousGeometry[index].previousValue)
+                guard operation?.isCurrent != false else { return false }
+            }
+        }
+        for index in incomingVisibility.indices where previousVisibility.indices.contains(index) {
+            guard operation?.isCurrent != false else { return false }
+            incomingVisibility[index].previousValue = previousVisibility[index].previousValue
+        }
+        for index in incomingPhase.indices where previousPhase.indices.contains(index) {
+            guard operation?.isCurrent != false else { return false }
+            incomingPhase[index].reconcile(from: previousPhase[index])
+        }
+        guard operation?.isCurrent != false else { return false }
+        guard
+            replaceOwnedPayload(
+                \.geometry, with: incomingGeometry, operation: operation,
+                field: \ViewNode.retainedScrollGeometryPayloads)
+        else { return false }
+        guard operation?.isCurrent != false else { return false }
+        guard
+            replaceOwnedPayload(
+                \.visibility, with: incomingVisibility, operation: operation,
+                field: \ViewNode.retainedScrollVisibilityPayloads)
+        else { return false }
+        guard operation?.isCurrent != false else { return false }
+        if previousPhase.isEmpty || incomingPhase.isEmpty {
+            currentPhase = .idle
+        }
+        guard
+            replaceOwnedPayload(
+                \.phase, with: incomingPhase, operation: operation,
+                field: \ViewNode.retainedScrollPhasePayloads)
+        else { return false }
+        return operation?.isCurrent != false
+    }
+
+    @discardableResult
+    func reset(
+        admission: RetainedLazyListAdoptionAdmission? = nil, attachment: RetainedLazyListAttachmentProof? = nil
+    ) -> Bool {
+        if admission == nil {
+            beginCheckedOperation(admission: nil, targetAttachment: nil, sourceAttachment: nil)
+            generation &+= 1
+            source = nil
+            selectedSourceIdentifier = nil
+            selectedSourceEpoch = nil
+            currentPhase = .idle
+            for observer in phase { observer.changes.removeAll(keepingCapacity: false) }
+            for observer in geometry { observer.previousValue = nil }
+            for observer in visibility { observer.previousValue = nil }
+            return true
+        }
+        guard admission?.isCurrent != false, attachment?.isCurrent != false else { return false }
+        let operation = beginCheckedOperation(admission: admission, targetAttachment: attachment, sourceAttachment: nil)
+        let completed = resetPayloads(operation: operation)
+        let remainsCurrent = operation?.isCurrent != false
+        finishCheckedOperation(operation)
+        return completed && remainsCurrent
+    }
+
+    private func resetPayloads(operation: CheckedOperation?) -> Bool {
+        guard operation?.isCurrent != false else { return false }
+        guard operation?.markMutationStarted() != false else { return false }
+        generation &+= 1
+        source = nil
+        selectedSourceIdentifier = nil
+        selectedSourceEpoch = nil
+        currentPhase = .idle
+        return clearHistory(operation: operation, keepingPhaseCapacity: false)
+    }
+
+    @discardableResult
+    func selectSource(
+        _ node: ViewNode?, admission: RetainedLazyListAdoptionAdmission? = nil,
+        attachment: RetainedLazyListAttachmentProof? = nil,
+        nativeCheck: ComponentHost.NodeReconcileAdmission? = nil,
+        owner: ViewNode? = nil, ownerIdentity: RetainedLazyListViewIdentityProof? = nil
+    ) -> Bool {
+        if let nativeCheck, nativeCheck.lazyJournal?.isOrdinaryAdoption == false {
+            guard nativeCheck.isCurrent, admission?.isCurrent != false, attachment?.isCurrent != false,
+                let owner, let ownerIdentity, ownerIdentity.isCurrent, owner.scrollObserverStorage === self
+            else { return false }
+            guard
+                source !== node || selectedSourceIdentifier != node.map(ObjectIdentifier.init)
+                    || selectedSourceEpoch != node?.scrollSourceEpoch
+            else { return true }
+            let operation = beginCheckedOperation(
+                admission: admission, targetAttachment: attachment,
+                sourceAttachment: node?.captureLazyListAttachmentProof(),
+                selectedSourceNode: node, nativeCheck: nativeCheck, owner: owner, ownerIdentity: ownerIdentity)
+            let completed = selectSourcePayloads(node, operation: operation)
+            let remainsCurrent = operation?.isCurrent != false
+            finishCheckedOperation(operation)
+            return completed && remainsCurrent
+        }
+        guard admission?.isCurrent != false, attachment?.isCurrent != false else { return false }
+        // A weak source may already have become nil after removal. Its last
+        // identity still tells us to release derived values and pending phases.
+        guard
+            source !== node || selectedSourceIdentifier != node.map(ObjectIdentifier.init)
+                || selectedSourceEpoch != node?.scrollSourceEpoch
+        else { return true }
+        if admission == nil {
+            beginCheckedOperation(admission: nil, targetAttachment: nil, sourceAttachment: nil)
+            generation &+= 1
+            source = node
+            selectedSourceIdentifier = node.map(ObjectIdentifier.init)
+            selectedSourceEpoch = node?.scrollSourceEpoch
+            currentPhase = .idle
+            for observer in phase { observer.changes.removeAll(keepingCapacity: true) }
+            for observer in geometry { observer.previousValue = nil }
+            return true
+        }
+        let sourceAttachment = admission == nil ? nil : node?.captureLazyListAttachmentProof()
+        let operation = beginCheckedOperation(
+            admission: admission, targetAttachment: attachment, sourceAttachment: sourceAttachment,
+            selectedSourceNode: node)
+        let completed = selectSourcePayloads(node, operation: operation)
+        let remainsCurrent = operation?.isCurrent != false
+        finishCheckedOperation(operation)
+        return completed && remainsCurrent
+    }
+
+    private func selectSourcePayloads(_ node: ViewNode?, operation: CheckedOperation?) -> Bool {
+        guard operation?.isCurrent != false else { return false }
+        guard operation?.markMutationStarted() != false else { return false }
+        generation &+= 1
+        source = node
+        selectedSourceIdentifier = node.map(ObjectIdentifier.init)
+        selectedSourceEpoch = node?.scrollSourceEpoch
+        currentPhase = .idle
+        return clearHistory(operation: operation, keepingPhaseCapacity: true, clearsVisibility: false)
+    }
+
+    private func clearHistory(
+        operation: CheckedOperation?, keepingPhaseCapacity: Bool, clearsVisibility: Bool = true
+    ) -> Bool {
+        let phaseObservers = phase
+        let geometryObservers = geometry
+        let visibilityObservers = visibility
+        for observer in phaseObservers {
+            guard operation?.isCurrent != false else { return false }
+            observer.changes.removeAll(keepingCapacity: keepingPhaseCapacity)
+        }
+        for observer in geometryObservers {
+            guard operation?.isCurrent != false else { return false }
+            Self.replacePinnedPayload(\.previousValue, on: observer, with: nil)
+            guard operation?.isCurrent != false else { return false }
+        }
+        if clearsVisibility {
+            for observer in visibilityObservers {
+                guard operation?.isCurrent != false else { return false }
+                observer.previousValue = nil
+            }
+        }
+        return operation?.isCurrent != false
+    }
+
+    @discardableResult
+    private func beginCheckedOperation(
+        admission: RetainedLazyListAdoptionAdmission?, targetAttachment: RetainedLazyListAttachmentProof?,
+        sourceAttachment: RetainedLazyListAttachmentProof?, incoming: RetainedScrollObserverStorage? = nil,
+        selectedSourceNode: ViewNode? = nil, publication: RetainedScrollObserverPublication? = nil,
+        nativeCheck: ComponentHost.NodeReconcileAdmission? = nil,
+        owner: ViewNode? = nil, ownerIdentity: RetainedLazyListViewIdentityProof? = nil
+    ) -> CheckedOperation? {
+        checkedOperation?.isValid = false
+        invalidateMutationIdentity()
+        let operation: CheckedOperation?
+        if admission != nil || publication != nil || nativeCheck != nil {
+            operation = CheckedOperation(
+                admission: admission, targetAttachment: targetAttachment, sourceAttachment: sourceAttachment,
+                storage: self, incoming: incoming, selectedSourceNode: selectedSourceNode, publication: publication,
+                nativeCheck: nativeCheck, owner: owner, ownerIdentity: ownerIdentity)
+        } else {
+            operation = nil
+        }
+        checkedOperation = operation
+        return operation
+    }
+
+    private func finishCheckedOperation(_ operation: CheckedOperation?) {
+        if checkedOperation === operation { checkedOperation = nil }
+    }
+
+    private func captureMutationIdentity() -> MutationIdentity {
+        if let mutationIdentity { return mutationIdentity }
+        let identity = MutationIdentity()
+        mutationIdentity = identity
+        return identity
+    }
+
+    private func invalidateMutationIdentity() {
+        if mutationIdentity != nil { mutationIdentity = MutationIdentity() }
+    }
+
+    private static func replacePinnedPayload<Owner: AnyObject, Value>(
+        _ keyPath: ReferenceWritableKeyPath<Owner, Value>, on owner: Owner, with incoming: Value
+    ) {
+        let previous = owner[keyPath: keyPath]
+        owner[keyPath: keyPath] = incoming
+        withExtendedLifetime(previous) {}
+    }
+
+    @discardableResult
+    private func replaceOwnedPayload<Value>(
+        _ keyPath: ReferenceWritableKeyPath<RetainedScrollObserverStorage, Value>, with incoming: Value,
+        operation: CheckedOperation?, field: PartialKeyPath<ViewNode>, preservesOrdinaryContinuation: Bool = false
+    ) -> Bool {
+        let mayRecord = operation?.isCurrent != false && operation?.publication?.prepare(field) != false
+        guard preservesOrdinaryContinuation || mayRecord else { return false }
+        let previous = self[keyPath: keyPath]
+        self[keyPath: keyPath] = incoming
+        // This setter contains only native bookkeeping. Accept its own new
+        // witness before releasing old registrations; a registration installed
+        // by their cleanup must produce a different, unaccepted witness.
+        if let operation, mayRecord {
+            operation.expectedMutation = captureMutationIdentity()
+            operation.publication?.record(field)
+        }
+        withExtendedLifetime(previous) {}
+        return preservesOrdinaryContinuation || operation?.isCurrent != false
+    }
+
+    /// Checked retirement first revokes every old attachment in the batch.
+    /// Move opaque history into the caller's cleanup record so no application
+    /// destructor runs while later departing owners still retain permissions.
+    /// Admission is deliberately not consulted: admitted cleanup must finish.
+    func takeLazyListRetiredHistory() -> [Any] {
+        var retired: [Any] = []
+        if let operation = checkedOperation {
+            operation.isValid = false
+            retired.append(operation)
+        }
+        checkedOperation = nil
+        invalidateMutationIdentity()
         generation &+= 1
         source = nil
         selectedSourceIdentifier = nil
         selectedSourceEpoch = nil
         currentPhase = .idle
         for observer in phase { observer.changes.removeAll(keepingCapacity: false) }
-        for observer in geometry { observer.previousValue = nil }
+        for observer in geometry {
+            if let value = observer.previousValue { retired.append(value) }
+            observer.previousValue = nil
+        }
         for observer in visibility { observer.previousValue = nil }
-    }
-
-    func selectSource(_ node: ViewNode?) {
-        // A weak source may already have become nil after removal. Its last
-        // identity still tells us to release derived values and pending phases.
-        guard
-            source !== node || selectedSourceIdentifier != node.map(ObjectIdentifier.init)
-                || selectedSourceEpoch != node?.scrollSourceEpoch
-        else { return }
-        generation &+= 1
-        source = node
-        selectedSourceIdentifier = node.map(ObjectIdentifier.init)
-        selectedSourceEpoch = node?.scrollSourceEpoch
-        currentPhase = .idle
-        for observer in phase { observer.changes.removeAll(keepingCapacity: true) }
-        for observer in geometry { observer.previousValue = nil }
+        return retired
     }
 
     func recordPhase(_ nextPhase: RetainedScrollPhase, context: RetainedScrollPhaseChangeContext) {
         guard !phase.isEmpty, currentPhase != nextPhase else { return }
+        invalidateMutationIdentity()
         for observer in phase {
             observer.record(from: currentPhase, to: nextPhase, context: context)
         }
@@ -293,6 +778,20 @@ final class RetainedScrollObserverRegistry {
 }
 
 extension ViewNode {
+    /// Native payload families have separate write boundaries. A partial
+    /// geometry transfer must not replace the owners of untouched families.
+    var retainedScrollGeometryPayloads: [RetainedScrollGeometryObserver] {
+        scrollObserverStorage?.geometry ?? []
+    }
+
+    var retainedScrollPhasePayloads: [RetainedScrollPhaseObserver] {
+        scrollObserverStorage?.phase ?? []
+    }
+
+    var retainedScrollVisibilityPayloads: [RetainedScrollVisibilityObserver] {
+        scrollObserverStorage?.visibility ?? []
+    }
+
     var scrollSourceEpoch: RetainedScrollSourceEpoch? {
         scrollContainerState.map {
             RetainedScrollSourceEpoch(container: $0, attachmentGeneration: $0.attachmentGeneration)
@@ -329,32 +828,166 @@ extension ViewNode {
         scrollObserverStorage = storage
     }
 
-    func reconcileScrollObservers(from source: ViewNode) {
+    @discardableResult
+    func reconcileScrollObservers(
+        from source: ViewNode, admission: RetainedLazyListAdoptionAdmission? = nil,
+        lazyJournal: RetainedLazyListAdoptionJournal? = nil,
+        taskAdoption: RetainedTaskAdoptionContext? = nil
+    ) -> Bool {
+        if lazyJournal == nil {
+            return reconcileScrollObserversWithoutJournal(from: source, admission: admission)
+        }
+        let publication = RetainedScrollObserverPublication(
+            from: source, to: self, admission: admission, journal: lazyJournal, taskAdoption: taskAdoption)
+        let checksContinuation = admission != nil || lazyJournal?.isOrdinaryAdoption == false
+        guard publication.canContinue else { return false }
         guard let incoming = source.scrollObserverStorage else {
-            if scrollObserverStorage != nil { scrollObserverStorage = nil }
-            return
+            if scrollObserverStorage != nil {
+                guard publication.prepareAllFields() else { return false }
+                let started = publication.markMutationStarted()
+                guard !checksContinuation || started else { return false }
+                replaceScrollObserverStorage(with: nil, publication: publication)
+            }
+            return publication.canContinue
+                && (!checksContinuation || (scrollObserverStorage == nil && source.scrollObserverStorage == nil))
         }
         if let storage = scrollObserverStorage {
-            storage.reconcile(from: incoming)
+            guard
+                storage.reconcile(
+                    from: incoming, admission: admission,
+                    targetAttachment: publication.targetAttachment, sourceAttachment: publication.sourceAttachment,
+                    sourceNode: source, targetNode: self, lazyJournal: lazyJournal, taskAdoption: taskAdoption),
+                publication.canContinue,
+                !checksContinuation || (scrollObserverStorage === storage && source.scrollObserverStorage === incoming)
+            else { return false }
             // A transform may capture changed application state even while
-            // the scroll geometry itself is unchanged.
-            scrollObserverStorage = storage
+            // the scroll geometry itself is unchanged. The individual family
+            // writes already recorded their facts; this setter adds no facts.
+            replaceScrollObserverStorage(with: storage)
+            return publication.canContinue
+                && (!checksContinuation
+                    || (scrollObserverStorage === storage && source.scrollObserverStorage === incoming))
         } else {
-            scrollObserverStorage = incoming
+            guard publication.prepareAllFields() else { return false }
+            let started = publication.markMutationStarted()
+            guard !checksContinuation || started else { return false }
+            replaceScrollObserverStorage(with: incoming, publication: publication)
+            return publication.canContinue
+                && (!checksContinuation
+                    || (scrollObserverStorage === incoming && source.scrollObserverStorage === incoming))
         }
     }
 
-    func reconcileScrollContainer(from source: ViewNode) {
+    /// Preserve both original nil-journal routes, including checked Stage 2
+    /// admission. Neither route constructs the supplemental publication proof.
+    private func reconcileScrollObserversWithoutJournal(
+        from source: ViewNode, admission: RetainedLazyListAdoptionAdmission? = nil
+    ) -> Bool {
+        if admission == nil {
+            guard let incoming = source.scrollObserverStorage else {
+                if scrollObserverStorage != nil { scrollObserverStorage = nil }
+                return true
+            }
+            if let storage = scrollObserverStorage {
+                storage.reconcile(from: incoming)
+                scrollObserverStorage = storage
+            } else {
+                scrollObserverStorage = incoming
+            }
+            return true
+        }
+        guard admission?.isCurrent != false else { return false }
+        let targetAttachment = admission == nil ? nil : captureLazyListAttachmentProof()
+        let sourceAttachment = admission == nil ? nil : source.captureLazyListAttachmentProof()
+        guard let incoming = source.scrollObserverStorage else {
+            if scrollObserverStorage != nil {
+                admission?.markMutationStarted()
+                replaceScrollObserverStorage(with: nil)
+            }
+            return admission?.isCurrent != false && targetAttachment?.isCurrent != false
+                && sourceAttachment?.isCurrent != false
+        }
+        if let storage = scrollObserverStorage {
+            guard
+                storage.reconcile(
+                    from: incoming, admission: admission,
+                    targetAttachment: targetAttachment, sourceAttachment: sourceAttachment),
+                admission?.isCurrent != false, targetAttachment?.isCurrent != false,
+                sourceAttachment?.isCurrent != false, scrollObserverStorage === storage,
+                source.scrollObserverStorage === incoming
+            else { return false }
+            // A transform may capture changed application state even while
+            // the scroll geometry itself is unchanged.
+            replaceScrollObserverStorage(with: storage)
+        } else {
+            admission?.markMutationStarted()
+            replaceScrollObserverStorage(with: incoming)
+        }
+        return admission?.isCurrent != false && targetAttachment?.isCurrent != false
+            && sourceAttachment?.isCurrent != false
+    }
+
+    private func replaceScrollObserverStorage(
+        with incoming: RetainedScrollObserverStorage?, publication: RetainedScrollObserverPublication? = nil
+    ) {
+        let previous = scrollObserverStorage
+        scrollObserverStorage = incoming
+        publication?.recordAllFields()
+        withExtendedLifetime(previous) {}
+    }
+
+    @discardableResult
+    func reconcileScrollContainer(
+        from source: ViewNode, admission: RetainedLazyListAdoptionAdmission? = nil,
+        nativeCheck: ComponentHost.NodeReconcileAdmission? = nil
+    ) -> Bool {
+        if let nativeCheck, nativeCheck.lazyJournal?.isOrdinaryAdoption == false {
+            guard nativeCheck.isCurrent, admission?.isCurrent != false, nativeCheck.markMutationStarted() else {
+                return false
+            }
+            guard let incoming = source.scrollContainerState else {
+                scrollContainerState = nil
+                return nativeCheck.isCurrent && admission?.isCurrent != false
+            }
+            if let state = scrollContainerState {
+                state.axis = incoming.axis
+            } else {
+                scrollContainerState = RetainedScrollContainerState(axis: incoming.axis)
+            }
+            guard nativeCheck.isCurrent, admission?.isCurrent != false,
+                reconcileScrollInputEnabled(incoming.isInputEnabled, admission: admission, nativeCheck: nativeCheck)
+            else { return false }
+            return nativeCheck.isCurrent && admission?.isCurrent != false
+        }
+        if admission == nil {
+            guard let incoming = source.scrollContainerState else {
+                scrollContainerState = nil
+                return true
+            }
+            if let state = scrollContainerState {
+                state.axis = incoming.axis
+            } else {
+                scrollContainerState = RetainedScrollContainerState(axis: incoming.axis)
+            }
+            isScrollInputEnabled = incoming.isInputEnabled
+            return true
+        }
+        guard admission?.isCurrent != false else { return false }
+        let targetAttachment = admission == nil ? nil : captureLazyListAttachmentProof()
+        let sourceAttachment = admission == nil ? nil : source.captureLazyListAttachmentProof()
         guard let incoming = source.scrollContainerState else {
             scrollContainerState = nil
-            return
+            return admission?.isCurrent != false && targetAttachment?.isCurrent != false
+                && sourceAttachment?.isCurrent != false
         }
         if let state = scrollContainerState {
             state.axis = incoming.axis
         } else {
             scrollContainerState = RetainedScrollContainerState(axis: incoming.axis)
         }
-        isScrollInputEnabled = incoming.isInputEnabled
+        guard reconcileScrollInputEnabled(incoming.isInputEnabled, admission: admission) else { return false }
+        return admission?.isCurrent != false && targetAttachment?.isCurrent != false
+            && sourceAttachment?.isCurrent != false
     }
 }
 

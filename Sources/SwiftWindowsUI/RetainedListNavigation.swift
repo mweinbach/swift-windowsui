@@ -50,6 +50,16 @@ package final class RetainedListNavigationOwner {
         RetainedListNavigationReceipt(scope: self, source: source)
     }
 
+    /// The scope already holds its current action weakly. Layout borrows only
+    /// that action's actual endpoints; it creates no row cache or new action
+    /// authority. A replacement scope or a finished action yields no roots.
+    func currentActionProtectedNodes(in runtime: RetainedViewRuntime) -> [ViewNode] {
+        guard scope == nil, isCurrentDeclaration, !isAdopting,
+            Self.currentNode(for: attachment, runtime: runtime) != nil
+        else { return [] }
+        return attachment.currentAction?.protectedNodes(in: runtime) ?? []
+    }
+
     /// The departure prepass runs before any disappearing payload or callback.
     /// Temporary construction parents do not establish a mounted lifetime.
     func revokeForDeparture() {
@@ -59,6 +69,12 @@ package final class RetainedListNavigationOwner {
     func revoke() {
         isCurrentDeclaration = false
         attachment.isRevoked = true
+        revokeCurrentActionForDeparture()
+    }
+
+    private func revokeCurrentActionForDeparture() {
+        let actionScope = scope?.attachment ?? attachment
+        actionScope.currentAction?.revokeForDeparture(of: attachment)
     }
 
     func revokeIfRoleIsUnavailable() {
@@ -77,6 +93,7 @@ package final class RetainedListNavigationOwner {
             || incoming?.isCurrentDeclaration != true || (scope != nil && incoming?.hasRowRole != true)
         {
             attachment.isRevoked = true
+            revokeCurrentActionForDeparture()
         }
     }
 
@@ -160,12 +177,19 @@ package final class RetainedListNavigationOwner {
 /// A single action's source and destination, captured before its binding write.
 /// It never resolves a tag again or takes a new declaration's binding. All
 /// references back to the tree/runtime stay weak, including deferred reveal.
+package enum RetainedListNavigationReadiness {
+    case ready
+    case pending
+    case obsolete
+}
+
 @MainActor
 package final class RetainedListNavigationReceipt {
     private enum Phase {
         case prepared
         case preparingLayout
         case revealingBeforeFocus
+        case awaitingRevealLayout
         case focusing
         case focused
         case finished
@@ -176,6 +200,7 @@ package final class RetainedListNavigationReceipt {
     private let scope: RetainedListNavigationOwner.Attachment
     private let source: RetainedListNavigationOwner.Attachment
     private var target: RetainedListNavigationOwner.Attachment?
+    private var targetRequiresRevealBeforeFocus = false
     private weak var runtime: RetainedViewRuntime?
     private weak var root: ViewNode?
     private let hasRuntime: Bool
@@ -184,6 +209,9 @@ package final class RetainedListNavigationReceipt {
     private let originalFocusRevision: UInt64?
     private var revealFocusRevision: UInt64?
     private var preparedLayoutSettlement: RetainedLayoutSettlementReceipt?
+    private var terminalRevealSettlement: RetainedLayoutSettlementReceipt?
+    private weak var revealContinuation: RetainedListNavigationRevealContinuation?
+    private var hasAcceptedRevealContinuation = false
     private var isRevealCancelled = false
     private var phase = Phase.prepared
     private(set) var geometryRevision: UInt64?
@@ -226,6 +254,12 @@ package final class RetainedListNavigationReceipt {
         scopeAttachment.hasPreparedAction = true
         sourceAttachment.hasPreparedAction = true
         scopeAttachment.currentAction = self
+        // This new action owns the stable scope slot before old callback
+        // captures can retire and synchronously reenter another action.
+        runtime?.cancelPreparedListNavigationReplay(owner: scopeAttachment)
+        guard permitsBindingWrite else { return nil }
+        runtime?.didPrepareListNavigationAction(self)
+        guard permitsBindingWrite else { return nil }
     }
 
     /// Getters (and Hashable operations) may replace a declaration. Until the
@@ -235,12 +269,15 @@ package final class RetainedListNavigationReceipt {
             && sourceDeclaration.isCurrentDeclaration && permitsContinuation
     }
 
-    package func prepareTarget(_ owner: RetainedListNavigationOwner) -> Bool {
+    package func prepareTarget(
+        _ owner: RetainedListNavigationOwner, requiresRevealBeforeFocus: Bool = false
+    ) -> Bool {
         guard permitsBindingWrite, owner.isCurrentDeclaration, owner.scope === scopeDeclaration,
             RetainedListNavigationOwner.currentNode(for: owner.attachment, runtime: runtime, scope: scope) != nil
         else { return false }
         owner.attachment.hasPreparedAction = true
         target = owner.attachment
+        targetRequiresRevealBeforeFocus = requiresRevealBeforeFocus
         return true
     }
 
@@ -259,6 +296,55 @@ package final class RetainedListNavigationReceipt {
         return true
     }
 
+    /// A public lazy List may already have accepted its one binding write,
+    /// while that write's bounded row rebuild still needs another layout.
+    /// Keep the prepared phase and original weak endpoints until real geometry
+    /// settles; this never resolves the selection again or repeats its setter.
+    package func settlePreparedTarget() -> RetainedListNavigationReadiness {
+        guard phase == .prepared, permitsContinuation, let node = target?.node else { return .obsolete }
+        guard hasRuntime else { return .ready }
+        guard let runtime else { return .obsolete }
+        return runtime.settlePreparedListNavigationTarget(node, receipt: self)
+    }
+
+    /// Cancellation before finishNavigation ends only this preparation's
+    /// physical protection. It does not undo an accepted focus or animation.
+    package func cancelPreparedNavigation() {
+        guard phase == .prepared else { return }
+        phase = .finished
+        cancelReveal()
+        if scope.currentAction === self { runtime?.cancelPreparedListNavigationReplay(owner: scope) }
+    }
+
+    /// One stable native scope slot owns the callback strongly while a public
+    /// controller waits. The callback may retain its request/controller, whose
+    /// runtime and nodes are weak. Nothing is stored back on this attachment.
+    /// A terminal slot cancellation notifies the exact request after native
+    /// revocation; moving this receipt between the two queues does not cancel it.
+    @discardableResult
+    package func schedulePreparedNavigationReplay(
+        afterLayout: Bool, perform action: @escaping @MainActor () -> Void,
+        onCancel: @escaping @MainActor () -> Void
+    ) -> Bool {
+        guard permitsPreparedNavigationReplay, let runtime else { return false }
+        runtime.schedulePreparedListNavigationReplay(
+            owner: scope, receipt: self, afterLayout: afterLayout, perform: action, onCancel: onCancel)
+        // Registration may deliver immediately when already idle. Completion
+        // or supersession after that is not permission to repeat the action.
+        return true
+    }
+
+    var permitsPreparedNavigationReplay: Bool { phase == .prepared && permitsContinuation }
+
+    fileprivate func revokeForDeparture(of attachment: RetainedListNavigationOwner.Attachment) {
+        guard scope.currentAction === self,
+            attachment === scope || attachment === source || attachment === target
+        else { return }
+        phase = .finished
+        cancelReveal()
+        runtime?.cancelPreparedListNavigationReplay(owner: scope)
+    }
+
     private var hasCurrentNodes: Bool {
         guard scope.currentAction === self, let root, !hasRuntime || runtime != nil,
             !hasRuntime || runtime?.root === root,
@@ -272,6 +358,38 @@ package final class RetainedListNavigationReceipt {
         return true
     }
 
+    /// Viewport retention is a finite obligation of the already prepared
+    /// action. It may keep its source even when the handler was invoked without
+    /// focus, but cannot revive a detached, disabled, or replaced endpoint.
+    fileprivate func protectedNodes(in runtime: RetainedViewRuntime) -> [ViewNode] {
+        guard hasRuntime, self.runtime === runtime, !isRevealCancelled, phase != .finished,
+            hasCurrentNodes, runtime.permitsRetainedActionInvocation,
+            runtime.presentationModalSnapshot.map(ObjectIdentifier.init) == originalModal
+        else { return [] }
+        switch phase {
+        case .focused:
+            guard let targetNode = target?.node, let revealFocusRevision,
+                revealFocusRevision != UInt64.max,
+                runtime.presentationFocusRevision == revealFocusRevision,
+                runtime.focusedNode === targetNode, targetNode.isFocused
+            else { return [] }
+        case .focusing:
+            // The focus mutation can query layout between publishing its
+            // revision and publishing the focused node. This synchronous
+            // action still owns both current attachments until it unwinds.
+            break
+        case .prepared, .preparingLayout, .revealingBeforeFocus:
+            guard permitsContinuation else { return [] }
+        case .awaitingRevealLayout:
+            guard let revealContinuation, permitsContinuation,
+                runtime.isListNavigationRevealCurrent(revealContinuation)
+            else { return [] }
+        case .finished:
+            return []
+        }
+        return [source.node, target?.node].compactMap { $0 }
+    }
+
     /// False may follow an accepted selection or scroll. It is not permission
     /// to repeat the binding write, retry this receipt, or undo a newer action.
     @discardableResult
@@ -279,7 +397,7 @@ package final class RetainedListNavigationReceipt {
         guard phase == .prepared else { return false }
         phase = .preparingLayout
         defer {
-            if phase != .focused { phase = .finished }
+            if phase != .focused && phase != .awaitingRevealLayout { phase = .finished }
         }
         guard permitsContinuation, let targetNode = target?.node else { return false }
         guard hasRuntime else {
@@ -296,18 +414,24 @@ package final class RetainedListNavigationReceipt {
         // without its numeric value changing again. Equality is not proof.
         guard !overflow, nextRevision != UInt64.max else { return false }
 
-        let needsRealization = runtime.isListNavigationTargetDeferred(targetNode)
+        // A logical destination can be physically laid out by the time the
+        // selection setter runs while still lying outside the viewport. Keep
+        // that provenance separate from actual layout-deferred state.
+        let needsRealization = targetRequiresRevealBeforeFocus || runtime.isListNavigationTargetDeferred(targetNode)
         if needsRealization {
             phase = .revealingBeforeFocus
             guard runtime.revealListNavigationTarget(targetNode, receipt: self),
-                runtime.settleRevealedListNavigationTarget(targetNode, receipt: self)
+                let revealContinuation,
+                runtime.armListNavigationReveal(revealContinuation, target: targetNode, receipt: self)
             else {
-                // An accepted animated scroll can still leave this row
-                // deferred. Keep that scroll intent, but do not manufacture
-                // focus eligibility or enqueue an unbounded focus retry.
                 cancelReveal()
                 return false
             }
+            // The initial scroll is accepted exactly once. The native slot
+            // owns only this receipt while its viewport or authored tween
+            // settles; the public binding/controller need not remain alive.
+            phase = .awaitingRevealLayout
+            return runtime.completeListNavigationRevealIfReady(revealContinuation, queryingLayout: true)
         }
 
         phase = .focusing
@@ -315,7 +439,6 @@ package final class RetainedListNavigationReceipt {
         revealFocusRevision = nextRevision
         phase = .focused
         guard permitsReveal(in: runtime, target: targetNode) else { return false }
-        if needsRealization { return true }
         if runtime.revealListNavigationTarget(targetNode, receipt: self) {
             return permitsReveal(in: runtime, target: targetNode)
         }
@@ -326,6 +449,53 @@ package final class RetainedListNavigationReceipt {
         return false
     }
 
+    var canRegisterRevealContinuation: Bool {
+        phase == .revealingBeforeFocus && !hasAcceptedRevealContinuation && permitsContinuation
+    }
+
+    var hasNativeRevealContinuation: Bool { hasAcceptedRevealContinuation }
+
+    func registerRevealContinuation(_ continuation: RetainedListNavigationRevealContinuation) -> Bool {
+        guard canRegisterRevealContinuation, continuation.receipt === self else { return false }
+        hasAcceptedRevealContinuation = true
+        revealContinuation = continuation
+        return true
+    }
+
+    func ownsRevealContinuation(_ continuation: RetainedListNavigationRevealContinuation) -> Bool {
+        hasAcceptedRevealContinuation && revealContinuation === continuation && continuation.receipt === self
+    }
+
+    func permitsPendingRevealContinuation(_ continuation: RetainedListNavigationRevealContinuation) -> Bool {
+        phase == .awaitingRevealLayout && ownsRevealContinuation(continuation) && permitsContinuation
+    }
+
+    /// Consume a fresh terminal geometry proof for the original action. No
+    /// selection getter/setter, scroll attempt, or layout query occurs here.
+    func finishPendingRevealFocus(
+        _ continuation: RetainedListNavigationRevealContinuation, target node: ViewNode,
+        in runtime: RetainedViewRuntime, settlement: RetainedLayoutSettlementReceipt
+    ) -> Bool {
+        guard permitsPendingRevealContinuation(continuation), continuation.state == .consuming,
+            target?.node === node, self.runtime === runtime,
+            runtime.isListNavigationRevealCurrent(continuation),
+            runtime.isLayoutSettlementReceiptCurrent(settlement),
+            !runtime.isListNavigationTargetDeferred(node), let revision = originalFocusRevision
+        else { return false }
+        let (nextRevision, overflow) = revision.addingReportingOverflow(1)
+        guard !overflow, nextRevision != UInt64.max else { return false }
+        terminalRevealSettlement = settlement
+        phase = .focusing
+        defer {
+            terminalRevealSettlement = nil
+            if phase != .focused { phase = .finished }
+        }
+        guard runtime.requestListNavigationFocus(node, receipt: self) else { return false }
+        revealFocusRevision = nextRevision
+        phase = .focused
+        return permitsReveal(in: runtime, target: node)
+    }
+
     /// List ownership is an additional condition on ordinary focus, not UIA
     /// authority. Geometry cancellation may stop the later reveal while an
     /// already admitted ordinary focus transition finishes normally.
@@ -333,11 +503,20 @@ package final class RetainedListNavigationReceipt {
         phase == .focusing && hasRuntime && self.runtime === runtime && target?.node === node
             && hasCurrentNodes && runtime.permitsRetainedActionInvocation
             && runtime.presentationModalSnapshot.map(ObjectIdentifier.init) == originalModal
+            && (!hasAcceptedRevealContinuation
+                || (!isRevealCancelled && revealContinuation?.state == .consuming
+                    && revealContinuation.map(runtime.isListNavigationRevealFocusCurrent) == true))
     }
 
     func permitsFocusEntry(in runtime: RetainedViewRuntime, target node: ViewNode) -> Bool {
-        permitsContinuation && permitsFocusOwnership(in: runtime, target: node)
-            && runtime.isListNavigationGeometryCurrent(self)
+        guard permitsContinuation, permitsFocusOwnership(in: runtime, target: node),
+            runtime.isListNavigationGeometryCurrent(self)
+        else { return false }
+        if hasAcceptedRevealContinuation {
+            guard let terminalRevealSettlement else { return false }
+            return runtime.isLayoutSettlementReceiptCurrent(terminalRevealSettlement)
+        }
+        return true
     }
 
     /// Stored-only validation used inside the scroll path after its clock and
@@ -378,6 +557,8 @@ package final class RetainedListNavigationReceipt {
         isRevealCancelled = true
         revealFocusRevision = nil
         preparedLayoutSettlement = nil
+        terminalRevealSettlement = nil
+        if let revealContinuation { runtime?.cancelListNavigationReveal(revealContinuation) }
     }
 
     func recordGeometryRevision(_ revision: UInt64) {

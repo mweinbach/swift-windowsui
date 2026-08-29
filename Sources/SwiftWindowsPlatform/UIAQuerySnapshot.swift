@@ -107,6 +107,8 @@ package struct UIAQuerySnapshot: Sendable {
             return snapshot.isSelected != nil ? 1 : 0
         case Int32(SWU_UIA_PATTERN_VIRTUALIZED_ITEM):
             return snapshot.isVirtualizedPlaceholder ? 1 : 0
+        case Int32(SWU_UIA_PATTERN_ITEM_CONTAINER):
+            return snapshot.supportsItemContainer ? 1 : 0
         default:
             return 0
         }

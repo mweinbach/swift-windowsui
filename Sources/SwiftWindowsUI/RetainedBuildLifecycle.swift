@@ -60,6 +60,22 @@ extension RetainedBuildEpoch {
     public var canComplete: Bool { true }
 }
 
+/// Optional framework-only ownership transport. Ordinary epochs need not
+/// conform, and a nil managed descriptor keeps their existing path unchanged.
+@MainActor
+package protocol RetainedLazyListBuildActivity: RetainedBuildEpoch {
+    func bindLazyListDescriptorScope(_ scope: RetainedLazyListDescriptorBuildScope) -> Bool
+    func resolveSelectedLazyListRow(
+        _ preparation: RetainedLazyListSelectedRowPreparation
+    ) -> RetainedLazyListSelectedRowResolution?
+    func enterLazyListMaterialization(_ attribution: RetainedLazyListBuildAttribution) -> Bool
+    func leaveLazyListMaterialization(_ attribution: RetainedLazyListBuildAttribution)
+    func willAdoptLazyList(
+        _ preparation: RetainedLazyListAdoptionPreparation
+    ) -> RetainedLazyListPreparedActivity?
+    func commitLazyList(_ disposition: RetainedLazyListAdoptionDisposition)
+}
+
 /// The captured generation of a deferred subtree, such as GeometryReader.
 /// A removed generation must remain invalid after the same path is remounted.
 @MainActor
@@ -103,15 +119,25 @@ final class RetainedBuildCoordinator {
         let action: @MainActor () -> Void
     }
 
+    private enum SettlementDelivery {
+        case buildsOnly, layoutAndBuilds
+    }
+
+    private final class SettlementSlotID: Sendable {}
+
     private struct SettlementCallback {
+        let slot: SettlementSlotID
         // Keep the registration alive: an identifier alone could refer to a
         // different object after the original registration is deallocated.
         let owner: AnyObject
+        let delivery: SettlementDelivery
         let action: @MainActor () -> Void
     }
 
     private(set) var isBuilding = false
     private var currentEpoch: (any RetainedBuildEpoch)?
+    private var descriptorBuildScope: RetainedLazyListDescriptorBuildScope?
+    private var currentBuildWasSuperseded = false
     private var requestSequence: UInt64 = 0
     private var pendingWork: [PendingWork] = []
     private var isDrainingReloads = false
@@ -119,13 +145,16 @@ final class RetainedBuildCoordinator {
     private var isProcessingSettlementCallbacks = false
     private let onBuildStarted: @MainActor () -> Void
     private let retainedCallbacksAreSettled: @MainActor () -> Bool
+    private let layoutCallbacksAreAvailable: @MainActor () -> Bool
 
     init(
         onBuildStarted: @escaping @MainActor () -> Void = {},
-        retainedCallbacksAreSettled: @escaping @MainActor () -> Bool = { true }
+        retainedCallbacksAreSettled: @escaping @MainActor () -> Bool = { true },
+        layoutCallbacksAreAvailable: @escaping @MainActor () -> Bool = { true }
     ) {
         self.onBuildStarted = onBuildStarted
         self.retainedCallbacksAreSettled = retainedCallbacksAreSettled
+        self.layoutCallbacksAreAvailable = layoutCallbacksAreAvailable
     }
 
     /// Notification delivery is not build work. This can remain true while
@@ -135,8 +164,8 @@ final class RetainedBuildCoordinator {
     }
 
     /// A completion can enqueue another terminal callback after finishBuild.
-    /// The runtime announces its actual callback drain exit without changing
-    /// the order of those callbacks or any queued rebuilds.
+    /// The runtime announces callback-drain and outer layout/render exits
+    /// without changing the order of those callbacks or queued rebuilds.
     func retainedCallbacksDidDrain() {
         drainSettlementCallbacks()
     }
@@ -149,23 +178,48 @@ final class RetainedBuildCoordinator {
     /// notification delivery wait for a later independent drain opportunity;
     /// this observer creates no wakeup or immediate follow-up pass.
     func scheduleAfterBuildsSettled(owner: AnyObject, action: @escaping @MainActor () -> Void) {
+        scheduleSettlementCallback(owner: owner, delivery: .buildsOnly, action: action)
+    }
+
+    /// Shares the existing owner slot and build-settlement queue, but also
+    /// waits until the runtime has left layout/render processing. A blocked
+    /// layout observer does not hold up ordinary build-settlement observers.
+    func scheduleAfterLayoutAndBuildsSettled(owner: AnyObject, action: @escaping @MainActor () -> Void) {
+        scheduleSettlementCallback(owner: owner, delivery: .layoutAndBuilds, action: action)
+    }
+
+    /// Removes registration without delivering or retiring its captures.
+    /// The caller keeps the returned action until native ownership is revoked
+    /// and required task cleanup has completed, then releases it safely.
+    func removeSettlementCallback(owner: AnyObject) -> (@MainActor () -> Void)? {
+        guard let index = settlementCallbacks.firstIndex(where: { $0.owner === owner }) else { return nil }
+        let callback = settlementCallbacks.remove(at: index)
+        return callback.action
+    }
+
+    private func scheduleSettlementCallback(
+        owner: AnyObject, delivery: SettlementDelivery, action: @escaping @MainActor () -> Void
+    ) {
         let wasProcessingCallbacks = isProcessingSettlementCallbacks
         isProcessingSettlementCallbacks = true
-        replaceSettlementCallback(owner: owner, action: action)
+        replaceSettlementCallback(owner: owner, delivery: delivery, action: action)
         isProcessingSettlementCallbacks = wasProcessingCallbacks
         drainSettlementCallbacks()
     }
 
-    private func replaceSettlementCallback(owner: AnyObject, action: @escaping @MainActor () -> Void) {
-        let callback = SettlementCallback(owner: owner, action: action)
+    private func replaceSettlementCallback(
+        owner: AnyObject, delivery: SettlementDelivery, action: @escaping @MainActor () -> Void
+    ) {
         if let index = settlementCallbacks.firstIndex(where: { $0.owner === owner }) {
             let previous = settlementCallbacks[index]
-            settlementCallbacks[index] = callback
+            settlementCallbacks[index] = SettlementCallback(
+                slot: previous.slot, owner: owner, delivery: delivery, action: action)
             // Releasing captures can reenter. Publish the replacement and end
             // the array's exclusive access before the old payload is released.
             withExtendedLifetime(previous) {}
         } else {
-            settlementCallbacks.append(callback)
+            settlementCallbacks.append(
+                SettlementCallback(slot: SettlementSlotID(), owner: owner, delivery: delivery, action: action))
         }
     }
 
@@ -174,6 +228,8 @@ final class RetainedBuildCoordinator {
     /// invalidation must not overwrite the binding transaction before it.
     func scheduleReload(_ reload: @escaping @MainActor () -> Void) {
         requestSequence &+= 1
+        currentBuildWasSuperseded = isBuilding
+        descriptorBuildScope?.noteSupersedingRequest()
         currentEpoch?.supersede()
         pendingWork.append(PendingWork(deferredKey: nil, action: reload))
         drainReloads()
@@ -195,6 +251,7 @@ final class RetainedBuildCoordinator {
     func beginBuild() -> UInt64? {
         guard !isBuilding else { return nil }
         isBuilding = true
+        currentBuildWasSuperseded = false
         // Framework evidence must be retired before lifecycle callbacks can
         // reenter. An unchanged or abandoned build still crosses this boundary.
         onBuildStarted()
@@ -203,7 +260,23 @@ final class RetainedBuildCoordinator {
 
     func install(_ epoch: (any RetainedBuildEpoch)?, startedAt sequence: UInt64) {
         currentEpoch = epoch
+        currentBuildWasSuperseded = currentBuildWasSuperseded || sequence != requestSequence
         if sequence != requestSequence { epoch?.supersede() }
+    }
+
+    func beginDescriptorBuildScope(
+        origin: RetainedLazyListDescriptorBuildOrigin,
+        epoch: any RetainedBuildEpoch,
+        hostLifetime: RetainedLazyListLogicalHostLifetime,
+        ownerLifetime: RetainedLazyListDescriptorOwnerLifetime
+    ) -> RetainedLazyListDescriptorBuildScope? {
+        guard isBuilding, let currentEpoch, currentEpoch === epoch else { return nil }
+        if let descriptorBuildScope { return descriptorBuildScope }
+        let scope = RetainedLazyListDescriptorBuildScope(
+            origin: origin, hostLifetime: hostLifetime, ownerLifetime: ownerLifetime)
+        if currentBuildWasSuperseded { scope.noteSupersedingRequest() }
+        descriptorBuildScope = scope
+        return scope
     }
 
     func wasSuperseded(since sequence: UInt64) -> Bool {
@@ -211,7 +284,10 @@ final class RetainedBuildCoordinator {
     }
 
     func finishBuild() {
+        descriptorBuildScope?.finish()
+        descriptorBuildScope = nil
         currentEpoch = nil
+        currentBuildWasSuperseded = false
         isBuilding = false
         drainReloads()
     }
@@ -234,20 +310,36 @@ final class RetainedBuildCoordinator {
         isProcessingSettlementCallbacks = true
         defer { isProcessingSettlementCallbacks = false }
         // A callback can register itself without doing any build work. Limit
-        // this pass to its original slots so that cannot spin inline. Pending
-        // replacements keep their slot and still use the latest action.
-        var remainingCallbacks = settlementCallbacks.count
-        while remainingCallbacks > 0, !settlementCallbacks.isEmpty, isBuildSettled {
-            remainingCallbacks -= 1
-            deliverNextSettlementCallback()
+        // this pass to its original native slot identities so that cannot spin
+        // inline. Pending replacements keep their slot and use the latest
+        // action. Cancellation followed by re-registration gets a new slot;
+        // no appended action or callback payload enters this snapshot.
+        let originalSlots = settlementCallbacks.map(\.slot)
+        for slot in originalSlots {
+            guard isBuildSettled else { break }
+            if canDeliverSettlementCallback(in: slot) { deliverSettlementCallback(in: slot) }
         }
     }
 
-    private func deliverNextSettlementCallback() {
+    private func canDeliverSettlementCallback(in slot: SettlementSlotID) -> Bool {
+        guard let index = settlementCallbacks.firstIndex(where: { $0.slot === slot }) else { return false }
+        guard settlementCallbacks[index].delivery == .layoutAndBuilds else { return true }
+        let layoutIsAvailable = layoutCallbacksAreAvailable()
+        guard isBuildSettled,
+            let currentIndex = settlementCallbacks.firstIndex(where: { $0.slot === slot })
+        else { return false }
+        // Read the exact surviving slot after readiness checks. Reentry may
+        // replace, cancel or re-register an owner; a new registration cannot
+        // inherit delivery through this old slot. No action is captured here.
+        return settlementCallbacks[currentIndex].delivery == .buildsOnly || layoutIsAvailable
+    }
+
+    private func deliverSettlementCallback(in slot: SettlementSlotID) {
+        guard let index = settlementCallbacks.firstIndex(where: { $0.slot === slot }) else { return }
         // Remove before invoking so a callback can register the same owner for
         // later settlement. Retire this coordinator-owned notification before
         // the next readiness check; callers' aliases may outlive its delivery.
-        let callback = settlementCallbacks.removeFirst()
+        let callback = settlementCallbacks.remove(at: index)
         withExtendedLifetime(callback) { callback.action() }
     }
 }

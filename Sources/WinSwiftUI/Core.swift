@@ -7404,8 +7404,8 @@ public struct State<Value>: DynamicProperty {
     }
 }
 extension State: MountedDynamicProperty {
-    mutating func install(in owner: StateMountOwner, at slot: StatePropertySlot) {
-        mountedCell = owner.resolve(at: slot, seed: { seed.value })
+    mutating func install(in owner: StateMountOwner, at slot: StatePropertySlot) throws {
+        mountedCell = try owner.resolveForInstallation(at: slot, seed: { seed.value })
     }
 
     func isInstalled(in owner: StateMountOwner, at slot: StatePropertySlot) -> Bool {
@@ -9370,6 +9370,8 @@ public struct ViewBuildContext {
         var identity = viewIdentity
         identity.installedOwner = nil
         identity.installedEpoch = nil
+        identity.lazyList = nil
+        identity.descriptorComponent = nil
         return ViewBuildContext(
             viewIdentity: identity,
             nativeDialogSession: nativeDialogSession,
@@ -9410,6 +9412,22 @@ public struct ViewBuildContext {
     }
 
     func observe(_ object: any ObservableObject) {
+        if let attribution = viewIdentity.lazyList {
+            guard let stateMountCoordinator, let owner = viewIdentity.installedOwner,
+                attribution.admission.isCurrent,
+                let group = attribution.native.registerGroup(kind: .objectDependency), attribution.admission.isCurrent
+            else { return }
+            stateMountCoordinator.stageLazyDependency(object, owner: owner, attribution: attribution, group: group)
+            return
+        }
+        if let attribution = viewIdentity.descriptorComponent {
+            guard let stateMountCoordinator, let owner = viewIdentity.installedOwner, attribution.canConstruct,
+                let group = attribution.registerGroup(kind: .objectDependency), attribution.canConstruct
+            else { return }
+            stateMountCoordinator.stageDescriptorDependency(
+                object, owner: owner, attribution: attribution, group: group)
+            return
+        }
         if let stateMountCoordinator {
             stateMountCoordinator.observe(object, at: viewIdentity.installedOwner?.identity ?? retainedViewIdentity)
         } else {
@@ -10990,6 +11008,8 @@ public struct AnyView: View {
     private let buildComponent: (ViewBuildContext) -> Component
     private let stateMountDeclarations: (ViewBuildContext) -> [StateMountDeclarationScope]
     private let listProjection: (@MainActor () -> ViewListProjection)?
+    let viewTypeIdentifier: ObjectIdentifier
+    let isDeferredViewListProjection: Bool
     var structuralIdentity: [RetainedViewIdentity.Segment] = []
     let selectionTag: AnyHashable?
     let tabItem: [AnyView]?
@@ -11009,6 +11029,8 @@ public struct AnyView: View {
             self = erased
             return
         }
+        self.viewTypeIdentifier = ObjectIdentifier(V.self)
+        self.isDeferredViewListProjection = false
         self.selectionTag = (view as? any TaggedViewMetadata)?.anySelectionTag
         self.tabItem = (view as? any TaggedViewMetadata)?.anyTabItem
         self.badge = (view as? any TaggedViewMetadata)?.anyBadge
@@ -11040,6 +11062,28 @@ public struct AnyView: View {
 
     public var body: Never {
         fatalError("AnyView has no body")
+    }
+
+    /// An erased framework projection is one segment, not one View per data
+    /// row. Its expansion supplies the original structural identity directly.
+    init(projected projection: ViewListProjection) {
+        self.viewTypeIdentifier = ObjectIdentifier(AnyView.self)
+        self.isDeferredViewListProjection = true
+        self.buildComponent = { makeProjectedViewListComponent(projection, context: $0) }
+        self.stateMountDeclarations = { declaredProjectedViewListScopes(projection, context: $0) }
+        self.listProjection = { projection }
+        self.selectionTag = nil
+        self.tabItem = nil
+        self.badge = nil
+        self.navigationTitle = nil
+        self.navigationSubtitle = nil
+        self.navigationTitleDisplayMode = nil
+        self.navigationBarBackButtonHidden = nil
+        self.navigationBarHidden = nil
+        self.toolbarItemPlacement = nil
+        self.navigationDestinationRegistrations = []
+        self.navigationPresentedDestinations = []
+        self.swipeActions = []
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
@@ -11252,7 +11296,7 @@ public struct ViewBuilder {
 
     @_disfavoredOverload
     public static func buildFinalResult<Content: View>(_ content: Content) -> [AnyView] {
-        materializedViewList(projectedViewList(content))
+        projectedViewListPreservingDeferred(projectedViewList(content))
     }
 
     // Contextual compatibility for the existing Windows array-returning API.
@@ -17435,109 +17479,182 @@ public struct ScrollPhaseChangeContext: Sendable, Equatable {
     }
 }
 
-struct RetainedScrollTargetIdentity: Sendable {
-    var identifier: String
-    var isImplicitForEach: Bool
+struct RetainedScrollTargetIdentity {
+    final class Generation {}
+
+    let generation = Generation()
+    let identifier: RetainedViewIdentity.Key
+    let isImplicitForEach: Bool
+
+    init<ID: Hashable>(identifier: ID, isImplicitForEach: Bool) {
+        self.identifier = RetainedViewIdentity.Key(AnyHashable(identifier))
+        self.isImplicitForEach = isImplicitForEach
+    }
 }
 
-private enum ExplicitScrollTargetIdentityMarker {}
-private enum ImplicitScrollTargetIdentityMarker {}
+enum ExplicitScrollTargetIdentityMarker {}
+enum ImplicitScrollTargetIdentityMarker {}
 
 @MainActor
 final class ScrollViewProxyStorage {
-    private struct ScrollRequest {
-        var targetIdentifier: String
-        var anchor: UnitPoint?
-        var transaction: Transaction
+    private final class RequestIdentity {}
+
+    private final class ScrollRequest {
+        let identity = RequestIdentity()
+        let target: AnyHashable
+        let targetIdentifier: RetainedViewIdentity.Key
+        let anchor: UnitPoint?
+        let transaction: Transaction
+        var lazyResolution: DeferredListScrollResolution?
+
+        init(target: AnyHashable, anchor: UnitPoint?, transaction: Transaction) {
+            self.target = target
+            self.targetIdentifier = RetainedViewIdentity.Key(target)
+            self.anchor = anchor
+            self.transaction = transaction
+        }
     }
 
     let identifier = UUID().uuidString
     var requests: [String] = []
+    private(set) var lastResolution: DeferredListScrollResolution.Result?
 
     private weak var runtime: RetainedViewRuntime?
     private weak var readerRoot: ViewNode?
     private var pendingRequests: [ScrollRequest] = []
+    private var attachmentIdentity = RequestIdentity()
+    private var latestRequestIdentity: RequestIdentity?
+    private var scheduledReplayIdentity: RequestIdentity?
     private var isWaitingForAttachment = false
+    private var isWaitingForLazyResolution = false
     private var wasMountedInMultipleRuntimes = false
     private var isResolvingRequests = false
-    private var hasScheduledLayoutReplay = false
 
     func attach(to node: ViewNode, runtime: RetainedViewRuntime) {
+        if readerRoot !== node { attachmentIdentity = RequestIdentity() }
         node.scrollReaderID = identifier
         node.scrollProxyRequests = requests
 
         if let existingRuntime = self.runtime, existingRuntime !== runtime {
             // A reader captures its content and proxy once at initialization,
             // so reusing that value in another window cannot produce a new
-            // proxy for closures that already captured the original. Disable
-            // the ambiguous proxy instead of scrolling the wrong window.
+            // proxy for closures that already captured the original.
             wasMountedInMultipleRuntimes = true
+            latestRequestIdentity = nil
             self.runtime = nil
             readerRoot = nil
             isWaitingForAttachment = false
-            pendingRequests.removeAll(keepingCapacity: true)
+            cancelPendingRequests(in: existingRuntime)
             return
         }
-        guard !wasMountedInMultipleRuntimes else {
-            return
-        }
+        guard !wasMountedInMultipleRuntimes else { return }
 
+        if let previousRoot = readerRoot, previousRoot !== node {
+            // A request belongs to its original source/attachment. A new
+            // descriptor can reconcile onto the same physical node, but it
+            // must not inherit an unfinished opaque-ID search.
+            retirePendingLazyRequests(in: runtime)
+        }
         self.runtime = runtime
         readerRoot = node
         isWaitingForAttachment = !pendingRequests.isEmpty
 
-        // The source node can be discarded when ComponentHost reconciles it
-        // onto an existing retained node. The lifecycle callback receives the
-        // surviving node, while readerRoot(in:) also rediscovers it by its
-        // reader identity for scene-only hosts and already-visible rebuilds.
+        // ComponentHost can discard the source node during reconciliation.
+        // Appearance supplies the surviving node; scene-only hosts rediscover
+        // the same marker in readerRoot(in:) after layout.
         let existingOnAppear = node.onAppearWithNode
-        node.onAppearWithNode = { [storage = self] appearedNode in
+        node.onAppearWithNode = { [storage = self, weak runtime] appearedNode in
             existingOnAppear?(appearedNode)
+            guard let runtime, storage.runtime === runtime,
+                runtime.permitsRetainedActionInvocation,
+                appearedNode.scrollReaderID == storage.identifier,
+                storage.belongsToRuntimeTree(appearedNode, root: runtime.root)
+            else { return }
             storage.readerRoot = appearedNode
             storage.isWaitingForAttachment = false
-            storage.resolvePendingRequests()
+            if storage.isWaitingForLazyResolution {
+                storage.scheduleLayoutReplayIfNeeded()
+            } else {
+                storage.resolvePendingRequests()
+            }
         }
 
         let existingOnDisappear = node.onDisappearWithNode
         node.onDisappearWithNode = { [storage = self] disappearedNode in
-            existingOnDisappear?(disappearedNode)
             if storage.readerRoot === disappearedNode {
+                storage.latestRequestIdentity = nil
                 storage.readerRoot = nil
                 storage.isWaitingForAttachment = false
-                storage.pendingRequests.removeAll(keepingCapacity: true)
+                storage.cancelPendingRequests(in: storage.runtime)
             }
+            existingOnDisappear?(disappearedNode)
         }
-
         scheduleLayoutReplayIfNeeded()
     }
 
-    func requestScroll(to targetIdentifier: String, anchor: UnitPoint?, metadata: String) {
+    func requestScroll(to target: AnyHashable, anchor: UnitPoint?, metadata: String) {
         requests.append(metadata)
         guard !wasMountedInMultipleRuntimes,
+            runtime?.permitsRetainedActionInvocation != false,
             anchor?.x.isFinite ?? true,
             anchor?.y.isFinite ?? true
-        else {
-            return
-        }
+        else { return }
         var transaction = currentTransaction ?? Transaction()
         if currentTransaction == nil, let animation = currentAnimationTransaction {
             transaction.animation = Animation(duration: animation.duration, easing: animation.easing)
         }
-        pendingRequests.append(
-            ScrollRequest(targetIdentifier: targetIdentifier, anchor: anchor, transaction: transaction))
+        let request = ScrollRequest(target: target, anchor: anchor, transaction: transaction)
+        latestRequestIdentity = request.identity
+        lastResolution = nil
+        retirePendingLazyRequests(in: runtime)
+        guard latestRequestIdentity === request.identity else { return }
+        pendingRequests.append(request)
         resolvePendingRequests()
     }
 
+    private func retirePendingLazyRequests(in runtime: RetainedViewRuntime?) {
+        let previous = pendingRequests
+        pendingRequests = previous.filter { $0.lazyResolution == nil }
+        isWaitingForLazyResolution = false
+        for request in previous where request.lazyResolution != nil {
+            if latestRequestIdentity === request.identity { lastResolution = .obsolete }
+            cancelLazyResolution(of: request, in: runtime)
+        }
+    }
+
+    private func cancelPendingRequests(in runtime: RetainedViewRuntime?) {
+        let previous = pendingRequests
+        pendingRequests.removeAll(keepingCapacity: true)
+        isWaitingForLazyResolution = false
+        scheduledReplayIdentity = nil
+        for request in previous { cancelLazyResolution(of: request, in: runtime) }
+    }
+
+    private func cancelLazyResolution(of request: ScrollRequest, in runtime: RetainedViewRuntime?) {
+        let resolution = request.lazyResolution
+        request.lazyResolution = nil
+        resolution?.cancel(in: runtime)
+    }
+
     private func resolvePendingRequests() {
-        guard !isResolvingRequests, !pendingRequests.isEmpty, let runtime else {
+        guard !isResolvingRequests, !pendingRequests.isEmpty, let runtime else { return }
+        guard runtime.permitsRetainedActionInvocation else {
+            latestRequestIdentity = nil
+            cancelPendingRequests(in: runtime)
             return
         }
-
         guard let root = readerRoot(in: runtime) else {
+            if runtime.hasCompletedLayout, !runtime.isLayoutInProgress, !runtime.hasPendingLayout,
+                !isWaitingForAttachment
+            {
+                // A detached reader has no source to advance. The old lazy
+                // waiting flag alone must not schedule an endless replay.
+                retirePendingLazyRequests(in: runtime)
+            }
             if canReplayPendingRequests(in: runtime) {
                 scheduleLayoutReplayIfNeeded()
             } else {
-                pendingRequests.removeAll(keepingCapacity: true)
+                cancelPendingRequests(in: runtime)
             }
             return
         }
@@ -17547,61 +17664,133 @@ final class ScrollViewProxyStorage {
             isResolvingRequests = false
             scheduleLayoutReplayIfNeeded()
         }
-
         let queuedRequests = pendingRequests
         pendingRequests.removeAll(keepingCapacity: true)
-
-        for request in queuedRequests {
-            guard let target = targetNode(for: request.targetIdentifier, in: root) else {
-                if !runtime.hasCompletedLayout || runtime.isLayoutInProgress {
-                    pendingRequests.append(request)
+        isWaitingForLazyResolution = false
+        let observedIdentity = latestRequestIdentity
+        let observedAttachment = attachmentIdentity
+        // The viewport, every List searched by this reader, and final target
+        // realization all spend the same retained element/round allowance.
+        runtime.withLazyListResolutionBudget {
+            for request in queuedRequests {
+                func isCurrent() -> Bool {
+                    observedIdentity != nil && latestRequestIdentity === observedIdentity
+                        && attachmentIdentity === observedAttachment
+                        && self.runtime === runtime && runtime.permitsRetainedActionInvocation
+                        && root.scrollReaderID == identifier && belongsToRuntimeTree(root, root: runtime.root)
                 }
-                continue
-            }
+                guard isCurrent() else {
+                    cancelLazyResolution(of: request, in: runtime)
+                    continue
+                }
+                withTransaction(request.transaction) {
+                    if let resolution = request.lazyResolution {
+                        guard latestRequestIdentity === request.identity else {
+                            cancelLazyResolution(of: request, in: runtime)
+                            return
+                        }
+                        resolveLazyRequest(
+                            request, resolution: resolution, in: runtime, root: root, isCurrent: isCurrent)
+                        return
+                    }
+                    guard
+                        let targets = retainedScrollTargetSnapshot(
+                            for: request.targetIdentifier, in: [root], readerIdentifier: identifier,
+                            isCurrent: isCurrent),
+                        isCurrent()
+                    else { return }
 
-            guard hasScrollContainer(for: target, within: root) else {
-                continue
-            }
-
-            if !runtime.scrollToDescendant(
-                target,
-                anchorX: request.anchor?.x,
-                anchorY: request.anchor?.y,
-                transaction: request.transaction
-            ), !runtime.hasCompletedLayout || runtime.isLayoutInProgress || runtime.hasPendingLayout {
-                pendingRequests.append(request)
+                    if let target = targets.explicit {
+                        resolveMountedRequest(request, target: target, in: runtime, root: root, isCurrent: isCurrent)
+                    } else if !targets.lists.isEmpty {
+                        // Preserve ordinary eager pre-layout replay order,
+                        // but do not start or continue a superseded lazy scan.
+                        guard latestRequestIdentity === request.identity else { return }
+                        let resolution = DeferredListScrollResolution(
+                            target: request.target, readerIdentifier: identifier, snapshot: targets)
+                        request.lazyResolution = resolution
+                        resolveLazyRequest(
+                            request, resolution: resolution, in: runtime, root: root, isCurrent: isCurrent)
+                    } else if let target = targets.implicit {
+                        resolveMountedRequest(request, target: target, in: runtime, root: root, isCurrent: isCurrent)
+                    } else if !runtime.hasCompletedLayout || runtime.isLayoutInProgress || runtime.hasPendingLayout {
+                        if latestRequestIdentity === request.identity { lastResolution = .pending }
+                        pendingRequests.append(request)
+                    } else if latestRequestIdentity === request.identity {
+                        lastResolution = .complete
+                    }
+                }
             }
         }
     }
 
-    private func scheduleLayoutReplayIfNeeded() {
-        guard !pendingRequests.isEmpty, !hasScheduledLayoutReplay, let runtime else {
+    private func resolveMountedRequest(
+        _ request: ScrollRequest, target: ViewNode, in runtime: RetainedViewRuntime, root: ViewNode,
+        isCurrent: () -> Bool
+    ) {
+        guard isCurrent() else { return }
+        guard hasScrollContainer(for: target, within: root) else {
+            if latestRequestIdentity === request.identity { lastResolution = .complete }
             return
         }
-        guard canReplayPendingRequests(in: runtime) else {
-            pendingRequests.removeAll(keepingCapacity: true)
-            return
+        let moved = runtime.scrollToDescendant(
+            target, anchorX: request.anchor?.x, anchorY: request.anchor?.y, transaction: request.transaction)
+        guard isCurrent() else { return }
+        if !moved, !runtime.hasCompletedLayout || runtime.isLayoutInProgress || runtime.hasPendingLayout {
+            if latestRequestIdentity === request.identity { lastResolution = .pending }
+            pendingRequests.append(request)
+        } else if latestRequestIdentity === request.identity {
+            lastResolution = .complete
         }
+    }
 
-        hasScheduledLayoutReplay = true
-        runtime.scheduleAfterLayout(key: "winswiftui.scroll-reader.\(identifier)") { [weak self] in
-            guard let self else {
-                return
-            }
-            hasScheduledLayoutReplay = false
+    private func resolveLazyRequest(
+        _ request: ScrollRequest, resolution: DeferredListScrollResolution,
+        in runtime: RetainedViewRuntime, root: ViewNode, isCurrent: @escaping @MainActor () -> Bool
+    ) {
+        let result = resolution.resolve(
+            in: runtime, root: root, anchor: request.anchor, transaction: request.transaction,
+            requestIsCurrent: { isCurrent() && self.latestRequestIdentity === request.identity })
+        guard isCurrent(), latestRequestIdentity === request.identity else {
+            cancelLazyResolution(of: request, in: runtime)
+            return
+        }
+        switch result {
+        case .pending:
+            lastResolution = .pending
+            isWaitingForLazyResolution = true
+            pendingRequests.append(request)
+        case .complete, .obsolete, .unsupported:
+            lastResolution = result
+            cancelLazyResolution(of: request, in: runtime)
+        }
+    }
+
+    private func scheduleLayoutReplayIfNeeded() {
+        guard !pendingRequests.isEmpty, scheduledReplayIdentity == nil, let runtime else { return }
+        guard canReplayPendingRequests(in: runtime) else {
+            cancelPendingRequests(in: runtime)
+            return
+        }
+        let replay = RequestIdentity()
+        scheduledReplayIdentity = replay
+        runtime.scheduleAfterLayout(key: "winswiftui.scroll-reader.\(identifier)") { [weak self, weak runtime] in
+            guard let self, let runtime, self.runtime === runtime, scheduledReplayIdentity === replay else { return }
+            scheduledReplayIdentity = nil
             isWaitingForAttachment = false
             resolvePendingRequests()
         }
     }
 
     private func canReplayPendingRequests(in runtime: RetainedViewRuntime) -> Bool {
+        guard runtime.permitsRetainedActionInvocation else { return false }
         if let readerRoot, readerRoot.scrollReaderID != identifier,
             belongsToRuntimeTree(readerRoot, root: runtime.root)
         {
             return false
         }
         return !runtime.hasCompletedLayout || runtime.isLayoutInProgress || runtime.hasPendingLayout
-            || isWaitingForAttachment
+            || isWaitingForAttachment || isWaitingForLazyResolution
     }
 
     private func readerRoot(in runtime: RetainedViewRuntime) -> ViewNode? {
@@ -17611,9 +17800,10 @@ final class ScrollViewProxyStorage {
             isWaitingForAttachment = false
             return readerRoot
         }
-
         var pendingNodes = [runtime.root]
+        var visited: Set<ObjectIdentifier> = []
         while let node = pendingNodes.popLast() {
+            guard visited.insert(ObjectIdentifier(node)).inserted else { continue }
             if node.scrollReaderID == identifier {
                 readerRoot = node
                 isWaitingForAttachment = false
@@ -17621,66 +17811,28 @@ final class ScrollViewProxyStorage {
             }
             pendingNodes.append(contentsOf: node.children.reversed())
         }
-
         return nil
     }
 
     private func belongsToRuntimeTree(_ node: ViewNode, root: ViewNode) -> Bool {
         var current: ViewNode? = node
-        while let candidate = current {
-            if candidate === root {
-                return true
+        var visited: Set<ObjectIdentifier> = []
+        while let candidate = current, visited.insert(ObjectIdentifier(candidate)).inserted {
+            if candidate === root { return true }
+            guard let parent = candidate.parent, parent.children.contains(where: { $0 === candidate }) else {
+                return false
             }
-            current = candidate.parent
+            current = parent
         }
         return false
     }
 
-    private func targetNode(for targetIdentifier: String, in root: ViewNode) -> ViewNode? {
-        var pendingNodes = [root]
-        var implicitForEachTarget: ViewNode?
-        let explicitIdentityKey = ObjectIdentifier(ExplicitScrollTargetIdentityMarker.self)
-        let implicitIdentityKey = ObjectIdentifier(ImplicitScrollTargetIdentityMarker.self)
-
-        while let node = pendingNodes.popLast() {
-            if node.isHidden {
-                continue
-            }
-            if node !== root, let nestedReaderID = node.scrollReaderID,
-                nestedReaderID != identifier
-            {
-                continue
-            }
-
-            if let explicitIdentity = node.retainedPreferenceValues[explicitIdentityKey]
-                as? RetainedScrollTargetIdentity,
-                explicitIdentity.identifier == targetIdentifier
-            {
-                return node
-            }
-            if implicitForEachTarget == nil,
-                let implicitIdentity = node.retainedPreferenceValues[implicitIdentityKey]
-                    as? RetainedScrollTargetIdentity,
-                implicitIdentity.identifier == targetIdentifier
-            {
-                implicitForEachTarget = node
-            }
-
-            pendingNodes.append(contentsOf: node.children.reversed())
-        }
-
-        return implicitForEachTarget
-    }
-
     private func hasScrollContainer(for target: ViewNode, within root: ViewNode) -> Bool {
         var current: ViewNode? = target
-        while let node = current {
-            if node.scrollAxis != nil {
-                return true
-            }
-            if node === root {
-                return false
-            }
+        var visited: Set<ObjectIdentifier> = []
+        while let node = current, visited.insert(ObjectIdentifier(node)).inserted {
+            if node.scrollAxis != nil { return true }
+            if node === root { return false }
             current = node.parent
         }
         return false
@@ -17702,6 +17854,10 @@ public struct ScrollViewProxy {
         storage.requests
     }
 
+    var retainedScrollResolution: DeferredListScrollResolution.Result? {
+        storage.lastResolution
+    }
+
     func attach(to node: ViewNode, runtime: RetainedViewRuntime) {
         storage.attach(to: node, runtime: runtime)
     }
@@ -17712,7 +17868,7 @@ public struct ScrollViewProxy {
             parts.append("anchor:\(scrollPositionAnchorDescription(anchor))")
         }
         storage.requestScroll(
-            to: String(describing: id),
+            to: AnyHashable(id),
             anchor: anchor,
             metadata: parts.joined(separator: ",")
         )
@@ -18156,7 +18312,7 @@ struct ModifiedView<Content: View>: View, TaggedViewMetadata {
         }
     }
 
-    mutating func setImplicitForEachIdentity(_ identifier: String) {
+    mutating func setImplicitForEachIdentity<ID: Hashable>(_ identifier: ID) {
         scrollTargetIdentity = RetainedScrollTargetIdentity(identifier: identifier, isImplicitForEach: true)
     }
 }
@@ -18293,7 +18449,16 @@ private func makeCompositionComponent(
     isHitTestVisible: Bool,
     allowsStructuralChildren: Bool
 ) -> Component {
-    let views = viewIdentityOccurrences(views)
+    guard let expandedViews = materializedDeferredViewList(views, context: context) else {
+        return rejectedRetainedViewComponent()
+    }
+    guard
+        let views = viewIdentityOccurrences(
+            expandedViews, lazyAttribution: context.viewIdentity.lazyList,
+            descriptorAttribution: context.viewIdentity.descriptorComponent, coordinator: context.stateMountCoordinator),
+        context.viewIdentity.lazyList?.admission.isCurrent != false,
+        context.viewIdentity.descriptorComponent?.canConstruct != false
+    else { return rejectedRetainedViewComponent() }
     if views.count == 1, let view = views.first {
         let component = view.makeComponent(context: context)
         return allowsStructuralChildren ? component : component.asSingleNode()
@@ -19711,7 +19876,6 @@ private func aspectRatioPreferredSize(
             : Size(width: baseSize.width, height: baseSize.width / ratio)
     }
 }
-
 /// Shared lowering for Image's typed fit modifier and the generic View path.
 /// The old preference is only an ideal fallback; retained measurement resolves
 /// finite fit from the live proposal. Keep the original centered stack for
@@ -19731,25 +19895,16 @@ func retainedAspectFitComponent(child: Component, aspectRatio: Double?) -> Compo
     }
 }
 
-// The legacy task(id:) adapter still uses its existing callsite bookkeeping.
-// Mounted change and preference observations do not use this registry.
 @MainActor
-private final class OnChangeObservationRegistry {
-    static let shared = OnChangeObservationRegistry()
+func rejectedRetainedViewNode() -> ViewNode {
+    let node = Controls.panel(preferredSize: .zero, isHitTestVisible: false)
+    node.markRejectedRetainedSource()
+    return node
+}
 
-    private var values: [String: Any] = [:]
-
-    func observe<Value: Equatable>(value: Value, key: String, initial: Bool)
-        -> (oldValue: Value, newValue: Value)?
-    {
-        if let previous = values[key] as? Value {
-            guard previous != value else { return nil }
-            values[key] = value
-            return (previous, value)
-        }
-        values[key] = value
-        return initial ? (value, value) : nil
-    }
+@MainActor
+func rejectedRetainedViewComponent() -> Component {
+    Component { _ in rejectedRetainedViewNode() }
 }
 
 @MainActor
@@ -19841,9 +19996,34 @@ private final class OnChangeUpdate<Value: Equatable>: MountedOnChangeUpdate {
 
 @MainActor
 private func stageOnChangeObservation<Value: Equatable>(
-    value: Value, initial: Bool, action: @escaping (Value, Value) -> Void, context: ViewBuildContext
+    value: Value, initial: Bool, action: @escaping (Value, Value) -> Void, context: ViewBuildContext,
+    lazyGroup: RetainedLazyListGroupID? = nil, descriptorGroup: RetainedDescriptorGroupID? = nil
 ) {
     let type = ObjectIdentifier(OnChangeObservation<Value>.self)
+    if let attribution = context.viewIdentity.lazyList {
+        guard attribution.admission.isCurrent, let group = lazyGroup else { return }
+        context.stateMountCoordinator?.stageOnChange(
+            at: context.retainedViewIdentity.appending(.view(type)),
+            attribution: attribution, kind: .onChange, group: group,
+            seedObservation: { OnChangeObservation<Value>() },
+            makeUpdate: { owner, cell in
+                guard attribution.admission.isCurrent else { return nil }
+                return OnChangeUpdate(owner: owner, cell: cell, value: value, initial: initial, action: action)
+            })
+        return
+    }
+    if let attribution = context.viewIdentity.descriptorComponent {
+        guard attribution.canConstruct, let group = descriptorGroup else { return }
+        context.stateMountCoordinator?.stageOnChange(
+            at: context.retainedViewIdentity.appending(.view(type)),
+            descriptorAttribution: attribution, kind: .onChange, group: group,
+            seedObservation: { OnChangeObservation<Value>() },
+            makeUpdate: { owner, cell in
+                guard attribution.canConstruct else { return nil }
+                return OnChangeUpdate(owner: owner, cell: cell, value: value, initial: initial, action: action)
+            })
+        return
+    }
     context.stateMountCoordinator?.stageOnChange(
         at: context.retainedViewIdentity.appending(.view(type)),
         seedObservation: { OnChangeObservation<Value>() },
@@ -19873,10 +20053,84 @@ private func stagePreferenceChangeObservation<Key: PreferenceKey>(
 }
 
 @MainActor
+private func stageLazyPreferenceChangeObservation<Key: PreferenceKey>(
+    in nodes: [ViewNode], key: Key.Type,
+    action: @escaping (Key.Value) -> Void, context: ViewBuildContext,
+    attribution: LazyListViewAttribution, group: RetainedLazyListGroupID
+) where Key.Value: Equatable {
+    guard attribution.admission.isCurrent else { return }
+    let type = ObjectIdentifier(PreferenceChangeObservationOwner<Key>.self)
+    context.stateMountCoordinator?.stageOnChange(
+        at: context.retainedViewIdentity.appending(.view(type)),
+        attribution: attribution, kind: .onPreferenceChange, group: group,
+        seedObservation: { OnChangeObservation<Key.Value>() },
+        makeUpdate: { owner, cell in
+            guard let lookup = attribution.admission.beginLookup() else { return nil }
+            let admission = PreferenceConstructionAdmission.lazy(attribution.admission, lookup: lookup)
+            guard
+                let preference = retainedAdmittedPreferenceValue(in: nodes, key: key, admission: admission),
+                admission.isCurrent
+            else { return nil }
+            // An explicitly emitted default is still a present preference.
+            // Absence retains the ordinary missing-preference baseline policy.
+            let value = preference.hasValue ? preference.value : Key.defaultValue
+            guard admission.isCurrent else { return nil }
+            return OnChangeUpdate(
+                owner: owner, cell: cell, value: value, initial: preference.hasValue,
+                action: { _, newValue in action(newValue) })
+        })
+}
+
+@MainActor
+private func stageDescriptorPreferenceChangeObservation<Key: PreferenceKey>(
+    in nodes: [ViewNode], key: Key.Type,
+    action: @escaping (Key.Value) -> Void, context: ViewBuildContext,
+    attribution: RetainedDescriptorComponentAttribution, group: RetainedDescriptorGroupID
+) where Key.Value: Equatable {
+    guard attribution.canConstruct else { return }
+    let type = ObjectIdentifier(PreferenceChangeObservationOwner<Key>.self)
+    context.stateMountCoordinator?.stageOnChange(
+        at: context.retainedViewIdentity.appending(.view(type)),
+        descriptorAttribution: attribution, kind: .onPreferenceChange, group: group,
+        seedObservation: { OnChangeObservation<Key.Value>() },
+        makeUpdate: { owner, cell in
+            guard let lookup = context.stateMountCoordinator?.descriptorLookupReceipt(for: attribution) else {
+                return nil
+            }
+            let admission = PreferenceConstructionAdmission.descriptor(attribution, lookup: lookup)
+            guard
+                let preference = retainedAdmittedPreferenceValue(in: nodes, key: key, admission: admission),
+                admission.isCurrent
+            else { return nil }
+            let value = preference.hasValue ? preference.value : Key.defaultValue
+            guard admission.isCurrent else { return nil }
+            return OnChangeUpdate(
+                owner: owner, cell: cell, value: value, initial: preference.hasValue,
+                action: { _, newValue in action(newValue) })
+        })
+}
+
+@MainActor
 private func observingChanges<Value: Equatable>(
     in component: Component, value: Value, initial: Bool,
     action: @escaping (Value, Value) -> Void, context: ViewBuildContext
 ) -> Component {
+    if let attribution = context.viewIdentity.lazyList {
+        return lazyListSyntheticComponent(
+            in: component, context: context, attribution: attribution, kind: .observation,
+            prepare: { group in
+                stageOnChangeObservation(
+                    value: value, initial: initial, action: action, context: context, lazyGroup: group)
+            })
+    }
+    if let attribution = context.viewIdentity.descriptorComponent {
+        return descriptorSyntheticComponent(
+            in: component, context: context, attribution: attribution, kind: .observation,
+            prepare: { group in
+                stageOnChangeObservation(
+                    value: value, initial: initial, action: action, context: context, descriptorGroup: group)
+            })
+    }
     // A raw Component has no mounted lifetime or adoption receipt. In
     // particular it must not borrow history from another runtime or callsite.
     guard context.stateMountCoordinator != nil else { return component }
@@ -19892,6 +20146,361 @@ private func observingChanges<Value: Equatable>(
             component.appendChildNodes(runtime: runtime, to: &nodes)
         })
 }
+
+/// Register the modifier before its observer work and retain its exact
+/// structural outputs. An empty append closes a proposal without inventing a
+/// node; only the native structural adoption can later accept that proposal.
+@MainActor
+private func lazyListSyntheticComponent(
+    in component: Component, context: ViewBuildContext, attribution: LazyListViewAttribution,
+    kind: RetainedLazyListContributionKind,
+    prepare: @escaping @MainActor (RetainedLazyListGroupID) -> Void = { _ in },
+    stage: @escaping @MainActor ([ViewNode], RetainedViewRuntime, RetainedLazyListGroupID) -> Void = { _, _, _ in }
+) -> Component {
+    @MainActor
+    func begin() -> RetainedLazyListGroupID? {
+        guard context.stateMountCoordinator != nil, attribution.admission.isCurrent,
+            let group = attribution.native.registerGroup(kind: kind), attribution.admission.isCurrent
+        else { return nil }
+        prepare(group)
+        return attribution.admission.isCurrent ? group : nil
+    }
+
+    @MainActor
+    func finish(_ nodes: [ViewNode], runtime: RetainedViewRuntime, group: RetainedLazyListGroupID) -> Bool {
+        guard attribution.admission.isCurrent else { return false }
+        stage(nodes, runtime, group)
+        guard attribution.admission.isCurrent else { return false }
+        for node in nodes {
+            guard attribution.native.recordSourceOutput(node, group: group) != nil,
+                attribution.admission.isCurrent
+            else { return false }
+        }
+        return attribution.native.closeGroup(group) != nil && attribution.admission.isCurrent
+    }
+
+    let makeNode: @MainActor (RetainedViewRuntime) -> ViewNode = { runtime in
+        guard let group = begin() else {
+            return rejectedRetainedViewNode()
+        }
+        let node = component.makeNode(runtime: runtime)
+        guard finish([node], runtime: runtime, group: group) else {
+            return rejectedRetainedViewNode()
+        }
+        return node
+    }
+    guard component.hasStructuralChildren else { return Component(makeViewNode: makeNode) }
+    return Component(
+        makeViewNode: makeNode,
+        appendStructuralChildren: { runtime, nodes in
+            guard let group = begin() else {
+                nodes.append(rejectedRetainedViewNode())
+                return
+            }
+            var outputs: [ViewNode] = []
+            component.appendChildNodes(runtime: runtime, to: &outputs)
+            guard finish(outputs, runtime: runtime, group: group) else {
+                nodes.append(rejectedRetainedViewNode())
+                return
+            }
+            nodes.append(contentsOf: outputs)
+        })
+}
+
+/// Root and ordinary subtree components also need exact effect groups when a
+/// build contains a managed List. These records carry no logical row receipt.
+@MainActor
+private func descriptorSyntheticComponent(
+    in component: Component, context: ViewBuildContext, attribution: RetainedDescriptorComponentAttribution,
+    kind: RetainedLazyListContributionKind,
+    prepare: @escaping @MainActor (RetainedDescriptorGroupID) -> Void = { _ in },
+    stage: @escaping @MainActor ([ViewNode], RetainedViewRuntime, RetainedDescriptorGroupID) -> Void = { _, _, _ in }
+) -> Component {
+    @MainActor
+    func begin() -> RetainedDescriptorGroupID? {
+        guard context.stateMountCoordinator != nil, attribution.canConstruct,
+            let group = attribution.registerGroup(kind: kind), attribution.canConstruct
+        else { return nil }
+        prepare(group)
+        return attribution.canConstruct ? group : nil
+    }
+
+    @MainActor
+    func finish(_ nodes: [ViewNode], runtime: RetainedViewRuntime, group: RetainedDescriptorGroupID) -> Bool {
+        guard attribution.canConstruct else { return false }
+        stage(nodes, runtime, group)
+        guard attribution.canConstruct else { return false }
+        for node in nodes {
+            guard attribution.recordSourceOutput(node, group: group), attribution.canConstruct else { return false }
+        }
+        return attribution.closeGroup(group) != nil && attribution.canConstruct
+    }
+
+    let makeNode: @MainActor (RetainedViewRuntime) -> ViewNode = { runtime in
+        guard let group = begin() else {
+            return rejectedRetainedViewNode()
+        }
+        let node = component.makeNode(runtime: runtime)
+        guard finish([node], runtime: runtime, group: group) else {
+            return rejectedRetainedViewNode()
+        }
+        return node
+    }
+    guard component.hasStructuralChildren else { return Component(makeViewNode: makeNode) }
+    return Component(
+        makeViewNode: makeNode,
+        appendStructuralChildren: { runtime, nodes in
+            guard let group = begin() else {
+                nodes.append(rejectedRetainedViewNode())
+                return
+            }
+            var outputs: [ViewNode] = []
+            component.appendChildNodes(runtime: runtime, to: &outputs)
+            guard finish(outputs, runtime: runtime, group: group) else {
+                nodes.append(rejectedRetainedViewNode())
+                return
+            }
+            nodes.append(contentsOf: outputs)
+        })
+}
+
+@MainActor
+private final class TaskIDObservation<Value> {
+    let mount = RetainedTaskMountToken()
+    var value: OnChangeObservedValue<Value>?
+    var delivery: OnChangeDeliveryIdentity?
+}
+
+private enum TaskIDObservationOwner<Value> {}
+
+/// A task ID is compared only after its materialized occurrence and actual
+/// retained target have been adopted. The mount keeps its comparison value;
+/// the retained node owns the current action and independently cancelable run.
+@MainActor
+private final class TaskIDUpdate<Value: Equatable>: MountedOnChangeUpdate {
+    let owner: StateMountOwner
+    private let cell: MountedStateCell<TaskIDObservation<Value>>
+    private let value: OnChangeObservedValue<Value>
+    private let delivery: OnChangeDeliveryIdentity
+    private let declaration: RetainedTaskDeclaration
+    private var previous: OnChangeObservedValue<Value>?
+    private var didCommit = false
+    private var didDeliver = false
+
+    init(
+        owner: StateMountOwner, cell: MountedStateCell<TaskIDObservation<Value>>,
+        value: Value, priority: TaskPriority, action: @escaping @Sendable () async -> Void,
+        source: ViewNode, runtime: RetainedViewRuntime
+    ) {
+        self.owner = owner
+        self.cell = cell
+        self.value = OnChangeObservedValue(value)
+        let delivery = OnChangeDeliveryIdentity()
+        self.delivery = delivery
+        let declaration = RetainedTaskDeclaration(
+            mount: cell.readValue().mount, priority: priority, action: action,
+            isMember: { [weak owner, weak cell] in
+                // Only committed cells enter this predicate. Check the live
+                // owner first, without entering provisional identity lookup.
+                owner?.isLive == true && cell?.isWritable == true
+            },
+            isCurrentProposal: { [weak owner, weak cell] in
+                guard owner?.isLive == true, let cell, cell.isWritable else { return false }
+                return cell.readValue().delivery === delivery
+            })
+        self.declaration = declaration
+        declaration.stage(on: source, in: runtime)
+
+        let existingOnAppearWithNode = source.onAppearWithNode
+        source.onAppearWithNode = { [weak declaration] node in
+            existingOnAppearWithNode?(node)
+            declaration?.appear(on: node)
+        }
+        let existingOnDisappearWithNode = source.onDisappearWithNode
+        source.onDisappearWithNode = { [weak declaration] node in
+            existingOnDisappearWithNode?(node)
+            declaration?.disappear(from: node)
+        }
+    }
+
+    init?(
+        owner: StateMountOwner, cell: MountedStateCell<TaskIDObservation<Value>>,
+        value: Value, priority: TaskPriority, action: @escaping @Sendable () async -> Void,
+        groupSources: [ViewNode], runtime: RetainedViewRuntime,
+        attribution: LazyListViewAttribution, group: RetainedLazyListGroupID
+    ) {
+        guard !groupSources.isEmpty, attribution.admission.isCurrent else { return nil }
+        self.owner = owner
+        self.cell = cell
+        self.value = OnChangeObservedValue(value)
+        let delivery = OnChangeDeliveryIdentity()
+        self.delivery = delivery
+        let declaration = RetainedTaskDeclaration(
+            mount: cell.readValue().mount, priority: priority, action: action,
+            isMember: { [weak owner, weak cell] in
+                owner?.isLive == true && cell?.isWritable == true
+            },
+            isCurrentProposal: { [weak owner, weak cell] in
+                guard owner?.isLive == true, let cell, cell.isWritable else { return false }
+                return cell.readValue().delivery === delivery
+            })
+        self.declaration = declaration
+        guard
+            declaration.stage(
+                groupSources: groupSources, in: runtime, lazyAttribution: attribution.native, group: group),
+            attribution.admission.isCurrent
+        else { return nil }
+
+        // One declaration owns the group. Each real output keeps its ordinary
+        // hook chain; no output is selected as another output's task target.
+        for source in groupSources {
+            guard attribution.admission.isCurrent else { return nil }
+            let existingOnAppearWithNode = source.onAppearWithNode
+            source.onAppearWithNode = { [weak declaration] node in
+                existingOnAppearWithNode?(node)
+                declaration?.appear(on: node)
+            }
+            let existingOnDisappearWithNode = source.onDisappearWithNode
+            source.onDisappearWithNode = { [weak declaration] node in
+                existingOnDisappearWithNode?(node)
+                declaration?.disappear(from: node)
+            }
+        }
+        guard attribution.admission.isCurrent else { return nil }
+    }
+
+    init?(
+        owner: StateMountOwner, cell: MountedStateCell<TaskIDObservation<Value>>,
+        value: Value, priority: TaskPriority, action: @escaping @Sendable () async -> Void,
+        groupSources: [ViewNode], runtime: RetainedViewRuntime,
+        descriptorAttribution: RetainedDescriptorComponentAttribution, group: RetainedDescriptorGroupID
+    ) {
+        guard !groupSources.isEmpty, descriptorAttribution.canConstruct else { return nil }
+        self.owner = owner
+        self.cell = cell
+        self.value = OnChangeObservedValue(value)
+        let delivery = OnChangeDeliveryIdentity()
+        self.delivery = delivery
+        let declaration = RetainedTaskDeclaration(
+            mount: cell.readValue().mount, priority: priority, action: action,
+            isMember: { [weak owner, weak cell] in
+                owner?.isLive == true && cell?.isWritable == true
+            },
+            isCurrentProposal: { [weak owner, weak cell] in
+                guard owner?.isLive == true, let cell, cell.isWritable else { return false }
+                return cell.readValue().delivery === delivery
+            })
+        self.declaration = declaration
+        guard
+            declaration.stage(
+                groupSources: groupSources, in: runtime, descriptorAttribution: descriptorAttribution, group: group),
+            descriptorAttribution.canConstruct
+        else { return nil }
+        for source in groupSources {
+            guard descriptorAttribution.canConstruct else { return nil }
+            let existingOnAppearWithNode = source.onAppearWithNode
+            source.onAppearWithNode = { [weak declaration] node in
+                existingOnAppearWithNode?(node)
+                declaration?.appear(on: node)
+            }
+            let existingOnDisappearWithNode = source.onDisappearWithNode
+            source.onDisappearWithNode = { [weak declaration] node in
+                existingOnDisappearWithNode?(node)
+                declaration?.disappear(from: node)
+            }
+        }
+        guard descriptorAttribution.canConstruct else { return nil }
+    }
+
+    func commit() {
+        guard !didCommit, owner.isLive, cell.isWritable, declaration.canCommit else { return }
+        didCommit = true
+        let observation = cell.readValue()
+        previous = observation.value
+        observation.delivery = delivery
+        observation.value = value
+    }
+
+    private var isCurrent: Bool {
+        owner.isLive && cell.isWritable && cell.readValue().delivery === delivery
+    }
+
+    func deliver() {
+        guard didCommit, !didDeliver, isCurrent else { return }
+        didDeliver = true
+        var restart = false
+        if let previous {
+            restart = previous.value != value.value
+            guard isCurrent else { return }
+            if !restart {
+                // Equality may deliberately ignore a reference payload. Keep
+                // the previous box without restoring over a newer proposal.
+                cell.readValue().value = previous
+            }
+        }
+        guard isCurrent else { return }
+        declaration.deliver(restart: restart)
+    }
+}
+
+@MainActor
+private func stageTaskIDObservation<Value: Equatable>(
+    value: Value, priority: TaskPriority, action: @escaping @Sendable () async -> Void,
+    on node: ViewNode, in runtime: RetainedViewRuntime, context: ViewBuildContext
+) {
+    let type = ObjectIdentifier(TaskIDObservationOwner<Value>.self)
+    context.stateMountCoordinator?.stageOnChange(
+        at: context.retainedViewIdentity.appending(.view(type)),
+        seedObservation: { TaskIDObservation<Value>() },
+        makeUpdate: { owner, cell in
+            TaskIDUpdate(
+                owner: owner, cell: cell, value: value, priority: priority, action: action,
+                source: node, runtime: runtime)
+        })
+}
+
+@MainActor
+private func stageLazyTaskIDObservation<Value: Equatable>(
+    value: Value, priority: TaskPriority, action: @escaping @Sendable () async -> Void,
+    on nodes: [ViewNode], in runtime: RetainedViewRuntime, context: ViewBuildContext,
+    attribution: LazyListViewAttribution, group: RetainedLazyListGroupID
+) {
+    // Empty structural output owns no task observation, declaration or launch
+    // owner. A later nonempty materialization establishes a fresh task mount.
+    guard !nodes.isEmpty, attribution.admission.isCurrent else { return }
+    let type = ObjectIdentifier(TaskIDObservationOwner<Value>.self)
+    context.stateMountCoordinator?.stageOnChange(
+        at: context.retainedViewIdentity.appending(.view(type)),
+        attribution: attribution, kind: .taskID, group: group,
+        seedObservation: { TaskIDObservation<Value>() },
+        makeUpdate: { owner, cell in
+            guard attribution.admission.isCurrent else { return nil }
+            return TaskIDUpdate(
+                owner: owner, cell: cell, value: value, priority: priority, action: action,
+                groupSources: nodes, runtime: runtime, attribution: attribution, group: group)
+        })
+}
+
+@MainActor
+private func stageDescriptorTaskIDObservation<Value: Equatable>(
+    value: Value, priority: TaskPriority, action: @escaping @Sendable () async -> Void,
+    on nodes: [ViewNode], in runtime: RetainedViewRuntime, context: ViewBuildContext,
+    attribution: RetainedDescriptorComponentAttribution, group: RetainedDescriptorGroupID
+) {
+    guard !nodes.isEmpty, attribution.canConstruct else { return }
+    let type = ObjectIdentifier(TaskIDObservationOwner<Value>.self)
+    context.stateMountCoordinator?.stageOnChange(
+        at: context.retainedViewIdentity.appending(.view(type)),
+        descriptorAttribution: attribution, kind: .taskID, group: group,
+        seedObservation: { TaskIDObservation<Value>() },
+        makeUpdate: { owner, cell in
+            guard attribution.canConstruct else { return nil }
+            return TaskIDUpdate(
+                owner: owner, cell: cell, value: value, priority: priority, action: action,
+                groupSources: nodes, runtime: runtime, descriptorAttribution: attribution, group: group)
+        })
+}
+
 @MainActor
 private final class OnReceiveSubscription<Source: Publisher> {
     private let publisher: Source
@@ -19982,6 +20591,86 @@ private func retainedPreferenceValueIfPresent<Key: PreferenceKey>(
     }
 
     return hasValue ? resolvedValue : nil
+}
+
+private struct AdmittedPreferenceValue<Value> {
+    let value: Value
+    let hasValue: Bool
+}
+
+@MainActor
+private enum PreferenceConstructionAdmission {
+    case lazy(LazyListResolutionReceipt, lookup: LazyListLookupReceipt)
+    case descriptor(RetainedDescriptorComponentAttribution, lookup: LazyListLookupReceipt)
+
+    var isCurrent: Bool {
+        switch self {
+        case .lazy(let receipt, let lookup): receipt.isCurrent && lookup.isCurrent
+        case .descriptor(let attribution, let lookup): attribution.canConstruct && lookup.isCurrent
+        }
+    }
+}
+
+/// A reducer and a default getter are authored code. Keep the original
+/// admission across each call so reentry cannot continue reducing a retired
+/// physical contribution or install its value in another build.
+@MainActor
+@inline(never)
+private func retainedAdmittedPreferenceValue<Key: PreferenceKey>(
+    in node: ViewNode, key: Key.Type, admission: PreferenceConstructionAdmission
+) -> AdmittedPreferenceValue<Key.Value>? {
+    guard admission.isCurrent else { return nil }
+    let identifier = retainedPreferenceIdentifier(key)
+    var value = Key.defaultValue
+    guard admission.isCurrent else { return nil }
+    var hasValue = false
+    if let directValue = node.retainedPreferenceValues[identifier] as? Key.Value {
+        guard admission.isCurrent else { return nil }
+        Key.reduce(value: &value) { directValue }
+        guard admission.isCurrent else { return nil }
+        hasValue = true
+    }
+    guard admission.isCurrent else { return nil }
+    if node.retainedPreferenceTransformBoundaries.contains(identifier) {
+        return AdmittedPreferenceValue(value: value, hasValue: hasValue)
+    }
+    let children = node.children
+    for child in children {
+        guard let childValue = retainedAdmittedPreferenceValue(in: child, key: key, admission: admission),
+            admission.isCurrent
+        else { return nil }
+        if childValue.hasValue {
+            Key.reduce(value: &value) { childValue.value }
+            guard admission.isCurrent else { return nil }
+            hasValue = true
+        }
+    }
+    return admission.isCurrent ? AdmittedPreferenceValue(value: value, hasValue: hasValue) : nil
+}
+
+@MainActor
+@inline(never)
+private func retainedAdmittedPreferenceValue<Key: PreferenceKey>(
+    in nodes: [ViewNode], key: Key.Type, admission: PreferenceConstructionAdmission
+) -> AdmittedPreferenceValue<Key.Value>? {
+    guard admission.isCurrent else { return nil }
+    if nodes.count == 1, let node = nodes.first {
+        return retainedAdmittedPreferenceValue(in: node, key: key, admission: admission)
+    }
+    var value = Key.defaultValue
+    guard admission.isCurrent else { return nil }
+    var hasValue = false
+    for node in nodes {
+        guard let nodeValue = retainedAdmittedPreferenceValue(in: node, key: key, admission: admission),
+            admission.isCurrent
+        else { return nil }
+        if nodeValue.hasValue {
+            Key.reduce(value: &value) { nodeValue.value }
+            guard admission.isCurrent else { return nil }
+            hasValue = true
+        }
+    }
+    return admission.isCurrent ? AdmittedPreferenceValue(value: value, hasValue: hasValue) : nil
 }
 @MainActor
 private func retainedPreferenceValue<Key: PreferenceKey>(
@@ -20930,7 +21619,10 @@ private func retainedAlertDeclaration(
     context: ViewBuildContext, configuration: RetainedAlertConfiguration?
 ) -> RetainedAlertDeclaration {
     if let coordinator = context.stateMountCoordinator {
-        return coordinator.alertDeclaration(at: context.retainedViewIdentity, configuration: configuration)
+        return coordinator.alertDeclaration(
+            at: context.retainedViewIdentity, configuration: configuration,
+            lazyAttribution: context.viewIdentity.lazyList,
+            descriptorAttribution: context.viewIdentity.descriptorComponent)
     }
     return .raw(configuration: configuration)
 }
@@ -21938,10 +22630,13 @@ extension View {
     }
 
     private func toolbar(id: String?, @ViewBuilder content toolbarContent: () -> [AnyView]) -> some View {
-        let toolbarViews = toolbarContent()
-        let orderedToolbarViews = orderedRetainedToolbarViews(toolbarViews)
-        let toolbarPlacementTags = retainedToolbarPlacementTags(for: toolbarViews)
+        let authoredToolbarViews = toolbarContent()
         return ModifiedView(content: self) { content, context in
+            guard let toolbarViews = materializedDeferredViewList(authoredToolbarViews, context: context) else {
+                return rejectedRetainedViewComponent()
+            }
+            let orderedToolbarViews = orderedRetainedToolbarViews(toolbarViews)
+            let toolbarPlacementTags = retainedToolbarPlacementTags(for: toolbarViews)
             guard !toolbarViews.isEmpty else {
                 return content.makeComponent(context: context)
             }
@@ -22213,7 +22908,9 @@ extension View {
                         writeDismissal: { isPresented.wrappedValue = false },
                         onDismiss: { onDismiss?() },
                         invalidate: { context.invalidate() }
-                    )
+                    ),
+                    lazyAttribution: presentationContext.viewIdentity.lazyList,
+                    descriptorAttribution: presentationContext.viewIdentity.descriptorComponent
                 )
             }
             let dismiss: @MainActor () -> Void
@@ -22276,7 +22973,9 @@ extension View {
                         writeDismissal: { item.wrappedValue = nil },
                         onDismiss: { onDismiss?() },
                         invalidate: { context.invalidate() }
-                    )
+                    ),
+                    lazyAttribution: presentationContext.viewIdentity.lazyList,
+                    descriptorAttribution: presentationContext.viewIdentity.descriptorComponent
                 )
             }
             let dismiss: @MainActor () -> Void
@@ -25614,6 +26313,24 @@ extension View {
     ) -> some View where Key.Value: Equatable {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
+            if let attribution = context.viewIdentity.lazyList {
+                return lazyListSyntheticComponent(
+                    in: child, context: context, attribution: attribution, kind: .preferenceObservation,
+                    stage: { nodes, _, group in
+                        stageLazyPreferenceChangeObservation(
+                            in: nodes, key: key, action: action, context: context,
+                            attribution: attribution, group: group)
+                    })
+            }
+            if let attribution = context.viewIdentity.descriptorComponent {
+                return descriptorSyntheticComponent(
+                    in: child.asSingleNode(), context: context, attribution: attribution, kind: .preferenceObservation,
+                    stage: { nodes, _, group in
+                        stageDescriptorPreferenceChangeObservation(
+                            in: nodes, key: key, action: action, context: context,
+                            attribution: attribution, group: group)
+                    })
+            }
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 stagePreferenceChangeObservation(in: childNode, key: key, action: action, context: context)
@@ -29899,33 +30616,36 @@ extension View {
         line: Int = #line,
         column: Int = #column
     ) -> some View {
-        let key = "\(fileID):\(line):\(column):task:\(Value.self)"
         return ModifiedView(content: self) { content, context in
-            let launchState = OnChangeObservationRegistry.shared.observe(value: value, key: key, initial: true)
             let child = content.makeComponent(context: context)
+            if let attribution = context.viewIdentity.lazyList {
+                return lazyListSyntheticComponent(
+                    in: child, context: context, attribution: attribution, kind: .scopedTask,
+                    stage: { nodes, runtime, group in
+                        stageLazyTaskIDObservation(
+                            value: value, priority: priority, action: action,
+                            on: nodes, in: runtime, context: context, attribution: attribution, group: group)
+                    })
+            }
+            if let attribution = context.viewIdentity.descriptorComponent {
+                return descriptorSyntheticComponent(
+                    in: child.asSingleNode(), context: context, attribution: attribution, kind: .scopedTask,
+                    stage: { nodes, runtime, group in
+                        stageDescriptorTaskIDObservation(
+                            value: value, priority: priority, action: action,
+                            on: nodes, in: runtime, context: context, attribution: attribution, group: group)
+                    })
+            }
+            // A raw Component has no mounted identity or adoption lifetime.
+            // Managed ID-task snapshot ownership remains a separate boundary;
+            // ordinary task(priority:_:) retains its existing raw-node support.
+            guard context.stateMountCoordinator != nil else { return child }
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
-                let launch = ViewLifecycleTaskLaunch(
-                    key: key,
-                    priority: priority,
-                    action: action
+                stageTaskIDObservation(
+                    value: value, priority: priority, action: action,
+                    on: childNode, in: runtime, context: context
                 )
-
-                if let launchState, launchState.oldValue != launchState.newValue {
-                    childNode.pendingLifecycleTaskLaunches.append(launch)
-                }
-
-                let existingOnAppearWithNode = childNode.onAppearWithNode
-                childNode.onAppearWithNode = { node in
-                    existingOnAppearWithNode?(node)
-                    node.launchLifecycleTask(launch)
-                }
-
-                let existingOnDisappearWithNode = childNode.onDisappearWithNode
-                childNode.onDisappearWithNode = { node in
-                    existingOnDisappearWithNode?(node)
-                    node.cancelLifecycleTask(key: key)
-                }
                 return childNode
             }
         }
@@ -30585,6 +31305,7 @@ extension View {
         }
         modified.id = identifier
         modified.explicitViewIdentity = RetainedViewIdentity.Key(identifier)
+        modified.scrollTargetIdentity = RetainedScrollTargetIdentity(identifier: identifier, isImplicitForEach: false)
         return modified
     }
 
@@ -30594,6 +31315,7 @@ extension View {
         }
         modified.id = String(describing: identifier)
         modified.explicitViewIdentity = RetainedViewIdentity.Key(identifier)
+        modified.scrollTargetIdentity = RetainedScrollTargetIdentity(identifier: identifier, isImplicitForEach: false)
         return modified
     }
 
@@ -30610,7 +31332,7 @@ extension View {
             }
         }
         modified.id = "\(identifier)#\(index)"
-        modified.setImplicitForEachIdentity(String(describing: identifier))
+        modified.setImplicitForEachIdentity(identifier)
         return modified
     }
 

@@ -5,7 +5,9 @@ import SwiftWindowsCore
 /// actor replies contain copied Swift values; all allocations and buffer fills
 /// finish before the enclosing full-call C lease is released.
 enum UIANativeProviderCallbacks {
-    static func make(context: UnsafeMutableRawPointer) -> SWUUIACallCallbacks {
+    static func make(
+        context: UnsafeMutableRawPointer, supportsLogicalItems: Bool = false
+    ) -> SWUUIACallCallbacks {
         var callbacks = SWUUIACallCallbacks()
         callbacks.context = context
         callbacks.navigate = { call, element, direction in
@@ -92,6 +94,28 @@ enum UIANativeProviderCallbacks {
         callbacks.realizeVirtualizedItem = { call, element in
             UIANativeProviderCallbacks.integerReply(call, .realizeVirtualizedItem(element: element), unavailable: 0)
         }
+        if supportsLogicalItems {
+            callbacks.getLogicalItemState = { call, element in
+                UIANativeProviderCallbacks.integerReply(
+                    call, .logicalItemState(element: element), unavailable: Int32(SWU_UIA_LOGICAL_ITEM_UNAVAILABLE))
+            }
+            callbacks.findItem = { call, container, after, result in
+                result?.pointee = UInt64.max
+                let lookup = UIANativeProviderCallbacks.itemLookupReply(
+                    call, .findItem(container: container, afterElement: after == UInt64.max ? nil : after))
+                switch lookup {
+                case .item(let element):
+                    result?.pointee = element
+                    return Int32(SWU_UIA_ITEM_LOOKUP_FOUND)
+                case .end:
+                    return Int32(SWU_UIA_ITEM_LOOKUP_END)
+                case .unavailable:
+                    return Int32(SWU_UIA_ITEM_LOOKUP_UNAVAILABLE)
+                case .invalidStart:
+                    return Int32(SWU_UIA_ITEM_LOOKUP_INVALID_START)
+                }
+            }
+        }
         callbacks.setFocus = { call, element in
             UIANativeProviderCallbacks.completeReply(call, .setFocus(element: element))
         }
@@ -158,6 +182,16 @@ enum UIANativeProviderCallbacks {
         guard case .selection(let value) = reply else {
             UIANativeRequestDispatch.unexpectedReply(call)
             return nil
+        }
+        return value
+    }
+
+    private static func itemLookupReply(_ call: OpaquePointer?, _ request: UIAProviderRequest) -> UIAItemContainerResult
+    {
+        guard let reply = UIANativeRequestDispatch.perform(call, request) else { return .unavailable }
+        guard case .itemLookup(let value) = reply else {
+            UIANativeRequestDispatch.unexpectedReply(call)
+            return .unavailable
         }
         return value
     }

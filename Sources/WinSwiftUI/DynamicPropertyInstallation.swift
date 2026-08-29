@@ -75,6 +75,19 @@ enum DynamicPropertyInstaller {
         var owningSlots: Set<StatePropertySlot> = []
         let plan = try prepare(source, at: slot, owningSlots: &owningSlots)
         try requireActive(installation, at: slot, type: Root.self)
+        if let attribution = epoch.lazyAttribution(for: owner) {
+            guard epoch.recordLazyOwnedSlots(owningSlots, owner: owner, attribution: attribution) else {
+                throw failure(
+                    .ownerUnavailable, type: Root.self, at: slot,
+                    "The original lazy component left construction before its owning property plan was recorded")
+            }
+        } else if let attribution = epoch.descriptorAttribution(for: owner) {
+            guard epoch.recordDescriptorOwnedSlots(owningSlots, owner: owner, attribution: attribution) else {
+                throw failure(
+                    .ownerUnavailable, type: Root.self, at: slot,
+                    "The original descriptor component left construction before its owning property plan was recorded")
+            }
+        }
         return try plan.apply(source, installation)
     }
 

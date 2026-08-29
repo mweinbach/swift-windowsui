@@ -2,6 +2,103 @@ import Foundation
 import SwiftWindowsCore
 import SwiftWindowsPlatform
 
+/// A checked reconciliation can stop after an admitted callback changes its
+/// owner. The observed children describe the resulting tree, not permission
+/// to publish an obsolete candidate or evidence that layout has settled.
+@MainActor
+struct RetainedLazyListAdoptionResult {
+    let completed: Bool
+    let didMutate: Bool
+    let children: [ViewNode]
+    let completion: RetainedLazyListAdoptionCompletion?
+
+    init(
+        completed: Bool, didMutate: Bool, children: [ViewNode],
+        completion: RetainedLazyListAdoptionCompletion? = nil
+    ) {
+        self.completed = completed
+        self.didMutate = didMutate
+        self.children = children
+        self.completion = completion
+    }
+}
+
+/// A successful call is not a lasting permit: enclosing runtime scopes may
+/// still drain application cleanup. This weak native snapshot lets the caller
+/// check the actual adopted subtree again after those scopes have unwound.
+@MainActor
+final class RetainedLazyListAdoptionCompletion {
+    @MainActor
+    private struct NodeSnapshot {
+        weak var node: ViewNode?
+        weak var controller: (any RetainedTextInputController)?
+        weak var observers: RetainedScrollObserverStorage?
+        weak var adapter: RetainedLazyListRuntimeAdapter?
+        let hadController: Bool
+        let hadObservers: Bool
+        let hadAdapter: Bool
+        let attachment: RetainedLazyListAttachmentProof
+        let identity: RetainedLazyListViewIdentityProof
+        let children: [ObjectIdentifier]
+
+        init(of node: ViewNode) {
+            self.node = node
+            controller = node.textInputController
+            observers = node.scrollObserverStorage
+            adapter = node.retainedLazyListAdapter
+            hadController = node.textInputController != nil
+            hadObservers = node.scrollObserverStorage != nil
+            hadAdapter = node.retainedLazyListAdapter != nil
+            attachment = node.captureLazyListAttachmentProof()
+            identity = node.captureLazyListIdentityProof()
+            children = node.children.map(ObjectIdentifier.init)
+        }
+
+        var isCurrent: Bool {
+            guard let node, attachment.isCurrent, identity.isCurrent, node.children.count == children.count else {
+                return false
+            }
+            if hadController {
+                guard let controller, node.textInputController === controller else { return false }
+            } else if node.textInputController != nil {
+                return false
+            }
+            if hadObservers {
+                guard let observers, node.scrollObserverStorage === observers else { return false }
+            } else if node.scrollObserverStorage != nil {
+                return false
+            }
+            if hadAdapter {
+                guard let adapter, node.retainedLazyListAdapter === adapter else { return false }
+            } else if node.retainedLazyListAdapter != nil {
+                return false
+            }
+            return zip(node.children, children).allSatisfy { pair in ObjectIdentifier(pair.0) == pair.1 }
+        }
+    }
+
+    private let nodes: [NodeSnapshot]
+
+    init?(of root: ViewNode) {
+        var pending = [(node: root, depth: 0)]
+        var visited: Set<ObjectIdentifier> = []
+        var snapshots: [NodeSnapshot] = []
+        while let entry = pending.popLast() {
+            guard entry.depth <= ViewNode.maximumTraversalDepth,
+                visited.insert(ObjectIdentifier(entry.node)).inserted
+            else { return nil }
+            snapshots.append(NodeSnapshot(of: entry.node))
+            for child in entry.node.children {
+                guard child.parent === entry.node, child.hasSameLazyListRuntime(as: entry.node) else { return nil }
+                pending.append((node: child, depth: entry.depth + 1))
+            }
+        }
+        nodes = snapshots
+    }
+
+    var isCurrent: Bool { nodes.allSatisfy(\.isCurrent) }
+}
+
 @MainActor
 public final class ComponentHost {
     public let runtime: RetainedViewRuntime
@@ -235,16 +332,34 @@ public final class ComponentHost {
             let lifecycle = buildLifecycle
             var epoch: (any RetainedBuildEpoch)?
             var didAdopt = false
+            let lazyBuild = RootLazyBuild()
             measureBuildAttempt {
                 epoch = lifecycle?.beginBuild()
                 coordinator.install(epoch, startedAt: sequence)
                 runtime.beginLongPressReconciliation()
                 didAdopt =
                     (lifecycle == nil || epoch != nil)
-                    && buildAndAdopt(epoch: epoch, sequence: sequence, validity: request.validity)
-                if didAdopt {
+                    && buildAndAdopt(
+                        epoch: epoch, sequence: sequence, validity: request.validity, lazyBuild: lazyBuild)
+                if lazyBuild.usesManagedPublication, let journal = lazyBuild.journal,
+                    let activity = epoch as? any RetainedLazyListBuildActivity
+                {
+                    // Source-node destruction occurs after buildAndAdopt
+                    // returns. It may invalidate an otherwise completed tree.
+                    didAdopt = didAdopt && lazyBuild.completion?.isCurrent == true && journal.canContinueAdoption
+                    let disposition = journal.seal(completedCheckedAdoption: didAdopt)
+                    if disposition.stop != .noAcceptance || didAdopt {
+                        activity.commitLazyList(disposition)
+                    } else {
+                        journal.revokeBeforeAbandon()
+                        epoch?.abandon()
+                    }
+                } else if didAdopt {
+                    _ = lazyBuild.journal?.seal(completedCheckedAdoption: lazyBuild.completion?.isCurrent == true)
                     epoch?.commit()
                 } else {
+                    lazyBuild.journal?.revokeBeforeAbandon()
+                    _ = lazyBuild.journal?.seal()
                     epoch?.abandon()
                 }
                 runtime.endLongPressReconciliation()
@@ -258,14 +373,27 @@ public final class ComponentHost {
                             epoch.finishAfterCallbacks()
                         }
                     }
-                    if didAdopt, epoch?.canComplete != false {
+                    lazyBuild.journal?.finishAcceptedTaskCleanup()
+                    lazyBuild.journal?.releaseUnadoptedTransport()
+                    if didAdopt, epoch?.canComplete != false, lazyBuild.permitsCompletion {
                         onReloadCompleted?()
-                        if epoch?.canComplete != false { request.onCompleted?() }
+                        if epoch?.canComplete != false, lazyBuild.permitsCompletion { request.onCompleted?() }
                     }
                 }
                 coordinator.finishBuild()
             }
         }
+    }
+
+    /// Native facts survive candidate capture cleanup without keeping source
+    /// components, view values or callbacks in the sealed disposition.
+    @MainActor
+    private final class RootLazyBuild {
+        var journal: RetainedLazyListAdoptionJournal?
+        var preparation: RetainedLazyListAdoptionPreparation?
+        var completion: RetainedLazyListAdoptionCompletion?
+        var usesManagedPublication = false
+        var permitsCompletion: Bool { !usesManagedPublication || completion?.isCurrent == true }
     }
 
     private func measureBuildAttempt(_ build: () -> Void) {
@@ -292,13 +420,42 @@ public final class ComponentHost {
     }
 
     private func buildAndAdopt(
-        epoch: (any RetainedBuildEpoch)?, sequence: UInt64?, validity: (any RetainedBuildRequest)?
+        epoch: (any RetainedBuildEpoch)?, sequence: UInt64?, validity: (any RetainedBuildRequest)?,
+        lazyBuild: RootLazyBuild? = nil
     ) -> Bool {
+        let taskTransaction = RetainedBuildTransaction()
+        var completedNativeBuild = false
+        defer {
+            // Local source components may own authored destructors. Revoke
+            // rejected construction before those locals leave this helper.
+            if !completedNativeBuild { lazyBuild?.journal?.revokeBeforeAbandon() }
+        }
         if buildComponents == nil, epoch == nil, sequence == nil {
             runtime.root.removeAllChildren()
             return true
         }
         guard candidateCanAdopt(epoch: epoch, sequence: sequence, validity: validity) else { return false }
+        let descriptorScope: RetainedLazyListDescriptorBuildScope?
+        if let epoch, let activity = epoch as? any RetainedLazyListBuildActivity {
+            guard
+                let scope = runtime.retainedBuildCoordinator.beginDescriptorBuildScope(
+                    origin: .componentHostRoot, epoch: epoch, hostLifetime: runtime.lazyListLogicalHostLifetime,
+                    ownerLifetime: runtime.root.lazyListActivityStorage().descriptorOwnerLifetime)
+            else { return false }
+            let bound = activity.bindLazyListDescriptorScope(scope)
+            guard bound, scope.canConstructDescriptors,
+                candidateCanAdopt(epoch: epoch, sequence: sequence, validity: validity)
+            else {
+                scope.revoke()
+                return false
+            }
+            descriptorScope = scope
+            let journal = RetainedLazyListAdoptionJournal(descriptorScope: scope, transaction: taskTransaction)
+            journal.seedExistingContributions(from: runtime.root.children)
+            lazyBuild?.journal = journal
+        } else {
+            descriptorScope = nil
+        }
         runtime.recordMatchedGeometryFrames()
 
         let isProfiling = runtime.collectsPhaseTimings
@@ -314,10 +471,65 @@ public final class ComponentHost {
         if isProfiling { lastNodeConstructionSeconds = nodesEndedAt - composeEndedAt }
 
         guard candidateCanAdopt(epoch: epoch, sequence: sequence, validity: validity) else { return false }
-        guard epoch?.willAdopt() != false else { return false }
-        guard validity?.isCurrent != false else { return false }
+        if let journal = lazyBuild?.journal {
+            guard journal.registerSourceDescriptors(in: newNodes) else { return false }
+            lazyBuild?.preparation = journal.preparation()
+            if journal.hasManagedContributions {
+                lazyBuild?.usesManagedPublication = true
+                guard let activity = epoch as? any RetainedLazyListBuildActivity,
+                    let preparation = journal.preparation(), descriptorScope?.canConstructDescriptors == true
+                else {
+                    journal.revokeBeforeAbandon()
+                    return false
+                }
+                let prepared = activity.willAdoptLazyList(preparation)
+                guard validity?.isCurrent != false, let prepared,
+                    journal.beginAdoption(preparation, preparedActivity: prepared)
+                else {
+                    journal.revokeBeforeAbandon()
+                    return false
+                }
+            } else {
+                // Ordinary component tags are metadata, not opt-in to a
+                // different State/observer publication policy.
+                guard epoch?.willAdopt() != false, validity?.isCurrent != false
+                else {
+                    journal.revokeBeforeAbandon()
+                    return false
+                }
+                _ = journal.beginOrdinaryAdoption()
+            }
+        } else {
+            guard epoch?.willAdopt() != false else { return false }
+            guard validity?.isCurrent != false else { return false }
+        }
 
-        Self.reconcileChildren(of: runtime.root, oldChildren: oldChildren, newNodes: newNodes)
+        let taskAdoption: RetainedTaskAdoptionContext?
+        if let epoch {
+            taskAdoption = RetainedTaskAdoptionContext(
+                runtime: runtime, epoch: epoch, transaction: taskTransaction)
+        } else {
+            taskAdoption = nil
+        }
+        let result = Self.reconcileChildren(
+            of: runtime.root, oldChildren: oldChildren, newNodes: newNodes, taskAdoption: taskAdoption,
+            lazyJournal: lazyBuild?.journal)
+        if let journal = lazyBuild?.journal {
+            if result.completed {
+                let anchor = runtime.root.lazyListActivityStorage().captureActualAttachment(
+                    of: runtime.root, in: runtime)
+                let groups =
+                    lazyBuild?.preparation?.ordinaryComponents.flatMap(\.groups)
+                    .filter { $0.construction == .closedEmpty }.map(\.group) ?? []
+                journal.recordAcceptedOrdinaryEmptyGroups(structuralAnchor: anchor, groups: groups)
+                let recordedScope = journal.recordCompletedOwnedDescriptorScope(structuralAnchor: anchor)
+                if !journal.isOrdinaryAdoption, !recordedScope { return false }
+            }
+            lazyBuild?.completion =
+                result.completed
+                ? (result.completion ?? RetainedLazyListAdoptionCompletion(of: runtime.root)) : nil
+            if lazyBuild?.usesManagedPublication == true, !result.completed { return false }
+        }
         if isProfiling {
             lastReconcileSeconds = PlatformClock.now() - nodesEndedAt
         }
@@ -340,6 +552,7 @@ public final class ComponentHost {
         // pointer leaves and comes back.
         runtime.restoreInteractionChrome()
         runtime.pendingMatchedGeometryCheck = true
+        completedNativeBuild = true
         return true
     }
 
@@ -796,13 +1009,426 @@ public final class ComponentHost {
     /// `reconcileChildren` addressed directly, for callers that already know
     /// which node the new build corresponds to. `RetainedViewRuntime` uses it
     /// to re-seat a `GeometryReader` body on its resolved slot.
-    static func adopt(source: ViewNode, into target: ViewNode) {
-        target.invalidateRenderLifecycleCandidates()
-        revokeDepartingTextInputOwnership(source: source, target: target)
-        withReconcileAnimationTransaction(source: source, previous: target) {
-            updateNodeProperties(target: target, source: source)
-            reconcilePreparedChildren(of: target, oldChildren: target.children, newNodes: source.children)
+    @discardableResult
+    static func adopt(
+        source: ViewNode, into target: ViewNode,
+        admission: RetainedLazyListAdoptionAdmission? = nil,
+        taskAdoption: RetainedTaskAdoptionContext? = nil,
+        lazyJournal: RetainedLazyListAdoptionJournal? = nil
+    ) -> RetainedLazyListAdoptionResult {
+        // Keep the final primitive check outside the scope that owns matching,
+        // transaction and retired-property payloads. Their destruction can
+        // synchronously replace or close the provider.
+        let check = NodeReconcileAdmission(
+            admission, source: source, target: target, lazyJournal: lazyJournal, taskAdoption: taskAdoption)
+        var completion: RetainedLazyListAdoptionCompletion?
+        let completed = performAdoption(
+            source: source, into: target, admission: admission, taskAdoption: taskAdoption,
+            lazyJournal: lazyJournal, completion: &completion)
+        return adoptionResult(
+            of: target, completed: completed && check.isCurrent,
+            admission: admission, completion: completion, lazyJournal: lazyJournal)
+    }
+
+    private static func performAdoption(
+        source: ViewNode, into target: ViewNode,
+        admission: RetainedLazyListAdoptionAdmission?, taskAdoption: RetainedTaskAdoptionContext?,
+        lazyJournal: RetainedLazyListAdoptionJournal?,
+        completion: inout RetainedLazyListAdoptionCompletion?
+    ) -> Bool {
+        let check = NodeReconcileAdmission(
+            admission, source: source, target: target, lazyJournal: lazyJournal, taskAdoption: taskAdoption)
+        guard check.isCurrent, admission?.permitsMutation(of: target) != false else { return false }
+        if lazyJournal != nil, source.containsRejectedRetainedSource { return false }
+        if source === target, admission != nil {
+            lazyJournal?.recordUnchangedNode(target)
+            completion = RetainedLazyListAdoptionCompletion(of: target)
+            return true
         }
+        let preservesChildren = preservesLazyListChildren(source: source, target: target)
+        let newNodes = target.childrenForLazyListReconciliation(from: source)
+        let oldChildren = target.children
+        let plan: PreparedChildrenPlan?
+        if admission != nil || lazyJournal?.isOrdinaryAdoption == false {
+            guard
+                let prepared = prepareChildrenPlan(
+                    of: target, oldChildren: oldChildren, newNodes: newNodes, admission: admission,
+                    sourceParent: preservesChildren ? target : source, lazyJournal: lazyJournal)
+            else { return false }
+            plan = prepared
+        } else {
+            plan = nil
+        }
+        guard check.isCurrent, plan?.isCurrent != false else { return false }
+        if let plan {
+            // All matching callbacks have returned. Reject an unsupported
+            // input change anywhere in the plan before revoking any owner.
+            guard target.supportsLazyListScrollInputAdoption(from: source), plan.supportsScrollInputAdoption else {
+                return false
+            }
+        }
+        taskAdoption?.associate(source: source, target: target)
+        guard check.isCurrent, plan?.isCurrent != false, plan?.stillOwnsOldChildren != false else { return false }
+        guard check.markMutationStarted(), check.prepareTaskTransport(from: source, to: target) else { return false }
+        target.invalidateRenderLifecycleCandidates()
+        guard
+            revokeDepartingTextInputOwnership(
+                source: source, target: target, plan: plan, admission: admission, lazyJournal: lazyJournal)
+        else { return false }
+        guard check.isCurrent, plan?.isCurrent != false, plan?.stillOwnsOldChildren != false else { return false }
+        let propertyCheck = NodeReconcileAdmission(
+            admission, source: source, target: target, childrenSnapshot: plan?.childrenSnapshot,
+            lazyJournal: lazyJournal, taskAdoption: taskAdoption)
+        let completed = withReconcileAnimationTransaction(source: source, previous: target, check: propertyCheck) {
+            guard plan?.isCurrent != false, plan?.stillOwnsOldChildren != false else { return false }
+            guard updateNodeProperties(target: target, source: source, check: propertyCheck), propertyCheck.isCurrent
+            else {
+                return false
+            }
+            return reconcilePreparedChildren(
+                of: target, oldChildren: oldChildren, newNodes: newNodes, plan: plan, admission: admission,
+                preservesChildren: preservesChildren, sourceParent: source,
+                taskAdoption: taskAdoption, lazyJournal: lazyJournal)
+        }
+        guard completed, check.isCurrent else { return false }
+        check.recordCompletedNode(from: source, to: target)
+        guard check.isCurrent else { return false }
+        if admission != nil || lazyJournal?.isOrdinaryAdoption == false {
+            completion = RetainedLazyListAdoptionCompletion(of: target)
+        }
+        return true
+    }
+
+    private static func preservesLazyListChildren(source: ViewNode, target: ViewNode) -> Bool {
+        guard let previous = target.retainedLazyListAdapter, let incoming = source.retainedLazyListAdapter else {
+            return false
+        }
+        return incoming === previous || incoming.canInheritMountedRecords(from: previous, in: target)
+    }
+
+    private static func adoptionResult(
+        of parent: ViewNode, completed: Bool, admission: RetainedLazyListAdoptionAdmission?,
+        completion: RetainedLazyListAdoptionCompletion?, lazyJournal: RetainedLazyListAdoptionJournal?
+    ) -> RetainedLazyListAdoptionResult {
+        let isComplete =
+            completed && admission?.isCurrent != false
+            && ((admission == nil && lazyJournal?.isOrdinaryAdoption != false) || completion?.isCurrent == true)
+        return RetainedLazyListAdoptionResult(
+            completed: isComplete,
+            didMutate: admission?.didMutate ?? (lazyJournal?.hasAcceptedContributions ?? completed),
+            children: parent.children, completion: isComplete ? completion : nil)
+    }
+
+    /// The token is concrete and performs only native generation/lifetime
+    /// reads. Per-node witnesses reject detach/reattach even when a callback
+    /// restores the same parent and runtime before returning.
+    @MainActor
+    struct NodeReconcileAdmission {
+        let admission: RetainedLazyListAdoptionAdmission?
+        let lazyJournal: RetainedLazyListAdoptionJournal?
+        let taskAdoption: RetainedTaskAdoptionContext?
+        weak var source: ViewNode?
+        let sourceAttachment: RetainedLazyListAttachmentProof?
+        let targetAttachment: RetainedLazyListAttachmentProof?
+        let sourceIdentity: RetainedLazyListViewIdentityProof?
+        let targetIdentity: RetainedLazyListViewIdentityProof?
+        fileprivate let childrenSnapshot: ReconcileChildrenSnapshot?
+
+        fileprivate init(
+            _ admission: RetainedLazyListAdoptionAdmission?, source: ViewNode? = nil, target: ViewNode,
+            childrenSnapshot: ReconcileChildrenSnapshot? = nil,
+            lazyJournal: RetainedLazyListAdoptionJournal? = nil,
+            taskAdoption: RetainedTaskAdoptionContext? = nil
+        ) {
+            self.admission = admission
+            self.lazyJournal = lazyJournal
+            self.taskAdoption = taskAdoption
+            self.source = source
+            let isChecked = admission != nil || lazyJournal?.isOrdinaryAdoption == false
+            sourceAttachment = isChecked ? source?.captureLazyListAttachmentProof() : nil
+            targetAttachment = isChecked ? target.captureLazyListAttachmentProof() : nil
+            sourceIdentity = isChecked ? source?.captureLazyListIdentityProof() : nil
+            targetIdentity = isChecked ? target.captureLazyListIdentityProof() : nil
+            self.childrenSnapshot = childrenSnapshot
+        }
+
+        var isCurrent: Bool {
+            admission?.isCurrent != false && sourceAttachment?.isCurrent != false
+                && targetAttachment?.isCurrent != false && sourceIdentity?.isCurrent != false
+                && targetIdentity?.isCurrent != false && childrenSnapshot?.isCurrent != false
+                && (lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false)
+        }
+
+        func markMutationStarted() -> Bool {
+            guard isCurrent else { return false }
+            if let lazyJournal {
+                let started = lazyJournal.markMutationStarted()
+                guard lazyJournal.isOrdinaryAdoption || started else { return false }
+            }
+            admission?.markMutationStarted()
+            return true
+        }
+
+        func preparePropertyCopy(from source: ViewNode, to target: ViewNode, keyPath: PartialKeyPath<ViewNode>) -> Bool
+        {
+            guard let lazyJournal else { return isCurrent }
+            let prepared = lazyJournal.preparePropertyCopy(from: source, to: target, keyPath: keyPath)
+            return lazyJournal.isOrdinaryAdoption || prepared
+        }
+
+        func prepareTaskTransport(from source: ViewNode, to target: ViewNode) -> Bool {
+            guard let lazyJournal else { return isCurrent }
+            for candidate in source.existingRetainedTaskState?.lazyCandidateDeclarations() ?? [] {
+                guard isCurrent else { return false }
+                let accepted = lazyJournal.recordAcceptedTaskDeclarationTransport(
+                    from: source, to: target, declarationIDs: candidate.declarations)
+                associate(accepted, from: source, to: target)
+            }
+            for candidate in source.existingRetainedTaskState?.descriptorCandidateDeclarations() ?? [] {
+                guard isCurrent else { return false }
+                lazyJournal.recordAcceptedDescriptorTaskDeclarationTransport(
+                    from: source, to: target, declarationIDs: candidate.declarations)
+                associate([], from: source, to: target)
+            }
+            return isCurrent
+        }
+
+        func associate(
+            _ groups: [RetainedLazyListAcceptedTaskGroup], from source: ViewNode, to target: ViewNode
+        ) {
+            guard let lazyJournal else { return }
+            for group in groups {
+                taskAdoption?.associateLazyAccepted(group, journal: lazyJournal)
+            }
+            for group in lazyJournal.takeAcceptedDescriptorTaskGroups() {
+                taskAdoption?.associateDescriptorAccepted(group, journal: lazyJournal)
+            }
+        }
+
+        func recordCompletedNode(from source: ViewNode, to target: ViewNode) {
+            guard let lazyJournal else { return }
+            associate(lazyJournal.recordAcceptedAttachment(from: source, to: target), from: source, to: target)
+            associate(lazyJournal.recordCompletedNode(from: source, to: target), from: source, to: target)
+            admission?.recordCompletedOwnedSource(from: source, to: target, journal: lazyJournal)
+        }
+    }
+
+    /// A same-parent reorder does not change the children's attachment stamps.
+    /// Preserve old and selected source order through matching and property
+    /// callouts, including callbacks in descendants. Each plan retires only its
+    /// own order assertions when it begins transfers; ancestor lists stay checked.
+    @MainActor
+    fileprivate final class ReconcileChildrenSnapshot {
+        @MainActor
+        private struct Membership {
+            weak var owner: ViewNode?
+            let attachment: RetainedLazyListAttachmentProof
+            let identity: RetainedLazyListViewIdentityProof
+            let children: [ObjectIdentifier]
+
+            init(owner: ViewNode, children: [ViewNode]) {
+                self.owner = owner
+                attachment = owner.captureLazyListAttachmentProof()
+                identity = owner.captureLazyListIdentityProof()
+                self.children = children.map(ObjectIdentifier.init)
+            }
+
+            var ownerIsCurrent: Bool { attachment.isCurrent && identity.isCurrent }
+
+            var matchesOrder: Bool {
+                guard let owner, owner.children.count == children.count else { return false }
+                return zip(owner.children, children).allSatisfy { pair in ObjectIdentifier(pair.0) == pair.1 }
+            }
+        }
+
+        private let retained: Membership
+        private let source: Membership?
+        private let ancestor: ReconcileChildrenSnapshot?
+        private var preparedSubtrees: [RetainedLazyListAdoptionCompletion] = []
+        private var transfersHaveStarted = false
+
+        init(
+            parent: ViewNode, oldChildren: [ViewNode], sourceParent: ViewNode?, newNodes: [ViewNode],
+            ancestor: ReconcileChildrenSnapshot?
+        ) {
+            retained = Membership(owner: parent, children: oldChildren)
+            source = sourceParent.map { Membership(owner: $0, children: newNodes) }
+            self.ancestor = ancestor
+        }
+
+        var isCurrent: Bool {
+            guard ancestor?.isCurrent != false, retained.ownerIsCurrent, source?.ownerIsCurrent != false else {
+                return false
+            }
+            guard !transfersHaveStarted else { return true }
+            return retained.matchesOrder && source?.matchesOrder != false && preparedSubtrees.allSatisfy(\.isCurrent)
+        }
+
+        /// Matching identifies fresh roots before property or insertion
+        /// callbacks. Keep their full native proofs until the transfer plan
+        /// takes ownership; attaching them would invalidate these proofs.
+        func recordPreparedSubtree(of node: ViewNode) -> Bool {
+            guard !transfersHaveStarted, isCurrent, let completion = RetainedLazyListAdoptionCompletion(of: node),
+                completion.isCurrent
+            else { return false }
+            preparedSubtrees.append(completion)
+            return isCurrent
+        }
+
+        func beginTransfers() -> Bool {
+            guard isCurrent else { return false }
+            transfersHaveStarted = true
+            return true
+        }
+    }
+
+    /// Checked calls prepare identity matching once. Both revocation and
+    /// adoption consume this plan; no second user Hashable lookup can change
+    /// the set of owners after departure preparation has started.
+    @MainActor
+    private final class PreparedChildrenPlan {
+        @MainActor
+        struct Entry {
+            let source: ViewNode
+            let retained: ViewNode?
+            let sourceAttachment: RetainedLazyListAttachmentProof
+            let retainedAttachment: RetainedLazyListAttachmentProof?
+            let sourceIdentity: RetainedLazyListViewIdentityProof
+            let retainedIdentity: RetainedLazyListViewIdentityProof?
+            let descendants: PreparedChildrenPlan?
+
+            var isCurrent: Bool {
+                sourceAttachment.isCurrent && retainedAttachment?.isCurrent != false
+                    && sourceIdentity.isCurrent && retainedIdentity?.isCurrent != false
+            }
+        }
+
+        let parent: ViewNode
+        let oldChildren: [ViewNode]
+        let parentAttachment: RetainedLazyListAttachmentProof
+        let parentIdentity: RetainedLazyListViewIdentityProof
+        let oldAttachments: [RetainedLazyListAttachmentProof]
+        let oldIdentities: [RetainedLazyListViewIdentityProof]
+        let childrenSnapshot: ReconcileChildrenSnapshot?
+        let entries: [Entry]
+
+        init(
+            parent: ViewNode, oldChildren: [ViewNode], parentAttachment: RetainedLazyListAttachmentProof,
+            parentIdentity: RetainedLazyListViewIdentityProof, oldAttachments: [RetainedLazyListAttachmentProof],
+            oldIdentities: [RetainedLazyListViewIdentityProof], childrenSnapshot: ReconcileChildrenSnapshot?,
+            entries: [Entry]
+        ) {
+            self.parent = parent
+            self.oldChildren = oldChildren
+            self.parentAttachment = parentAttachment
+            self.parentIdentity = parentIdentity
+            self.oldAttachments = oldAttachments
+            self.oldIdentities = oldIdentities
+            self.childrenSnapshot = childrenSnapshot
+            self.entries = entries
+        }
+
+        var isCurrent: Bool {
+            parentAttachment.isCurrent && parentIdentity.isCurrent && oldAttachments.allSatisfy(\.isCurrent)
+                && oldIdentities.allSatisfy(\.isCurrent) && childrenSnapshot?.isCurrent != false
+                && entries.allSatisfy(\.isCurrent)
+        }
+
+        var stillOwnsOldChildren: Bool {
+            ComponentHost.sameChildren(parent.children, oldChildren)
+        }
+
+        var supportsScrollInputAdoption: Bool {
+            for entry in entries {
+                guard let retained = entry.retained, retained !== entry.source else { continue }
+                guard retained.supportsLazyListScrollInputAdoption(from: entry.source),
+                    entry.descendants?.supportsScrollInputAdoption != false
+                else { return false }
+            }
+            return true
+        }
+    }
+
+    private static func sameChildren(_ lhs: [ViewNode], _ rhs: [ViewNode]) -> Bool {
+        lhs.count == rhs.count && zip(lhs, rhs).allSatisfy { pair in pair.0 === pair.1 }
+    }
+
+    private static func prepareChildrenPlan(
+        of parent: ViewNode, oldChildren: [ViewNode], newNodes: [ViewNode],
+        admission: RetainedLazyListAdoptionAdmission?, sourceParent: ViewNode? = nil,
+        inheritedChildren: ReconcileChildrenSnapshot? = nil, depth: Int = 0,
+        lazyJournal: RetainedLazyListAdoptionJournal? = nil
+    ) -> PreparedChildrenPlan? {
+        guard admission?.isCurrent != false, lazyJournal?.canContinueAdoption != false,
+            depth <= ViewNode.maximumTraversalDepth,
+            sameChildren(parent.children, oldChildren)
+        else { return nil }
+        if let sourceParent, !parent.canAdoptStagedLazyListAdapter(from: sourceParent) { return nil }
+        let parentAttachment = parent.captureLazyListAttachmentProof()
+        let parentIdentity = parent.captureLazyListIdentityProof()
+        let oldAttachments = oldChildren.map { $0.captureLazyListAttachmentProof() }
+        let sourceAttachments = newNodes.map { $0.captureLazyListAttachmentProof() }
+        let oldIdentities = oldChildren.map { $0.captureLazyListIdentityProof() }
+        let sourceIdentities = newNodes.map { $0.captureLazyListIdentityProof() }
+        let childrenSnapshot = ReconcileChildrenSnapshot(
+            parent: parent, oldChildren: oldChildren, sourceParent: sourceParent, newNodes: newNodes,
+            ancestor: inheritedChildren)
+        guard
+            let matches = matchingChildren(
+                oldChildren: oldChildren, newNodes: newNodes, admission: admission, parent: parent,
+                childrenSnapshot: childrenSnapshot, lazyJournal: lazyJournal),
+            admission?.isCurrent != false, lazyJournal?.canContinueAdoption != false,
+            parentAttachment.isCurrent, parentIdentity.isCurrent,
+            oldAttachments.allSatisfy(\.isCurrent), sourceAttachments.allSatisfy(\.isCurrent),
+            oldIdentities.allSatisfy(\.isCurrent), sourceIdentities.allSatisfy(\.isCurrent),
+            sameChildren(parent.children, oldChildren)
+        else { return nil }
+        for (index, source) in newNodes.enumerated() where matches[index] == nil {
+            guard childrenSnapshot.recordPreparedSubtree(of: source) else { return nil }
+        }
+        var entries: [PreparedChildrenPlan.Entry] = []
+        entries.reserveCapacity(newNodes.count)
+        for (index, source) in newNodes.enumerated() {
+            guard admission?.isCurrent != false, lazyJournal?.canContinueAdoption != false,
+                parentAttachment.isCurrent, parentIdentity.isCurrent,
+                sourceAttachments[index].isCurrent, sourceIdentities[index].isCurrent, childrenSnapshot.isCurrent
+            else {
+                return nil
+            }
+            let retained = matches[index]
+            let retainedAttachment = retained?.captureLazyListAttachmentProof()
+            let retainedIdentity = retained?.captureLazyListIdentityProof()
+            let descendants: PreparedChildrenPlan?
+            if let retained, retained !== source {
+                let sourceParent = preservesLazyListChildren(source: source, target: retained) ? retained : source
+                guard
+                    let childPlan = prepareChildrenPlan(
+                        of: retained, oldChildren: retained.children,
+                        newNodes: retained.childrenForLazyListReconciliation(from: source),
+                        admission: admission, sourceParent: sourceParent, inheritedChildren: childrenSnapshot,
+                        depth: depth + 1, lazyJournal: lazyJournal)
+                else { return nil }
+                descendants = childPlan
+            } else {
+                descendants = nil
+            }
+            entries.append(
+                .init(
+                    source: source, retained: retained, sourceAttachment: sourceAttachments[index],
+                    retainedAttachment: retainedAttachment, sourceIdentity: sourceIdentities[index],
+                    retainedIdentity: retainedIdentity, descendants: descendants))
+        }
+        let plan = PreparedChildrenPlan(
+            parent: parent, oldChildren: oldChildren, parentAttachment: parentAttachment,
+            parentIdentity: parentIdentity, oldAttachments: oldAttachments, oldIdentities: oldIdentities,
+            childrenSnapshot: childrenSnapshot, entries: entries)
+        let surviving = Set(entries.compactMap(\.retained).map(ObjectIdentifier.init))
+        let departing = oldChildren.filter { !surviving.contains(ObjectIdentifier($0)) }
+        guard ViewNode.supportsLazyListRemoval(of: departing, admission: admission, lazyJournal: lazyJournal) else {
+            return nil
+        }
+        return admission?.isCurrent != false && lazyJournal?.canContinueAdoption != false
+            && plan.isCurrent && plan.stillOwnsOldChildren ? plan : nil
     }
 
     private static var inheritedTransaction: Transaction? {
@@ -815,25 +1441,28 @@ public final class ComponentHost {
     /// belong to the retained identity. Scope the resulting transaction over
     /// both the node and its children, restoring the parent before siblings.
     private static func withReconcileAnimationTransaction(
-        source: ViewNode, previous: ViewNode?, perform body: () -> Void
-    ) {
+        source: ViewNode, previous: ViewNode?, check: NodeReconcileAdmission, perform body: () -> Bool
+    ) -> Bool {
+        guard check.isCurrent else { return false }
         let modifiers = source.reconcileAnimationModifiers
         guard !modifiers.isEmpty else {
-            body()
-            return
+            return body()
         }
         let previousModifiers = previous?.reconcileAnimationModifiers ?? []
         var transaction = inheritedTransaction ?? Transaction()
         var didApplyModifier = false
         for index in modifiers.indices.reversed() {
+            guard check.isCurrent else { return false }
             let previousModifier = previousModifiers.indices.contains(index) ? previousModifiers[index] : nil
-            if modifiers[index].apply(to: &transaction, previous: previousModifier) {
+            if modifiers[index].apply(
+                to: &transaction, previous: previousModifier, admission: check.admission, nativeCheck: check)
+            {
                 didApplyModifier = true
             }
+            guard check.isCurrent else { return false }
         }
         guard didApplyModifier else {
-            body()
-            return
+            return body()
         }
 
         let previousTransaction = currentTransaction
@@ -846,16 +1475,44 @@ public final class ComponentHost {
             currentTransaction = previousTransaction
             currentAnimationTransaction = previousAnimation
         }
-        body()
+        guard check.isCurrent else { return false }
+        return body()
     }
 
-    private static func prepareInsertedSubtree(_ node: ViewNode) {
-        withReconcileAnimationTransaction(source: node, previous: nil) {
-            node.retainInsertionTransaction(inheritedTransaction)
-            for child in node.children {
-                prepareInsertedSubtree(child)
+    private static func prepareInsertedSubtree(
+        _ node: ViewNode, admission: RetainedLazyListAdoptionAdmission?,
+        taskAdoption: RetainedTaskAdoptionContext?,
+        inheritedChildren: ReconcileChildrenSnapshot? = nil, depth: Int = 0,
+        lazyJournal: RetainedLazyListAdoptionJournal? = nil
+    ) -> Bool {
+        let children = node.children
+        let childrenSnapshot =
+            admission == nil && lazyJournal?.isOrdinaryAdoption != false
+            ? nil
+            : ReconcileChildrenSnapshot(
+                parent: node, oldChildren: children, sourceParent: nil, newNodes: children, ancestor: inheritedChildren)
+        let check = NodeReconcileAdmission(
+            admission, source: node, target: node, childrenSnapshot: childrenSnapshot,
+            lazyJournal: lazyJournal, taskAdoption: taskAdoption)
+        guard check.isCurrent,
+            (admission == nil && lazyJournal?.isOrdinaryAdoption != false) || depth <= ViewNode.maximumTraversalDepth
+        else { return false }
+        taskAdoption?.associate(source: node, target: node)
+        guard check.isCurrent else { return false }
+        let completed = withReconcileAnimationTransaction(source: node, previous: nil, check: check) {
+            guard node.retainInsertionTransaction(inheritedTransaction, admission: admission), check.isCurrent else {
+                return false
             }
+            for child in children {
+                guard check.isCurrent, admission == nil || sameChildren(children, node.children),
+                    prepareInsertedSubtree(
+                        child, admission: admission, taskAdoption: taskAdoption,
+                        inheritedChildren: childrenSnapshot, depth: depth + 1, lazyJournal: lazyJournal)
+                else { return false }
+            }
+            return check.isCurrent && (admission == nil || sameChildren(children, node.children))
         }
+        return completed && check.isCurrent
     }
 
     /// Reconciliation claims typed identities first, legacy tags second,
@@ -866,20 +1523,138 @@ public final class ComponentHost {
     /// occur. Survivors keep their nodes and move into the new order, retaining
     /// runtime-owned focus, scroll state, and animations. Raw retained trees
     /// without typed identities keep their existing matching behavior.
-    static func reconcileChildren(of parent: ViewNode, oldChildren: [ViewNode], newNodes: [ViewNode]) {
+    @discardableResult
+    static func reconcileChildren(
+        of parent: ViewNode, oldChildren: [ViewNode], newNodes: [ViewNode],
+        admission: RetainedLazyListAdoptionAdmission? = nil,
+        taskAdoption: RetainedTaskAdoptionContext? = nil,
+        lazyJournal: RetainedLazyListAdoptionJournal? = nil
+    ) -> RetainedLazyListAdoptionResult {
+        let check = NodeReconcileAdmission(
+            admission, target: parent, lazyJournal: lazyJournal, taskAdoption: taskAdoption)
+        var completion: RetainedLazyListAdoptionCompletion?
+        let completed = performChildrenReconciliation(
+            of: parent, oldChildren: oldChildren, newNodes: newNodes, admission: admission,
+            taskAdoption: taskAdoption, lazyJournal: lazyJournal, completion: &completion)
+        return adoptionResult(
+            of: parent, completed: completed && check.isCurrent,
+            admission: admission, completion: completion, lazyJournal: lazyJournal)
+    }
+
+    private static func performChildrenReconciliation(
+        of parent: ViewNode, oldChildren: [ViewNode], newNodes: [ViewNode],
+        admission: RetainedLazyListAdoptionAdmission?, taskAdoption: RetainedTaskAdoptionContext?,
+        lazyJournal: RetainedLazyListAdoptionJournal?,
+        completion: inout RetainedLazyListAdoptionCompletion?
+    ) -> Bool {
+        let check = NodeReconcileAdmission(
+            admission, target: parent, lazyJournal: lazyJournal, taskAdoption: taskAdoption)
+        guard check.isCurrent, admission?.permitsMutation(of: parent) != false else { return false }
+        if lazyJournal != nil, ViewNode.containsRejectedRetainedSource(in: newNodes) { return false }
+        let plan: PreparedChildrenPlan?
+        if admission != nil || lazyJournal?.isOrdinaryAdoption == false {
+            guard
+                let prepared = prepareChildrenPlan(
+                    of: parent, oldChildren: oldChildren, newNodes: newNodes, admission: admission,
+                    lazyJournal: lazyJournal)
+            else { return false }
+            plan = prepared
+        } else {
+            plan = nil
+        }
+        // Inspect the complete plan after every authored matching callback,
+        // before lifecycle invalidation, editor revocation, or property copies.
+        guard check.isCurrent, plan?.isCurrent != false, plan?.supportsScrollInputAdoption != false else {
+            return false
+        }
+        if let admission, let lazyJournal {
+            guard admission.claimDepartingEmptyRows(journal: lazyJournal), check.isCurrent else { return false }
+        }
+        guard check.markMutationStarted() else { return false }
         parent.invalidateRenderLifecycleCandidates()
         // Mark every departure before any branch starts its callbacks. A
         // callback in an earlier branch can otherwise replay a later editor
         // that will leave in the same adoption but still reaches the root.
-        revokeDepartingTextInputOwnership(oldChildren: oldChildren, newNodes: newNodes)
-        reconcilePreparedChildren(of: parent, oldChildren: oldChildren, newNodes: newNodes)
+        guard
+            revokeDepartingTextInputOwnership(
+                oldChildren: oldChildren, newNodes: newNodes, plan: plan, admission: admission,
+                lazyJournal: lazyJournal), check.isCurrent
+        else { return false }
+        guard
+            reconcilePreparedChildren(
+                of: parent, oldChildren: oldChildren, newNodes: newNodes, plan: plan, admission: admission,
+                taskAdoption: taskAdoption, lazyJournal: lazyJournal),
+            check.isCurrent
+        else { return false }
+        if admission != nil || lazyJournal?.isOrdinaryAdoption == false {
+            completion = RetainedLazyListAdoptionCompletion(of: parent)
+        }
+        return true
     }
 
-    private static func matchingChildren(oldChildren: [ViewNode], newNodes: [ViewNode]) -> [ViewNode?] {
+    /// Dictionary and equality operations may execute application Hashable
+    /// code. Their post-checks inspect only these native snapshots, including
+    /// an equal-value identity assignment or a change to the old child list.
+    @MainActor
+    private struct MatchingChildrenAdmission {
+        let admission: RetainedLazyListAdoptionAdmission?
+        let lazyJournal: RetainedLazyListAdoptionJournal?
+        weak var parent: ViewNode?
+        let hadParent: Bool
+        let parentCheck: NodeReconcileAdmission?
+        let oldChildIdentifiers: [ObjectIdentifier]
+        let attachments: [RetainedLazyListAttachmentProof]
+        let identities: [RetainedLazyListViewIdentityProof]
+        let childrenSnapshot: ReconcileChildrenSnapshot?
+
+        init(
+            _ admission: RetainedLazyListAdoptionAdmission?, oldChildren: [ViewNode], newNodes: [ViewNode],
+            parent: ViewNode?, childrenSnapshot: ReconcileChildrenSnapshot?,
+            lazyJournal: RetainedLazyListAdoptionJournal?
+        ) {
+            self.admission = admission
+            self.lazyJournal = lazyJournal
+            let checked = admission != nil || lazyJournal?.isOrdinaryAdoption == false
+            self.parent = checked ? parent : nil
+            hadParent = checked && parent != nil
+            parentCheck =
+                checked
+                ? parent.map {
+                    NodeReconcileAdmission(admission, target: $0, lazyJournal: lazyJournal)
+                } : nil
+            oldChildIdentifiers = checked ? oldChildren.map(ObjectIdentifier.init) : []
+            let nodes = checked ? oldChildren + newNodes : []
+            attachments = nodes.map { $0.captureLazyListAttachmentProof() }
+            identities = nodes.map { $0.captureLazyListIdentityProof() }
+            self.childrenSnapshot = childrenSnapshot
+        }
+
+        var isCurrent: Bool {
+            guard admission?.isCurrent != false, parentCheck?.isCurrent != false,
+                attachments.allSatisfy(\.isCurrent), identities.allSatisfy(\.isCurrent),
+                childrenSnapshot?.isCurrent != false,
+                lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false
+            else { return false }
+            guard hadParent else { return true }
+            guard let parent, parent.children.count == oldChildIdentifiers.count else { return false }
+            return zip(parent.children, oldChildIdentifiers).allSatisfy { pair in ObjectIdentifier(pair.0) == pair.1 }
+        }
+    }
+
+    private static func matchingChildren(
+        oldChildren: [ViewNode], newNodes: [ViewNode], admission: RetainedLazyListAdoptionAdmission? = nil,
+        parent: ViewNode? = nil, childrenSnapshot: ReconcileChildrenSnapshot? = nil,
+        lazyJournal: RetainedLazyListAdoptionJournal? = nil
+    ) -> [ViewNode?]? {
+        let check = MatchingChildrenAdmission(
+            admission, oldChildren: oldChildren, newNodes: newNodes, parent: parent,
+            childrenSnapshot: childrenSnapshot, lazyJournal: lazyJournal)
+        guard check.isCurrent else { return nil }
         // A single candidate has no competing claims; the same typed, tag,
         // and layout rules can be applied without constructing lookup tables.
         if oldChildren.count == 1 && newNodes.count == 1 {
-            return [nodesMatch(oldChildren[0], newNodes[0]) ? oldChildren[0] : nil]
+            let match = nodesMatch(oldChildren[0], newNodes[0]) ? oldChildren[0] : nil
+            return check.isCurrent ? [match] : nil
         }
 
         var matches = [ViewNode?](repeating: nil, count: newNodes.count)
@@ -888,8 +1663,10 @@ public final class ComponentHost {
         var oldIndicesByIdentity: [RetainedViewIdentity: [Int]] = [:]
         var oldIndicesByTag: [String: [Int]] = [:]
         for (index, oldNode) in oldChildren.enumerated() {
+            guard check.isCurrent else { return nil }
             if let identity = oldNode.retainedViewIdentity {
                 oldIndicesByIdentity[identity, default: []].append(index)
+                guard check.isCurrent else { return nil }
             } else if let tag = oldNode.nodeTag {
                 oldIndicesByTag[tag, default: []].append(index)
             }
@@ -897,11 +1674,14 @@ public final class ComponentHost {
 
         if !oldIndicesByIdentity.isEmpty {
             for (newIndex, newNode) in newNodes.enumerated() {
-                guard let identity = newNode.retainedViewIdentity,
-                    var candidates = oldIndicesByIdentity[identity], !candidates.isEmpty
-                else { continue }
+                guard check.isCurrent else { return nil }
+                guard let identity = newNode.retainedViewIdentity else { continue }
+                let found = oldIndicesByIdentity[identity]
+                guard check.isCurrent else { return nil }
+                guard var candidates = found, !candidates.isEmpty else { continue }
                 let oldIndex = candidates.removeFirst()
                 oldIndicesByIdentity[identity] = candidates
+                guard check.isCurrent else { return nil }
                 matches[newIndex] = oldChildren[oldIndex]
                 isClaimed[oldIndex] = true
             }
@@ -909,6 +1689,7 @@ public final class ComponentHost {
 
         if !oldIndicesByTag.isEmpty {
             for (newIndex, newNode) in newNodes.enumerated() {
+                guard check.isCurrent else { return nil }
                 guard newNode.retainedViewIdentity == nil, let tag = newNode.nodeTag,
                     var candidates = oldIndicesByTag[tag], !candidates.isEmpty
                 else { continue }
@@ -921,12 +1702,15 @@ public final class ComponentHost {
 
         var cursor = 0
         for (newIndex, newNode) in newNodes.enumerated() where matches[newIndex] == nil {
+            guard check.isCurrent else { return nil }
             while cursor < oldChildren.count {
                 if isClaimed[cursor] {
                     cursor += 1
                     continue
                 }
-                if nodesMatch(oldChildren[cursor], newNode) {
+                let matchesPosition = nodesMatch(oldChildren[cursor], newNode)
+                guard check.isCurrent else { return nil }
+                if matchesPosition {
                     matches[newIndex] = oldChildren[cursor]
                     isClaimed[cursor] = true
                     cursor += 1
@@ -935,52 +1719,190 @@ public final class ComponentHost {
             }
         }
 
-        return matches
+        return check.isCurrent ? matches : nil
     }
 
-    private static func revokeDepartingTextInputOwnership(source: ViewNode, target: ViewNode) {
+    private static func revokeDepartingTextInputOwnership(
+        source: ViewNode, target: ViewNode, plan: PreparedChildrenPlan? = nil,
+        admission: RetainedLazyListAdoptionAdmission? = nil,
+        lazyJournal: RetainedLazyListAdoptionJournal? = nil
+    ) -> Bool {
+        let check = NodeReconcileAdmission(
+            admission, source: source, target: target, childrenSnapshot: plan?.childrenSnapshot,
+            lazyJournal: lazyJournal)
+        guard check.isCurrent, plan?.isCurrent != false else { return false }
+        guard target.canAdoptStagedLazyListAdapter(from: source) else { return false }
+        if source === target, admission != nil { return true }
         target.listNavigationOwner?.prepareForAdoption(of: source.listNavigationOwner)
+        guard check.isCurrent else { return false }
         target.revokeFileDialogPresentation(ifAbsentFrom: source)
+        guard check.isCurrent else { return false }
         if let controller = source.textInputController {
             controller.prepareForReconciliation(from: target.textInputController, onto: target)
         } else {
             target.textInputController?.revokeOwnership(from: target)
         }
-        revokeDepartingTextInputOwnership(oldChildren: target.children, newNodes: source.children)
+        guard check.isCurrent else { return false }
+        return revokeDepartingTextInputOwnership(
+            oldChildren: plan?.oldChildren ?? target.children,
+            newNodes: plan?.entries.map(\.source) ?? target.childrenForLazyListReconciliation(from: source),
+            plan: plan, admission: admission, lazyJournal: lazyJournal)
     }
 
-    private static func revokeDepartingTextInputOwnership(oldChildren: [ViewNode], newNodes: [ViewNode]) {
-        let matches = matchingChildren(oldChildren: oldChildren, newNodes: newNodes)
+    private static func revokeDepartingTextInputOwnership(
+        oldChildren: [ViewNode], newNodes: [ViewNode], plan: PreparedChildrenPlan? = nil,
+        admission: RetainedLazyListAdoptionAdmission? = nil,
+        lazyJournal: RetainedLazyListAdoptionJournal? = nil
+    ) -> Bool {
+        guard admission?.isCurrent != false,
+            lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false,
+            plan?.isCurrent != false, plan?.stillOwnsOldChildren != false
+        else {
+            return false
+        }
+        guard
+            let matches = plan?.entries.map(\.retained)
+                ?? matchingChildren(
+                    oldChildren: oldChildren, newNodes: newNodes, admission: admission, lazyJournal: lazyJournal)
+        else { return false }
+        guard admission?.isCurrent != false,
+            lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false,
+            plan?.isCurrent != false, plan?.stillOwnsOldChildren != false
+        else {
+            return false
+        }
         let survivors = Set(matches.compactMap { $0 }.map(ObjectIdentifier.init))
         for oldNode in oldChildren where !survivors.contains(ObjectIdentifier(oldNode)) {
+            guard admission?.isCurrent != false,
+                lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false,
+                plan?.isCurrent != false, plan?.stillOwnsOldChildren != false
+            else {
+                return false
+            }
             oldNode.revokeTextInputOwnership()
-        }
-        for (index, newNode) in newNodes.enumerated() {
-            if let oldNode = matches[index] {
-                revokeDepartingTextInputOwnership(source: newNode, target: oldNode)
+            guard admission?.isCurrent != false,
+                lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false,
+                plan?.isCurrent != false, plan?.stillOwnsOldChildren != false
+            else {
+                return false
             }
         }
+        for (index, newNode) in newNodes.enumerated() {
+            guard admission?.isCurrent != false,
+                lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false,
+                plan?.isCurrent != false, plan?.stillOwnsOldChildren != false,
+                plan?.entries[index].isCurrent != false
+            else { return false }
+            if let oldNode = matches[index] {
+                guard
+                    revokeDepartingTextInputOwnership(
+                        source: newNode, target: oldNode, plan: plan?.entries[index].descendants, admission: admission,
+                        lazyJournal: lazyJournal)
+                else { return false }
+            }
+            guard admission?.isCurrent != false,
+                lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false,
+                plan?.isCurrent != false, plan?.stillOwnsOldChildren != false
+            else {
+                return false
+            }
+        }
+        return admission?.isCurrent != false
+            && (lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false)
+            && plan?.isCurrent != false && plan?.stillOwnsOldChildren != false
     }
 
-    private static func reconcilePreparedChildren(of parent: ViewNode, oldChildren: [ViewNode], newNodes: [ViewNode]) {
-        let matches = matchingChildren(oldChildren: oldChildren, newNodes: newNodes)
+    private static func reconcilePreparedChildren(
+        of parent: ViewNode, oldChildren: [ViewNode], newNodes: [ViewNode], plan: PreparedChildrenPlan? = nil,
+        admission: RetainedLazyListAdoptionAdmission? = nil, preservesChildren: Bool = false,
+        sourceParent: ViewNode? = nil,
+        taskAdoption: RetainedTaskAdoptionContext? = nil,
+        lazyJournal: RetainedLazyListAdoptionJournal? = nil
+    ) -> Bool {
+        let check = NodeReconcileAdmission(
+            admission, target: parent, childrenSnapshot: plan?.childrenSnapshot,
+            lazyJournal: lazyJournal, taskAdoption: taskAdoption)
+        guard check.isCurrent, plan?.isCurrent != false, plan?.stillOwnsOldChildren != false else { return false }
+        guard
+            let matches = plan?.entries.map(\.retained)
+                ?? matchingChildren(
+                    oldChildren: oldChildren, newNodes: newNodes, admission: admission, lazyJournal: lazyJournal)
+        else { return false }
+        guard check.isCurrent else { return false }
 
         var nextChildren: [ViewNode] = []
         nextChildren.reserveCapacity(newNodes.count)
         for (newIndex, newNode) in newNodes.enumerated() {
+            guard check.isCurrent, plan?.entries[newIndex].isCurrent != false,
+                plan?.stillOwnsOldChildren != false
+            else { return false }
             guard let oldNode = matches[newIndex] else {
-                prepareInsertedSubtree(newNode)
+                guard
+                    prepareInsertedSubtree(
+                        newNode, admission: admission, taskAdoption: taskAdoption,
+                        inheritedChildren: plan?.childrenSnapshot, lazyJournal: lazyJournal),
+                    check.isCurrent,
+                    plan?.entries[newIndex].isCurrent != false
+                else { return false }
                 nextChildren.append(newNode)
                 continue
             }
-            withReconcileAnimationTransaction(source: newNode, previous: oldNode) {
-                updateNodeProperties(target: oldNode, source: newNode)
-                reconcilePreparedChildren(of: oldNode, oldChildren: oldNode.children, newNodes: newNode.children)
+            if oldNode === newNode, admission != nil || preservesChildren {
+                lazyJournal?.recordUnchangedNode(oldNode)
+                // A container whose adapter survives adopts its configuration,
+                // not its fresh candidate's empty materialized-child array.
+                if let admission {
+                    guard let completion = RetainedLazyListAdoptionCompletion(of: oldNode),
+                        admission.recordCompletion(completion)
+                    else { return false }
+                }
+                nextChildren.append(oldNode)
+                continue
             }
+            let childPlan = plan?.entries[newIndex].descendants
+            let nodeCheck = NodeReconcileAdmission(
+                admission, source: newNode, target: oldNode, childrenSnapshot: childPlan?.childrenSnapshot,
+                lazyJournal: lazyJournal, taskAdoption: taskAdoption)
+            guard admission?.permitsMutation(of: oldNode) != false,
+                childPlan?.isCurrent != false, childPlan?.stillOwnsOldChildren != false
+            else { return false }
+            let preservesChildren = preservesLazyListChildren(source: newNode, target: oldNode)
+            let previousChildren = childPlan?.oldChildren ?? oldNode.children
+            let proposedChildren =
+                childPlan?.entries.map(\.source) ?? oldNode.childrenForLazyListReconciliation(from: newNode)
+            taskAdoption?.associate(source: newNode, target: oldNode)
+            guard check.isCurrent, nodeCheck.isCurrent, childPlan?.isCurrent != false,
+                childPlan?.stillOwnsOldChildren != false
+            else { return false }
+            guard nodeCheck.prepareTaskTransport(from: newNode, to: oldNode) else { return false }
+            let completed = withReconcileAnimationTransaction(source: newNode, previous: oldNode, check: nodeCheck) {
+                guard childPlan?.isCurrent != false, childPlan?.stillOwnsOldChildren != false else { return false }
+                guard updateNodeProperties(target: oldNode, source: newNode, check: nodeCheck), nodeCheck.isCurrent
+                else {
+                    return false
+                }
+                return reconcilePreparedChildren(
+                    of: oldNode, oldChildren: previousChildren, newNodes: proposedChildren,
+                    plan: childPlan, admission: admission,
+                    preservesChildren: preservesChildren, sourceParent: newNode,
+                    taskAdoption: taskAdoption, lazyJournal: lazyJournal)
+            }
+            guard completed, check.isCurrent, nodeCheck.isCurrent else { return false }
+            nodeCheck.recordCompletedNode(from: newNode, to: oldNode)
+            guard check.isCurrent, nodeCheck.isCurrent else { return false }
             nextChildren.append(oldNode)
         }
 
-        parent.setChildren(nextChildren)
+        guard check.isCurrent, plan?.isCurrent != false, plan?.stillOwnsOldChildren != false else { return false }
+        guard plan?.childrenSnapshot?.beginTransfers() != false else { return false }
+        let result = parent.setChildren(
+            nextChildren, admission: admission, lazyJournal: lazyJournal, taskAdoption: taskAdoption,
+            sourceParent: sourceParent)
+        guard result.completed, check.isCurrent else { return false }
+        if let admission {
+            guard let completion = result.completion, admission.recordCompletion(completion) else { return false }
+        }
+        return check.isCurrent
     }
 
     /// Typed identities must agree on both nodes. Otherwise the legacy path
@@ -1064,8 +1986,9 @@ public final class ComponentHost {
     private static func reconciledAnimatedValue(
         _ property: AnimatableProperty, current: Double, proposed: Double,
         target: ViewNode, source: ViewNode, transaction: AnimationTransaction?,
-        startTime: inout Double?, animationsDisabled: Bool
+        startTime: inout Double?, animationsDisabled: Bool, check: NodeReconcileAdmission
     ) -> Double {
+        guard check.isCurrent else { return current }
         let existing = target.animationStates[property]
         if animationsDisabled {
             if existing != nil { target.animationStates.removeValue(forKey: property) }
@@ -1094,7 +2017,18 @@ public final class ComponentHost {
             if existing != nil { target.animationStates.removeValue(forKey: property) }
             return proposed
         }
-        let timestamp = startTime ?? target.animationClockNow
+        let timestamp: Double
+        if let startTime {
+            timestamp = startTime
+        } else {
+            guard let sampled = target.reconciliationAnimationTime(admission: check.admission) else {
+                check.admission?.revoke()
+                return current
+            }
+            guard check.isCurrent else { return current }
+            timestamp = sampled
+        }
+        guard check.isCurrent else { return current }
         startTime = timestamp
         target.animationStates[property] = AnimationState(
             startValue: current, endValue: proposed, startTime: timestamp,
@@ -1102,12 +2036,138 @@ public final class ComponentHost {
         return current
     }
 
+    /// Keep both values alive until the comparison returns. A user Equatable
+    /// implementation may replace either node's identity while comparing it;
+    /// the caller must check after this helper's temporary values are released.
+    private static func nodePropertyValuesDiffer<Value: Equatable>(
+        _ keyPath: ReferenceWritableKeyPath<ViewNode, Value>, source: ViewNode, target: ViewNode
+    ) -> Bool {
+        let previous = target[keyPath: keyPath]
+        let incoming = source[keyPath: keyPath]
+        return previous != incoming
+    }
+
+    /// A composed retained identity can contain several authored keys. Stop
+    /// after the first hash/equality boundary that changes adoption authority,
+    /// and release both temporary identity values before the caller rechecks.
+    @inline(never)
+    private static func retainedViewIdentitiesDiffer(
+        source: ViewNode, target: ViewNode, check: NodeReconcileAdmission
+    ) -> Bool? {
+        guard check.isCurrent else { return nil }
+        let previous = target.retainedViewIdentity
+        let incoming = source.retainedViewIdentity
+        switch (previous, incoming) {
+        case (nil, nil):
+            return false
+        case (.some(let previous), .some(let incoming)):
+            guard let matches = previous.checkedEquals(incoming, isCurrent: { check.isCurrent }) else { return nil }
+            return !matches
+        default:
+            return true
+        }
+    }
+
+    @inline(__always)
+    private static func copyNodeProperty<Value>(
+        _ keyPath: ReferenceWritableKeyPath<ViewNode, Value>, source: ViewNode, target: ViewNode,
+        check: NodeReconcileAdmission
+    ) -> Bool {
+        if check.admission == nil, check.lazyJournal == nil {
+            target[keyPath: keyPath] = source[keyPath: keyPath]
+            return true
+        }
+        guard check.isCurrent,
+            check.preparePropertyCopy(from: source, to: target, keyPath: keyPath),
+            check.markMutationStarted()
+        else { return false }
+        replacePinnedNodeProperty(
+            keyPath, on: target, with: source[keyPath: keyPath], source: source, check: check)
+        return check.isCurrent
+    }
+
+    @inline(__always)
+    private static func assignNodeProperty<Value>(
+        _ keyPath: ReferenceWritableKeyPath<ViewNode, Value>, on target: ViewNode, value: Value,
+        check: NodeReconcileAdmission
+    ) -> Bool {
+        if check.admission == nil, check.lazyJournal == nil {
+            target[keyPath: keyPath] = value
+            return true
+        }
+        guard check.isCurrent else { return false }
+        if let source = check.source {
+            guard check.preparePropertyCopy(from: source, to: target, keyPath: keyPath) else {
+                return false
+            }
+        }
+        guard check.markMutationStarted() else { return false }
+        replacePinnedNodeProperty(keyPath, on: target, with: value, source: check.source, check: check)
+        return check.isCurrent
+    }
+
+    /// Pin the outgoing field, not merely its node or sparse-storage object.
+    /// Publish the replacement before destruction can reenter the same slot.
+    /// The guard belongs in the caller, after this scope has released previous.
+    private static func replacePinnedNodeProperty<Value>(
+        _ keyPath: ReferenceWritableKeyPath<ViewNode, Value>, on target: ViewNode, with incoming: Value,
+        source: ViewNode?, check: NodeReconcileAdmission
+    ) {
+        let previous = target[keyPath: keyPath]
+        target[keyPath: keyPath] = incoming
+        if let source, let journal = check.lazyJournal {
+            let accepted = journal.recordAcceptedProperty(from: source, to: target, keyPath: keyPath)
+            check.associate(accepted, from: source, to: target)
+        }
+        withExtendedLifetime(previous) {}
+    }
+
+    private static func copyGeometryReaderPair(
+        source: ViewNode, target: ViewNode, check: NodeReconcileAdmission
+    ) {
+        let previous = target.geometryReaderBuild
+        let incoming = source.geometryReaderBuild
+        let size = source.geometryReaderBuiltSize
+        target.geometryReaderBuild = incoming
+        target.geometryReaderBuiltSize = size
+        if let journal = check.lazyJournal {
+            check.associate(
+                journal.recordAcceptedProperty(from: source, to: target, keyPath: \ViewNode.geometryReaderBuild),
+                from: source, to: target)
+            check.associate(
+                journal.recordAcceptedProperty(from: source, to: target, keyPath: \ViewNode.geometryReaderBuiltSize),
+                from: source, to: target)
+        }
+        withExtendedLifetime(previous) {}
+    }
+
+    private static func invokePlatformUpdate(on target: ViewNode) {
+        let update = target.onUpdatePlatformView
+        update?(target)
+    }
+
     /// Copy visual / layout properties from `source` onto `target`, keeping
     /// `target`'s identity (parent, runtime, callbacks) intact.
-    private static func updateNodeProperties(target: ViewNode, source: ViewNode) {
+    private static func updateNodeProperties(
+        target: ViewNode, source: ViewNode, check: NodeReconcileAdmission
+    ) -> Bool {
+        guard check.isCurrent else { return false }
+        // An incomplete checked update must not clear revocations installed by
+        // a newer preparation. Ordinary reconciliation retains its old scope.
+        defer {
+            if check.admission == nil, check.lazyJournal == nil { target.finishFileDialogConfigurationAdoption() }
+        }
+        guard
+            target.reconcileLazyListAdapter(
+                from: source, admission: check.admission, lazyJournal: check.lazyJournal,
+                taskAdoption: check.taskAdoption),
+            check.isCurrent
+        else {
+            return false
+        }
         let listNavigationOwner = target.adoptListNavigationOwner(from: source)
         defer { listNavigationOwner?.finishAdoption() }
-        defer { target.finishFileDialogConfigurationAdoption() }
+        guard check.isCurrent else { return false }
         let oldFrame = target.frame
         let oldOpacity = target.opacity
         let oldBackgroundColor = target.backgroundColor
@@ -1129,15 +2189,23 @@ public final class ComponentHost {
         // switch: the unconditional block cost about four times as much per
         // property as the guarded compares around it.
         if !target.reconcileAnimationModifiers.isEmpty || !source.reconcileAnimationModifiers.isEmpty {
-            target.reconcileAnimationModifiers = source.reconcileAnimationModifiers
+            guard copyNodeProperty(\.reconcileAnimationModifiers, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.implicitReconcileAnimation != source.implicitReconcileAnimation {
-            target.implicitReconcileAnimation = source.implicitReconcileAnimation
+            guard copyNodeProperty(\.implicitReconcileAnimation, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.interactionSurface != nil || source.interactionSurface != nil {
-            target.interactionSurface = source.interactionSurface
+            guard copyNodeProperty(\.interactionSurface, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
-        target.retainInsertionTransaction(inheritedTransaction)
+        guard target.retainInsertionTransaction(inheritedTransaction, admission: check.admission), check.isCurrent
+        else {
+            return false
+        }
         // A node may animate its own changes with no ambient `withAnimation`
         // — `NSSwitch` does, and a rebuilt control's state change carries no
         // transaction at all. The explicit one still wins when both are set.
@@ -1155,52 +2223,127 @@ public final class ComponentHost {
                     .frameOriginX, current: oldFrame.origin.x, proposed: source.frame.origin.x,
                     target: target, source: source, transaction: reconcileTransaction,
                     startTime: &animationStartTime,
-                    animationsDisabled: animationsDisabled),
+                    animationsDisabled: animationsDisabled, check: check),
                 y: reconciledAnimatedValue(
                     .frameOriginY, current: oldFrame.origin.y, proposed: source.frame.origin.y,
                     target: target, source: source, transaction: reconcileTransaction,
                     startTime: &animationStartTime,
-                    animationsDisabled: animationsDisabled),
+                    animationsDisabled: animationsDisabled, check: check),
                 width: reconciledAnimatedValue(
                     .frameWidth, current: oldFrame.size.width, proposed: source.frame.size.width,
                     target: target, source: source, transaction: reconcileTransaction,
                     startTime: &animationStartTime,
-                    animationsDisabled: animationsDisabled),
+                    animationsDisabled: animationsDisabled, check: check),
                 height: reconciledAnimatedValue(
                     .frameHeight, current: oldFrame.size.height, proposed: source.frame.size.height,
                     target: target, source: source, transaction: reconcileTransaction,
                     startTime: &animationStartTime,
-                    animationsDisabled: animationsDisabled)
+                    animationsDisabled: animationsDisabled, check: check)
             )
-            if target.frame != nextFrame { target.frame = nextFrame }
+            if target.frame != nextFrame {
+                guard assignNodeProperty(\.frame, on: target, value: nextFrame, check: check), check.isCurrent else {
+                    return false
+                }
+            }
         }
-        if target.backgroundColor != source.backgroundColor { target.backgroundColor = source.backgroundColor }
+        guard check.isCurrent else { return false }
+        if target.backgroundColor != source.backgroundColor {
+            guard copyNodeProperty(\.backgroundColor, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.backgroundGradient != source.backgroundGradient {
-            target.backgroundGradient = source.backgroundGradient
+            guard copyNodeProperty(\.backgroundGradient, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
-        target.applyReconcileFillTween(
-            fromBackgroundColor: oldBackgroundColor,
-            fromBackgroundGradient: oldBackgroundGradient,
-            animation: reconcileTransaction,
-            animationsDisabled: animationsDisabled
-        )
-        if target.bitmapSurface != source.bitmapSurface { target.bitmapSurface = source.bitmapSurface }
-        if target.canvasDraw != nil || source.canvasDraw != nil { target.canvasDraw = source.canvasDraw }
-        if target.text != source.text { target.text = source.text }
-        if target.textStyle != source.textStyle { target.textStyle = source.textStyle }
-        if target.borderColor != source.borderColor { target.borderColor = source.borderColor }
-        if target.borderGradient != source.borderGradient { target.borderGradient = source.borderGradient }
-        if target.borderWidth != source.borderWidth { target.borderWidth = source.borderWidth }
-        if target.borderStrokeStyle != source.borderStrokeStyle { target.borderStrokeStyle = source.borderStrokeStyle }
-        if target.outlineColor != source.outlineColor { target.outlineColor = source.outlineColor }
-        if target.outlineWidth != source.outlineWidth { target.outlineWidth = source.outlineWidth }
-        if target.shadowColor != source.shadowColor { target.shadowColor = source.shadowColor }
-        if target.shadowOffset != source.shadowOffset { target.shadowOffset = source.shadowOffset }
-        if target.shadowSpread != source.shadowSpread { target.shadowSpread = source.shadowSpread }
-        if target.cornerRadius != source.cornerRadius { target.cornerRadius = source.cornerRadius }
-        if target.clipsToBounds != source.clipsToBounds { target.clipsToBounds = source.clipsToBounds }
-        if target.clipFillStyle != source.clipFillStyle { target.clipFillStyle = source.clipFillStyle }
-        if target.backgroundPath != source.backgroundPath { target.backgroundPath = source.backgroundPath }
+        guard
+            target.applyReconcileFillTween(
+                fromBackgroundColor: oldBackgroundColor,
+                fromBackgroundGradient: oldBackgroundGradient,
+                animation: reconcileTransaction,
+                animationsDisabled: animationsDisabled,
+                admission: check.admission,
+                nativeCheck: check.lazyJournal?.isOrdinaryAdoption == false ? check : nil
+            ), check.isCurrent
+        else { return false }
+        if target.bitmapSurface != source.bitmapSurface {
+            guard copyNodeProperty(\.bitmapSurface, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
+        if target.canvasDraw != nil || source.canvasDraw != nil {
+            guard copyNodeProperty(\.canvasDraw, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
+        if target.text != source.text {
+            guard copyNodeProperty(\.text, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
+        if target.textStyle != source.textStyle {
+            guard copyNodeProperty(\.textStyle, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
+        if target.borderColor != source.borderColor {
+            guard copyNodeProperty(\.borderColor, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
+        if target.borderGradient != source.borderGradient {
+            guard copyNodeProperty(\.borderGradient, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
+        if target.borderWidth != source.borderWidth {
+            guard copyNodeProperty(\.borderWidth, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
+        if target.borderStrokeStyle != source.borderStrokeStyle {
+            guard copyNodeProperty(\.borderStrokeStyle, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
+        if target.outlineColor != source.outlineColor {
+            guard copyNodeProperty(\.outlineColor, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
+        if target.outlineWidth != source.outlineWidth {
+            guard copyNodeProperty(\.outlineWidth, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
+        if target.shadowColor != source.shadowColor {
+            guard copyNodeProperty(\.shadowColor, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
+        if target.shadowOffset != source.shadowOffset {
+            guard copyNodeProperty(\.shadowOffset, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
+        if target.shadowSpread != source.shadowSpread {
+            guard copyNodeProperty(\.shadowSpread, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
+        if target.cornerRadius != source.cornerRadius {
+            guard copyNodeProperty(\.cornerRadius, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
+        if target.clipsToBounds != source.clipsToBounds {
+            guard copyNodeProperty(\.clipsToBounds, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
+        if target.clipFillStyle != source.clipFillStyle {
+            guard copyNodeProperty(\.clipFillStyle, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
+        if target.backgroundPath != source.backgroundPath {
+            guard copyNodeProperty(\.backgroundPath, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if let oldSize = target.preferredSize, let proposedSize = source.preferredSize {
             // Fixed SwiftUI frame modifiers declare preferred dimensions on
             // their wrapper. Animate those dimensions so layout and sibling
@@ -1211,224 +2354,452 @@ public final class ComponentHost {
                     target: target, source: source, transaction: reconcileTransaction,
                     startTime: &animationStartTime,
                     animationsDisabled: animationsDisabled || oldSize.width <= 0 || proposedSize.width <= 0
-                        || !oldSize.width.isFinite || !proposedSize.width.isFinite),
+                        || !oldSize.width.isFinite || !proposedSize.width.isFinite, check: check),
                 height: reconciledAnimatedValue(
                     .preferredHeight, current: oldSize.height, proposed: proposedSize.height,
                     target: target, source: source, transaction: reconcileTransaction,
                     startTime: &animationStartTime,
                     animationsDisabled: animationsDisabled || oldSize.height <= 0 || proposedSize.height <= 0
-                        || !oldSize.height.isFinite || !proposedSize.height.isFinite)
+                        || !oldSize.height.isFinite || !proposedSize.height.isFinite, check: check)
             )
-            if target.preferredSize != nextSize { target.preferredSize = nextSize }
+            if target.preferredSize != nextSize {
+                guard assignNodeProperty(\.preferredSize, on: target, value: nextSize, check: check), check.isCurrent
+                else { return false }
+            }
         } else {
             if target.animationStates[.preferredWidth] != nil { target.animationStates[.preferredWidth] = nil }
             if target.animationStates[.preferredHeight] != nil { target.animationStates[.preferredHeight] = nil }
-            if target.preferredSize != source.preferredSize { target.preferredSize = source.preferredSize }
+            if target.preferredSize != source.preferredSize {
+                guard copyNodeProperty(\.preferredSize, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
         }
-        if target.layoutConstraints != source.layoutConstraints { target.layoutConstraints = source.layoutConstraints }
+        guard check.isCurrent else { return false }
+        if target.layoutConstraints != source.layoutConstraints {
+            guard copyNodeProperty(\.layoutConstraints, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
+        if target.fixedSizeAxes != source.fixedSizeAxes {
+            guard copyNodeProperty(\.fixedSizeAxes, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
+        if target.layoutFillAxes != source.layoutFillAxes {
+            guard copyNodeProperty(\.layoutFillAxes, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.fixedPreferredSizeAxes != source.fixedPreferredSizeAxes {
-            target.fixedPreferredSizeAxes = source.fixedPreferredSizeAxes
+            guard copyNodeProperty(\.fixedPreferredSizeAxes, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
-        if target.fixedSizeAxes != source.fixedSizeAxes { target.fixedSizeAxes = source.fixedSizeAxes }
-        if target.layoutFillAxes != source.layoutFillAxes { target.layoutFillAxes = source.layoutFillAxes }
         if target.explicitFrameFillAxes != source.explicitFrameFillAxes {
-            target.explicitFrameFillAxes = source.explicitFrameFillAxes
+            guard copyNodeProperty(\.explicitFrameFillAxes, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.forwardsStackMainAxisProposal != source.forwardsStackMainAxisProposal {
-            target.forwardsStackMainAxisProposal = source.forwardsStackMainAxisProposal
+            guard copyNodeProperty(\.forwardsStackMainAxisProposal, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
-        if target.aspectFitLayout != source.aspectFitLayout { target.aspectFitLayout = source.aspectFitLayout }
-        if target.layoutPriority != source.layoutPriority { target.layoutPriority = source.layoutPriority }
+        if target.aspectFitLayout != source.aspectFitLayout {
+            guard copyNodeProperty(\.aspectFitLayout, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
+        if target.layoutPriority != source.layoutPriority {
+            guard copyNodeProperty(\.layoutPriority, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.spatialCompressionResistance != source.spatialCompressionResistance {
-            target.spatialCompressionResistance = source.spatialCompressionResistance
+            guard copyNodeProperty(\.spatialCompressionResistance, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.spatialExpansionResistance != source.spatialExpansionResistance {
-            target.spatialExpansionResistance = source.spatialExpansionResistance
+            guard copyNodeProperty(\.spatialExpansionResistance, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
-        if target.alignmentGuides != source.alignmentGuides { target.alignmentGuides = source.alignmentGuides }
-        if target.gridCellAnchor != source.gridCellAnchor { target.gridCellAnchor = source.gridCellAnchor }
+        if target.alignmentGuides != source.alignmentGuides {
+            guard copyNodeProperty(\.alignmentGuides, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
+        if target.gridCellAnchor != source.gridCellAnchor {
+            guard copyNodeProperty(\.gridCellAnchor, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.gridCellUnsizedAxes != source.gridCellUnsizedAxes {
-            target.gridCellUnsizedAxes = source.gridCellUnsizedAxes
+            guard copyNodeProperty(\.gridCellUnsizedAxes, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
-        if target.gridCellColumns != source.gridCellColumns { target.gridCellColumns = source.gridCellColumns }
+        if target.gridCellColumns != source.gridCellColumns {
+            guard copyNodeProperty(\.gridCellColumns, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.gridColumnAlignment != source.gridColumnAlignment {
-            target.gridColumnAlignment = source.gridColumnAlignment
+            guard copyNodeProperty(\.gridColumnAlignment, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
-        if target.blurRadius != source.blurRadius { target.blurRadius = source.blurRadius }
-        if target.blurOpaque != source.blurOpaque { target.blurOpaque = source.blurOpaque }
-        if target.geometryEffect != source.geometryEffect { target.geometryEffect = source.geometryEffect }
+        if target.blurRadius != source.blurRadius {
+            guard copyNodeProperty(\.blurRadius, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
+        if target.blurOpaque != source.blurOpaque {
+            guard copyNodeProperty(\.blurOpaque, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
+        if target.geometryEffect != source.geometryEffect {
+            guard copyNodeProperty(\.geometryEffect, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if oldOpacity != source.opacity || target.animationStates[.opacity] != nil {
             let nextOpacity = reconciledAnimatedValue(
                 .opacity, current: oldOpacity, proposed: source.opacity,
                 target: target, source: source, transaction: reconcileTransaction,
                 startTime: &animationStartTime,
-                animationsDisabled: animationsDisabled)
-            if target.opacity != nextOpacity { target.opacity = nextOpacity }
+                animationsDisabled: animationsDisabled, check: check)
+            if target.opacity != nextOpacity {
+                guard assignNodeProperty(\.opacity, on: target, value: nextOpacity, check: check), check.isCurrent
+                else { return false }
+            }
         }
-        if target.blendMode != source.blendMode { target.blendMode = source.blendMode }
+        guard check.isCurrent else { return false }
+        if target.blendMode != source.blendMode {
+            guard copyNodeProperty(\.blendMode, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
         if target.isCompositingGroup != source.isCompositingGroup {
-            target.isCompositingGroup = source.isCompositingGroup
+            guard copyNodeProperty(\.isCompositingGroup, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
-        if target.drawingGroup != source.drawingGroup { target.drawingGroup = source.drawingGroup }
-        if target.colorEffects != source.colorEffects { target.colorEffects = source.colorEffects }
-        if target.visualEffects != source.visualEffects { target.visualEffects = source.visualEffects }
-        if target.viewMask != source.viewMask { target.viewMask = source.viewMask }
-        if target.listRowSeparator != source.listRowSeparator { target.listRowSeparator = source.listRowSeparator }
+        if target.drawingGroup != source.drawingGroup {
+            guard copyNodeProperty(\.drawingGroup, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
+        if target.colorEffects != source.colorEffects {
+            guard copyNodeProperty(\.colorEffects, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
+        if target.visualEffects != source.visualEffects {
+            guard copyNodeProperty(\.visualEffects, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
+        if target.viewMask != source.viewMask {
+            guard copyNodeProperty(\.viewMask, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
+        if target.listRowSeparator != source.listRowSeparator {
+            guard copyNodeProperty(\.listRowSeparator, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.listRowSeparatorTint != source.listRowSeparatorTint {
-            target.listRowSeparatorTint = source.listRowSeparatorTint
+            guard copyNodeProperty(\.listRowSeparatorTint, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.listSectionSeparator != source.listSectionSeparator {
-            target.listSectionSeparator = source.listSectionSeparator
+            guard copyNodeProperty(\.listSectionSeparator, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.listSectionSeparatorTint != source.listSectionSeparatorTint {
-            target.listSectionSeparatorTint = source.listSectionSeparatorTint
+            guard copyNodeProperty(\.listSectionSeparatorTint, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.alternatingRowBackgrounds != source.alternatingRowBackgrounds {
-            target.alternatingRowBackgrounds = source.alternatingRowBackgrounds
+            guard copyNodeProperty(\.alternatingRowBackgrounds, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
-        if target.listRowHoverStyle != source.listRowHoverStyle { target.listRowHoverStyle = source.listRowHoverStyle }
-        if target.listItemTint != source.listItemTint { target.listItemTint = source.listItemTint }
+        if target.listRowHoverStyle != source.listRowHoverStyle {
+            guard copyNodeProperty(\.listRowHoverStyle, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
+        if target.listItemTint != source.listItemTint {
+            guard copyNodeProperty(\.listItemTint, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
         if target.listRowPlatterColor != source.listRowPlatterColor {
-            target.listRowPlatterColor = source.listRowPlatterColor
+            guard copyNodeProperty(\.listRowPlatterColor, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
         if target.navigationSplitViewColumnWidth != source.navigationSplitViewColumnWidth {
-            target.navigationSplitViewColumnWidth = source.navigationSplitViewColumnWidth
+            guard copyNodeProperty(\.navigationSplitViewColumnWidth, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.preferredCompactColumn != source.preferredCompactColumn {
-            target.preferredCompactColumn = source.preferredCompactColumn
+            guard copyNodeProperty(\.preferredCompactColumn, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
-        if target.selectionDisabled != source.selectionDisabled { target.selectionDisabled = source.selectionDisabled }
+        if target.selectionDisabled != source.selectionDisabled {
+            guard copyNodeProperty(\.selectionDisabled, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.selectionDisabledOverride != source.selectionDisabledOverride {
-            target.selectionDisabledOverride = source.selectionDisabledOverride
+            guard copyNodeProperty(\.selectionDisabledOverride, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
-        if target.deleteDisabled != source.deleteDisabled { target.deleteDisabled = source.deleteDisabled }
+        if target.deleteDisabled != source.deleteDisabled {
+            guard copyNodeProperty(\.deleteDisabled, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.deleteDisabledOverride != source.deleteDisabledOverride {
-            target.deleteDisabledOverride = source.deleteDisabledOverride
+            guard copyNodeProperty(\.deleteDisabledOverride, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
-        if target.moveDisabled != source.moveDisabled { target.moveDisabled = source.moveDisabled }
+        if target.moveDisabled != source.moveDisabled {
+            guard copyNodeProperty(\.moveDisabled, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
         if target.moveDisabledOverride != source.moveDisabledOverride {
-            target.moveDisabledOverride = source.moveDisabledOverride
+            guard copyNodeProperty(\.moveDisabledOverride, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.onDeleteAction != nil || source.onDeleteAction != nil {
-            target.onDeleteAction = source.onDeleteAction
+            guard copyNodeProperty(\.onDeleteAction, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
-        if target.onMoveAction != nil || source.onMoveAction != nil { target.onMoveAction = source.onMoveAction }
-        if target.editActions != source.editActions { target.editActions = source.editActions }
+        if target.onMoveAction != nil || source.onMoveAction != nil {
+            guard copyNodeProperty(\.onMoveAction, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
+        if target.editActions != source.editActions {
+            guard copyNodeProperty(\.editActions, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
         if target.swipeActionsLeading != nil || source.swipeActionsLeading != nil {
-            target.swipeActionsLeading = source.swipeActionsLeading
+            guard copyNodeProperty(\.swipeActionsLeading, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
         if target.swipeActionsTrailing != nil || source.swipeActionsTrailing != nil {
-            target.swipeActionsTrailing = source.swipeActionsTrailing
+            guard copyNodeProperty(\.swipeActionsTrailing, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.swipeActionsAllowsFullSwipe != source.swipeActionsAllowsFullSwipe {
-            target.swipeActionsAllowsFullSwipe = source.swipeActionsAllowsFullSwipe
+            guard copyNodeProperty(\.swipeActionsAllowsFullSwipe, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if !(target.commandHandlers.isEmpty && source.commandHandlers.isEmpty) {
-            target.commandHandlers = source.commandHandlers
+            guard copyNodeProperty(\.commandHandlers, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
         if target.fileExporterConfiguration != nil || source.fileExporterConfiguration != nil {
-            target.fileExporterConfiguration = source.fileExporterConfiguration
+            guard copyNodeProperty(\.fileExporterConfiguration, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.fileImporterConfiguration != nil || source.fileImporterConfiguration != nil {
-            target.fileImporterConfiguration = source.fileImporterConfiguration
+            guard copyNodeProperty(\.fileImporterConfiguration, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.fileImporterMultiConfiguration != nil || source.fileImporterMultiConfiguration != nil {
-            target.fileImporterMultiConfiguration = source.fileImporterMultiConfiguration
+            guard copyNodeProperty(\.fileImporterMultiConfiguration, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.fileMoverConfiguration != nil || source.fileMoverConfiguration != nil {
-            target.fileMoverConfiguration = source.fileMoverConfiguration
+            guard copyNodeProperty(\.fileMoverConfiguration, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.inspectorColumnWidth != source.inspectorColumnWidth {
-            target.inspectorColumnWidth = source.inspectorColumnWidth
+            guard copyNodeProperty(\.inspectorColumnWidth, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.inspectorColumnWidthFraction != source.inspectorColumnWidthFraction {
-            target.inspectorColumnWidthFraction = source.inspectorColumnWidthFraction
+            guard copyNodeProperty(\.inspectorColumnWidthFraction, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.inspectorColumnWidthMin != source.inspectorColumnWidthMin {
-            target.inspectorColumnWidthMin = source.inspectorColumnWidthMin
+            guard copyNodeProperty(\.inspectorColumnWidthMin, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.inspectorPresentationStyle != source.inspectorPresentationStyle {
-            target.inspectorPresentationStyle = source.inspectorPresentationStyle
+            guard copyNodeProperty(\.inspectorPresentationStyle, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.fileDialogCustomizationID != source.fileDialogCustomizationID {
-            target.fileDialogCustomizationID = source.fileDialogCustomizationID
+            guard copyNodeProperty(\.fileDialogCustomizationID, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.fileDialogConfirmationLabel != source.fileDialogConfirmationLabel {
-            target.fileDialogConfirmationLabel = source.fileDialogConfirmationLabel
+            guard copyNodeProperty(\.fileDialogConfirmationLabel, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.fileDialogDefaultDirectory != source.fileDialogDefaultDirectory {
-            target.fileDialogDefaultDirectory = source.fileDialogDefaultDirectory
+            guard copyNodeProperty(\.fileDialogDefaultDirectory, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
-        if target.fileDialogMessage != source.fileDialogMessage { target.fileDialogMessage = source.fileDialogMessage }
+        if target.fileDialogMessage != source.fileDialogMessage {
+            guard copyNodeProperty(\.fileDialogMessage, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.dynamicContentIndex != source.dynamicContentIndex {
-            target.dynamicContentIndex = source.dynamicContentIndex
+            guard copyNodeProperty(\.dynamicContentIndex, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
         if target.dynamicInsertContentTypes != source.dynamicInsertContentTypes {
-            target.dynamicInsertContentTypes = source.dynamicInsertContentTypes
+            guard copyNodeProperty(\.dynamicInsertContentTypes, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.dynamicDropPayloadType != source.dynamicDropPayloadType {
-            target.dynamicDropPayloadType = source.dynamicDropPayloadType
+            guard copyNodeProperty(\.dynamicDropPayloadType, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.dropAcceptedContentTypes != source.dropAcceptedContentTypes {
-            target.dropAcceptedContentTypes = source.dropAcceptedContentTypes
+            guard copyNodeProperty(\.dropAcceptedContentTypes, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
-        if target.dropPayloadType != source.dropPayloadType { target.dropPayloadType = source.dropPayloadType }
+        if target.dropPayloadType != source.dropPayloadType {
+            guard copyNodeProperty(\.dropPayloadType, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.isDropDestinationEnabled != source.isDropDestinationEnabled {
-            target.isDropDestinationEnabled = source.isDropDestinationEnabled
+            guard copyNodeProperty(\.isDropDestinationEnabled, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.hasDropConfiguration != source.hasDropConfiguration {
-            target.hasDropConfiguration = source.hasDropConfiguration
+            guard copyNodeProperty(\.hasDropConfiguration, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.dragDropPreviewsFormation != source.dragDropPreviewsFormation {
-            target.dragDropPreviewsFormation = source.dragDropPreviewsFormation
+            guard copyNodeProperty(\.dragDropPreviewsFormation, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.springLoadingBehavior != source.springLoadingBehavior {
-            target.springLoadingBehavior = source.springLoadingBehavior
+            guard copyNodeProperty(\.springLoadingBehavior, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
-        if target.dragPayloadType != source.dragPayloadType { target.dragPayloadType = source.dragPayloadType }
+        if target.dragPayloadType != source.dragPayloadType {
+            guard copyNodeProperty(\.dragPayloadType, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.dragItemProviderTypeIdentifiers != source.dragItemProviderTypeIdentifiers {
-            target.dragItemProviderTypeIdentifiers = source.dragItemProviderTypeIdentifiers
+            guard copyNodeProperty(\.dragItemProviderTypeIdentifiers, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
-        if target.dragContainerItemID != source.dragContainerItemID {
-            target.dragContainerItemID = source.dragContainerItemID
+        let dragContainerItemIDChanged = nodePropertyValuesDiffer(\.dragContainerItemID, source: source, target: target)
+        guard check.isCurrent else { return false }
+        if dragContainerItemIDChanged {
+            guard copyNodeProperty(\.dragContainerItemID, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
         if target.dragContainerNamespaceID != source.dragContainerNamespaceID {
-            target.dragContainerNamespaceID = source.dragContainerNamespaceID
+            guard copyNodeProperty(\.dragContainerNamespaceID, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
-        if target.hasDragPreview != source.hasDragPreview { target.hasDragPreview = source.hasDragPreview }
+        if target.hasDragPreview != source.hasDragPreview {
+            guard copyNodeProperty(\.hasDragPreview, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.horizontalScrollBounceBehavior != source.horizontalScrollBounceBehavior {
-            target.horizontalScrollBounceBehavior = source.horizontalScrollBounceBehavior
+            guard copyNodeProperty(\.horizontalScrollBounceBehavior, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.verticalScrollBounceBehavior != source.verticalScrollBounceBehavior {
-            target.verticalScrollBounceBehavior = source.verticalScrollBounceBehavior
+            guard copyNodeProperty(\.verticalScrollBounceBehavior, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.scrollTargetBehavior != source.scrollTargetBehavior {
-            target.scrollTargetBehavior = source.scrollTargetBehavior
+            guard copyNodeProperty(\.scrollTargetBehavior, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.isScrollTargetLayout != source.isScrollTargetLayout {
-            target.isScrollTargetLayout = source.isScrollTargetLayout
+            guard copyNodeProperty(\.isScrollTargetLayout, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.scrollInputBehaviors != source.scrollInputBehaviors {
-            target.scrollInputBehaviors = source.scrollInputBehaviors
+            guard copyNodeProperty(\.scrollInputBehaviors, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.scrollIndicatorsFlashOnAppear != source.scrollIndicatorsFlashOnAppear {
-            target.scrollIndicatorsFlashOnAppear = source.scrollIndicatorsFlashOnAppear
+            guard copyNodeProperty(\.scrollIndicatorsFlashOnAppear, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.scrollIndicatorsFlashTrigger != source.scrollIndicatorsFlashTrigger {
-            target.scrollIndicatorsFlashTrigger = source.scrollIndicatorsFlashTrigger
+            guard copyNodeProperty(\.scrollIndicatorsFlashTrigger, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
-        if target.scrollTransition != source.scrollTransition { target.scrollTransition = source.scrollTransition }
-        if target.scrollPosition != source.scrollPosition { target.scrollPosition = source.scrollPosition }
+        if target.scrollTransition != source.scrollTransition {
+            guard copyNodeProperty(\.scrollTransition, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
+        if target.scrollPosition != source.scrollPosition {
+            guard copyNodeProperty(\.scrollPosition, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.scrollObservations != source.scrollObservations {
-            target.scrollObservations = source.scrollObservations
+            guard copyNodeProperty(\.scrollObservations, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
-        target.reconcileScrollObservers(from: source)
-        if target.scrollReaderID != source.scrollReaderID { target.scrollReaderID = source.scrollReaderID }
+        guard
+            target.reconcileScrollObservers(
+                from: source, admission: check.admission, lazyJournal: check.lazyJournal,
+                taskAdoption: check.taskAdoption),
+            check.isCurrent
+        else {
+            return false
+        }
+        if target.scrollReaderID != source.scrollReaderID {
+            guard copyNodeProperty(\.scrollReaderID, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.scrollProxyRequests != source.scrollProxyRequests {
-            target.scrollProxyRequests = source.scrollProxyRequests
+            guard copyNodeProperty(\.scrollProxyRequests, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
-        if target.zIndex != source.zIndex { target.zIndex = source.zIndex }
-        if target.position != source.position { target.position = source.position }
+        if target.zIndex != source.zIndex {
+            guard copyNodeProperty(\.zIndex, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
+        if target.position != source.position {
+            guard copyNodeProperty(\.position, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
         if target.transform != source.transform || !target.animationStates.isEmpty {
             let oldTransform = target.transform
             let nextTransform = Transform2D(
@@ -1436,553 +2807,1087 @@ public final class ComponentHost {
                     .transformTranslationX, current: oldTransform.translationX, proposed: source.transform.translationX,
                     target: target, source: source, transaction: reconcileTransaction,
                     startTime: &animationStartTime,
-                    animationsDisabled: animationsDisabled),
+                    animationsDisabled: animationsDisabled, check: check),
                 translationY: reconciledAnimatedValue(
                     .transformTranslationY, current: oldTransform.translationY, proposed: source.transform.translationY,
                     target: target, source: source, transaction: reconcileTransaction,
                     startTime: &animationStartTime,
-                    animationsDisabled: animationsDisabled),
+                    animationsDisabled: animationsDisabled, check: check),
                 scaleX: reconciledAnimatedValue(
                     .transformScaleX, current: oldTransform.scaleX, proposed: source.transform.scaleX,
                     target: target, source: source, transaction: reconcileTransaction,
                     startTime: &animationStartTime,
-                    animationsDisabled: animationsDisabled),
+                    animationsDisabled: animationsDisabled, check: check),
                 scaleY: reconciledAnimatedValue(
                     .transformScaleY, current: oldTransform.scaleY, proposed: source.transform.scaleY,
                     target: target, source: source, transaction: reconcileTransaction,
                     startTime: &animationStartTime,
-                    animationsDisabled: animationsDisabled),
+                    animationsDisabled: animationsDisabled, check: check),
                 rotation: reconciledAnimatedValue(
                     .transformRotation, current: oldTransform.rotation, proposed: source.transform.rotation,
                     target: target, source: source, transaction: reconcileTransaction,
                     startTime: &animationStartTime,
-                    animationsDisabled: animationsDisabled),
+                    animationsDisabled: animationsDisabled, check: check),
                 skewX: source.transform.skewX,
                 skewY: source.transform.skewY
             )
-            if target.transform != nextTransform { target.transform = nextTransform }
+            if target.transform != nextTransform {
+                guard assignNodeProperty(\.transform, on: target, value: nextTransform, check: check), check.isCurrent
+                else { return false }
+            }
         }
-        if target.transition != source.transition { target.transition = source.transition }
-        if target.contentTransition != source.contentTransition { target.contentTransition = source.contentTransition }
-        if target.sensoryFeedback != source.sensoryFeedback { target.sensoryFeedback = source.sensoryFeedback }
-        if target.flexItem != source.flexItem { target.flexItem = source.flexItem }
-        if target.flexItemStyle != source.flexItemStyle { target.flexItemStyle = source.flexItemStyle }
-        if target.scrollAxis != source.scrollAxis { target.scrollAxis = source.scrollAxis }
-        target.reconcileScrollContainer(from: source)
+        guard check.isCurrent else { return false }
+        if target.transition != source.transition {
+            guard copyNodeProperty(\.transition, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
+        if target.contentTransition != source.contentTransition {
+            guard copyNodeProperty(\.contentTransition, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
+        if target.sensoryFeedback != source.sensoryFeedback {
+            guard copyNodeProperty(\.sensoryFeedback, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
+        if target.flexItem != source.flexItem {
+            guard copyNodeProperty(\.flexItem, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
+        if target.flexItemStyle != source.flexItemStyle {
+            guard copyNodeProperty(\.flexItemStyle, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
+        if target.scrollAxis != source.scrollAxis {
+            guard copyNodeProperty(\.scrollAxis, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
+        guard
+            target.reconcileScrollContainer(
+                from: source, admission: check.admission,
+                nativeCheck: check.lazyJournal?.isOrdinaryAdoption == false ? check : nil), check.isCurrent
+        else {
+            return false
+        }
         // Scroll offsets are runtime-driven (wheel/drag/keyboard); a freshly
         // built node always starts at zero, so only adopt a source offset that
         // was explicitly set and never let a rebuild reset a live offset.
-        if source.scrollOffset != 0, target.scrollOffset != source.scrollOffset {
-            target.scrollOffset = source.scrollOffset
+        guard
+            target.reconcileScrollOffset(
+                from: source, admission: check.admission,
+                nativeCheck: check.lazyJournal?.isOrdinaryAdoption == false ? check : nil), check.isCurrent
+        else {
+            return false
         }
-        if target.scrollStep != source.scrollStep { target.scrollStep = source.scrollStep }
+        if target.scrollStep != source.scrollStep {
+            guard copyNodeProperty(\.scrollStep, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
         if target.showsScrollIndicator != source.showsScrollIndicator {
-            target.showsScrollIndicator = source.showsScrollIndicator
+            guard copyNodeProperty(\.showsScrollIndicator, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.scrollIndicatorAutoHides != source.scrollIndicatorAutoHides {
-            target.scrollIndicatorAutoHides = source.scrollIndicatorAutoHides
-            target.scrollIndicatorColor = source.scrollIndicatorColor
+            guard copyNodeProperty(\.scrollIndicatorAutoHides, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
+            guard copyNodeProperty(\.scrollIndicatorColor, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         } else if !source.scrollIndicatorAutoHides, target.scrollIndicatorColor != source.scrollIndicatorColor {
             // An overlay scroller's painted colour is runtime-driven — it is
             // mid-reveal or mid-fade — and a freshly built node always carries
             // the resting one. Copying it across a rebuild would blink the
             // scroller out from under a scroll that is still happening, the
             // same reason `scrollOffset` above is not adopted wholesale.
-            target.scrollIndicatorColor = source.scrollIndicatorColor
+            guard copyNodeProperty(\.scrollIndicatorColor, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.scrollIndicatorIdleColor != source.scrollIndicatorIdleColor {
-            target.scrollIndicatorIdleColor = source.scrollIndicatorIdleColor
+            guard copyNodeProperty(\.scrollIndicatorIdleColor, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.scrollIndicatorHoverColor != source.scrollIndicatorHoverColor {
-            target.scrollIndicatorHoverColor = source.scrollIndicatorHoverColor
+            guard copyNodeProperty(\.scrollIndicatorHoverColor, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.scrollIndicatorActiveColor != source.scrollIndicatorActiveColor {
-            target.scrollIndicatorActiveColor = source.scrollIndicatorActiveColor
+            guard copyNodeProperty(\.scrollIndicatorActiveColor, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.scrollIndicatorThickness != source.scrollIndicatorThickness {
-            target.scrollIndicatorThickness = source.scrollIndicatorThickness
+            guard copyNodeProperty(\.scrollIndicatorThickness, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.scrollIndicatorInsets != source.scrollIndicatorInsets {
-            target.scrollIndicatorInsets = source.scrollIndicatorInsets
+            guard copyNodeProperty(\.scrollIndicatorInsets, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.initialScrollAnchor != source.initialScrollAnchor {
-            target.initialScrollAnchor = source.initialScrollAnchor
+            guard copyNodeProperty(\.initialScrollAnchor, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
         if target.scrollSizeChangeAnchor != source.scrollSizeChangeAnchor {
-            target.scrollSizeChangeAnchor = source.scrollSizeChangeAnchor
+            guard copyNodeProperty(\.scrollSizeChangeAnchor, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
-        if target.isFocusable != source.isFocusable { target.isFocusable = source.isFocusable }
+        if target.isFocusable != source.isFocusable {
+            guard copyNodeProperty(\.isFocusable, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
         // Positional reuse can turn a caret into a label or vice versa.
         // The marker belongs to the incoming chrome, not the retained slot.
-        if target.isTextInputCaret != source.isTextInputCaret { target.isTextInputCaret = source.isTextInputCaret }
-        if target.isHitTestVisible != source.isHitTestVisible { target.isHitTestVisible = source.isHitTestVisible }
-        if target.allowsAutomaticWindowDecorations != source.allowsAutomaticWindowDecorations {
-            target.allowsAutomaticWindowDecorations = source.allowsAutomaticWindowDecorations
+        if target.isTextInputCaret != source.isTextInputCaret {
+            guard copyNodeProperty(\.isTextInputCaret, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
-        if target.isHidden != source.isHidden { target.isHidden = source.isHidden }
+        if target.isHitTestVisible != source.isHitTestVisible {
+            guard copyNodeProperty(\.isHitTestVisible, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
+        if target.allowsAutomaticWindowDecorations != source.allowsAutomaticWindowDecorations {
+            guard copyNodeProperty(\.allowsAutomaticWindowDecorations, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
+        }
+        if target.isHidden != source.isHidden {
+            guard copyNodeProperty(\.isHidden, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
         if target.accessibilityLabel != source.accessibilityLabel {
-            target.accessibilityLabel = source.accessibilityLabel
+            guard copyNodeProperty(\.accessibilityLabel, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
         if target.accessibilityDescription != source.accessibilityDescription {
-            target.accessibilityDescription = source.accessibilityDescription
+            guard copyNodeProperty(\.accessibilityDescription, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.accessibilityValue != source.accessibilityValue {
-            target.accessibilityValue = source.accessibilityValue
+            guard copyNodeProperty(\.accessibilityValue, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
-        if target.accessibilityHint != source.accessibilityHint { target.accessibilityHint = source.accessibilityHint }
+        if target.accessibilityHint != source.accessibilityHint {
+            guard copyNodeProperty(\.accessibilityHint, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.accessibilityIdentifier != source.accessibilityIdentifier {
-            target.accessibilityIdentifier = source.accessibilityIdentifier
+            guard copyNodeProperty(\.accessibilityIdentifier, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.accessibilityLanguage != source.accessibilityLanguage {
-            target.accessibilityLanguage = source.accessibilityLanguage
+            guard copyNodeProperty(\.accessibilityLanguage, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.accessibilityTextualContext != source.accessibilityTextualContext {
-            target.accessibilityTextualContext = source.accessibilityTextualContext
+            guard copyNodeProperty(\.accessibilityTextualContext, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.accessibilityHeadingLevel != source.accessibilityHeadingLevel {
-            target.accessibilityHeadingLevel = source.accessibilityHeadingLevel
+            guard copyNodeProperty(\.accessibilityHeadingLevel, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
-        if target.tooltip != source.tooltip { target.tooltip = source.tooltip }
+        if target.tooltip != source.tooltip {
+            guard copyNodeProperty(\.tooltip, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
         if target.accessibilityTraits != source.accessibilityTraits {
-            target.accessibilityTraits = source.accessibilityTraits
+            guard copyNodeProperty(\.accessibilityTraits, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
         if target.accessibilityChildBehavior != source.accessibilityChildBehavior {
-            target.accessibilityChildBehavior = source.accessibilityChildBehavior
+            guard copyNodeProperty(\.accessibilityChildBehavior, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.accessibilitySortPriority != source.accessibilitySortPriority {
-            target.accessibilitySortPriority = source.accessibilitySortPriority
+            guard copyNodeProperty(\.accessibilitySortPriority, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if !(target.accessibilityActions.isEmpty && source.accessibilityActions.isEmpty) {
-            target.accessibilityActions = source.accessibilityActions
+            guard copyNodeProperty(\.accessibilityActions, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.accessibilityInputLabels != source.accessibilityInputLabels {
-            target.accessibilityInputLabels = source.accessibilityInputLabels
+            guard copyNodeProperty(\.accessibilityInputLabels, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.isAccessibilityHidden != source.isAccessibilityHidden {
-            target.isAccessibilityHidden = source.isAccessibilityHidden
+            guard copyNodeProperty(\.isAccessibilityHidden, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.accessibilityIgnoresInvertColors != source.accessibilityIgnoresInvertColors {
-            target.accessibilityIgnoresInvertColors = source.accessibilityIgnoresInvertColors
+            guard copyNodeProperty(\.accessibilityIgnoresInvertColors, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.accessibilityRespondsToUserInteraction != source.accessibilityRespondsToUserInteraction {
-            target.accessibilityRespondsToUserInteraction = source.accessibilityRespondsToUserInteraction
+            guard
+                copyNodeProperty(
+                    \.accessibilityRespondsToUserInteraction, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.accessibilityPrefersSliderBehavior != source.accessibilityPrefersSliderBehavior {
-            target.accessibilityPrefersSliderBehavior = source.accessibilityPrefersSliderBehavior
+            guard copyNodeProperty(\.accessibilityPrefersSliderBehavior, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.accessibilityRequiresActivationPoint != source.accessibilityRequiresActivationPoint {
-            target.accessibilityRequiresActivationPoint = source.accessibilityRequiresActivationPoint
+            guard
+                copyNodeProperty(\.accessibilityRequiresActivationPoint, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.accessibilityDirectTouchOptions != source.accessibilityDirectTouchOptions {
-            target.accessibilityDirectTouchOptions = source.accessibilityDirectTouchOptions
+            guard copyNodeProperty(\.accessibilityDirectTouchOptions, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.accessibilityPrefersCrossFadeTransitions != source.accessibilityPrefersCrossFadeTransitions {
-            target.accessibilityPrefersCrossFadeTransitions = source.accessibilityPrefersCrossFadeTransitions
+            guard
+                copyNodeProperty(
+                    \.accessibilityPrefersCrossFadeTransitions, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.accessibilityShowLargeContentViewer != source.accessibilityShowLargeContentViewer {
-            target.accessibilityShowLargeContentViewer = source.accessibilityShowLargeContentViewer
+            guard copyNodeProperty(\.accessibilityShowLargeContentViewer, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.symbolVariableValue != source.symbolVariableValue {
-            target.symbolVariableValue = source.symbolVariableValue
+            guard copyNodeProperty(\.symbolVariableValue, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
         if target.symbolRenderingMode != source.symbolRenderingMode {
-            target.symbolRenderingMode = source.symbolRenderingMode
+            guard copyNodeProperty(\.symbolRenderingMode, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
-        if target.symbolVariants != source.symbolVariants { target.symbolVariants = source.symbolVariants }
-        if target.imageResizingMode != source.imageResizingMode { target.imageResizingMode = source.imageResizingMode }
-        if target.imageCapInsets != source.imageCapInsets { target.imageCapInsets = source.imageCapInsets }
+        if target.symbolVariants != source.symbolVariants {
+            guard copyNodeProperty(\.symbolVariants, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
+        if target.imageResizingMode != source.imageResizingMode {
+            guard copyNodeProperty(\.imageResizingMode, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
+        if target.imageCapInsets != source.imageCapInsets {
+            guard copyNodeProperty(\.imageCapInsets, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.imageUsesBitmapResizing != source.imageUsesBitmapResizing {
-            target.imageUsesBitmapResizing = source.imageUsesBitmapResizing
+            guard copyNodeProperty(\.imageUsesBitmapResizing, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.imageRenderingMode != source.imageRenderingMode {
-            target.imageRenderingMode = source.imageRenderingMode
+            guard copyNodeProperty(\.imageRenderingMode, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
         if target.imageInterpolation != source.imageInterpolation {
-            target.imageInterpolation = source.imageInterpolation
+            guard copyNodeProperty(\.imageInterpolation, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
-        if target.imageAntialiased != source.imageAntialiased { target.imageAntialiased = source.imageAntialiased }
-        if target.keyboardShortcuts != source.keyboardShortcuts { target.keyboardShortcuts = source.keyboardShortcuts }
+        if target.imageAntialiased != source.imageAntialiased {
+            guard copyNodeProperty(\.imageAntialiased, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
+        if target.keyboardShortcuts != source.keyboardShortcuts {
+            guard copyNodeProperty(\.keyboardShortcuts, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.interceptsVerticalArrowKeys != source.interceptsVerticalArrowKeys {
-            target.interceptsVerticalArrowKeys = source.interceptsVerticalArrowKeys
+            guard copyNodeProperty(\.interceptsVerticalArrowKeys, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.textInputSubmitLabel != source.textInputSubmitLabel {
-            target.textInputSubmitLabel = source.textInputSubmitLabel
+            guard copyNodeProperty(\.textInputSubmitLabel, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
-        if let controller = source.textInputController {
-            let previous = target.textInputController
-            target.textInputController = controller
-            controller.reconcile(from: previous, onto: target)
-        } else {
-            target.textInputController?.detach(from: target)
-            target.textInputController = nil
+        let hasIncomingTextInputController = source.textInputController != nil
+        guard
+            target.reconcileTextInputController(
+                from: source, admission: check.admission, lazyJournal: check.lazyJournal,
+                taskAdoption: check.taskAdoption),
+            check.isCurrent
+        else {
+            return false
+        }
+        if !hasIncomingTextInputController {
             if target.textInputCaretOffset != source.textInputCaretOffset {
-                target.textInputCaretOffset = source.textInputCaretOffset
+                guard copyNodeProperty(\.textInputCaretOffset, source: source, target: target, check: check),
+                    check.isCurrent
+                else { return false }
             }
             if target.textInputSelection != source.textInputSelection {
-                target.textInputSelection = source.textInputSelection
+                guard copyNodeProperty(\.textInputSelection, source: source, target: target, check: check),
+                    check.isCurrent
+                else { return false }
             }
         }
-        if target.textSelectability != source.textSelectability { target.textSelectability = source.textSelectability }
-        if target.textSelectionAffinity != source.textSelectionAffinity {
-            target.textSelectionAffinity = source.textSelectionAffinity
+        if target.textSelectability != source.textSelectability {
+            guard copyNodeProperty(\.textSelectability, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
-        if target.textContentType != source.textContentType { target.textContentType = source.textContentType }
+        if target.textSelectionAffinity != source.textSelectionAffinity {
+            guard copyNodeProperty(\.textSelectionAffinity, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
+        }
+        if target.textContentType != source.textContentType {
+            guard copyNodeProperty(\.textContentType, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.textInputKeyboardType != source.textInputKeyboardType {
-            target.textInputKeyboardType = source.textInputKeyboardType
+            guard copyNodeProperty(\.textInputKeyboardType, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.textInputCompletion != source.textInputCompletion {
-            target.textInputCompletion = source.textInputCompletion
+            guard copyNodeProperty(\.textInputCompletion, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
         if target.textInputSuggestions != source.textInputSuggestions {
-            target.textInputSuggestions = source.textInputSuggestions
+            guard copyNodeProperty(\.textInputSuggestions, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.writingToolsBehavior != source.writingToolsBehavior {
-            target.writingToolsBehavior = source.writingToolsBehavior
+            guard copyNodeProperty(\.writingToolsBehavior, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.writingToolsAffordanceVisibility != source.writingToolsAffordanceVisibility {
-            target.writingToolsAffordanceVisibility = source.writingToolsAffordanceVisibility
+            guard copyNodeProperty(\.writingToolsAffordanceVisibility, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.textInputDictationBehavior != source.textInputDictationBehavior {
-            target.textInputDictationBehavior = source.textInputDictationBehavior
+            guard copyNodeProperty(\.textInputDictationBehavior, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
-        if target.isFindDisabled != source.isFindDisabled { target.isFindDisabled = source.isFindDisabled }
-        if target.isReplaceDisabled != source.isReplaceDisabled { target.isReplaceDisabled = source.isReplaceDisabled }
+        if target.isFindDisabled != source.isFindDisabled {
+            guard copyNodeProperty(\.isFindDisabled, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
+        if target.isReplaceDisabled != source.isReplaceDisabled {
+            guard copyNodeProperty(\.isReplaceDisabled, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.isFindNavigatorPresented != source.isFindNavigatorPresented {
-            target.isFindNavigatorPresented = source.isFindNavigatorPresented
+            guard copyNodeProperty(\.isFindNavigatorPresented, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.isSubmitScopeBoundary != source.isSubmitScopeBoundary {
-            target.isSubmitScopeBoundary = source.isSubmitScopeBoundary
+            guard copyNodeProperty(\.isSubmitScopeBoundary, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.submitScopeTriggersRawValue != source.submitScopeTriggersRawValue {
-            target.submitScopeTriggersRawValue = source.submitScopeTriggersRawValue
+            guard copyNodeProperty(\.submitScopeTriggersRawValue, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
-        if target.isFocusSection != source.isFocusSection { target.isFocusSection = source.isFocusSection }
+        if target.isFocusSection != source.isFocusSection {
+            guard copyNodeProperty(\.isFocusSection, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.prefersDefaultFocus != source.prefersDefaultFocus {
-            target.prefersDefaultFocus = source.prefersDefaultFocus
+            guard copyNodeProperty(\.prefersDefaultFocus, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
-        if target.focusNamespace != source.focusNamespace { target.focusNamespace = source.focusNamespace }
-        if target.isGeometryGroup != source.isGeometryGroup { target.isGeometryGroup = source.isGeometryGroup }
-        if target.hoverEffect != source.hoverEffect { target.hoverEffect = source.hoverEffect }
+        if target.focusNamespace != source.focusNamespace {
+            guard copyNodeProperty(\.focusNamespace, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
+        if target.isGeometryGroup != source.isGeometryGroup {
+            guard copyNodeProperty(\.isGeometryGroup, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
+        if target.hoverEffect != source.hoverEffect {
+            guard copyNodeProperty(\.hoverEffect, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
         if target.isHoverEffectDisabled != source.isHoverEffectDisabled {
-            target.isHoverEffectDisabled = source.isHoverEffectDisabled
+            guard copyNodeProperty(\.isHoverEffectDisabled, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.isFocusEffectDisabled != source.isFocusEffectDisabled {
-            target.isFocusEffectDisabled = source.isFocusEffectDisabled
+            guard copyNodeProperty(\.isFocusEffectDisabled, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.isFocusDestination != source.isFocusDestination {
-            target.isFocusDestination = source.isFocusDestination
+            guard copyNodeProperty(\.isFocusDestination, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
-        if target.isFocusActive != source.isFocusActive { target.isFocusActive = source.isFocusActive }
-        if target.isFocusEnabled != source.isFocusEnabled { target.isFocusEnabled = source.isFocusEnabled }
-        if target.pointerStyle != source.pointerStyle { target.pointerStyle = source.pointerStyle }
-        if target.pointerVisibility != source.pointerVisibility { target.pointerVisibility = source.pointerVisibility }
+        if target.isFocusActive != source.isFocusActive {
+            guard copyNodeProperty(\.isFocusActive, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
+        if target.isFocusEnabled != source.isFocusEnabled {
+            guard copyNodeProperty(\.isFocusEnabled, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
+        if target.pointerStyle != source.pointerStyle {
+            guard copyNodeProperty(\.pointerStyle, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
+        if target.pointerVisibility != source.pointerVisibility {
+            guard copyNodeProperty(\.pointerVisibility, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.digitalCrownRotation != source.digitalCrownRotation {
-            target.digitalCrownRotation = source.digitalCrownRotation
+            guard copyNodeProperty(\.digitalCrownRotation, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.windowDragInteraction != source.windowDragInteraction {
-            target.windowDragInteraction = source.windowDragInteraction
+            guard copyNodeProperty(\.windowDragInteraction, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.windowResizeInteraction != source.windowResizeInteraction {
-            target.windowResizeInteraction = source.windowResizeInteraction
+            guard copyNodeProperty(\.windowResizeInteraction, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.windowDismissBehavior != source.windowDismissBehavior {
-            target.windowDismissBehavior = source.windowDismissBehavior
+            guard copyNodeProperty(\.windowDismissBehavior, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.windowFullScreenBehavior != source.windowFullScreenBehavior {
-            target.windowFullScreenBehavior = source.windowFullScreenBehavior
+            guard copyNodeProperty(\.windowFullScreenBehavior, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.windowMinimizeBehavior != source.windowMinimizeBehavior {
-            target.windowMinimizeBehavior = source.windowMinimizeBehavior
+            guard copyNodeProperty(\.windowMinimizeBehavior, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.windowResizeBehavior != source.windowResizeBehavior {
-            target.windowResizeBehavior = source.windowResizeBehavior
+            guard copyNodeProperty(\.windowResizeBehavior, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.windowCornerRadius != source.windowCornerRadius {
-            target.windowCornerRadius = source.windowCornerRadius
+            guard copyNodeProperty(\.windowCornerRadius, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
-        if target.contentShapes != source.contentShapes { target.contentShapes = source.contentShapes }
+        if target.contentShapes != source.contentShapes {
+            guard copyNodeProperty(\.contentShapes, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.buttonRepeatBehavior != source.buttonRepeatBehavior {
-            target.buttonRepeatBehavior = source.buttonRepeatBehavior
+            guard copyNodeProperty(\.buttonRepeatBehavior, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
-        if target.redactionReasons != source.redactionReasons { target.redactionReasons = source.redactionReasons }
+        if target.redactionReasons != source.redactionReasons {
+            guard copyNodeProperty(\.redactionReasons, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.isPrivacySensitive != source.isPrivacySensitive {
-            target.isPrivacySensitive = source.isPrivacySensitive
+            guard copyNodeProperty(\.isPrivacySensitive, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
         if target.isAccessibilityShowsLargeContentViewer != source.isAccessibilityShowsLargeContentViewer {
-            target.isAccessibilityShowsLargeContentViewer = source.isAccessibilityShowsLargeContentViewer
+            guard
+                copyNodeProperty(
+                    \.isAccessibilityShowsLargeContentViewer, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.isAccessibilityQuickActionEnabled != source.isAccessibilityQuickActionEnabled {
-            target.isAccessibilityQuickActionEnabled = source.isAccessibilityQuickActionEnabled
+            guard copyNodeProperty(\.isAccessibilityQuickActionEnabled, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.accessibilityQuickActionStyle != source.accessibilityQuickActionStyle {
-            target.accessibilityQuickActionStyle = source.accessibilityQuickActionStyle
+            guard copyNodeProperty(\.accessibilityQuickActionStyle, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.isAccessibilityZoomActionEnabled != source.isAccessibilityZoomActionEnabled {
-            target.isAccessibilityZoomActionEnabled = source.isAccessibilityZoomActionEnabled
+            guard copyNodeProperty(\.isAccessibilityZoomActionEnabled, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.isAccessibilityScrollActionEnabled != source.isAccessibilityScrollActionEnabled {
-            target.isAccessibilityScrollActionEnabled = source.isAccessibilityScrollActionEnabled
+            guard copyNodeProperty(\.isAccessibilityScrollActionEnabled, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.isAccessibilityFocusSection != source.isAccessibilityFocusSection {
-            target.isAccessibilityFocusSection = source.isAccessibilityFocusSection
+            guard copyNodeProperty(\.isAccessibilityFocusSection, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.isAccessibilityImage != source.isAccessibilityImage {
-            target.isAccessibilityImage = source.isAccessibilityImage
+            guard copyNodeProperty(\.isAccessibilityImage, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.accessibilityLinkDestination != source.accessibilityLinkDestination {
-            target.accessibilityLinkDestination = source.accessibilityLinkDestination
+            guard copyNodeProperty(\.accessibilityLinkDestination, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.accessibilityLinkedGroup != source.accessibilityLinkedGroup {
-            target.accessibilityLinkedGroup = source.accessibilityLinkedGroup
+            guard copyNodeProperty(\.accessibilityLinkedGroup, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
-        if target.accessibilityPage != source.accessibilityPage { target.accessibilityPage = source.accessibilityPage }
+        if target.accessibilityPage != source.accessibilityPage {
+            guard copyNodeProperty(\.accessibilityPage, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.contextMenuForSelectionType != source.contextMenuForSelectionType {
-            target.contextMenuForSelectionType = source.contextMenuForSelectionType
+            guard copyNodeProperty(\.contextMenuForSelectionType, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
-        if target.widgetURL != source.widgetURL { target.widgetURL = source.widgetURL }
+        if target.widgetURL != source.widgetURL {
+            guard copyNodeProperty(\.widgetURL, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
         if target.isWidgetAccentable != source.isWidgetAccentable {
-            target.isWidgetAccentable = source.isWidgetAccentable
+            guard copyNodeProperty(\.isWidgetAccentable, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
         if target.widgetAccentedRenderingMode != source.widgetAccentedRenderingMode {
-            target.widgetAccentedRenderingMode = source.widgetAccentedRenderingMode
+            guard copyNodeProperty(\.widgetAccentedRenderingMode, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.widgetBackgroundStyle != source.widgetBackgroundStyle {
-            target.widgetBackgroundStyle = source.widgetBackgroundStyle
+            guard copyNodeProperty(\.widgetBackgroundStyle, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.widgetBackgroundPlacement != source.widgetBackgroundPlacement {
-            target.widgetBackgroundPlacement = source.widgetBackgroundPlacement
+            guard copyNodeProperty(\.widgetBackgroundPlacement, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
-        if target.widgetRelevancy != source.widgetRelevancy { target.widgetRelevancy = source.widgetRelevancy }
+        if target.widgetRelevancy != source.widgetRelevancy {
+            guard copyNodeProperty(\.widgetRelevancy, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.paletteSelectionEffect != source.paletteSelectionEffect {
-            target.paletteSelectionEffect = source.paletteSelectionEffect
+            guard copyNodeProperty(\.paletteSelectionEffect, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.paintsInDeferredPhase != source.paintsInDeferredPhase {
-            target.paintsInDeferredPhase = source.paintsInDeferredPhase
+            guard copyNodeProperty(\.paintsInDeferredPhase, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.matchedGeometryEffect != source.matchedGeometryEffect {
-            target.matchedGeometryEffect = source.matchedGeometryEffect
+            guard copyNodeProperty(\.matchedGeometryEffect, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.matchedTransitionSource != source.matchedTransitionSource {
-            target.matchedTransitionSource = source.matchedTransitionSource
+            guard copyNodeProperty(\.matchedTransitionSource, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.navigationTransition != source.navigationTransition {
-            target.navigationTransition = source.navigationTransition
+            guard copyNodeProperty(\.navigationTransition, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.hasAllocatedChartMetadata || source.hasAllocatedChartMetadata {
-            if target.chartXAxis != source.chartXAxis { target.chartXAxis = source.chartXAxis }
-            if target.chartXScale != source.chartXScale { target.chartXScale = source.chartXScale }
-            if target.chartYScale != source.chartYScale { target.chartYScale = source.chartYScale }
-            if target.meshGradient != source.meshGradient { target.meshGradient = source.meshGradient }
-            if target.chartYAxis != source.chartYAxis { target.chartYAxis = source.chartYAxis }
-            if target.chartLegend != source.chartLegend { target.chartLegend = source.chartLegend }
-            if target.chartBackground != source.chartBackground { target.chartBackground = source.chartBackground }
-            if target.chartPlotStyle != source.chartPlotStyle { target.chartPlotStyle = source.chartPlotStyle }
-            if target.chartOverlay != source.chartOverlay { target.chartOverlay = source.chartOverlay }
-            if target.chartSelection != source.chartSelection { target.chartSelection = source.chartSelection }
+            if target.chartXAxis != source.chartXAxis {
+                guard copyNodeProperty(\.chartXAxis, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
+            if target.chartXScale != source.chartXScale {
+                guard copyNodeProperty(\.chartXScale, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
+            if target.chartYScale != source.chartYScale {
+                guard copyNodeProperty(\.chartYScale, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
+            if target.meshGradient != source.meshGradient {
+                guard copyNodeProperty(\.meshGradient, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
+            if target.chartYAxis != source.chartYAxis {
+                guard copyNodeProperty(\.chartYAxis, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
+            if target.chartLegend != source.chartLegend {
+                guard copyNodeProperty(\.chartLegend, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
+            if target.chartBackground != source.chartBackground {
+                guard copyNodeProperty(\.chartBackground, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
+            if target.chartPlotStyle != source.chartPlotStyle {
+                guard copyNodeProperty(\.chartPlotStyle, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
+            if target.chartOverlay != source.chartOverlay {
+                guard copyNodeProperty(\.chartOverlay, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
+            if target.chartSelection != source.chartSelection {
+                guard copyNodeProperty(\.chartSelection, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
             if target.chartScrollableAxes != source.chartScrollableAxes {
-                target.chartScrollableAxes = source.chartScrollableAxes
+                guard copyNodeProperty(\.chartScrollableAxes, source: source, target: target, check: check),
+                    check.isCurrent
+                else { return false }
             }
             if target.chartForegroundStyleScale != source.chartForegroundStyleScale {
-                target.chartForegroundStyleScale = source.chartForegroundStyleScale
+                guard copyNodeProperty(\.chartForegroundStyleScale, source: source, target: target, check: check),
+                    check.isCurrent
+                else { return false }
             }
-            if target.chartSymbolSize != source.chartSymbolSize { target.chartSymbolSize = source.chartSymbolSize }
-            if target.chartSymbol != source.chartSymbol { target.chartSymbol = source.chartSymbol }
-            if target.chartAngleScale != source.chartAngleScale { target.chartAngleScale = source.chartAngleScale }
+            if target.chartSymbolSize != source.chartSymbolSize {
+                guard copyNodeProperty(\.chartSymbolSize, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
+            if target.chartSymbol != source.chartSymbol {
+                guard copyNodeProperty(\.chartSymbol, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
+            if target.chartAngleScale != source.chartAngleScale {
+                guard copyNodeProperty(\.chartAngleScale, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
             if target.chartBackgroundStyleScale != source.chartBackgroundStyleScale {
-                target.chartBackgroundStyleScale = source.chartBackgroundStyleScale
+                guard copyNodeProperty(\.chartBackgroundStyleScale, source: source, target: target, check: check),
+                    check.isCurrent
+                else { return false }
             }
-            if target.chartSymbolScale != source.chartSymbolScale { target.chartSymbolScale = source.chartSymbolScale }
+            if target.chartSymbolScale != source.chartSymbolScale {
+                guard copyNodeProperty(\.chartSymbolScale, source: source, target: target, check: check),
+                    check.isCurrent
+                else { return false }
+            }
             if target.chartXVisibleDomain != source.chartXVisibleDomain {
-                target.chartXVisibleDomain = source.chartXVisibleDomain
+                guard copyNodeProperty(\.chartXVisibleDomain, source: source, target: target, check: check),
+                    check.isCurrent
+                else { return false }
             }
             if target.chartYVisibleDomain != source.chartYVisibleDomain {
-                target.chartYVisibleDomain = source.chartYVisibleDomain
+                guard copyNodeProperty(\.chartYVisibleDomain, source: source, target: target, check: check),
+                    check.isCurrent
+                else { return false }
             }
-            if target.chartXSelection != source.chartXSelection { target.chartXSelection = source.chartXSelection }
-            if target.chartYSelection != source.chartYSelection { target.chartYSelection = source.chartYSelection }
+            if target.chartXSelection != source.chartXSelection {
+                guard copyNodeProperty(\.chartXSelection, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
+            if target.chartYSelection != source.chartYSelection {
+                guard copyNodeProperty(\.chartYSelection, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
             if target.chartAngleSelection != source.chartAngleSelection {
-                target.chartAngleSelection = source.chartAngleSelection
+                guard copyNodeProperty(\.chartAngleSelection, source: source, target: target, check: check),
+                    check.isCurrent
+                else { return false }
             }
             if target.chartScrollPositionX != source.chartScrollPositionX {
-                target.chartScrollPositionX = source.chartScrollPositionX
+                guard copyNodeProperty(\.chartScrollPositionX, source: source, target: target, check: check),
+                    check.isCurrent
+                else { return false }
             }
             if target.chartScrollPositionY != source.chartScrollPositionY {
-                target.chartScrollPositionY = source.chartScrollPositionY
+                guard copyNodeProperty(\.chartScrollPositionY, source: source, target: target, check: check),
+                    check.isCurrent
+                else { return false }
             }
         }
         if target.tableColumnHeadersVisible != source.tableColumnHeadersVisible {
-            target.tableColumnHeadersVisible = source.tableColumnHeadersVisible
+            guard copyNodeProperty(\.tableColumnHeadersVisible, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.isContentInvalidatable != source.isContentInvalidatable {
-            target.isContentInvalidatable = source.isContentInvalidatable
+            guard copyNodeProperty(\.isContentInvalidatable, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
-        if target.isLineSelectable != source.isLineSelectable { target.isLineSelectable = source.isLineSelectable }
+        if target.isLineSelectable != source.isLineSelectable {
+            guard copyNodeProperty(\.isLineSelectable, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.accessibilityActivationPoint != source.accessibilityActivationPoint {
-            target.accessibilityActivationPoint = source.accessibilityActivationPoint
+            guard copyNodeProperty(\.accessibilityActivationPoint, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.accessibilityTextContentType != source.accessibilityTextContentType {
-            target.accessibilityTextContentType = source.accessibilityTextContentType
+            guard copyNodeProperty(\.accessibilityTextContentType, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.accessibilityMagicTapAction != nil || source.accessibilityMagicTapAction != nil {
-            target.accessibilityMagicTapAction = source.accessibilityMagicTapAction
+            guard copyNodeProperty(\.accessibilityMagicTapAction, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.presentationChrome != source.presentationChrome {
-            target.presentationChrome = source.presentationChrome
+            guard copyNodeProperty(\.presentationChrome, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
         if target.isToolbarContainer != source.isToolbarContainer {
-            target.isToolbarContainer = source.isToolbarContainer
+            guard copyNodeProperty(\.isToolbarContainer, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
         if target.toolbarPlacementTags != source.toolbarPlacementTags {
-            target.toolbarPlacementTags = source.toolbarPlacementTags
+            guard copyNodeProperty(\.toolbarPlacementTags, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
-        if target.menuOrder != source.menuOrder { target.menuOrder = source.menuOrder }
+        if target.menuOrder != source.menuOrder {
+            guard copyNodeProperty(\.menuOrder, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
         if target.toolbarTitleMenuChildren != nil || source.toolbarTitleMenuChildren != nil {
-            target.toolbarTitleMenuChildren = source.toolbarTitleMenuChildren
+            guard copyNodeProperty(\.toolbarTitleMenuChildren, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.toolbarTitleActionsChildren != nil || source.toolbarTitleActionsChildren != nil {
-            target.toolbarTitleActionsChildren = source.toolbarTitleActionsChildren
+            guard copyNodeProperty(\.toolbarTitleActionsChildren, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.accessibilityRepresentationChildren != nil || source.accessibilityRepresentationChildren != nil {
-            target.accessibilityRepresentationChildren = source.accessibilityRepresentationChildren
+            guard copyNodeProperty(\.accessibilityRepresentationChildren, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
-        if target.gestureName != source.gestureName { target.gestureName = source.gestureName }
-        if target.textRenderer != nil || source.textRenderer != nil { target.textRenderer = source.textRenderer }
-        if target.scenePaddingEdges != source.scenePaddingEdges { target.scenePaddingEdges = source.scenePaddingEdges }
+        if target.gestureName != source.gestureName {
+            guard copyNodeProperty(\.gestureName, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
+        if target.textRenderer != nil || source.textRenderer != nil {
+            guard copyNodeProperty(\.textRenderer, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
+        if target.scenePaddingEdges != source.scenePaddingEdges {
+            guard copyNodeProperty(\.scenePaddingEdges, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.coordinateSpaceName != source.coordinateSpaceName {
-            target.coordinateSpaceName = source.coordinateSpaceName
+            guard copyNodeProperty(\.coordinateSpaceName, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
         if target.sectionHeaderChildCount != source.sectionHeaderChildCount {
-            target.sectionHeaderChildCount = source.sectionHeaderChildCount
+            guard copyNodeProperty(\.sectionHeaderChildCount, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.sectionFooterChildCount != source.sectionFooterChildCount {
-            target.sectionFooterChildCount = source.sectionFooterChildCount
+            guard copyNodeProperty(\.sectionFooterChildCount, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if !(target.retainedPreferenceValues.isEmpty && source.retainedPreferenceValues.isEmpty) {
-            target.retainedPreferenceValues = source.retainedPreferenceValues
+            guard copyNodeProperty(\.retainedPreferenceValues, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if !(target.retainedPreferenceTransformBoundaries.isEmpty
             && source.retainedPreferenceTransformBoundaries.isEmpty)
         {
-            target.retainedPreferenceTransformBoundaries = source.retainedPreferenceTransformBoundaries
+            guard
+                copyNodeProperty(\.retainedPreferenceTransformBoundaries, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if !(target.retainedLayoutValues.isEmpty && source.retainedLayoutValues.isEmpty) {
-            target.retainedLayoutValues = source.retainedLayoutValues
+            guard copyNodeProperty(\.retainedLayoutValues, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if !(target.retainedContainerValues.isEmpty && source.retainedContainerValues.isEmpty) {
-            target.retainedContainerValues = source.retainedContainerValues
+            guard copyNodeProperty(\.retainedContainerValues, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
-        if target.nodeTag != source.nodeTag { target.nodeTag = source.nodeTag }
-        if target.retainedViewIdentity != source.retainedViewIdentity {
-            target.retainedViewIdentity = source.retainedViewIdentity
+        if target.nodeTag != source.nodeTag {
+            guard copyNodeProperty(\.nodeTag, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
+        guard
+            let retainedViewIdentityChanged = retainedViewIdentitiesDiffer(
+                source: source, target: target, check: check),
+            check.isCurrent
+        else { return false }
+        if retainedViewIdentityChanged {
+            guard copyNodeProperty(\.retainedViewIdentity, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.retainedSubtreeBuildLease != nil || source.retainedSubtreeBuildLease != nil {
-            target.retainedSubtreeBuildLease = source.retainedSubtreeBuildLease
+            guard copyNodeProperty(\.retainedSubtreeBuildLease, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
+        }
+        if target.retainedLazyListGap != source.retainedLazyListGap {
+            guard copyNodeProperty(\.retainedLazyListGap, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
+        }
+        if target.retainedLazyListRowChrome != nil || source.retainedLazyListRowChrome != nil {
+            guard copyNodeProperty(\.retainedLazyListRowChrome, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
+        }
+        if target.isSeparatorRule != source.isSeparatorRule {
+            guard copyNodeProperty(\.isSeparatorRule, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
         let targetLayoutTag = layoutModeTag(target.layoutMode)
         let sourceLayoutTag = layoutModeTag(source.layoutMode)
         if targetLayoutTag != sourceLayoutTag || gridConfigurationChanged(target.layoutMode, source.layoutMode) {
-            target.layoutMode = source.layoutMode
+            guard copyNodeProperty(\.layoutMode, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
         }
         if target.previousPropertyValues != nil || source.previousPropertyValues != nil {
-            target.previousPropertyValues = source.previousPropertyValues
+            guard copyNodeProperty(\.previousPropertyValues, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
 
         if target.hasAllocatedInteractionHandlers || source.hasAllocatedInteractionHandlers {
             if target.onPointerEnter != nil || source.onPointerEnter != nil {
-                target.onPointerEnter = source.onPointerEnter
+                guard copyNodeProperty(\.onPointerEnter, source: source, target: target, check: check), check.isCurrent
+                else { return false }
             }
             if target.onPointerExit != nil || source.onPointerExit != nil {
-                target.onPointerExit = source.onPointerExit
+                guard copyNodeProperty(\.onPointerExit, source: source, target: target, check: check), check.isCurrent
+                else { return false }
             }
             if target.onPointerMove != nil || source.onPointerMove != nil {
-                target.onPointerMove = source.onPointerMove
+                guard copyNodeProperty(\.onPointerMove, source: source, target: target, check: check), check.isCurrent
+                else { return false }
             }
             if target.onPointerDown != nil || source.onPointerDown != nil {
-                target.onPointerDown = source.onPointerDown
+                guard copyNodeProperty(\.onPointerDown, source: source, target: target, check: check), check.isCurrent
+                else { return false }
             }
             if target.onPointerUpInside != nil || source.onPointerUpInside != nil {
-                target.onPointerUpInside = source.onPointerUpInside
+                guard copyNodeProperty(\.onPointerUpInside, source: source, target: target, check: check),
+                    check.isCurrent
+                else { return false }
             }
             if target.onPointerUpInsideAt != nil || source.onPointerUpInsideAt != nil {
-                target.onPointerUpInsideAt = source.onPointerUpInsideAt
+                guard copyNodeProperty(\.onPointerUpInsideAt, source: source, target: target, check: check),
+                    check.isCurrent
+                else { return false }
             }
             if target.onPointerUpOutside != nil || source.onPointerUpOutside != nil {
-                target.onPointerUpOutside = source.onPointerUpOutside
+                guard copyNodeProperty(\.onPointerUpOutside, source: source, target: target, check: check),
+                    check.isCurrent
+                else { return false }
             }
             if target.onContextMenu != nil || source.onContextMenu != nil {
-                target.onContextMenu = source.onContextMenu
+                guard copyNodeProperty(\.onContextMenu, source: source, target: target, check: check), check.isCurrent
+                else { return false }
             }
-            if target.onFocusEnter != nil || source.onFocusEnter != nil { target.onFocusEnter = source.onFocusEnter }
-            if target.onFocusExit != nil || source.onFocusExit != nil { target.onFocusExit = source.onFocusExit }
-            if target.onKeyDown != nil || source.onKeyDown != nil { target.onKeyDown = source.onKeyDown }
+            if target.onFocusEnter != nil || source.onFocusEnter != nil {
+                guard copyNodeProperty(\.onFocusEnter, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
+            if target.onFocusExit != nil || source.onFocusExit != nil {
+                guard copyNodeProperty(\.onFocusExit, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
+            if target.onKeyDown != nil || source.onKeyDown != nil {
+                guard copyNodeProperty(\.onKeyDown, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
             if target.onIMEComposition != nil || source.onIMEComposition != nil {
-                target.onIMEComposition = source.onIMEComposition
+                guard copyNodeProperty(\.onIMEComposition, source: source, target: target, check: check),
+                    check.isCurrent
+                else { return false }
             }
             if target.textInputCaretRectProvider != nil || source.textInputCaretRectProvider != nil {
-                target.textInputCaretRectProvider = source.textInputCaretRectProvider
+                guard copyNodeProperty(\.textInputCaretRectProvider, source: source, target: target, check: check),
+                    check.isCurrent
+                else { return false }
             }
-            if target.onKeyUp != nil || source.onKeyUp != nil { target.onKeyUp = source.onKeyUp }
-            if target.onActivate != nil || source.onActivate != nil { target.onActivate = source.onActivate }
+            if target.onKeyUp != nil || source.onKeyUp != nil {
+                guard copyNodeProperty(\.onKeyUp, source: source, target: target, check: check), check.isCurrent else {
+                    return false
+                }
+            }
+            if target.onActivate != nil || source.onActivate != nil {
+                guard copyNodeProperty(\.onActivate, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
             if target.onRepeatActivate != nil || source.onRepeatActivate != nil {
-                target.onRepeatActivate = source.onRepeatActivate
+                guard copyNodeProperty(\.onRepeatActivate, source: source, target: target, check: check),
+                    check.isCurrent
+                else { return false }
             }
             if target.longPressGesture != nil || source.longPressGesture != nil {
-                target.longPressGesture = source.longPressGesture
+                guard copyNodeProperty(\.longPressGesture, source: source, target: target, check: check),
+                    check.isCurrent
+                else { return false }
             }
         }
 
         if target.hasAllocatedDropHandlers || source.hasAllocatedDropHandlers {
-            if target.onDeleteRows != nil || source.onDeleteRows != nil { target.onDeleteRows = source.onDeleteRows }
-            if target.onMoveRows != nil || source.onMoveRows != nil { target.onMoveRows = source.onMoveRows }
-            if target.onInsertRows != nil || source.onInsertRows != nil { target.onInsertRows = source.onInsertRows }
-            if target.onDropRows != nil || source.onDropRows != nil { target.onDropRows = source.onDropRows }
+            if target.onDeleteRows != nil || source.onDeleteRows != nil {
+                guard copyNodeProperty(\.onDeleteRows, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
+            if target.onMoveRows != nil || source.onMoveRows != nil {
+                guard copyNodeProperty(\.onMoveRows, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
+            if target.onInsertRows != nil || source.onInsertRows != nil {
+                guard copyNodeProperty(\.onInsertRows, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
+            if target.onDropRows != nil || source.onDropRows != nil {
+                guard copyNodeProperty(\.onDropRows, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
             if target.onValidateDrop != nil || source.onValidateDrop != nil {
-                target.onValidateDrop = source.onValidateDrop
+                guard copyNodeProperty(\.onValidateDrop, source: source, target: target, check: check), check.isCurrent
+                else { return false }
             }
             if target.onDropEntered != nil || source.onDropEntered != nil {
-                target.onDropEntered = source.onDropEntered
+                guard copyNodeProperty(\.onDropEntered, source: source, target: target, check: check), check.isCurrent
+                else { return false }
             }
             if target.onDropUpdated != nil || source.onDropUpdated != nil {
-                target.onDropUpdated = source.onDropUpdated
+                guard copyNodeProperty(\.onDropUpdated, source: source, target: target, check: check), check.isCurrent
+                else { return false }
             }
-            if target.onDropExited != nil || source.onDropExited != nil { target.onDropExited = source.onDropExited }
+            if target.onDropExited != nil || source.onDropExited != nil {
+                guard copyNodeProperty(\.onDropExited, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
             if target.onDropProviders != nil || source.onDropProviders != nil {
-                target.onDropProviders = source.onDropProviders
+                guard copyNodeProperty(\.onDropProviders, source: source, target: target, check: check), check.isCurrent
+                else { return false }
             }
             if target.onDropPayloads != nil || source.onDropPayloads != nil {
-                target.onDropPayloads = source.onDropPayloads
+                guard copyNodeProperty(\.onDropPayloads, source: source, target: target, check: check), check.isCurrent
+                else { return false }
             }
             if target.onMakeDropConfiguration != nil || source.onMakeDropConfiguration != nil {
-                target.onMakeDropConfiguration = source.onMakeDropConfiguration
+                guard copyNodeProperty(\.onMakeDropConfiguration, source: source, target: target, check: check),
+                    check.isCurrent
+                else { return false }
             }
             if target.onMakeDragPayload != nil || source.onMakeDragPayload != nil {
-                target.onMakeDragPayload = source.onMakeDragPayload
+                guard copyNodeProperty(\.onMakeDragPayload, source: source, target: target, check: check),
+                    check.isCurrent
+                else { return false }
             }
             if target.onMakeDragItemProvider != nil || source.onMakeDragItemProvider != nil {
-                target.onMakeDragItemProvider = source.onMakeDragItemProvider
+                guard copyNodeProperty(\.onMakeDragItemProvider, source: source, target: target, check: check),
+                    check.isCurrent
+                else { return false }
             }
-            if target.onDragStart != nil || source.onDragStart != nil { target.onDragStart = source.onDragStart }
-            if target.onDragChange != nil || source.onDragChange != nil { target.onDragChange = source.onDragChange }
-            if target.onDragEnd != nil || source.onDragEnd != nil { target.onDragEnd = source.onDragEnd }
+            if target.onDragStart != nil || source.onDragStart != nil {
+                guard copyNodeProperty(\.onDragStart, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
+            if target.onDragChange != nil || source.onDragChange != nil {
+                guard copyNodeProperty(\.onDragChange, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
+            if target.onDragEnd != nil || source.onDragEnd != nil {
+                guard copyNodeProperty(\.onDragEnd, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
         }
 
         if target.hasAllocatedLifecycleHandlers || source.hasAllocatedLifecycleHandlers {
-            if target.onLayout != nil || source.onLayout != nil { target.onLayout = source.onLayout }
+            if target.onLayout != nil || source.onLayout != nil {
+                guard copyNodeProperty(\.onLayout, source: source, target: target, check: check), check.isCurrent else {
+                    return false
+                }
+            }
             if target.onLayoutWithNode != nil || source.onLayoutWithNode != nil {
-                target.onLayoutWithNode = source.onLayoutWithNode
+                guard copyNodeProperty(\.onLayoutWithNode, source: source, target: target, check: check),
+                    check.isCurrent
+                else { return false }
             }
             if target.absoluteChildFrame != nil || source.absoluteChildFrame != nil {
-                target.absoluteChildFrame = source.absoluteChildFrame
+                guard copyNodeProperty(\.absoluteChildFrame, source: source, target: target, check: check),
+                    check.isCurrent
+                else { return false }
             }
-            if target.onAppear != nil || source.onAppear != nil { target.onAppear = source.onAppear }
-            if target.onDisappear != nil || source.onDisappear != nil { target.onDisappear = source.onDisappear }
+            if target.onAppear != nil || source.onAppear != nil {
+                guard copyNodeProperty(\.onAppear, source: source, target: target, check: check), check.isCurrent else {
+                    return false
+                }
+            }
+            if target.onDisappear != nil || source.onDisappear != nil {
+                guard copyNodeProperty(\.onDisappear, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
             if target.onAppearWithNode != nil || source.onAppearWithNode != nil {
-                target.onAppearWithNode = source.onAppearWithNode
+                guard copyNodeProperty(\.onAppearWithNode, source: source, target: target, check: check),
+                    check.isCurrent
+                else { return false }
             }
             if target.onDisappearWithNode != nil || source.onDisappearWithNode != nil {
-                target.onDisappearWithNode = source.onDisappearWithNode
+                guard copyNodeProperty(\.onDisappearWithNode, source: source, target: target, check: check),
+                    check.isCurrent
+                else { return false }
             }
-            if target.onSizeChange != nil || source.onSizeChange != nil { target.onSizeChange = source.onSizeChange }
+            if target.onSizeChange != nil || source.onSizeChange != nil {
+                guard copyNodeProperty(\.onSizeChange, source: source, target: target, check: check), check.isCurrent
+                else { return false }
+            }
             // The reader's body and the slot it was built from travel together:
             // `target` has just adopted `source`'s children, so it has also
             // adopted the size they were built against. Splitting them would
@@ -1990,28 +3895,54 @@ public final class ComponentHost {
             // not produce, and it would rebuild forever. Guarded as a pair for
             // the same reason: either both move or neither does.
             if target.geometryReaderBuild != nil || source.geometryReaderBuild != nil {
-                target.geometryReaderBuild = source.geometryReaderBuild
-                target.geometryReaderBuiltSize = source.geometryReaderBuiltSize
+                guard check.isCurrent else { return false }
+                if check.admission != nil || check.lazyJournal != nil {
+                    guard
+                        check.preparePropertyCopy(from: source, to: target, keyPath: \ViewNode.geometryReaderBuild),
+                        check.preparePropertyCopy(from: source, to: target, keyPath: \ViewNode.geometryReaderBuiltSize),
+                        check.markMutationStarted()
+                    else { return false }
+                    copyGeometryReaderPair(source: source, target: target, check: check)
+                } else {
+                    target.geometryReaderBuild = source.geometryReaderBuild
+                    target.geometryReaderBuiltSize = source.geometryReaderBuiltSize
+                }
+                guard check.isCurrent else { return false }
             }
         }
         if target.onUpdatePlatformView != nil || source.onUpdatePlatformView != nil {
-            target.onUpdatePlatformView = source.onUpdatePlatformView
+            guard copyNodeProperty(\.onUpdatePlatformView, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.onDismantlePlatformView != nil || source.onDismantlePlatformView != nil {
-            target.onDismantlePlatformView = source.onDismantlePlatformView
+            guard copyNodeProperty(\.onDismantlePlatformView, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
         if target.phaseAnimatorState != nil || source.phaseAnimatorState != nil {
-            target.phaseAnimatorState = source.phaseAnimatorState
+            guard copyNodeProperty(\.phaseAnimatorState, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
 
         if target.hasAppeared, !target.hasPendingAppearanceCallbacks {
             for launch in source.pendingLifecycleTaskLaunches {
-                target.launchLifecycleTask(launch)
+                guard check.isCurrent,
+                    target.launchLifecycleTask(
+                        launch, admission: check.admission, lazyJournal: check.lazyJournal, source: source),
+                    check.isCurrent
+                else { return false }
             }
         } else {
-            target.pendingLifecycleTaskLaunches = source.pendingLifecycleTaskLaunches
+            guard copyNodeProperty(\.pendingLifecycleTaskLaunches, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
         }
 
-        target.onUpdatePlatformView?(target)
+        guard check.isCurrent else { return false }
+        invokePlatformUpdate(on: target)
+        guard check.isCurrent else { return false }
+        if check.admission != nil || check.lazyJournal != nil { target.finishFileDialogConfigurationAdoption() }
+        return check.isCurrent
     }
 }

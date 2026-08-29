@@ -5,8 +5,10 @@ import XCTest
 @testable import SwiftWindowsUI
 @testable import WinSwiftUI
 
-/// Additional public List coverage. These tests do not relax ordinary focus
-/// eligibility or replace the existing ListVirtualizationTests oracles.
+/// Physical reconciliation and layout-deferred focus coverage uses explicitly
+/// authored static rows. Public data/ForEach construction has separate bounded
+/// materialization tests; these existing physical attachment and callback
+/// ordering oracles remain unchanged.
 @MainActor
 final class ListDeferredKeyboardFocusTests: XCTestCase {
     private static let viewport = IntSize(width: 260, height: 200)
@@ -67,10 +69,10 @@ final class ListDeferredKeyboardFocusTests: XCTestCase {
     }
 
     private static func selectionList(_ selection: SelectionState, rowCount: Int) -> some View {
-        List(0..<rowCount, id: \.self, selection: selection.binding) { index in
-            Text("ROW \(index)")
-                .frame(width: 220, height: 24)
+        let rows = (0..<rowCount).map { index in
+            AnyView(Text("ROW \(index)").frame(width: 220, height: 24).tag(index))
         }
+        return List(selection: selection.binding) { rows }
     }
 
     private static func context(for selection: SelectionState, size: IntSize) -> ViewBuildContext {
@@ -606,6 +608,8 @@ final class ListDeferredKeyboardFocusTests: XCTestCase {
         if Self.hasDeferredAncestor(target) {
             XCTAssertFalse(fixture.runtime.focusedNode === target)
         }
+        XCTAssertFalse(fixture.runtime.focusedNode === target)
+        XCTAssertTrue(deferredAtEntry.isEmpty)
 
         fixture.clock.now = 0.6
         _ = fixture.runtime.tickAnimations(at: fixture.clock.now)
@@ -613,9 +617,10 @@ final class ListDeferredKeyboardFocusTests: XCTestCase {
         XCTAssertEqual(fixture.list.scrollOffset, acceptedOffset, accuracy: 0.0001)
         XCTAssertEqual(fixture.list.resolvedScrollOffset, acceptedOffset, accuracy: 0.0001)
         XCTAssertFalse(Self.hasDeferredAncestor(target))
-        XCTAssertTrue(deferredAtEntry.allSatisfy { !$0 })
-        // Deferred focus completion after animation is not implemented by
-        // this change. Do not make perpetual lack of focus a compatibility
-        // oracle: the accepted scroll must finish, and any focus must be safe.
+        XCTAssertEqual(deferredAtEntry, [false])
+        XCTAssertTrue(fixture.runtime.focusedNode === target)
+        XCTAssertTrue(target.isFocused)
+        XCTAssertEqual(fixture.selection.writes, [900])
+        XCTAssertEqual(fixture.selection.invalidations, 1)
     }
 }

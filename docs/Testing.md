@@ -260,6 +260,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   are unrun at source handoff. Their actor-isolated XCTest methods are async;
   generated registration adapters still require inspection after compilation.
   An existing Quick or Full filter is not evidence that every new class ran.
+- `NativeListInvocationContextTests` joins the native invocation helper to
+  genuine descriptor and deferred-row build contexts. It checks construction
+  attribution removal, retained native owner hooks, deferred file-dialog
+  environment reads, alert snapshots, and physical row departure through both
+  flat and builder-authored Lists. Its two async methods are source-only and
+  unrun; they never submit a native command or open a dialog.
+- `UIANativeItemContainerIntegrationTests` and
+  `UIAItemContainerCallLeaseIntegrationTests` add 14 async source regressions
+  (10 and 4) for logical List requests over the native full-call transport:
+  optional source capability, typed lookup outcomes, captured geometry,
+  transport failures and call leases. They supplement, rather than replace,
+  the preserved native request/lease and public List ownership cases.
+  Compilation, registration inspection, and all runtime/native execution
+  remain outstanding for this combined source.
 - `Win32NativeIngressBoundsTests` adds controlled saturation, payload accounting,
   finite automatic turns, captured synchronous boundaries, token/refill races,
   fixed backing storage and reserved terminal-delivery cases.

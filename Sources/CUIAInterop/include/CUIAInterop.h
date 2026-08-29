@@ -60,7 +60,29 @@ enum {
     SWU_UIA_PATTERN_VALUE = 10002,
     SWU_UIA_PATTERN_SELECTION_ITEM = 10010,
     SWU_UIA_PATTERN_TOGGLE = 10015,
+    SWU_UIA_PATTERN_ITEM_CONTAINER = 10019,
     SWU_UIA_PATTERN_VIRTUALIZED_ITEM = 10020,
+};
+
+// ItemContainer implements enumeration (property zero) only. Nonzero property
+// searches return E_NOTIMPL without inspecting any row content.
+enum {
+    SWU_UIA_ITEM_PROPERTY_ANY = 0,
+    SWU_UIA_ITEM_PROPERTY_NAME = 30005,
+    SWU_UIA_ITEM_PROPERTY_AUTOMATION_ID = 30011,
+};
+
+enum {
+    SWU_UIA_ITEM_LOOKUP_UNAVAILABLE = -1,
+    SWU_UIA_ITEM_LOOKUP_INVALID_START = -2,
+    SWU_UIA_ITEM_LOOKUP_END = 0,
+    SWU_UIA_ITEM_LOOKUP_FOUND = 1,
+};
+
+enum {
+    SWU_UIA_LOGICAL_ITEM_UNAVAILABLE = -1,
+    SWU_UIA_LOGICAL_ITEM_ORDINARY = 0,
+    SWU_UIA_LOGICAL_ITEM_PLACEHOLDER = 1,
 };
 
 enum {
@@ -127,6 +149,13 @@ typedef struct SWUUIACallbacks {
     uint64_t (*elementFromPoint)(void *context, double x, double y);
     // Returns the focused element token or SWU_UIA_NO_ELEMENT.
     uint64_t (*focusedElement)(void *context);
+    // Optional native receipt validation without authored callbacks. An
+    // unconstructed logical item exposes only RuntimeId, IsOffscreen, and
+    // VirtualizedItem until Realize.
+    int32_t (*getLogicalItemState)(void *context, uint64_t element);
+    // Optional property-zero enumeration. `after` is SWU_UIA_NO_ELEMENT for
+    // the first item; writes a token only for SWU_UIA_ITEM_LOOKUP_FOUND.
+    int32_t (*findItem)(void *context, uint64_t container, uint64_t after, uint64_t *result);
 } SWUUIACallbacks;
 
 // Explicit-call peers for a native-owner provider. Payload values retain the
@@ -159,6 +188,10 @@ typedef struct SWUUIACallCallbacks {
     void (*setFocus)(SWUUIACall *call, uint64_t element);
     uint64_t (*elementFromPoint)(SWUUIACall *call, double x, double y);
     uint64_t (*focusedElement)(SWUUIACall *call);
+    // Optional logical-item peers. Payloads use the same enums as the legacy
+    // table; transport failures remain out of band on this full-method call.
+    int32_t (*getLogicalItemState)(SWUUIACall *call, uint64_t element);
+    int32_t (*findItem)(SWUUIACall *call, uint64_t container, uint64_t after, uint64_t *result);
 } SWUUIACallCallbacks;
 
 // Invoked once after irreversible revocation and final full-call release. The
@@ -267,6 +300,7 @@ int32_t SWU_UIASelectionProviderGetSelectedCount(void *selectionProvider);
 void *SWU_UIASelectionProviderGetSelectedAt(void *selectionProvider, int32_t index);
 void *SWU_UIAProviderGetVirtualizedItemPattern(void *provider);
 int32_t SWU_UIAVirtualizedItemProviderRealize(void *virtualizedItemProvider);
+void *SWU_UIAProviderGetItemContainerPattern(void *provider);
 void SWU_UIAProviderSetFocus(void *provider);
 void *SWU_UIAProviderGetFocus(void *rootProvider);
 void *SWU_UIAProviderElementFromPoint(void *rootProvider, double x, double y);
@@ -293,6 +327,7 @@ enum {
     SWU_UIA_INTERFACE_SELECTION = 7,
     SWU_UIA_INTERFACE_SELECTION_ITEM = 8,
     SWU_UIA_INTERFACE_VIRTUALIZED_ITEM = 9,
+    SWU_UIA_INTERFACE_ITEM_CONTAINER = 10,
 };
 // QueryInterface and pattern results are genuine interface pointers. Use only
 // their matching pattern helpers or AddRef/ReleaseProvider with these handles.
@@ -330,6 +365,11 @@ int32_t SWU_UIASelectionProviderGetSelectedAtResult(void *selectionProvider, int
 int32_t SWU_UIASelectionProviderCanSelectMultipleResult(void *selectionProvider, int32_t *result);
 int32_t SWU_UIASelectionProviderIsSelectionRequiredResult(void *selectionProvider, int32_t *result);
 int32_t SWU_UIAVirtualizedItemProviderRealizeResult(void *virtualizedItemProvider);
+// `after` and successful outputs are concrete provider handles, not pattern
+// pointers. A null `after` starts enumeration. UTF-16 values are length-delimited.
+int32_t SWU_UIAItemContainerProviderFindItemResult(
+    void *itemContainerProvider, void *after, int32_t property,
+    const uint16_t *value, int32_t length, void **result);
 int32_t SWU_UIAProviderSetFocusResult(void *provider);
 int32_t SWU_UIAProviderGetFocusResult(void *rootProvider, void **result);
 int32_t SWU_UIAProviderElementFromPointResult(void *rootProvider, double x, double y, void **result);

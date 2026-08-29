@@ -8,18 +8,50 @@ import SwiftWindowsUI
 // Maps the retained runtime's `AccessibilityProjection` output onto the
 // platform-neutral `UIAElementTreeSource` consumed by `UIAProviderBridge`
 // (in SwiftWindowsPlatform). All tree truth comes from live re-projection of
-// the retained `ViewNode` tree; the only state kept here is the stable
-// element-id assignment, which UIA requires for runtime ids and for event
-// targets across snapshots.
+// the retained `ViewNode` tree. Stable element-id metadata and a bounded native
+// receipt cache let logical List items be found without retaining row views,
+// state owners, or a second accessibility tree.
 
 @MainActor
-final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
+final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
     private final class WeakNode {
         weak var node: ViewNode?
 
         init(_ node: ViewNode) {
             self.node = node
         }
+    }
+
+    /// A receipt retains only native logical identity, not a row factory, a
+    /// View, state storage, or a physical node. The queried-identity cache is
+    /// bounded independently of the number of logical data records.
+    private final class LogicalItem {
+        let target: RetainedLazyListAccessibilityItem
+        weak var node: ViewNode?
+
+        init(target: RetainedLazyListAccessibilityItem, node: ViewNode? = nil) {
+            self.target = target
+            self.node = node
+        }
+    }
+
+    /// Every queried token shares its container's original attachment witness.
+    /// The per-item identity map is O(queried data), while physical nodes remain
+    /// weak and the reconstructible per-item receipts are bounded separately.
+    private final class LogicalContainer {
+        let witness: RetainedLazyListAccessibilityItem
+        var generation: RetainedLazyListGeneration
+        var idsByToken: [RetainedLazyListRowToken: UInt64] = [:]
+
+        init(witness: RetainedLazyListAccessibilityItem, generation: RetainedLazyListGeneration) {
+            self.witness = witness
+            self.generation = generation
+        }
+    }
+
+    private struct LogicalIdentity {
+        let token: RetainedLazyListRowToken
+        let container: LogicalContainer
     }
 
     /// The effect is already finished when this leaves the dispatch frame.
@@ -41,6 +73,16 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
     private var idsByNode: [ObjectIdentifier: UInt64] = [:]
     private var nodesByID: [UInt64: WeakNode] = [:]
     private var nextID: UInt64 = 1
+    private static let logicalIDBoundary: UInt64 = 1 << 63
+    static let logicalItemReceiptLimit = 128
+    private var nextLogicalID = RuntimeUIAElementTreeSource.logicalIDBoundary
+    private var logicalContainers: [ObjectIdentifier: LogicalContainer] = [:]
+    private var logicalIdentitiesByID: [UInt64: LogicalIdentity] = [:]
+    private var logicalItemsByID: [UInt64: LogicalItem] = [:]
+    private var logicalItemRecency: [UInt64] = []
+    private var projectedLogicalIDs: Set<UInt64> = []
+    var logicalItemReceiptCount: Int { logicalItemsByID.count }
+    var logicalItemIdentityCount: Int { logicalIdentitiesByID.count }
 
     init(runtime: RetainedViewRuntime, screenBoundsMapper: @escaping (Rect) -> Rect = { $0 }) {
         self.runtime = runtime
@@ -65,12 +107,17 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
     private func elementSnapshots(
         screenBoundsMapper: (Rect) throws -> Rect
     ) rethrows -> [UIAElementSnapshot] {
-        guard let runtime else { return [] }
+        guard let runtime else {
+            for (key, group) in logicalContainers { retireLogicalContainer(group, key: key) }
+            return []
+        }
         defer { withExtendedLifetime(runtime) {} }
         pruneDeadNodes()
+        synchronizeLogicalContainers(in: runtime)
         guard let root = AccessibilityProjection.project(runtime: runtime) else {
             return []
         }
+        refreshLogicalItems(using: root, in: runtime)
         var snapshots: [UIAElementSnapshot] = []
         let rootBounds = try screenBoundsMapper(root.bounds)
         try appendSnapshots(
@@ -88,6 +135,261 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
             snapshots[index].supportsSelection = true
         }
         return snapshots
+    }
+
+    // MARK: - Logical data items
+
+    func uiaFindItem(containerID: UInt64, afterElementID: UInt64?) -> UIAItemContainerResult {
+        findItem(containerID: containerID, afterElementID: afterElementID) { uiaElementSnapshots() }
+    }
+
+    func uiaFindItem(
+        containerID: UInt64, afterElementID: UInt64?, geometry: NativeWindowGeometry
+    ) throws -> UIAItemContainerResult {
+        try findItem(containerID: containerID, afterElementID: afterElementID) {
+            try uiaElementSnapshots(geometry: geometry)
+        }
+    }
+
+    private func findItem(
+        containerID: UInt64, afterElementID: UInt64?, captureSnapshots: () throws -> [UIAElementSnapshot]
+    ) rethrows -> UIAItemContainerResult {
+        guard let runtime, runtime.permitsRetainedActionInvocation else { return .unavailable }
+        defer { withExtendedLifetime(runtime) {} }
+        let snapshots = try captureSnapshots()
+        guard snapshots.contains(where: { $0.id == containerID && $0.supportsItemContainer }),
+            let container = retainedNode(for: containerID, in: runtime),
+            runtime.supportsLazyListAccessibilityItems(in: container)
+        else { return .unavailable }
+
+        let after: RetainedLazyListAccessibilityItem?
+        if let afterElementID {
+            if logicalIdentitiesByID[afterElementID] != nil {
+                guard let item = logicalItem(for: afterElementID, in: runtime) else { return .unavailable }
+                guard item.target.container === container else { return .invalidStart }
+                after = item.target
+            } else {
+                guard afterElementID < Self.logicalIDBoundary else { return .unavailable }
+                guard let node = retainedNode(for: afterElementID, in: runtime),
+                    let item = runtime.lazyListAccessibilityItem(in: container, containing: node)
+                else { return .invalidStart }
+                after = item
+            }
+        } else {
+            after = nil
+        }
+        guard let target = runtime.lazyListAccessibilityItem(in: container, after: after) else { return .end }
+        guard let group = logicalContainer(for: target, in: runtime) else { return .unavailable }
+        if let id = group.idsByToken[target.token], logicalItem(for: id, in: runtime) != nil {
+            return .item(id)
+        }
+
+        let node = runtime.realizedLazyListAccessibilityNodes(for: target).flatMap { roots in
+            snapshots.lazy.filter { !$0.isVirtualizedPlaceholder }.compactMap { nodesByID[$0.id]?.node }.first { node in
+                Self.isInsideLogicalRoots(node, roots: roots)
+            }
+        }
+        let id: UInt64
+        if let node {
+            id = stableID(for: node)
+        } else {
+            guard nextLogicalID != UInt64.max else { return .unavailable }
+            id = nextLogicalID
+            nextLogicalID += 1
+        }
+        logicalIdentitiesByID[id] = LogicalIdentity(token: target.token, container: group)
+        group.idsByToken[target.token] = id
+        cacheLogicalItem(id, target: target, node: node)
+        if node != nil { projectedLogicalIDs.insert(id) }
+        return .item(id)
+    }
+
+    /// Called by native providers before/after publishing logical properties.
+    /// This does not project the tree, settle layout, or call authored code.
+    func uiaLogicalItemState(elementID: UInt64) -> UIALogicalItemState {
+        guard let identity = logicalIdentitiesByID[elementID] else {
+            return elementID >= Self.logicalIDBoundary ? .unavailable : .ordinary
+        }
+        guard let runtime,
+            runtime.isLazyListAccessibilityTokenCurrent(identity.token, in: identity.container.witness)
+        else { return .unavailable }
+        // A surviving token can be known before its accepted adapter has a
+        // prepared physical snapshot. Keep RuntimeId/Realize available without
+        // inventing geometry or reviving the predecessor's actionable receipt.
+        guard let item = logicalItem(for: elementID, in: runtime) else { return .placeholder }
+        guard projectedLogicalIDs.contains(elementID), let node = item.node,
+            let container = item.target.container,
+            runtime.lazyListAccessibilityItem(in: container, containing: node)?.token == item.target.token,
+            runtime.accessibilityTarget(for: node) != nil,
+            nodesByID[elementID]?.node === node
+        else { return .placeholder }
+        // Dirty geometry does not turn an attached row back into logical data.
+        // Let its ordinary snapshot query settle layout and produce real bounds;
+        // the native caller checks this receipt again after that query returns.
+        return .ordinary
+    }
+
+    private func refreshLogicalItems(
+        using projection: AccessibilityElementProjection, in runtime: RetainedViewRuntime
+    ) {
+        synchronizeLogicalContainers(in: runtime)
+        let elements = projection.flattened()
+        projectedLogicalIDs.removeAll(keepingCapacity: true)
+        var visitedTokens: Set<RetainedLazyListRowToken> = []
+        for element in elements where !element.isVirtualizedPlaceholder {
+            guard let node = element.sourceNode else { continue }
+            var ancestor: ViewNode? = node
+            var visited: Set<ObjectIdentifier> = []
+            while let candidate = ancestor, visited.insert(ObjectIdentifier(candidate)).inserted {
+                if let group = logicalContainers[ObjectIdentifier(candidate)],
+                    let target = runtime.lazyListAccessibilityItem(in: candidate, containing: node),
+                    let id = group.idsByToken[target.token]
+                {
+                    if visitedTokens.insert(target.token).inserted {
+                        cacheLogicalItem(id, target: target, node: nil)
+                        bindLogicalItem(id, to: node)
+                    }
+                    break
+                }
+                ancestor = candidate.parent
+            }
+        }
+        for (id, item) in logicalItemsByID where !projectedLogicalIDs.contains(id) {
+            item.node = nil
+        }
+    }
+
+    private func logicalContainer(
+        for target: RetainedLazyListAccessibilityItem, in runtime: RetainedViewRuntime
+    ) -> LogicalContainer? {
+        guard let container = target.container,
+            let generation = runtime.lazyListAccessibilityGeneration(for: target)
+        else { return nil }
+        let key = ObjectIdentifier(container)
+        if let group = logicalContainers[key], runtime.isLazyListAccessibilityContainerCurrent(group.witness) {
+            return group
+        }
+        if let previous = logicalContainers[key] { retireLogicalContainer(previous, key: key) }
+        let group = LogicalContainer(witness: target, generation: generation)
+        logicalContainers[key] = group
+        return group
+    }
+
+    /// Cache misses recreate an equivalent native receipt only while the
+    /// original container attachment and row token are both still current.
+    private func logicalItem(for id: UInt64, in runtime: RetainedViewRuntime) -> LogicalItem? {
+        guard let identity = logicalIdentitiesByID[id],
+            runtime.isLazyListAccessibilityContainerCurrent(identity.container.witness)
+        else { return nil }
+        if let item = logicalItemsByID[id], runtime.isLazyListAccessibilityItemCurrent(item.target) {
+            touchLogicalItem(id)
+            return item
+        }
+        guard let container = identity.container.witness.container,
+            let target = runtime.lazyListTarget(in: container, token: identity.token)
+        else { return nil }
+        cacheLogicalItem(
+            id, target: target, node: projectedLogicalIDs.contains(id) ? nodesByID[id]?.node : nil)
+        return logicalItemsByID[id]
+    }
+
+    private func cacheLogicalItem(_ id: UInt64, target: RetainedLazyListAccessibilityItem, node: ViewNode?) {
+        logicalItemsByID[id] = LogicalItem(target: target, node: node)
+        touchLogicalItem(id)
+        while logicalItemRecency.count > Self.logicalItemReceiptLimit {
+            let oldest = logicalItemRecency.removeFirst()
+            logicalItemsByID.removeValue(forKey: oldest)
+        }
+    }
+
+    private func synchronizeLogicalContainers(in runtime: RetainedViewRuntime) {
+        for (key, group) in logicalContainers {
+            guard let container = group.witness.container,
+                runtime.isLazyListAccessibilityContainerCurrent(group.witness)
+            else {
+                retireLogicalContainer(group, key: key)
+                continue
+            }
+            // Accepted membership can outlive one adapter's prepared snapshot.
+            // A query before the successor's first layout is not a departure;
+            // wait for its metadata instead of losing every queried logical ID.
+            guard let generation = runtime.lazyListAccessibilityGeneration(for: group.witness) else { continue }
+            guard group.generation != generation else { continue }
+            group.generation = generation
+            // Only actual metadata replacement needs a pass over queried IDs.
+            // Unchanged snapshot queries visit retained nodes, never all data.
+            for (token, id) in group.idsByToken where runtime.lazyListTarget(in: container, token: token) == nil {
+                retireLogicalIdentity(id)
+            }
+        }
+    }
+
+    private static func firstProjectedNode(
+        in roots: [ViewNode], elements: [AccessibilityElementProjection]
+    ) -> ViewNode? {
+        for element in elements where !element.isVirtualizedPlaceholder {
+            if let node = element.sourceNode, isInsideLogicalRoots(node, roots: roots) { return node }
+        }
+        return nil
+    }
+
+    private static func isInsideLogicalRoots(_ node: ViewNode, roots: [ViewNode]) -> Bool {
+        let rootIDs = Set(roots.map(ObjectIdentifier.init))
+        var ancestor: ViewNode? = node
+        var visited: Set<ObjectIdentifier> = []
+        while let candidate = ancestor {
+            let identity = ObjectIdentifier(candidate)
+            guard visited.insert(identity).inserted else { return false }
+            if rootIDs.contains(identity) { return true }
+            ancestor = candidate.parent
+        }
+        return false
+    }
+
+    private func bindLogicalItem(_ id: UInt64, to node: ViewNode) {
+        guard let item = logicalItemsByID[id] else { return }
+        let key = ObjectIdentifier(node)
+        // Enumeration reuses a mounted leaf's existing id. A deferred receipt
+        // may claim a newly constructed leaf, but never steals another live
+        // provider's identity if reentrant code already projected that leaf.
+        if let prior = idsByNode[key], prior != id, nodesByID[prior]?.node === node {
+            item.node = nil
+            return
+        }
+        if let previous = nodesByID[id]?.node, previous !== node, idsByNode[ObjectIdentifier(previous)] == id {
+            idsByNode.removeValue(forKey: ObjectIdentifier(previous))
+        }
+        item.node = node
+        idsByNode[key] = id
+        nodesByID[id] = WeakNode(node)
+        projectedLogicalIDs.insert(id)
+    }
+
+    private func unbindLogicalItem(_ id: UInt64) {
+        logicalItemsByID[id]?.node = nil
+        projectedLogicalIDs.remove(id)
+        if let node = nodesByID[id]?.node, idsByNode[ObjectIdentifier(node)] == id {
+            idsByNode.removeValue(forKey: ObjectIdentifier(node))
+        }
+        nodesByID.removeValue(forKey: id)
+    }
+
+    private func touchLogicalItem(_ id: UInt64) {
+        logicalItemRecency.removeAll { $0 == id }
+        logicalItemRecency.append(id)
+    }
+
+    private func retireLogicalIdentity(_ id: UInt64) {
+        guard let identity = logicalIdentitiesByID.removeValue(forKey: id) else { return }
+        identity.container.idsByToken.removeValue(forKey: identity.token)
+        logicalItemsByID.removeValue(forKey: id)
+        logicalItemRecency.removeAll { $0 == id }
+        unbindLogicalItem(id)
+    }
+
+    private func retireLogicalContainer(_ group: LogicalContainer, key: ObjectIdentifier) {
+        for id in group.idsByToken.values { retireLogicalIdentity(id) }
+        if logicalContainers[key] === group { logicalContainers.removeValue(forKey: key) }
     }
 
     @discardableResult
@@ -113,7 +415,7 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
     @inline(never)
     private func setFocusResult(elementID: UInt64, in runtime: RetainedViewRuntime) -> Bool {
         guard runtime.permitsRetainedActionInvocation,
-            let node = elementID == UIAProviderBridge.rootElementID ? runtime.root : nodesByID[elementID]?.node
+            let node = retainedNode(for: elementID, in: runtime)
         else { return false }
         return runtime.requestAccessibilityFocus(node)
     }
@@ -176,6 +478,36 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
     private func realize(
         elementID: UInt64, in runtime: RetainedViewRuntime, during mutation: RetainedAccessibilityMutation
     ) -> Bool {
+        if let identity = logicalIdentitiesByID[elementID] {
+            // Preparing an accepted replacement and realizing the requested
+            // target borrow one allowance. A nested preparation cannot reset
+            // the budget or transfer the request to a same-key reinsertion.
+            return runtime.withLazyListResolutionBudget {
+                guard
+                    let item = runtime.prepareLazyListAccessibilityTarget(
+                        token: identity.token, in: identity.container.witness, during: mutation),
+                    let currentIdentity = logicalIdentitiesByID[elementID],
+                    currentIdentity.container === identity.container, currentIdentity.token == identity.token,
+                    runtime.isLazyListAccessibilityItemCurrent(item)
+                else { return false }
+                cacheLogicalItem(
+                    elementID, target: item,
+                    node: projectedLogicalIDs.contains(elementID) ? nodesByID[elementID]?.node : nil)
+                guard let roots = runtime.realizeLazyListAccessibilityItem(item, during: mutation),
+                    runtime.isAccessibilityMutationCurrent(mutation),
+                    let projection = AccessibilityProjection.project(root: runtime.root),
+                    let node = Self.firstProjectedNode(in: roots, elements: projection.flattened()),
+                    let target = runtime.accessibilityTarget(for: node),
+                    runtime.isAccessibilityTargetCurrent(target, during: mutation),
+                    runtime.isLazyListAccessibilityItemCurrent(item)
+                else { return false }
+                bindLogicalItem(elementID, to: node)
+                return runtime.realizedLazyListAccessibilityNodes(for: item) != nil
+                    && uiaLogicalItemState(elementID: elementID) == .ordinary
+                    && runtime.isAccessibilityTargetCurrent(target, during: mutation)
+            }
+        }
+        guard elementID < Self.logicalIDBoundary else { return false }
         guard let node = retainedNode(for: elementID, in: runtime),
             let target = runtime.accessibilityTarget(for: node)
         else { return false }
@@ -271,7 +603,13 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
     }
 
     private func retainedNode(for elementID: UInt64, in runtime: RetainedViewRuntime) -> ViewNode? {
-        elementID == UIAProviderBridge.rootElementID ? runtime.root : nodesByID[elementID]?.node
+        if elementID == UIAProviderBridge.rootElementID { return runtime.root }
+        if logicalIdentitiesByID[elementID] != nil {
+            guard uiaLogicalItemState(elementID: elementID) == .ordinary else { return nil }
+        } else if elementID >= Self.logicalIDBoundary {
+            return nil
+        }
+        return nodesByID[elementID]?.node
     }
 
     @inline(never)
@@ -279,7 +617,7 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
         elementID: UInt64, in runtime: RetainedViewRuntime, intent: AccessibilityDefaultActionIntent
     ) -> Bool {
         guard runtime.permitsRetainedActionInvocation,
-            let node = elementID == UIAProviderBridge.rootElementID ? runtime.root : nodesByID[elementID]?.node
+            let node = retainedNode(for: elementID, in: runtime)
         else { return false }
         // Role, selection state, and the handler belong to one post-query
         // element. A pre-query predicate must not authorize a different role
@@ -365,7 +703,11 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
                 isReadOnly: !element.isEnabled || !hasWritableCapability,
                 toggleState: element.controlType == .checkBox ? (element.isSelected ? .on : .off) : nil,
                 isSelected: isSelected,
-                isVirtualizedPlaceholder: element.isVirtualizedPlaceholder
+                isVirtualizedPlaceholder: element.isVirtualizedPlaceholder,
+                supportsItemContainer: element.sourceNode.map {
+                    element.permitsModalActions && $0.retainedLazyListAdapter != nil
+                        && runtime?.supportsLazyListAccessibilityItems(in: $0) == true
+                } ?? false
             )
         )
 
@@ -386,6 +728,7 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
             return existing
         }
         let id = nextID
+        precondition(id < Self.logicalIDBoundary)
         nextID += 1
         idsByNode[key] = id
         nodesByID[id] = WeakNode(node)
@@ -394,6 +737,7 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
 
     private func nextEphemeralID() -> UInt64 {
         let id = nextID
+        precondition(id < Self.logicalIDBoundary)
         nextID += 1
         return id
     }

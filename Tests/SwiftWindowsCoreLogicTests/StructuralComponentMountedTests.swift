@@ -320,7 +320,9 @@ final class StructuralComponentMountedTests: XCTestCase {
             }
             .accessibilityIdentifier("list"))
         defer { fixture.close() }
-        let rows = try fixture.node("list").children.filter { $0.nodeTag != nil }
+        let list = try fixture.node("list")
+        let content = try XCTUnwrap(list.children.first { $0.retainedLazyListAdapter != nil })
+        let rows = content.children.filter { $0.nodeTag != nil }
 
         XCTAssertEqual(rows.compactMap(\.nodeTag), ["pair", "1#0", "2#0"])
         let second = try XCTUnwrap(rows.first { $0.nodeTag == "2#0" })

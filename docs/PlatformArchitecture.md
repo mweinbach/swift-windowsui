@@ -142,6 +142,13 @@ command completions. Provider payloads and transport HRESULTs stay separate, so 
 hop or revoked lifetime cannot become a successful false/empty action result.
 A heap UIA call lease spans queued actor work and the remaining C marshalling.
 COM identity methods remain callable independently of live-window admission.
+Logical List item-state and property-zero ItemContainer lookup use the same
+typed requests and full-call lease, including foreign start-after identity
+checks and related-provider allocation. The actor captures ItemContainer
+capability before handing an attachment factory to the native owner; lookup
+outputs contain values, never actor-owned buffers or native pointers. Lookup
+end, invalid start, unavailable item, and transport failure are distinct
+outcomes. Searches by a nonzero property remain unsupported.
 
 External COM calls read an immutable owner-published geometry revision instead
 of queueing a refresh on a native thread that may itself be inside outbound COM.

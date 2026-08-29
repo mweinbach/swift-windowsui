@@ -66,8 +66,26 @@ private final class RetainedAlertReceipt {
     weak var constructionNode: ViewNode?
     var accepted = false
     var discarded = false
+    private let isLazy: Bool
+    private weak var lazyProposal: LazyPresentationActivityProposal?
+    private let isDescriptor: Bool
+    private weak var descriptorProposal: DescriptorPresentationActivityProposal?
 
-    init(slot: RetainedAlertSlot? = nil) { self.slot = slot }
+    init(
+        slot: RetainedAlertSlot? = nil, lazyProposal: LazyPresentationActivityProposal? = nil,
+        descriptorProposal: DescriptorPresentationActivityProposal? = nil
+    ) {
+        self.slot = slot
+        self.lazyProposal = lazyProposal
+        isLazy = lazyProposal != nil
+        self.descriptorProposal = descriptorProposal
+        isDescriptor = descriptorProposal != nil
+    }
+
+    var canConstruct: Bool {
+        (!isLazy || lazyProposal?.canConstruct == true)
+            && (!isDescriptor || descriptorProposal?.canConstruct == true)
+    }
 
     var isCurrent: Bool {
         accepted && !discarded && slot?.isActive == true && slot?.receipt === self
@@ -146,6 +164,8 @@ private final class RetainedAlertSession {
     weak var previousFocus: ViewNode?
     weak var underlyingModal: ViewNode?
     var resetTicket: RetainedAlertRemovalTicket?
+    var lazyActivity: LazyPresentationActivity?
+    var descriptorActivity: DescriptorPresentationActivity?
 
     init(configuration: RetainedAlertConfiguration) {
         itemIdentity = configuration.itemIdentity
@@ -163,6 +183,8 @@ final class RetainedAlertSlot {
     fileprivate var receipt: RetainedAlertReceipt?
     fileprivate var session: RetainedAlertSession?
     fileprivate var restoration: RetainedAlertRemovalTicket?
+    fileprivate var lazyActivity: LazyPresentationActivity?
+    fileprivate var descriptorActivity: DescriptorPresentationActivity?
 
     init(ledger: PresentationActivityLedger?, owner: StateMountOwner?) {
         self.ledger = ledger
@@ -173,12 +195,15 @@ final class RetainedAlertSlot {
     fileprivate var isActive: Bool {
         guard phase == .active else { return false }
         if raw { return true }
+        guard lazyActivity?.isActive ?? true else { return false }
+        guard descriptorActivity?.isActive ?? true else { return false }
         guard let owner, owner.isLive, let ledger, !ledger.isClosed else { return false }
         return ledger.alertSlots[ObjectIdentifier(owner)] === self
     }
 
     fileprivate func admits(_ session: RetainedAlertSession) -> Bool {
-        isActive && self.session === session && !session.retired
+        (session.lazyActivity?.isActive ?? true) && (session.descriptorActivity?.isActive ?? true)
+            && isActive && self.session === session && !session.retired
     }
 
     fileprivate func perform(declaration: RetainedAlertReceipt, action: RetainedAlertActionReceipt?) {
@@ -297,16 +322,24 @@ private final class RetainedAlertCandidate {
     let receipt: RetainedAlertReceipt
     let session: RetainedAlertSession?
     let configuration: RetainedAlertConfiguration?
+    let lazyProposal: LazyPresentationActivityProposal?
+    let descriptorProposal: DescriptorPresentationActivityProposal?
     var actions: [ObjectIdentifier: RetainedAlertAction] = [:]
     var materialized = false
     weak var previousFocus: ViewNode?
     weak var underlyingModal: ViewNode?
 
-    init(slot: RetainedAlertSlot, session: RetainedAlertSession?, configuration: RetainedAlertConfiguration?) {
+    init(
+        slot: RetainedAlertSlot, session: RetainedAlertSession?, configuration: RetainedAlertConfiguration?,
+        lazyProposal: LazyPresentationActivityProposal? = nil,
+        descriptorProposal: DescriptorPresentationActivityProposal? = nil
+    ) {
         self.slot = slot
-        receipt = RetainedAlertReceipt(slot: slot)
+        receipt = RetainedAlertReceipt(slot: slot, lazyProposal: lazyProposal, descriptorProposal: descriptorProposal)
         self.session = session
         self.configuration = configuration
+        self.lazyProposal = lazyProposal
+        self.descriptorProposal = descriptorProposal
     }
 }
 
@@ -379,7 +412,9 @@ final class RetainedAlertDeclaration {
     /// not capture a discarded construction root or invoke arbitrary ID equality.
     func layoutHost() -> ViewNode? {
         if receipt.isCurrent { return receipt.host() }
-        guard !receipt.discarded, let node = receipt.constructionNode, receipt.host() === node else { return nil }
+        guard receipt.canConstruct, !receipt.discarded, let node = receipt.constructionNode,
+            receipt.host() === node
+        else { return nil }
         return node
     }
 
@@ -426,6 +461,9 @@ final class RetainedAlertActivityBuild {
     private var constructing = true
     private var prepared = false
     private var finished = false
+    private var lazyPreparation: RetainedLazyListAdoptionPreparation?
+    private var pinnedLazySlots: [RetainedAlertSlot] = []
+    private var pinnedDescriptorSlots: [RetainedAlertSlot] = []
 
     init(ledger: PresentationActivityLedger) { self.ledger = ledger }
 
@@ -454,8 +492,92 @@ final class RetainedAlertActivityBuild {
         return RetainedAlertDeclaration(candidate: candidate, build: self)
     }
 
+    func stage(
+        owner: StateMountOwner, configuration: RetainedAlertConfiguration?,
+        attribution: LazyListViewAttribution, group: RetainedLazyListGroupID, isCurrent: () -> Bool
+    ) -> RetainedAlertDeclaration {
+        let proposal = LazyPresentationActivityProposal(attribution: attribution, group: group)
+        guard proposal.canConstruct, constructing, isCurrent(), let ledger, !ledger.isClosed else {
+            return .unavailable()
+        }
+        let key = ObjectIdentifier(owner)
+        let previousSlot = ledger.alertSlots[key]
+        let slot: RetainedAlertSlot
+        if let previousSlot, let activity = previousSlot.lazyActivity,
+            activity.physical === proposal.physical, activity.isActive
+        {
+            slot = previousSlot
+        } else {
+            slot = RetainedAlertSlot(ledger: ledger, owner: owner)
+        }
+        let session: RetainedAlertSession?
+        if let configuration {
+            let existing = slot.session
+            guard proposal.canConstruct, constructing, isCurrent(), !ledger.isClosed else {
+                return .unavailable()
+            }
+            let matches = existing?.itemIdentity == configuration.itemIdentity
+            guard proposal.canConstruct, constructing, isCurrent(), !ledger.isClosed else {
+                return .unavailable()
+            }
+            session =
+                matches && existing?.retired == false ? existing : RetainedAlertSession(configuration: configuration)
+        } else {
+            session = nil
+        }
+        let candidate = RetainedAlertCandidate(
+            slot: slot, session: session, configuration: configuration, lazyProposal: proposal)
+        if let previous = candidates[key] {
+            previous.receipt.discarded = true
+            discarded.append(previous)
+        }
+        candidates[key] = candidate
+        return RetainedAlertDeclaration(candidate: candidate, build: self)
+    }
+
+    func stage(
+        owner: StateMountOwner, configuration: RetainedAlertConfiguration?,
+        descriptorAttribution: RetainedDescriptorComponentAttribution, group: RetainedDescriptorGroupID,
+        isCurrent: () -> Bool
+    ) -> RetainedAlertDeclaration {
+        guard let proposal = DescriptorPresentationActivityProposal(attribution: descriptorAttribution, group: group),
+            proposal.canConstruct, constructing, isCurrent(), let ledger, !ledger.isClosed
+        else { return .unavailable() }
+        let key = ObjectIdentifier(owner)
+        let previousSlot = ledger.alertSlots[key]
+        let slot: RetainedAlertSlot
+        if let previousSlot, previousSlot.descriptorActivity?.isActive == true {
+            slot = previousSlot
+        } else {
+            slot = RetainedAlertSlot(ledger: ledger, owner: owner)
+        }
+        let session: RetainedAlertSession?
+        if let configuration {
+            let existing = slot.session
+            guard proposal.canConstruct, constructing, isCurrent(), !ledger.isClosed else {
+                return .unavailable()
+            }
+            let matches = existing?.itemIdentity == configuration.itemIdentity
+            guard proposal.canConstruct, constructing, isCurrent(), !ledger.isClosed else {
+                return .unavailable()
+            }
+            session =
+                matches && existing?.retired == false ? existing : RetainedAlertSession(configuration: configuration)
+        } else {
+            session = nil
+        }
+        let candidate = RetainedAlertCandidate(
+            slot: slot, session: session, configuration: configuration, descriptorProposal: proposal)
+        if let previous = candidates[key] {
+            previous.receipt.discarded = true
+            discarded.append(previous)
+        }
+        candidates[key] = candidate
+        return RetainedAlertDeclaration(candidate: candidate, build: self)
+    }
+
     fileprivate func candidate(for receipt: RetainedAlertReceipt) -> RetainedAlertCandidate? {
-        guard constructing, let owner = receipt.slot?.owner,
+        guard receipt.canConstruct, constructing, let owner = receipt.slot?.owner,
             let candidate = candidates[ObjectIdentifier(owner)], candidate.receipt === receipt,
             ledger?.isClosed == false
         else { return nil }
@@ -466,8 +588,19 @@ final class RetainedAlertActivityBuild {
         let pending = Array(candidates)
         var keys: [ObjectIdentifier] = []
         for (key, candidate) in pending {
-            let matches = candidate.slot.owner?.identity.segments.starts(with: prefix.segments) == true
-            guard constructing, isCurrent(), ledger?.isClosed == false else { return }
+            guard candidate.lazyProposal?.canConstruct ?? true, candidate.descriptorProposal?.canConstruct ?? true
+            else { continue }
+            let matches =
+                candidate.slot.owner?.identity.checkedHasPrefix(
+                    prefix,
+                    isCurrent: {
+                        (candidate.lazyProposal?.canConstruct ?? true)
+                            && (candidate.descriptorProposal?.canConstruct ?? true)
+                            && self.constructing && isCurrent() && self.ledger?.isClosed == false
+                    }) == true
+            guard candidate.lazyProposal?.canConstruct ?? true, candidate.descriptorProposal?.canConstruct ?? true,
+                constructing, isCurrent(), ledger?.isClosed == false
+            else { return }
             if matches { keys.append(key) }
         }
         for key in keys {
@@ -495,19 +628,78 @@ final class RetainedAlertActivityBuild {
         return true
     }
 
+    func prepareLazyActivity(_ preparation: RetainedLazyListAdoptionPreparation) -> Bool {
+        prepareLazyActivity(preparation, includingOrdinary: false, includes: { _ in false }, isCurrent: { true })
+    }
+
+    func prepareLazyActivity(
+        _ preparation: RetainedLazyListAdoptionPreparation,
+        includes: (RetainedViewIdentity) -> Bool, isCurrent: () -> Bool
+    ) -> Bool {
+        prepareLazyActivity(preparation, includingOrdinary: true, includes: includes, isCurrent: isCurrent)
+    }
+
+    private func prepareLazyActivity(
+        _ preparation: RetainedLazyListAdoptionPreparation,
+        includingOrdinary: Bool, includes: (RetainedViewIdentity) -> Bool, isCurrent: () -> Bool
+    ) -> Bool {
+        guard constructing, isCurrent(), let ledger, !ledger.isClosed else { return false }
+        guard candidates.values.allSatisfy({ $0.lazyProposal != nil || $0.descriptorProposal != nil }) else {
+            return false
+        }
+        let expected = Set(preparation.expectedExisting.map { ObjectIdentifier($0.receipt) })
+        let expectedDescriptor = Set(preparation.expectedOrdinaryContributions.map { ObjectIdentifier($0.receipt) })
+        let slots = Array(ledger.alertSlots.values)
+        var lazy: [RetainedAlertSlot] = []
+        var descriptor: [RetainedAlertSlot] = []
+        for slot in slots {
+            if let activity = slot.lazyActivity {
+                if expected.contains(ObjectIdentifier(activity.contribution)) { lazy.append(slot) }
+            } else if let activity = slot.descriptorActivity {
+                if expectedDescriptor.contains(ObjectIdentifier(activity.contribution)) { descriptor.append(slot) }
+            } else if includingOrdinary, let owner = slot.owner {
+                guard constructing, isCurrent(), !ledger.isClosed else { return false }
+                let matches = includes(owner.identity)
+                guard constructing, isCurrent(), !ledger.isClosed else { return false }
+                // No exact native mask exists for a raw/manual legacy slot
+                // introduced before this composite build gained attribution.
+                if matches { return false }
+            }
+        }
+        guard constructing, isCurrent(), !ledger.isClosed else { return false }
+        lazyPreparation = preparation
+        pinnedLazySlots = lazy
+        pinnedDescriptorSlots = descriptor
+        // Native acceptance, not this snapshot, revokes existing slots.
+        constructing = false
+        prepared = true
+        return true
+    }
+
     func commit() {
-        guard prepared, let ledger, !ledger.isClosed else { return }
+        guard lazyPreparation == nil, prepared, let ledger, !ledger.isClosed else { return }
+        var descriptorActivities: [ObjectIdentifier: DescriptorPresentationActivity] = [:]
+        for (key, candidate) in candidates {
+            if let activity = candidate.descriptorProposal?.acceptedForOrdinaryAdoption() {
+                descriptorActivities[key] = activity
+            }
+        }
+        let selectedCandidates = candidates.filter {
+            $0.value.materialized && $0.value.lazyProposal == nil
+                && ($0.value.descriptorProposal == nil || descriptorActivities[$0.key] != nil)
+        }
         for slot in covered {
             if let session = slot.session { displacedSessions.append(session) }
-            let selected = slot.owner.flatMap { candidates[ObjectIdentifier($0)] }
-            if selected?.materialized != true {
+            let selected = slot.owner.flatMap { selectedCandidates[ObjectIdentifier($0)] }
+            if selected == nil {
                 slot.retire()
                 if let owner = slot.owner { ledger.alertSlots.removeValue(forKey: ObjectIdentifier(owner)) }
             }
         }
-        for (key, candidate) in candidates where candidate.materialized {
+        for (key, candidate) in selectedCandidates {
             let slot = candidate.slot
             let previous = slot.session
+            if let previous { displacedSessions.append(previous) }
             if let oldConfiguration = previous?.configuration { displacedConfigurations.append(oldConfiguration) }
             if let oldActions = previous?.actions { displacedActions.append(oldActions) }
             if previous !== candidate.session {
@@ -531,24 +723,138 @@ final class RetainedAlertActivityBuild {
                 }
             }
             slot.receipt?.discarded = true
-            Self.publish(candidate, admitsActions: false)
+            Self.publish(candidate, admitsActions: false, descriptorActivity: descriptorActivities[key])
             ledger.alertSlots[key] = slot
         }
-        for candidate in candidates.values where !candidate.materialized { candidate.receipt.discarded = true }
+        for (key, candidate) in candidates where selectedCandidates[key] !== candidate {
+            candidate.receipt.discarded = true
+        }
         // Every accepted configuration is installed before any receipt can
         // invoke one, including when distinct slots share application captures.
-        for candidate in candidates.values where candidate.materialized {
+        for candidate in selectedCandidates.values {
             candidate.slot.phase = .active
             candidate.receipt.accepted = true
         }
         prepared = false
     }
 
-    fileprivate static func publish(_ candidate: RetainedAlertCandidate, admitsActions: Bool = true) {
+    func commitLazyActivity(_ selection: LazyListStateAdoptionSelection) {
+        guard prepared, let preparation = lazyPreparation, preparation.attempt === selection.attempt,
+            let ledger, !ledger.isClosed
+        else { return }
+        var selected: [ObjectIdentifier: (candidate: RetainedAlertCandidate, activity: PresentationAcceptedActivity)] =
+            [:]
+        for (key, candidate) in candidates {
+            guard candidate.materialized, !candidate.receipt.discarded else { continue }
+            let activity: PresentationAcceptedActivity
+            if let proposal = candidate.lazyProposal {
+                guard proposal.isProposed(in: preparation), let accepted = proposal.accepted(in: selection) else {
+                    continue
+                }
+                activity = .lazy(accepted)
+            } else if let proposal = candidate.descriptorProposal {
+                guard proposal.isProposed(in: preparation), let accepted = proposal.accepted(in: selection) else {
+                    continue
+                }
+                activity = .descriptor(accepted)
+            } else {
+                continue
+            }
+            guard candidate.slot.owner?.isLive == true else { continue }
+            if let previous = ledger.alertSlots[key] {
+                guard
+                    activity.permitsReplacing(
+                        lazyActivity: previous.lazyActivity, descriptorActivity: previous.descriptorActivity,
+                        in: selection)
+                else { continue }
+            }
+            selected[key] = (candidate, activity)
+        }
+        guard !ledger.isClosed else { return }
+        let previousSlots = Array(ledger.alertSlots.values)
+        for slot in previousSlots {
+            let retiresLazy = slot.lazyActivity.map { selection.retiredGroups.contains(ObjectIdentifier($0.group)) }
+            let retiresDescriptor = slot.descriptorActivity.map {
+                selection.retiredOrdinaryGroups.contains(ObjectIdentifier($0.group))
+            }
+            guard retiresLazy == true || retiresDescriptor == true, let owner = slot.owner else { continue }
+            let key = ObjectIdentifier(owner)
+            if retiresLazy == true { pinnedLazySlots.append(slot) }
+            if retiresDescriptor == true { pinnedDescriptorSlots.append(slot) }
+            if let session = slot.session { displacedSessions.append(session) }
+            if selected[key]?.candidate.slot === slot {
+                // Reuse of this exact slot may preserve its admitted item
+                // session and removal flight. Only its old declaration ends.
+                slot.phase = .provisional
+                slot.receipt?.discarded = true
+            } else {
+                slot.retire()
+            }
+            if ledger.alertSlots[key] === slot { ledger.alertSlots.removeValue(forKey: key) }
+        }
+        for (key, record) in selected {
+            let candidate = record.candidate
+            let slot = candidate.slot
+            if let previousSlot = ledger.alertSlots[key], previousSlot !== slot {
+                if previousSlot.lazyActivity != nil { pinnedLazySlots.append(previousSlot) }
+                if previousSlot.descriptorActivity != nil { pinnedDescriptorSlots.append(previousSlot) }
+                if let session = previousSlot.session { displacedSessions.append(session) }
+                previousSlot.retire()
+            }
+            let previous = slot.session
+            // A compatible accepted receipt can still replace the item
+            // session. Its frozen payload must outlive the whole publication.
+            if let previous { displacedSessions.append(previous) }
+            if let oldConfiguration = previous?.configuration { displacedConfigurations.append(oldConfiguration) }
+            if let oldActions = previous?.actions { displacedActions.append(oldActions) }
+            if previous !== candidate.session {
+                if let previous, let next = candidate.session, previous.didCaptureFocus {
+                    next.previousFocus = previous.previousFocus
+                    next.underlyingModal = previous.underlyingModal
+                    next.didCaptureFocus = true
+                }
+                previous?.retired = true
+                if candidate.session == nil, let ticket = previous?.resetTicket {
+                    slot.restoration?.cancelled = true
+                    slot.restoration = ticket
+                    ticket.acceptAbsence(runtime: candidate.receipt.runtime)
+                    completedRemovals.append(ticket)
+                } else {
+                    previous?.resetTicket?.cancelled = true
+                    slot.restoration?.cancelled = true
+                    slot.restoration = nil
+                }
+            }
+            slot.receipt?.discarded = true
+            Self.publish(
+                candidate, admitsActions: false, lazyActivity: record.activity.lazyActivity,
+                descriptorActivity: record.activity.descriptorActivity)
+            ledger.alertSlots[key] = slot
+        }
+        guard !ledger.isClosed else { return }
+        for (key, candidate) in candidates where candidate.lazyProposal != nil || candidate.descriptorProposal != nil {
+            if selected[key]?.candidate === candidate {
+                candidate.slot.phase = .active
+                candidate.receipt.accepted = true
+            } else {
+                candidate.receipt.discarded = true
+            }
+        }
+        prepared = false
+    }
+
+    fileprivate static func publish(
+        _ candidate: RetainedAlertCandidate, admitsActions: Bool = true,
+        lazyActivity: LazyPresentationActivity? = nil, descriptorActivity: DescriptorPresentationActivity? = nil
+    ) {
         let slot = candidate.slot
         slot.receipt = candidate.receipt
         slot.session = candidate.session
+        slot.lazyActivity = lazyActivity
+        slot.descriptorActivity = descriptorActivity
         if let session = candidate.session {
+            session.lazyActivity = lazyActivity
+            session.descriptorActivity = descriptorActivity
             session.configuration = candidate.configuration
             session.actions = candidate.actions
             if !session.didCaptureFocus {
@@ -580,6 +886,8 @@ final class RetainedAlertActivityBuild {
             candidate.slot.retire()
         }
         for slot in covered { slot.retire() }
+        for slot in pinnedLazySlots { slot.retire() }
+        for slot in pinnedDescriptorSlots { slot.retire() }
         for ticket in completedRemovals { ticket.cancelled = true }
     }
 
@@ -591,7 +899,10 @@ final class RetainedAlertActivityBuild {
         let tickets = completedRemovals
         // Detach all bookkeeping before any application capture is released;
         // a payload destructor may close the coordinator during this cleanup.
-        let retained = (candidates, discarded, covered, displacedSessions, displacedActions, displacedConfigurations)
+        let retained = (
+            candidates, discarded, covered, displacedSessions, displacedActions, displacedConfigurations,
+            pinnedLazySlots, pinnedDescriptorSlots, lazyPreparation
+        )
         completedRemovals = []
         candidates = [:]
         discarded = []
@@ -599,6 +910,9 @@ final class RetainedAlertActivityBuild {
         displacedSessions = []
         displacedActions = []
         displacedConfigurations = []
+        pinnedLazySlots = []
+        pinnedDescriptorSlots = []
+        lazyPreparation = nil
         withExtendedLifetime(retained) {}
         for ticket in tickets { ticket.enqueue() }
     }

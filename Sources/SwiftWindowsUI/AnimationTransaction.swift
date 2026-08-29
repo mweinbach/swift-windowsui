@@ -59,14 +59,42 @@ public struct RetainedAnimationModifier {
     /// Returns whether this modifier participated. A value modifier's first
     /// build only establishes its trigger; subsequent equal values inherit
     /// the parent transaction without replacing it.
-    func apply(to transaction: inout Transaction, previous: RetainedAnimationModifier?) -> Bool {
-        if let matchesTrigger {
-            guard let previousTrigger = previous?.trigger, !matchesTrigger(previousTrigger) else {
-                return false
-            }
+    func apply(
+        to transaction: inout Transaction, previous: RetainedAnimationModifier?,
+        admission: RetainedLazyListAdoptionAdmission? = nil,
+        nativeCheck: ComponentHost.NodeReconcileAdmission? = nil
+    ) -> Bool {
+        if let nativeCheck, nativeCheck.lazyJournal?.isOrdinaryAdoption == false {
+            guard nativeCheck.isCurrent, admission?.isCurrent != false else { return false }
+            // The existing helper releases comparison temporaries before the
+            // original native witnesses admit the application's transform.
+            let shouldTransform = triggerChanged(from: previous)
+            guard nativeCheck.isCurrent, admission?.isCurrent != false, shouldTransform else { return false }
+            transform(&transaction)
+            return nativeCheck.isCurrent && admission?.isCurrent != false
         }
+        if admission == nil {
+            if let matchesTrigger {
+                guard let previousTrigger = previous?.trigger, !matchesTrigger(previousTrigger) else {
+                    return false
+                }
+            }
+            transform(&transaction)
+            return true
+        }
+        guard admission?.isCurrent != false else { return false }
+        // A trigger comparison is application code. It must finish, including
+        // temporary trigger cleanup, before the transform can be admitted.
+        let shouldTransform = triggerChanged(from: previous)
+        guard admission?.isCurrent != false, shouldTransform else { return false }
         transform(&transaction)
-        return true
+        return admission?.isCurrent != false
+    }
+
+    private func triggerChanged(from previous: RetainedAnimationModifier?) -> Bool {
+        guard let matchesTrigger else { return true }
+        guard let previousTrigger = previous?.trigger else { return false }
+        return !matchesTrigger(previousTrigger)
     }
 }
 

@@ -874,3 +874,15 @@ Update this roadmap when:
 
 Do not update this file to claim support that is not covered by tests,
 contracts, or documented manual smoke paths.
+
+## Public flat List construction source checkpoint (2026-08-29)
+
+Flat data and builder ForEach now share a deferred viewport source and the
+managed State/task activity bridge. This is an uncompiled composed source
+checkpoint. [DeferredListConstruction.md](DeferredListConstruction.md) records
+logical versus physical ownership, bounded per-pass work, O(data) total opaque
+ID/tag searches, logical UIA behavior, and the passive removal-replay dependency.
+Tree projection, nonidentity removal transitions, animated focus integration,
+full preservation tests, retained visuals, native behavior and resource
+qualification remain required under the original goal. No release gate or
+previous qualification is closed by source lint.

@@ -65,6 +65,8 @@ public struct UIAElementSnapshot: Sendable {
     public var supportsSelection: Bool
     /// Offscreen lazy-stack placeholders expose IVirtualizedItemProvider.
     public var isVirtualizedPlaceholder: Bool
+    /// Logical data items can be enumerated without constructing their views.
+    public var supportsItemContainer: Bool
 
     public init(
         id: UInt64,
@@ -87,7 +89,8 @@ public struct UIAElementSnapshot: Sendable {
         toggleState: UIAToggleState? = nil,
         isSelected: Bool? = nil,
         supportsSelection: Bool = false,
-        isVirtualizedPlaceholder: Bool = false
+        isVirtualizedPlaceholder: Bool = false,
+        supportsItemContainer: Bool = false
     ) {
         self.id = id
         self.parentID = parentID
@@ -110,6 +113,7 @@ public struct UIAElementSnapshot: Sendable {
         self.isSelected = isSelected
         self.supportsSelection = supportsSelection
         self.isVirtualizedPlaceholder = isVirtualizedPlaceholder
+        self.supportsItemContainer = supportsItemContainer
     }
 }
 
@@ -165,6 +169,45 @@ extension UIAElementTreeSource {
     }
     public func uiaRemoveFromSelection(elementID: UInt64) -> Bool { false }
     public func uiaRealizeVirtualizedItem(elementID: UInt64) -> Bool { false }
+}
+
+/// An ItemContainer lookup produces only the next logical identity. It never
+/// promises a name, a control role, or geometry for an unconstructed item.
+public enum UIAItemContainerResult: Equatable, Sendable {
+    case item(UInt64)
+    case end
+    case unavailable
+    case invalidStart
+}
+
+public enum UIALogicalItemState: Int32, Sendable {
+    case unavailable = -1
+    case ordinary = 0
+    case placeholder = 1
+}
+
+/// Optional logical-item support. The native provider implements property-zero
+/// enumeration only; named/property searches are explicitly unsupported. State
+/// reads may reconstruct native receipts from identity metadata, but never
+/// settle layout or invoke row factories. The normal snapshot callback still
+/// copies one current tree.
+@MainActor
+public protocol UIAItemContainerSource: UIAElementTreeSource {
+    func uiaFindItem(containerID: UInt64, afterElementID: UInt64?) -> UIAItemContainerResult
+    /// Native lookup must use copied geometry and finish without native-owner
+    /// progress. A legacy lookup may use an HWND mapper and is not a fallback.
+    func uiaFindItem(
+        containerID: UInt64, afterElementID: UInt64?, geometry: NativeWindowGeometry
+    ) throws -> UIAItemContainerResult
+    func uiaLogicalItemState(elementID: UInt64) -> UIALogicalItemState
+}
+
+extension UIAItemContainerSource {
+    public func uiaFindItem(
+        containerID: UInt64, afterElementID: UInt64?, geometry: NativeWindowGeometry
+    ) throws -> UIAItemContainerResult {
+        throw UIAProviderRequestFailure.unsupportedNativeItemLookup
+    }
 }
 
 /// Implemented by objects that can answer `WM_GETOBJECT` for a `Win32Window`.
@@ -301,7 +344,8 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
         let callbackContext = UIAProviderCallbackContext()
         self.callbackContext = callbackContext
         let retainedBox = Unmanaged.passRetained(callbackContext).toOpaque()
-        var callbacks = Self.makeCallbacks(context: retainedBox)
+        var callbacks = Self.makeCallbacks(
+            context: retainedBox, supportsLogicalItems: source is any UIAItemContainerSource)
         let nativeContext = SWU_UIACreateProviderContext(&callbacks, releaseUIAProviderCallbackContext)
         self.nativeContext = nativeContext
         if nativeContext == nil {
@@ -349,7 +393,8 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
     ) -> (any NativeWindowOwnerAttachmentFactory)? {
         guard let nativeSession, let nativeCallbackContext else { return nil }
         return UIANativeProviderFactory(
-            session: nativeSession, callbackContext: nativeCallbackContext, nativeCalls: nativeCalls)
+            session: nativeSession, callbackContext: nativeCallbackContext, nativeCalls: nativeCalls,
+            supportsLogicalItems: source is any UIAItemContainerSource)
     }
 
     /// Immediate, local admission revocation. The native attachment owns OS
@@ -512,7 +557,9 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
 
     // MARK: - Callback installation
 
-    nonisolated private static func makeCallbacks(context: UnsafeMutableRawPointer) -> SWUUIACallbacks {
+    nonisolated private static func makeCallbacks(
+        context: UnsafeMutableRawPointer, supportsLogicalItems: Bool
+    ) -> SWUUIACallbacks {
         var callbacks = SWUUIACallbacks()
         callbacks.context = context
         callbacks.navigate = { context, element, direction in
@@ -630,6 +677,35 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
         }
         callbacks.focusedElement = { context in
             UIAProviderBridge.withBridge(from: context, unavailable: UInt64.max) { $0.focusedElementForUIA() }
+        }
+        if supportsLogicalItems {
+            callbacks.getLogicalItemState = { context, element in
+                UIAProviderBridge.withBridge(from: context, unavailable: Int32(SWU_UIA_LOGICAL_ITEM_UNAVAILABLE)) {
+                    ($0.source as? any UIAItemContainerSource)?.uiaLogicalItemState(elementID: element).rawValue
+                        ?? Int32(SWU_UIA_LOGICAL_ITEM_ORDINARY)
+                }
+            }
+            callbacks.findItem = { context, container, after, target in
+                guard let target else { return Int32(SWU_UIA_ITEM_LOOKUP_INVALID_START) }
+                target.pointee = UInt64.max
+                let result = UIAProviderBridge.withBridge(
+                    from: context, unavailable: UIAItemContainerResult.unavailable
+                ) {
+                    ($0.source as? any UIAItemContainerSource)?.uiaFindItem(
+                        containerID: container, afterElementID: after == UInt64.max ? nil : after) ?? .unavailable
+                }
+                switch result {
+                case .item(let element):
+                    target.pointee = element
+                    return Int32(SWU_UIA_ITEM_LOOKUP_FOUND)
+                case .end:
+                    return Int32(SWU_UIA_ITEM_LOOKUP_END)
+                case .unavailable:
+                    return Int32(SWU_UIA_ITEM_LOOKUP_UNAVAILABLE)
+                case .invalidStart:
+                    return Int32(SWU_UIA_ITEM_LOOKUP_INVALID_START)
+                }
+            }
         }
         return callbacks
     }
@@ -766,6 +842,15 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
             return .element(try nativeQuerySnapshot(geometry).selectionContainer(element))
         case .selection(let element):
             return .selection(try nativeQuerySnapshot(geometry).selection(element))
+        case .logicalItemState(let element):
+            return .integer(
+                (source as? any UIAItemContainerSource)?.uiaLogicalItemState(elementID: element).rawValue
+                    ?? UIALogicalItemState.unavailable.rawValue)
+        case .findItem(let container, let afterElement):
+            guard let itemSource = source as? any UIAItemContainerSource else { return .itemLookup(.unavailable) }
+            return .itemLookup(
+                try itemSource.uiaFindItem(
+                    containerID: container, afterElementID: afterElement, geometry: geometry))
         case .realizeVirtualizedItem(let element):
             return .integer(realizeVirtualizedItemForUIA(element))
         case .setFocus(let element):
@@ -790,7 +875,9 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
 
     private func runtimeIDForUIA(_ element: UInt64) -> [Int32] {
         guard element != Self.rootElementID else { return [] }
-        return [Self.runtimeIDPrefix, Int32(truncatingIfNeeded: element)]
+        var values = [Self.runtimeIDPrefix, Int32(truncatingIfNeeded: element)]
+        if element >> 32 != 0 { values.append(Int32(truncatingIfNeeded: element >> 32)) }
+        return values
     }
 
     private func boundingRectangleForUIA(_ element: UInt64) -> Rect {

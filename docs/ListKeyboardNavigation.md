@@ -1,4 +1,36 @@
-# List keyboard selection and deferred layout
+# List keyboard selection and viewport construction
+
+The public flat-data and `List { ForEach(...) }` source path can name a row
+that has no retained node yet. Logical selection first obtains its actual
+projected selectable leaves through the bounded retained adapter. Direct data
+IDs retain their selection precedence; authored builder tags use a bounded
+search when their first eligible occurrence is not known. Empty or disabled
+records do not become selection anchors merely because their model ID exists.
+See [DeferredListConstruction.md](DeferredListConstruction.md) for construction,
+state, scrolling and accessibility contracts and the remaining limitations.
+
+A prepared request survives accepted replacement of its row handlers through
+one native scope slot. Native revocation precedes terminal cancellation and
+capture release, including same-selection activation, external focus, departure
+and host closure. A stale handler cannot cancel a newer request. Once selection
+is written, later layout cannot repeat its getter, setter or invalidation.
+
+An accepted pre-focus reveal transfers ownership to one native runtime
+continuation. It retains the original receipt and weak physical paths, scroll
+source/intent and input witnesses. Budget exhaustion waits for ordinary bounded
+layout; an accepted tween must finish and reach an actual terminal render.
+Focus consumes a fixed current settlement, not one obtained by reentrant
+application callbacks. Static content continues to use its physical rows and
+the same native ownership rules.
+
+This composition has source checks only. The separately frozen animated cohort
+still needs its context join and preserved receipt/capture regressions. No
+combined compilation, behavioral pass, native parity or performance result is
+claimed here. The previous specification is retained below as the historical
+physical-layout foundation; its dormant-construction and missing-completion
+statements describe that earlier checkpoint.
+
+## Physical-layout foundation from the earlier checkpoint
 
 Keyboard selection can name a row whose retained node exists but whose subtree
 has not been laid out. Ordinary focus still requires an attached, available,
@@ -54,7 +86,7 @@ admitting the replacement. Replays use the original receipt and do not enqueue
 themselves. An incomplete preparation does not drain another callback round or
 retry a consumed receipt.
 
-## Limits and further integration
+### Limits recorded by the earlier checkpoint
 
 An accepted animated scroll keeps its existing offset and tween. If the bounded
 query still leaves the target deferred, focus remains incomplete. Later guarded

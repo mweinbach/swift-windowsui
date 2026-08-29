@@ -206,7 +206,7 @@ private let defaultRetainedScrollIndicatorInsets = EdgeInsets(
 private func retainedScrollAnchor(from anchor: UnitPoint?) -> RetainedScrollAnchor? {
     anchor.map { RetainedScrollAnchor(x: $0.x, y: $0.y) }
 }
-private func stackMainAlignment(from value: Double) -> StackMainAlignment {
+func stackMainAlignment(from value: Double) -> StackMainAlignment {
     if value <= 0.25 {
         return .start
     }
@@ -478,9 +478,14 @@ public struct KeyframeAnimator<Value>: View where Value: Animatable {
         let _ = keyframes(KeyframeTrack<Value>())
         let views = content(initialValue)
         return Component { runtime in
+            guard
+                let occurrences = materializedViewListOccurrences(views, context: context),
+                context.viewIdentity.lazyList?.admission.isCurrent != false,
+                context.viewIdentity.descriptorComponent?.canConstruct != false
+            else { return rejectedRetainedViewNode() }
             let node = ViewNode(
                 layoutMode: .absolute,
-                children: viewIdentityOccurrences(views).map {
+                children: occurrences.map {
                     $0.makeComponent(context: context).makeNode(runtime: runtime)
                 }
             )
@@ -598,15 +603,26 @@ public struct PhaseAnimator<Phase: Equatable>: View {
 
             let views: [AnyView]
             if let phase = phases.isEmpty ? nil : phases[phaseIndex] {
+                let activity = ViewListProjectionActivity(context: context)
                 let currentAnimation = animation(phase)
-                views = content(phase).map { $0.mappingViewIdentity { AnyView($0.animation(currentAnimation)) } }
+                guard activity.isCurrent else { return rejectedRetainedViewNode() }
+                let authored = content(phase)
+                guard activity.isCurrent,
+                    let expanded = materializedDeferredViewList(authored, context: context), activity.isCurrent
+                else { return rejectedRetainedViewNode() }
+                views = expanded.map { $0.mappingViewIdentity { AnyView($0.animation(currentAnimation)) } }
             } else if let fallback = fallbackContent {
                 views = fallback
             } else {
                 views = []
             }
 
-            let childNodes = viewIdentityOccurrences(views).map {
+            guard
+                let occurrences = materializedViewListOccurrences(views, context: context),
+                context.viewIdentity.lazyList?.admission.isCurrent != false,
+                context.viewIdentity.descriptorComponent?.canConstruct != false
+            else { return rejectedRetainedViewNode() }
+            let childNodes = occurrences.map {
                 $0.makeComponent(context: context).makeNode(runtime: runtime)
             }
             let node: ViewNode
@@ -745,7 +761,11 @@ public struct ViewThatFits: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let axes = axes
-        let views = viewIdentityOccurrences(content)
+        guard
+            let views = materializedViewListOccurrences(content, context: context),
+            context.viewIdentity.lazyList?.admission.isCurrent != false,
+            context.viewIdentity.descriptorComponent?.canConstruct != false
+        else { return rejectedRetainedViewComponent() }
         // Distinct flattened fragments can have prefix-related paths. Make
         // each complete relative identity one key before building it, so a
         // rejected candidate's scope can never include the selected sibling.
@@ -770,16 +790,25 @@ public struct ViewThatFits: View {
                     if let coordinator = context.stateMountCoordinator {
                         for otherIndex in views.indices where otherIndex != index {
                             coordinator.discardUnadoptedSubtree(
-                                at: candidateContexts[otherIndex].retainedViewIdentity, preserveCommitted: false)
-                            coordinator.preserveDeclaredScopes(declarations[otherIndex])
+                                at: candidateContexts[otherIndex].retainedViewIdentity, preserveCommitted: false,
+                                lazyAttribution: candidateContexts[otherIndex].viewIdentity.lazyList,
+                                descriptorAttribution: candidateContexts[otherIndex].viewIdentity.descriptorComponent)
+                            coordinator.preserveDeclaredScopes(
+                                declarations[otherIndex],
+                                lazyAttribution: candidateContexts[otherIndex].viewIdentity.lazyList,
+                                descriptorAttribution: candidateContexts[otherIndex].viewIdentity.descriptorComponent)
                         }
                     }
                     return candidateNode
                 }
                 if let coordinator = context.stateMountCoordinator {
                     coordinator.discardUnadoptedSubtree(
-                        at: candidateContexts[index].retainedViewIdentity, preserveCommitted: false)
-                    coordinator.preserveDeclaredScopes(declarations[index])
+                        at: candidateContexts[index].retainedViewIdentity, preserveCommitted: false,
+                        lazyAttribution: candidateContexts[index].viewIdentity.lazyList,
+                        descriptorAttribution: candidateContexts[index].viewIdentity.descriptorComponent)
+                    coordinator.preserveDeclaredScopes(
+                        declarations[index], lazyAttribution: candidateContexts[index].viewIdentity.lazyList,
+                        descriptorAttribution: candidateContexts[index].viewIdentity.descriptorComponent)
                 }
             }
 
@@ -3856,10 +3885,21 @@ private func resolvedFill(from style: ForegroundStyle) -> (color: Color, gradien
 public struct Group: View, StateMountDeclarationView, ViewListProjectionProvider {
     public typealias Body = Never
 
-    private let content: [AnyView]
+    private let deferredContent: ViewListProjection
+    private let materializeContent: () -> [AnyView]
+    private var content: [AnyView] { materializeContent() }
 
+    public init<Content: View>(@ViewBuilder content: () -> Content) {
+        let value = content()
+        self.deferredContent = retainedViewBuilderContent(value)
+        self.materializeContent = { materializedViewBuilderContent(value) }
+    }
+
+    @_disfavoredOverload
     public init(@ViewBuilder content: () -> [AnyView]) {
-        self.content = content()
+        let views = content()
+        self.deferredContent = retainedViewBuilderContent(views)
+        self.materializeContent = { views }
     }
 
     public var body: Never {
@@ -3874,10 +3914,7 @@ public struct Group: View, StateMountDeclarationView, ViewListProjectionProvider
     }
 
     func declaredStateMountScopes(context: ViewBuildContext) -> [StateMountDeclarationScope] {
-        let context = context.withViewIdentityType(Self.self)
-        let contentContext = context.withViewIdentityRole(.content)
-        return [StateMountDeclarationScope(prefix: context.retainedViewIdentity, excluding: .modifierContent)]
-            + viewIdentityOccurrences(content).flatMap { $0.declaredStateMountScopes(context: contentContext) }
+        declaredProjectedViewListScopes(viewListProjection(), context: context.withViewIdentityType(Self.self))
     }
 
     func viewListProjection() -> ViewListProjection {
@@ -3886,7 +3923,7 @@ public struct Group: View, StateMountDeclarationView, ViewListProjectionProvider
             children: [
                 .scope(
                     .prefix([.role(.content)]), excluding: nil,
-                    children: viewIdentityOccurrences(content).map { .value($0) })
+                    children: [.retainedStructure(deferredContent, materialize: materializeContent)])
             ])
     }
 }
@@ -4131,6 +4168,9 @@ private func navigationContainerComponent(
     navigationViewStyle: NavigationViewStyle? = nil,
     fallbackLayout: ViewLayoutMode
 ) -> Component {
+    guard let content = materializedDeferredViewList(content, context: context) else {
+        return rejectedRetainedViewComponent()
+    }
     let rootDestinationRegistrations =
         context.navigationDestinationRegistrations
         + navigationDestinations(in: content)
@@ -4146,7 +4186,10 @@ private func navigationContainerComponent(
     let pushedDestinationStack = destinationStack.map(\.destination)
     let combinedDestinationStack =
         pathDestinationStack + pushedDestinationStack + [presentedDestination].compactMap { $0 }
-    let visibleContent = combinedDestinationStack.last ?? content
+    guard let visibleContent = materializedDeferredViewList(combinedDestinationStack.last ?? content, context: context)
+    else {
+        return rejectedRetainedViewComponent()
+    }
     let destinationRegistrations =
         rootDestinationRegistrations
         + navigationDestinations(in: visibleContent)
@@ -4999,7 +5042,7 @@ public struct TabView: View {
     }
 
     private let state = TabState()
-    private let content: [AnyView]
+    private var content: [AnyView]
     private let selectedTag: (@MainActor () -> AnyHashable?)?
     private let setSelectedTag: (@MainActor (AnyHashable) -> Void)?
 
@@ -5030,17 +5073,34 @@ public struct TabView: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
+        guard let pages = materializedDeferredViewList(content, context: context) else {
+            return rejectedRetainedViewComponent()
+        }
+        var resolved = self
+        resolved.content = pages
+        return resolved.makeResolvedComponent(context: context)
+    }
+
+    private func makeResolvedComponent(context: ViewBuildContext) -> Component {
         guard !content.isEmpty else {
             return composeComponent(from: [], context: context)
         }
 
-        let selectedIndex = selectedPageIndex()
-        let pages = viewIdentityOccurrences(content)
+        guard let selectedIndex = selectedPageIndex(context: context) else {
+            return rejectedRetainedViewComponent()
+        }
+        guard
+            let pages = materializedViewListOccurrences(content, context: context),
+            context.viewIdentity.lazyList?.admission.isCurrent != false,
+            context.viewIdentity.descriptorComponent?.canConstruct != false
+        else { return rejectedRetainedViewComponent() }
         let selectedPage = pages[selectedIndex]
         let pageIdentityContext = context.withViewIdentityRole(.page)
         for (index, page) in pages.enumerated() where index != selectedIndex {
             context.stateMountCoordinator?.preserveDeclaredScopes(
-                page.declaredStateMountScopes(context: pageIdentityContext))
+                page.declaredStateMountScopes(context: pageIdentityContext),
+                lazyAttribution: pageIdentityContext.viewIdentity.lazyList,
+                descriptorAttribution: pageIdentityContext.viewIdentity.descriptorComponent)
         }
         let tabBar = tabBarComponent(selectedIndex: selectedIndex, context: context)
 
@@ -5141,30 +5201,40 @@ public struct TabView: View {
     static let retainedTabPageCrossfadeAnimation = AnimationTransaction(
         duration: Controls.disclosureDuration, easing: .easeInOut)
 
-    private func selectedPageIndex() -> Int {
-        guard !content.isEmpty else {
+    private func selectedPageIndex(context: ViewBuildContext) -> Int? {
+        let activity = ViewListProjectionActivity(context: context)
+        guard activity.isCurrent else { return nil }
+        guard !content.isEmpty else { return 0 }
+        if let selectedTag {
+            let selected = selectedTag()
+            guard activity.isCurrent else { return nil }
+            if let selected {
+                for (index, view) in content.enumerated() {
+                    guard activity.isCurrent else { return nil }
+                    guard let candidate = view.selectionTag else { continue }
+                    let matches =
+                        RetainedViewIdentity.Key(candidate).checkedEquals(
+                            RetainedViewIdentity.Key(selected), isCurrent: { activity.isCurrent }) == true
+                    guard activity.isCurrent else { return nil }
+                    if matches { return index }
+                }
+            }
             return 0
         }
-
-        if let selectedTag = selectedTag?(),
-            let selectedIndex = content.firstIndex(where: { $0.selectionTag == selectedTag })
-        {
-            return selectedIndex
-        }
-
-        if selectedTag == nil {
-            state.selectedIndex = min(max(0, state.selectedIndex), content.count - 1)
-            return state.selectedIndex
-        }
-
-        return 0
+        state.selectedIndex = min(max(0, state.selectedIndex), content.count - 1)
+        return activity.isCurrent ? state.selectedIndex : nil
     }
 
     private func tabBarComponent(selectedIndex: Int, context: ViewBuildContext) -> Component {
         Component { runtime in
             let palette = context.controlPalette
             let chrome = Self.retainedTabChrome(for: context.tabViewStyle, palette: palette)
-            let tabNodes = viewIdentityOccurrences(content).enumerated().map { index, view in
+            guard
+                let occurrences = materializedViewListOccurrences(content, context: context),
+                context.viewIdentity.lazyList?.admission.isCurrent != false,
+                context.viewIdentity.descriptorComponent?.canConstruct != false
+            else { return rejectedRetainedViewNode() }
+            let tabNodes = occurrences.enumerated().map { index, view in
                 let isSelected = index == selectedIndex
                 let labelViews = view.tabItem ?? [AnyView(Text("TAB \(index + 1)"))]
                 let itemContext = context.withViewIdentityPrefix(view.structuralIdentity)
@@ -5498,16 +5568,33 @@ public struct ForEach<Data: RandomAccessCollection, ID: Hashable>: View, StateMo
     public typealias Body = Never
 
     public let data: Data
-    let contentViews: [AnyView]
+    private let deferredContent: DeferredViewListData
 
-    public init(_ data: Data, id: KeyPath<Data.Element, ID>, @ViewBuilder content: (Data.Element) -> [AnyView]) {
+    /// Explicit eager consumers share the same lazy compatibility cache.
+    /// Reading this property is never part of List's metadata projection.
+    var contentViews: [AnyView] { deferredContent.materializedRows() }
+
+    public init<Content: View>(
+        _ data: Data, id: KeyPath<Data.Element, ID>, @ViewBuilder content: @escaping (Data.Element) -> Content
+    ) {
         self.data = data
-        self.contentViews = Self.buildContentViews(data: data, id: id, content: content)
+        self.deferredContent = DeferredViewListData(data, id: id, contentType: ObjectIdentifier(Content.self)) {
+            materializedViewBuilderContent(content($0))
+        }
     }
 
-    private init(data: Data, contentViews: [AnyView]) {
+    @_disfavoredOverload
+    public init(
+        _ data: Data, id: KeyPath<Data.Element, ID>, @ViewBuilder content: @escaping (Data.Element) -> [AnyView]
+    ) {
         self.data = data
-        self.contentViews = contentViews
+        self.deferredContent = DeferredViewListData(
+            data, id: id, contentType: ObjectIdentifier([AnyView].self), rowContent: content)
+    }
+
+    private init(data: Data, deferredContent: DeferredViewListData) {
+        self.data = data
+        self.deferredContent = deferredContent
     }
 
     public var body: Never {
@@ -5522,10 +5609,7 @@ public struct ForEach<Data: RandomAccessCollection, ID: Hashable>: View, StateMo
     }
 
     func declaredStateMountScopes(context: ViewBuildContext) -> [StateMountDeclarationScope] {
-        let context = context.withViewIdentityType(Self.self)
-        let contentContext = context.withViewIdentityRole(.content)
-        return [StateMountDeclarationScope(prefix: context.retainedViewIdentity, excluding: .modifierContent)]
-            + viewIdentityOccurrences(contentViews).flatMap { $0.declaredStateMountScopes(context: contentContext) }
+        declaredProjectedViewListScopes(viewListProjection(), context: context.withViewIdentityType(Self.self))
     }
 
     func viewListProjection() -> ViewListProjection {
@@ -5534,109 +5618,34 @@ public struct ForEach<Data: RandomAccessCollection, ID: Hashable>: View, StateMo
             children: [
                 .scope(
                     .prefix([.role(.content)]), excluding: nil,
-                    children: viewIdentityOccurrences(contentViews).map { .value($0) })
+                    children: [.deferredData(deferredContent)])
             ])
-    }
-
-    private static func buildContentViews(
-        data: Data,
-        id: KeyPath<Data.Element, ID>,
-        content: (Data.Element) -> [AnyView]
-    ) -> [AnyView] {
-        var views: [AnyView] = []
-        for (elementIndex, element) in data.enumerated() {
-            let elementID = element[keyPath: id]
-            let elementViews = normalizedProjectedViewList(content(element))
-            for (index, view) in elementViews.enumerated() {
-                views.append(
-                    view.ensuringViewIdentitySlot(index).mappingViewIdentity { content in
-                        AnyView(
-                            DynamicListEditMetadataView(
-                                content: AnyView(content.implicitForEachScrollTarget(elementID, index: index)),
-                                dynamicContentIndex: elementIndex
-                            )
-                        )
-                    }
-                    .prefixedViewIdentity([.keyed(RetainedViewIdentity.Key(elementID))])
-                )
-            }
-        }
-        return views
     }
 }
 extension ForEach: DynamicViewContent {}
 extension ForEach {
     public func onDelete(perform action: ((IndexSet) -> Void)?) -> ForEach<Data, ID> {
-        ForEach(
-            data: data,
-            contentViews: contentViews.map { view in
-                view.mappingViewIdentity { content in
-                    AnyView(
-                        DynamicListEditMetadataView(
-                            content: content,
-                            deleteAction: .some(action)
-                        )
-                    )
-                }
-            }
-        )
+        ForEach(data: data, deferredContent: deferredContent.appending(.delete(action)))
     }
 
     public func onMove(perform action: ((IndexSet, Int) -> Void)?) -> ForEach<Data, ID> {
-        ForEach(
-            data: data,
-            contentViews: contentViews.map { view in
-                view.mappingViewIdentity { content in
-                    AnyView(
-                        DynamicListEditMetadataView(
-                            content: content,
-                            moveAction: .some(action)
-                        )
-                    )
-                }
-            }
-        )
+        ForEach(data: data, deferredContent: deferredContent.appending(.move(action)))
     }
 
     public func onInsert(
         of supportedContentTypes: [UTType],
         perform action: @escaping (Int, [NSItemProvider]) -> Void
     ) -> ForEach<Data, ID> {
-        let identifiers = supportedContentTypes.map(\.identifier)
-        return ForEach(
+        ForEach(
             data: data,
-            contentViews: contentViews.map { view in
-                view.mappingViewIdentity { content in
-                    AnyView(
-                        DynamicListEditMetadataView(
-                            content: content,
-                            insertContentTypes: identifiers,
-                            insertAction: action
-                        )
-                    )
-                }
-            }
-        )
+            deferredContent: deferredContent.appending(.insert(supportedContentTypes.map(\.identifier), action)))
     }
 
     public func onInsert(
         of acceptedTypeIdentifiers: [String],
         perform action: @escaping (Int, [NSItemProvider]) -> Void
     ) -> ForEach<Data, ID> {
-        ForEach(
-            data: data,
-            contentViews: contentViews.map { view in
-                view.mappingViewIdentity { content in
-                    AnyView(
-                        DynamicListEditMetadataView(
-                            content: content,
-                            insertContentTypes: acceptedTypeIdentifiers,
-                            insertAction: action
-                        )
-                    )
-                }
-            }
-        )
+        ForEach(data: data, deferredContent: deferredContent.appending(.insert(acceptedTypeIdentifiers, action)))
     }
 
     public func dropDestination<T: Transferable>(
@@ -5645,24 +5654,16 @@ extension ForEach {
     ) -> ForEach<Data, ID> {
         ForEach(
             data: data,
-            contentViews: contentViews.map { view in
-                view.mappingViewIdentity { content in
-                    AnyView(
-                        DynamicListEditMetadataView(
-                            content: content,
-                            dropPayloadType: String(reflecting: payloadType),
-                            dropAction: { payloads, offset in
-                                action(payloads.compactMap { $0 as? T }, offset)
-                            }
-                        )
-                    )
-                }
-            }
-        )
+            deferredContent: deferredContent.appending(
+                .drop(
+                    String(reflecting: payloadType),
+                    { payloads, offset in
+                        action(payloads.compactMap { $0 as? T }, offset)
+                    })))
     }
 }
 @MainActor
-private struct DynamicListEditMetadataView: View, TaggedViewMetadata, StateMountDeclarationView {
+struct DynamicListEditMetadataView: View, TaggedViewMetadata, StateMountDeclarationView {
     typealias Body = Never
 
     let content: AnyView
@@ -5760,19 +5761,35 @@ private struct DynamicListEditMetadataView: View, TaggedViewMetadata, StateMount
     }
 }
 @MainActor
-public struct BindingCollectionElement<Element, ID: Hashable> {
+public struct BindingCollectionElement<Element, ID: Hashable>: DeferredListElementValidation {
     public let id: ID
-    public let binding: Binding<Element>
+    private let sourceOrdinal: Int
+    private let source: DeferredListBindingSource<Element, ID>
+
+    init(id: ID, sourceOrdinal: Int, source: DeferredListBindingSource<Element, ID>) {
+        self.id = id
+        self.sourceOrdinal = sourceOrdinal
+        self.source = source
+    }
+
+    public var binding: Binding<Element> { source.binding(for: sourceOrdinal) }
+    var deferredListGeneration: DeferredViewListGeneration { source.generation }
+    func validateDeferredListElement() -> Bool { source.isCurrent(for: sourceOrdinal) }
 }
 extension ForEach where Data.Element: Identifiable, ID == Data.Element.ID {
-    public init(_ data: Data, @ViewBuilder content: (Data.Element) -> [AnyView]) {
+    public init<Content: View>(_ data: Data, @ViewBuilder content: @escaping (Data.Element) -> Content) {
+        self.init(data, id: \.id, content: content)
+    }
+
+    @_disfavoredOverload
+    public init(_ data: Data, @ViewBuilder content: @escaping (Data.Element) -> [AnyView]) {
         self.init(data, id: \.id, content: content)
     }
 }
 extension ForEach {
-    public init<Collection>(
+    public init<Collection, Content: View>(
         _ data: Binding<Collection>,
-        @ViewBuilder content: (Binding<Collection.Element>) -> [AnyView]
+        @ViewBuilder content: @escaping (Binding<Collection.Element>) -> Content
     )
     where
         Data == [BindingCollectionElement<Collection.Element, ID>],
@@ -5781,67 +5798,92 @@ extension ForEach {
         Collection.Index: Hashable,
         ID == Collection.Element.ID
     {
-        let elements = data.wrappedValue.indices.map { index in
-            BindingCollectionElement(
-                id: data.wrappedValue[index].id,
-                binding: Binding<Collection.Element>(
-                    get: {
-                        data.wrappedValue[index]
-                    },
-                    set: { newValue in
-                        var collection = data.wrappedValue
-                        collection[index] = newValue
-                        data.wrappedValue = collection
-                    }
-                )
-            )
-        }
-
-        self.data = elements
-        self.contentViews = Self.buildContentViews(data: elements, id: \.id) { element in
-            content(element.binding)
-        }
+        self.init(data, id: \.id, content: content)
     }
 
+    @_disfavoredOverload
     public init<Collection>(
         _ data: Binding<Collection>,
+        @ViewBuilder content: @escaping (Binding<Collection.Element>) -> [AnyView]
+    )
+    where
+        Data == [BindingCollectionElement<Collection.Element, ID>],
+        Collection: MutableCollection & RandomAccessCollection,
+        Collection.Element: Identifiable,
+        Collection.Index: Hashable,
+        ID == Collection.Element.ID
+    {
+        self.init(data, id: \.id, content: content)
+    }
+
+    public init<Collection, Content: View>(
+        _ data: Binding<Collection>,
         id: KeyPath<Collection.Element, ID>,
-        @ViewBuilder content: (Binding<Collection.Element>) -> [AnyView]
+        @ViewBuilder content: @escaping (Binding<Collection.Element>) -> Content
     )
     where
         Data == [BindingCollectionElement<Collection.Element, ID>],
         Collection: MutableCollection & RandomAccessCollection,
         Collection.Index: Hashable
     {
-        let elements = data.wrappedValue.indices.map { index in
-            BindingCollectionElement(
-                id: data.wrappedValue[index][keyPath: id],
-                binding: Binding<Collection.Element>(
-                    get: {
-                        data.wrappedValue[index]
-                    },
-                    set: { newValue in
-                        var collection = data.wrappedValue
-                        collection[index] = newValue
-                        data.wrappedValue = collection
-                    }
-                )
-            )
+        let source = DeferredListBindingSource(data, id: id)
+        let elements = source.identifiers.enumerated().map { ordinal, identifier in
+            BindingCollectionElement(id: identifier, sourceOrdinal: ordinal, source: source)
         }
-
         self.data = elements
-        self.contentViews = Self.buildContentViews(data: elements, id: \.id) { element in
-            content(element.binding)
+        self.deferredContent = DeferredViewListData(elements, id: \.id, contentType: ObjectIdentifier(Content.self)) {
+            element in
+            let activity = ViewListProjectionActivity()
+            let binding = element.binding
+            guard activity.isCurrent, element.deferredListGeneration.isCurrent else { return [] }
+            let authored = content(binding)
+            guard activity.isCurrent else { return [] }
+            return materializedViewBuilderContent(authored)
+        }
+    }
+
+    @_disfavoredOverload
+    public init<Collection>(
+        _ data: Binding<Collection>,
+        id: KeyPath<Collection.Element, ID>,
+        @ViewBuilder content: @escaping (Binding<Collection.Element>) -> [AnyView]
+    )
+    where
+        Data == [BindingCollectionElement<Collection.Element, ID>],
+        Collection: MutableCollection & RandomAccessCollection,
+        Collection.Index: Hashable
+    {
+        let source = DeferredListBindingSource(data, id: id)
+        let elements = source.identifiers.enumerated().map { ordinal, identifier in
+            BindingCollectionElement(id: identifier, sourceOrdinal: ordinal, source: source)
+        }
+        self.data = elements
+        self.deferredContent = DeferredViewListData(elements, id: \.id, contentType: ObjectIdentifier([AnyView].self)) {
+            element in
+            let activity = ViewListProjectionActivity()
+            let binding = element.binding
+            guard activity.isCurrent, element.deferredListGeneration.isCurrent else { return [] }
+            return content(binding)
         }
     }
 }
 extension ForEach where Data == Range<Int>, ID == Int {
-    public init(_ data: Range<Int>, @ViewBuilder content: (Int) -> [AnyView]) {
+    public init<Content: View>(_ data: Range<Int>, @ViewBuilder content: @escaping (Int) -> Content) {
+        self.init(data, id: \.self, content: content)
+    }
+
+    @_disfavoredOverload
+    public init(_ data: Range<Int>, @ViewBuilder content: @escaping (Int) -> [AnyView]) {
         self.init(data, id: \.self, content: content)
     }
 }
 extension ForEach where Data == ClosedRange<Int>, ID == Int {
-    public init(_ data: ClosedRange<Int>, @ViewBuilder content: (Int) -> [AnyView]) {
+    public init<Content: View>(_ data: ClosedRange<Int>, @ViewBuilder content: @escaping (Int) -> Content) {
+        self.init(data, id: \.self, content: content)
+    }
+
+    @_disfavoredOverload
+    public init(_ data: ClosedRange<Int>, @ViewBuilder content: @escaping (Int) -> [AnyView]) {
         self.init(data, id: \.self, content: content)
     }
 }
@@ -8393,9 +8435,14 @@ public struct VStack: View {
         let context = context.withViewIdentityType(Self.self)
         return Component { runtime in
             let childContext = context.withViewIdentityRole(.content).withStackAxis(.vertical)
+            guard
+                let occurrences = materializedViewListOccurrences(content, context: childContext),
+                childContext.viewIdentity.lazyList?.admission.isCurrent != false,
+                childContext.viewIdentity.descriptorComponent?.canConstruct != false
+            else { return rejectedRetainedViewNode() }
             var children: [ViewNode] = []
             children.reserveCapacity(content.count)
-            for view in viewIdentityOccurrences(content) {
+            for view in occurrences {
                 view.makeComponent(context: childContext).appendChildNodes(runtime: runtime, to: &children)
             }
             return Controls.stackPanel(
@@ -8431,9 +8478,14 @@ public struct HStack: View {
         let context = context.withViewIdentityType(Self.self)
         return Component { runtime in
             let childContext = context.withViewIdentityRole(.content).withStackAxis(.horizontal)
+            guard
+                let occurrences = materializedViewListOccurrences(content, context: childContext),
+                childContext.viewIdentity.lazyList?.admission.isCurrent != false,
+                childContext.viewIdentity.descriptorComponent?.canConstruct != false
+            else { return rejectedRetainedViewNode() }
             var children: [ViewNode] = []
             children.reserveCapacity(content.count)
-            for view in viewIdentityOccurrences(content) {
+            for view in occurrences {
                 view.makeComponent(context: childContext).appendChildNodes(runtime: runtime, to: &children)
             }
             return Controls.stackPanel(
@@ -8691,7 +8743,12 @@ private func retainedLazyStackChildren(
     runtime: RetainedViewRuntime,
     pinnedViews: PinnedScrollableViews
 ) -> [ViewNode] {
-    let children = viewIdentityOccurrences(content).map {
+    guard
+        let occurrences = materializedViewListOccurrences(content, context: context),
+        context.viewIdentity.lazyList?.admission.isCurrent != false,
+        context.viewIdentity.descriptorComponent?.canConstruct != false
+    else { return [rejectedRetainedViewNode()] }
+    let children = occurrences.map {
         $0.makeComponent(context: context).makeNode(runtime: runtime)
     }
     guard !pinnedViews.isEmpty else {
@@ -8758,9 +8815,14 @@ public struct Grid: View {
         let content = content
 
         return Component { runtime in
+            guard
+                let occurrences = materializedViewListOccurrences(content, context: childContext),
+                childContext.viewIdentity.lazyList?.admission.isCurrent != false,
+                childContext.viewIdentity.descriptorComponent?.canConstruct != false
+            else { return rejectedRetainedViewNode() }
             var children: [ViewNode] = []
-            children.reserveCapacity(content.count)
-            for view in viewIdentityOccurrences(content) {
+            children.reserveCapacity(occurrences.count)
+            for view in occurrences {
                 view.makeComponent(context: childContext).appendChildNodes(runtime: runtime, to: &children)
             }
             return Controls.panel(
@@ -8797,9 +8859,14 @@ public struct GridRow: View {
         let childContext = context.withViewIdentityRole(.content).withStackAxis(.horizontal)
         let horizontalSpacing = context.gridHorizontalSpacing ?? 0
         return Component { runtime in
+            guard
+                let occurrences = materializedViewListOccurrences(content, context: childContext),
+                childContext.viewIdentity.lazyList?.admission.isCurrent != false,
+                childContext.viewIdentity.descriptorComponent?.canConstruct != false
+            else { return rejectedRetainedViewNode() }
             var children: [ViewNode] = []
-            children.reserveCapacity(content.count)
-            for view in viewIdentityOccurrences(content) {
+            children.reserveCapacity(occurrences.count)
+            for view in occurrences {
                 view.makeComponent(context: childContext).appendChildNodes(runtime: runtime, to: &children)
             }
             let layout: ViewLayoutMode =
@@ -8914,7 +8981,9 @@ public struct LazyVGrid: View {
         return Component { runtime in
             let resolvedSpecs = resolveVGridSpecs(self.columns, availableWidth: context.canvasSize.width)
             let columnCount = resolvedSpecs.count
-            let content = self.content
+            guard let content = materializedDeferredViewList(self.content, context: context) else {
+                return rejectedRetainedViewNode()
+            }
 
             guard columnCount > 0, !content.isEmpty else {
                 return Controls.panel(
@@ -8997,7 +9066,9 @@ public struct LazyHGrid: View {
         return Component { runtime in
             let resolvedSpecs = resolveHGridSpecs(self.rows, availableHeight: context.canvasSize.height)
             let rowCount = resolvedSpecs.count
-            let content = self.content
+            guard let content = materializedDeferredViewList(self.content, context: context) else {
+                return rejectedRetainedViewNode()
+            }
 
             guard rowCount > 0, !content.isEmpty else {
                 return Controls.panel(
@@ -9210,7 +9281,12 @@ public struct ZStack: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         Component { runtime in
-            let childNodes = viewIdentityOccurrences(content).map {
+            guard
+                let occurrences = materializedViewListOccurrences(content, context: context),
+                context.viewIdentity.lazyList?.admission.isCurrent != false,
+                context.viewIdentity.descriptorComponent?.canConstruct != false
+            else { return rejectedRetainedViewNode() }
+            let childNodes = occurrences.map {
                 $0.makeComponent(context: context).makeNode(runtime: runtime)
             }
             let root = Controls.panel(layoutMode: .absolute, isHitTestVisible: false, children: childNodes)
@@ -9264,16 +9340,40 @@ public struct GeometryReader: View {
     }
 
     private func makeReaderComponent(context: ViewBuildContext) -> Component {
+        if let attribution = context.viewIdentity.lazyList {
+            guard context.stateMountCoordinator != nil, attribution.admission.isCurrent else {
+                return rejectedRetainedViewComponent()
+            }
+        }
+        if let attribution = context.viewIdentity.descriptorComponent {
+            guard context.stateMountCoordinator != nil, attribution.canConstruct else {
+                return rejectedRetainedViewComponent()
+            }
+        }
         let seedSize = context.canvasSize
         let content = self.content
         let contentContext = context.withViewIdentityRole(.geometryContent)
         let contentPrefix = contentContext.retainedViewIdentity
         let lease =
             context.viewIdentity.installedOwner.map { owner in
-                context.stateMountCoordinator?.subtreeLease(owner: owner, contentPrefix: contentPrefix)
+                context.stateMountCoordinator?.subtreeLease(
+                    owner: owner, contentPrefix: contentPrefix, lazyAttribution: context.viewIdentity.lazyList,
+                    descriptorAttribution: context.viewIdentity.descriptorComponent)
             } ?? nil
+        if let attribution = context.viewIdentity.lazyList, !attribution.admission.isCurrent {
+            return rejectedRetainedViewComponent()
+        }
+        if context.viewIdentity.descriptorComponent?.canConstruct == false {
+            return rejectedRetainedViewComponent()
+        }
         let views = ViewBuildContextScope.withCurrent(contentContext) {
             content(GeometryProxy(size: seedSize))
+        }
+        if let attribution = context.viewIdentity.lazyList, !attribution.admission.isCurrent {
+            return rejectedRetainedViewComponent()
+        }
+        if context.viewIdentity.descriptorComponent?.canConstruct == false {
+            return rejectedRetainedViewComponent()
         }
         let composed = composeComponent(
             from: views,
@@ -9281,7 +9381,17 @@ public struct GeometryReader: View {
             fallbackLayout: .absolute
         )
         return Component { runtime in
+            if context.viewIdentity.lazyList?.admission.isCurrent == false
+                || context.viewIdentity.descriptorComponent?.canConstruct == false
+            {
+                return rejectedRetainedViewNode()
+            }
             let bodyNode = composed.makeNode(runtime: runtime)
+            if context.viewIdentity.lazyList?.admission.isCurrent == false
+                || context.viewIdentity.descriptorComponent?.canConstruct == false
+            {
+                return rejectedRetainedViewNode()
+            }
             // A GeometryReader is greedy in its parent's proposal, and the
             // proxy is supposed to describe exactly that slot. Containers
             // that consume chrome narrow the canvas they hand down (see
@@ -9312,7 +9422,23 @@ public struct GeometryReader: View {
             node.retainedSubtreeBuildLease = lease
             context.stateMountCoordinator?.materializeSubtreeLease(lease)
             node.geometryReaderBuild = { runtime, size in
-                if let coordinator = context.stateMountCoordinator {
+                let admittedContext: ViewBuildContext?
+                if context.viewIdentity.lazyList != nil {
+                    guard let coordinator = context.stateMountCoordinator,
+                        let fresh = coordinator.contextForAdmittedLazySubtree(from: context, lease: lease),
+                        fresh.viewIdentity.lazyList?.admission.isCurrent == true
+                    else { return [] }
+                    admittedContext = fresh.withCanvasSize(size)
+                } else if context.viewIdentity.descriptorComponent != nil {
+                    guard let coordinator = context.stateMountCoordinator,
+                        let fresh = coordinator.contextForAdmittedDescriptorSubtree(from: context, lease: lease),
+                        fresh.viewIdentity.descriptorComponent?.canConstruct == true
+                    else { return [] }
+                    admittedContext = fresh.withCanvasSize(size)
+                } else {
+                    admittedContext = nil
+                }
+                if admittedContext == nil, let coordinator = context.stateMountCoordinator {
                     guard lease?.canBuild == true,
                         coordinator.canEvaluateDeferredSubtree(at: contentPrefix)
                     else { return [] }
@@ -9323,10 +9449,23 @@ public struct GeometryReader: View {
                 // The narrowed context also re-seeds any reader nested in
                 // this body, so nesting converges in rounds rather than in
                 // one round per level.
-                let rebuilt = GeometryReader(content: content)
-                    .makeReaderComponent(context: context.withCanvasSize(size))
-                    .makeNode(runtime: runtime)
-                if let coordinator = context.stateMountCoordinator {
+                let rebuilt: ViewNode
+                if let admittedContext {
+                    // The fresh epoch must install its own reader owner before
+                    // content is evaluated; the captured owner is only a lease.
+                    rebuilt = GeometryReader(content: content)
+                        .makeComponent(context: admittedContext)
+                        .makeNode(runtime: runtime)
+                    guard lease?.canBuild == true,
+                        admittedContext.viewIdentity.lazyList?.admission.isCurrent != false,
+                        admittedContext.viewIdentity.descriptorComponent?.canConstruct != false
+                    else { return [] }
+                } else {
+                    rebuilt = GeometryReader(content: content)
+                        .makeReaderComponent(context: context.withCanvasSize(size))
+                        .makeNode(runtime: runtime)
+                }
+                if admittedContext == nil, let coordinator = context.stateMountCoordinator {
                     guard lease?.canBuild == true,
                         coordinator.canEvaluateDeferredSubtree(at: contentPrefix)
                     else { return [] }
@@ -9377,6 +9516,9 @@ public struct ScrollView: View {
             let palette = context.controlPalette
             let usesOverlayIndicator =
                 context.scrollIndicatorVisibility(for: axis).usesRetainedOverlayScrollIndicator
+            guard let admittedOccurrences = materializedViewListOccurrences(content, context: context) else {
+                return rejectedRetainedViewNode()
+            }
             let node = Controls.scrollPanel(
                 axis: axis.scrollAxis,
                 backgroundColor: context.scrollContentBackgroundVisibility.hidesRetainedScrollContentBackground
@@ -9402,7 +9544,7 @@ public struct ScrollView: View {
                 initialScrollAnchor: initialScrollAnchor,
                 scrollSizeChangeAnchor: scrollSizeChangeAnchor,
                 isHitTestVisible: style.isHitTestVisible,
-                children: viewIdentityOccurrences(content).map {
+                children: admittedOccurrences.map {
                     $0.makeComponent(context: context).makeNode(runtime: runtime)
                 }
             )
@@ -9493,9 +9635,9 @@ public struct ScrollViewReader: View {
     }
 }
 @MainActor
-private enum ListSelectionMode {
+enum ListSelectionMode {
     case single(get: () -> AnyHashable?, set: (AnyHashable?) -> Void)
-    case multiple(get: () -> Set<AnyHashable>, set: (Set<AnyHashable>) -> Void)
+    case multiple(get: (() -> Bool) -> [AnyHashable]?, set: ([AnyHashable], () -> Bool) -> Bool)
 
     static func single<Value: Hashable>(_ selection: Binding<Value?>) -> ListSelectionMode {
         .single(
@@ -9524,21 +9666,50 @@ private enum ListSelectionMode {
 
     static func multiple<Value: Hashable>(_ selection: Binding<Set<Value>>) -> ListSelectionMode {
         .multiple(
-            get: {
-                Set(selection.wrappedValue.map { AnyHashable($0) })
+            get: { isCurrent in
+                let values = selection.wrappedValue
+                guard isCurrent() else { return nil }
+                var result: [AnyHashable] = []
+                result.reserveCapacity(values.count)
+                for value in values {
+                    guard isCurrent() else { return nil }
+                    let erased = AnyHashable(value)
+                    guard isCurrent() else { return nil }
+                    result.append(erased)
+                }
+                return isCurrent() ? result : nil
             },
-            set: { values in
-                selection.wrappedValue = Set(values.compactMap { $0.base as? Value })
+            set: { values, isCurrent in
+                var selected = Set<Value>()
+                for value in values {
+                    guard isCurrent() else { return false }
+                    if let typed = value.base as? Value { selected.insert(typed) }
+                    guard isCurrent() else { return false }
+                }
+                guard isCurrent() else { return false }
+                selection.wrappedValue = selected
+                return true
             }
         )
     }
 
-    func contains(_ value: AnyHashable) -> Bool {
+    func contains(_ value: AnyHashable, isCurrent: () -> Bool = { true }) -> Bool {
+        guard isCurrent() else { return false }
         switch self {
         case .single(let get, _):
-            return get() == value
+            let selected = get()
+            guard isCurrent(), let selected else { return false }
+            return RetainedViewIdentity.Key(selected).checkedEquals(
+                RetainedViewIdentity.Key(value), isCurrent: isCurrent) == true
         case .multiple(let get, _):
-            return get().contains(value)
+            guard let selected = get(isCurrent), isCurrent() else { return false }
+            for candidate in selected {
+                let matches = RetainedViewIdentity.Key(candidate).checkedEquals(
+                    RetainedViewIdentity.Key(value), isCurrent: isCurrent)
+                guard isCurrent() else { return false }
+                if matches == true { return true }
+            }
+            return false
         }
     }
 
@@ -9547,21 +9718,30 @@ private enum ListSelectionMode {
         guard isCurrent() else { return false }
         switch self {
         case .single(let get, let set):
-            guard get() != value, isCurrent() else {
-                return false
+            let selected = get()
+            guard isCurrent() else { return false }
+            if let selected {
+                let same = RetainedViewIdentity.Key(selected).checkedEquals(
+                    RetainedViewIdentity.Key(value), isCurrent: isCurrent)
+                guard isCurrent(), same != true else { return false }
             }
             set(value)
             return true
         case .multiple(let get, let set):
-            var values = get()
-            if values.contains(value) {
-                values.remove(value)
-            } else {
-                values.insert(value)
+            guard var values = get(isCurrent), isCurrent() else { return false }
+            var selectedIndex: Int?
+            for (index, candidate) in values.enumerated() {
+                let matches = RetainedViewIdentity.Key(candidate).checkedEquals(
+                    RetainedViewIdentity.Key(value), isCurrent: isCurrent)
+                guard isCurrent() else { return false }
+                if matches == true {
+                    selectedIndex = index
+                    break
+                }
             }
+            if let selectedIndex { values.remove(at: selectedIndex) } else { values.append(value) }
             guard isCurrent() else { return false }
-            set(values)
-            return true
+            return set(values, isCurrent)
         }
     }
 
@@ -9572,7 +9752,7 @@ private enum ListSelectionMode {
     /// existing selection anchor).
     func moveSelection(
         within orderedTags: [AnyHashable],
-        indicesByTag: [AnyHashable: Int],
+        indicesByTag: ManagedKeyedMap<RetainedViewIdentity.Key, Int>,
         delta: Int,
         isCurrent: () -> Bool,
         prepareTarget: (AnyHashable) -> Bool
@@ -9584,14 +9764,20 @@ private enum ListSelectionMode {
         let current = get()
         guard isCurrent() else { return nil }
         let nextIndex: Int
-        if let current, let currentIndex = indicesByTag[current] {
+        if let current, let currentIndex = indicesByTag[RetainedViewIdentity.Key(current), while: isCurrent] {
             nextIndex = min(max(currentIndex + delta, 0), orderedTags.count - 1)
         } else {
             nextIndex = delta > 0 ? 0 : orderedTags.count - 1
         }
 
+        guard isCurrent() else { return nil }
         let next = orderedTags[nextIndex]
-        guard next != current, isCurrent(), prepareTarget(next), isCurrent() else {
+        if let current {
+            let same = RetainedViewIdentity.Key(next).checkedEquals(
+                RetainedViewIdentity.Key(current), isCurrent: isCurrent)
+            guard isCurrent(), same != true else { return nil }
+        }
+        guard isCurrent(), prepareTarget(next), isCurrent() else {
             return nil
         }
 
@@ -9607,18 +9793,28 @@ private enum ListSelectionMode {
 /// geometry and scroll clamp, including rows deferred by list virtualization;
 /// mirroring frames through `onLayout` would lose precisely those rows.
 @MainActor
-private final class ListKeyboardNavigationState {
+final class ListKeyboardNavigationState {
     private let scope: RetainedListNavigationOwner
+    private weak var runtime: RetainedViewRuntime?
+    private var deferredNavigation: DeferredListKeyboardNavigation?
     private var orderedRowTags: [AnyHashable] = []
-    private var entriesByTag: [AnyHashable: RetainedListNavigationOwner] = [:]
-    private var indicesByTag: [AnyHashable: Int] = [:]
+    private var entriesByTag = ManagedKeyedMap<RetainedViewIdentity.Key, RetainedListNavigationOwner>()
+    private var indicesByTag = ManagedKeyedMap<RetainedViewIdentity.Key, Int>()
 
     init(runtime: RetainedViewRuntime) {
         scope = RetainedListNavigationOwner(runtime: runtime)
+        self.runtime = runtime
     }
 
-    func installScope(on node: ViewNode) {
-        guard !orderedRowTags.isEmpty else { return }
+    func installDeferredNavigation(in container: ViewNode, prefersImplicitSelectionTag: Bool) {
+        guard let runtime else { return }
+        deferredNavigation = DeferredListKeyboardNavigation(
+            runtime: runtime, container: container, scope: scope,
+            prefersImplicitSelectionTag: prefersImplicitSelectionTag)
+    }
+
+    func installScope(on node: ViewNode, includesUnrealizedRows: Bool = false) {
+        guard includesUnrealizedRows || !orderedRowTags.isEmpty else { return }
         scope.install(on: node)
     }
 
@@ -9626,37 +9822,60 @@ private final class ListKeyboardNavigationState {
         scope.makeRowOwner(on: node)
     }
 
-    func registerRow(tag: AnyHashable, node: ViewNode) {
-        guard let entry = node.listNavigationOwner else { return }
+    func registerRow(tag: AnyHashable, node: ViewNode, context: ViewBuildContext) -> Bool {
+        // A deferred List keeps only its model metadata and current native
+        // rows. Remembering every owner visited would defeat eviction.
+        guard deferredNavigation == nil else { return true }
+        guard let entry = node.listNavigationOwner else { return false }
+        let activity = ViewListProjectionActivity(context: context)
+        guard activity.isCurrent else { return false }
+        let key = RetainedViewIdentity.Key(tag)
         let index = orderedRowTags.count
-        orderedRowTags.append(tag)
 
         // Preserve the previous `first(where:)`/`firstIndex(of:)` behavior
         // if application data accidentally repeats a selection identity.
-        if entriesByTag[tag] == nil {
-            entriesByTag[tag] = entry
-            indicesByTag[tag] = index
+        let existing = entriesByTag[key, while: { activity.isCurrent }]
+        guard activity.isCurrent else { return false }
+        if existing == nil {
+            entriesByTag[key, while: { activity.isCurrent }] = entry
+            guard activity.isCurrent else { return false }
+            indicesByTag[key, while: { activity.isCurrent }] = index
+            guard activity.isCurrent else { return false }
         }
+        orderedRowTags.append(tag)
+        return activity.isCurrent
     }
 
     func activate(
         _ tag: AnyHashable, mode: ListSelectionMode, source: RetainedListNavigationOwner, invalidate: () -> Void
     ) {
-        guard let receipt = scope.prepareAction(from: source),
-            mode.activate(tag, isCurrent: { receipt.permitsBindingWrite })
+        guard let receipt = scope.prepareAction(from: source) else { return }
+        deferredNavigation?.cancelPendingRequest()
+        guard receipt.permitsBindingWrite, mode.activate(tag, isCurrent: { receipt.permitsBindingWrite })
         else { return }
         invalidate()
     }
 
     func moveSelection(
-        _ mode: ListSelectionMode, source: RetainedListNavigationOwner, delta: Int, invalidate: () -> Void
+        _ mode: ListSelectionMode, source: RetainedListNavigationOwner, delta: Int,
+        sourceTag: AnyHashable? = nil, logicalOrdinal: Int? = nil, logicalLeaf: Int? = nil,
+        invalidate: @escaping () -> Void
     ) {
+        if let deferredNavigation {
+            deferredNavigation.moveSelection(
+                mode, from: source, sourceTag: sourceTag, ordinal: logicalOrdinal, leaf: logicalLeaf,
+                delta: delta, invalidate: invalidate)
+            return
+        }
         guard let receipt = scope.prepareAction(from: source),
             mode.moveSelection(
                 within: orderedRowTags, indicesByTag: indicesByTag, delta: delta,
                 isCurrent: { receipt.permitsBindingWrite },
                 prepareTarget: { tag in
-                    guard let owner = self.entriesByTag[tag] else { return false }
+                    guard
+                        let owner = self.entriesByTag[
+                            RetainedViewIdentity.Key(tag), while: { receipt.permitsBindingWrite }]
+                    else { return false }
                     return receipt.prepareTarget(owner)
                 }) != nil
         else { return }
@@ -9672,34 +9891,78 @@ public struct List: View {
 
     private let content: [AnyView]
     private let selectionMode: ListSelectionMode?
+    private var deferredProjection: DeferredListProjection? = nil
+    private var prefersImplicitSelectionTag = false
 
+    @_disfavoredOverload
     public init(@ViewBuilder content: () -> [AnyView]) {
-        self.content = content()
+        let projection = DeferredListProjection(content())
+        self.content =
+            projection.containsDeferredData ? [] : projection.elements.indices.flatMap { projection.rowViews(for: $0) }
+        self.deferredProjection = projection.containsDeferredData ? projection : nil
         self.selectionMode = nil
     }
 
+    @_disfavoredOverload
     public init<SelectionValue: Hashable>(
         selection: Binding<SelectionValue?>?,
         @ViewBuilder content: () -> [AnyView]
     ) {
-        self.content = content()
+        let projection = DeferredListProjection(content())
+        self.content =
+            projection.containsDeferredData ? [] : projection.elements.indices.flatMap { projection.rowViews(for: $0) }
+        self.deferredProjection = projection.containsDeferredData ? projection : nil
         self.selectionMode = selection.map { .single($0) }
     }
 
+    @_disfavoredOverload
     public init<SelectionValue: Hashable>(
         selection: Binding<Set<SelectionValue>>?,
         @ViewBuilder content: () -> [AnyView]
     ) {
-        self.content = content()
+        let projection = DeferredListProjection(content())
+        self.content =
+            projection.containsDeferredData ? [] : projection.elements.indices.flatMap { projection.rowViews(for: $0) }
+        self.deferredProjection = projection.containsDeferredData ? projection : nil
+        self.selectionMode = selection.map { .multiple($0) }
+    }
+
+    public init<Content: View>(@ViewBuilder content: () -> Content) {
+        let projection = DeferredListProjection(content())
+        self.content =
+            projection.containsDeferredData ? [] : projection.elements.indices.flatMap { projection.rowViews(for: $0) }
+        self.deferredProjection = projection.containsDeferredData ? projection : nil
+        self.selectionMode = nil
+    }
+
+    public init<SelectionValue: Hashable, Content: View>(
+        selection: Binding<SelectionValue?>?, @ViewBuilder content: () -> Content
+    ) {
+        let projection = DeferredListProjection(content())
+        self.content =
+            projection.containsDeferredData ? [] : projection.elements.indices.flatMap { projection.rowViews(for: $0) }
+        self.deferredProjection = projection.containsDeferredData ? projection : nil
+        self.selectionMode = selection.map { .single($0) }
+    }
+
+    public init<SelectionValue: Hashable, Content: View>(
+        selection: Binding<Set<SelectionValue>>?, @ViewBuilder content: () -> Content
+    ) {
+        let projection = DeferredListProjection(content())
+        self.content =
+            projection.containsDeferredData ? [] : projection.elements.indices.flatMap { projection.rowViews(for: $0) }
+        self.deferredProjection = projection.containsDeferredData ? projection : nil
         self.selectionMode = selection.map { .multiple($0) }
     }
 
     public init<Data: RandomAccessCollection, ID: Hashable>(
         _ data: Data,
         id: KeyPath<Data.Element, ID>,
-        @ViewBuilder rowContent: (Data.Element) -> [AnyView]
+        @ViewBuilder rowContent: @escaping (Data.Element) -> [AnyView]
     ) {
-        self.content = ForEach(data, id: id, content: rowContent).contentViews
+        self.content = []
+        self.deferredProjection = DeferredListProjection(ForEach(data, id: id, content: rowContent))
+        self.prefersImplicitSelectionTag = true
         self.selectionMode = nil
     }
 
@@ -9707,9 +9970,11 @@ public struct List: View {
         _ data: Data,
         id: KeyPath<Data.Element, ID>,
         selection: Binding<ID?>?,
-        @ViewBuilder rowContent: (Data.Element) -> [AnyView]
+        @ViewBuilder rowContent: @escaping (Data.Element) -> [AnyView]
     ) {
-        self.content = Self.taggedRows(data, id: id, rowContent: rowContent)
+        self.content = []
+        self.deferredProjection = DeferredListProjection(ForEach(data, id: id, content: rowContent))
+        self.prefersImplicitSelectionTag = true
         self.selectionMode = selection.map { .single($0) }
     }
 
@@ -9717,56 +9982,66 @@ public struct List: View {
         _ data: Data,
         id: KeyPath<Data.Element, ID>,
         selection: Binding<Set<ID>>?,
-        @ViewBuilder rowContent: (Data.Element) -> [AnyView]
+        @ViewBuilder rowContent: @escaping (Data.Element) -> [AnyView]
     ) {
-        self.content = Self.taggedRows(data, id: id, rowContent: rowContent)
+        self.content = []
+        self.deferredProjection = DeferredListProjection(ForEach(data, id: id, content: rowContent))
+        self.prefersImplicitSelectionTag = true
         self.selectionMode = selection.map { .multiple($0) }
     }
 
     public init(
         _ data: Range<Int>,
         selection: Binding<Int>,
-        @ViewBuilder rowContent: (Int) -> [AnyView]
+        @ViewBuilder rowContent: @escaping (Int) -> [AnyView]
     ) {
-        self.content = Self.taggedRows(data, id: \.self, rowContent: rowContent)
+        self.content = []
+        self.deferredProjection = DeferredListProjection(ForEach(data, id: \.self, content: rowContent))
+        self.prefersImplicitSelectionTag = true
         self.selectionMode = .requiredSingle(selection)
     }
 
     public init<Data: RandomAccessCollection>(
         _ data: Data,
-        @ViewBuilder rowContent: (Data.Element) -> [AnyView]
+        @ViewBuilder rowContent: @escaping (Data.Element) -> [AnyView]
     ) where Data.Element: Identifiable {
-        self.content = ForEach(data, content: rowContent).contentViews
+        self.content = []
+        self.deferredProjection = DeferredListProjection(ForEach(data, content: rowContent))
+        self.prefersImplicitSelectionTag = true
         self.selectionMode = nil
     }
 
     public init<Data: RandomAccessCollection>(
         _ data: Data,
         selection: Binding<Data.Element.ID?>?,
-        @ViewBuilder rowContent: (Data.Element) -> [AnyView]
+        @ViewBuilder rowContent: @escaping (Data.Element) -> [AnyView]
     ) where Data.Element: Identifiable {
-        self.content = Self.taggedRows(data, id: \.id, rowContent: rowContent)
+        self.content = []
+        self.deferredProjection = DeferredListProjection(ForEach(data, id: \.id, content: rowContent))
+        self.prefersImplicitSelectionTag = true
         self.selectionMode = selection.map { .single($0) }
     }
 
     public init<Data: RandomAccessCollection>(
         _ data: Data,
         selection: Binding<Set<Data.Element.ID>>?,
-        @ViewBuilder rowContent: (Data.Element) -> [AnyView]
+        @ViewBuilder rowContent: @escaping (Data.Element) -> [AnyView]
     ) where Data.Element: Identifiable {
-        self.content = Self.taggedRows(data, id: \.id, rowContent: rowContent)
+        self.content = []
+        self.deferredProjection = DeferredListProjection(ForEach(data, id: \.id, content: rowContent))
+        self.prefersImplicitSelectionTag = true
         self.selectionMode = selection.map { .multiple($0) }
     }
 
-    public init<Data: RandomAccessCollection, ID: Hashable>(
+    public init<Data: MutableCollection & RandomAccessCollection, ID: Hashable>(
         _ data: Binding<Data>,
         id: KeyPath<Data.Element, ID>,
         selection: Binding<Set<ID>>?,
         @ViewBuilder rowContent: @escaping (Binding<Data.Element>) -> [AnyView]
-    ) {
-        self.content = data.wrappedValue.enumerated().map { index, element in
-            rowContent(Binding(get: { element }, set: { _ in }))
-        }.flatMap { $0 }
+    ) where Data.Index: Hashable {
+        self.content = []
+        self.deferredProjection = DeferredListProjection(ForEach(data, id: id, content: rowContent))
+        self.prefersImplicitSelectionTag = true
         self.selectionMode = selection.map { .multiple($0) }
     }
 
@@ -9866,6 +10141,17 @@ public struct List: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
+        withInstalledViewValue(self, context: context, isInstalledDelegate: true) { list, installedContext in
+            if let projection = list.deferredProjection {
+                return makeDeferredListComponent(
+                    projection: projection, selectionMode: list.selectionMode,
+                    prefersImplicitSelectionTag: list.prefersImplicitSelectionTag, context: installedContext)
+            }
+            return list.makeEagerComponent(context: installedContext)
+        }
+    }
+
+    private func makeEagerComponent(context: ViewBuildContext) -> Component {
         // A List's rows are table rows, not grouped-form rows: a List nested
         // inside a Form must not inherit the two-column grid, or its cells
         // start reserving a label column the table has no use for.
@@ -9893,117 +10179,17 @@ public struct List: View {
                     listChrome: listChrome,
                     palette: context.controlPalette,
                     displayScale: context.displayScale,
-                    rows: content.enumerated().map { pair -> (node: ViewNode, isSelected: Bool) in
-                        let index = pair.offset
-                        let view = pair.element
-                        let tag = view.selectionTag
-                        let isSelected = tag.map { selectionMode?.contains($0) == true } == true
-                        // A selected row is an accent *wash* now, not a solid
-                        // accent fill (§1.6), so its content is **not**
-                        // inverted to white: white on `#E4E2F8` in the light
-                        // appearance is unreadable, and the wash plus the
-                        // row's leading indicator already says "this one".
-                        // The inherited default is the primary rung — a
-                        // selected row is the one you are meant to read — and
-                        // a row whose content sets its own colour still wins.
-                        //
-                        // `.increased` background prominence stays what it
-                        // has always been, the "this content sits on a filled
-                        // emphasised surface" signal, and is therefore *not*
-                        // set here: this surface is no longer filled.
-                        var rowContext = context
-                        if isSelected, context.environmentValues.controlActiveState != .inactive {
-                            rowContext = rowContext.withForegroundColor(context.controlPalette.label)
-                        }
-                        var row = view.makeComponent(context: rowContext).makeNode(runtime: runtime)
-                        if context.isSelectionDisabled, row.selectionDisabledOverride == nil {
-                            row.selectionDisabled = true
-                        }
-                        if context.isDeleteDisabled, row.deleteDisabledOverride == nil {
-                            row.deleteDisabled = true
-                        }
-                        if context.isMoveDisabled, row.moveDisabledOverride == nil {
-                            row.moveDisabled = true
-                        }
-                        var isSelectionBoundRow = false
-                        if let selectionMode, let tag, !row.selectionDisabled {
-                            row = Self.selectableRow(
-                                wrapping: row,
-                                tag: tag,
-                                selectionMode: selectionMode,
-                                isSelected: isSelected,
-                                isEditing: isEditing,
-                                context: context,
-                                runtime: runtime,
-                                navigationState: navigationState
-                            )
-                            isSelectionBoundRow = true
-                        }
-                        row = Self.alternatingRowIfNeeded(
-                            row,
-                            index: index,
-                            isSelected: isSelected,
-                            listChrome: listChrome
-                        )
-                        // Rows keep a consistent minimum height so selection and
-                        // hover chrome never changes row metrics. An explicit
-                        // `defaultMinListRowHeight` environment value wins over
-                        // the built-in default for selection-bound rows.
-                        let rowMinHeight =
-                            context.defaultMinListRowHeight > 0
-                            ? context.defaultMinListRowHeight
-                            : max(
-                                listChrome.rowMinHeight,
-                                isSelectionBoundRow ? Self.defaultSelectionRowMinHeight : 0
-                            )
-                        if rowMinHeight > 0 {
-                            row.applyDefaultMinimumHeight(rowMinHeight)
-                        }
-                        if isSelectionBoundRow, context.isEnabled, let tag {
-                            navigationState.registerRow(tag: tag, node: row)
-                        }
-                        return (row, isSelected)
+                    rows: content.enumerated().map { pair in
+                        Self.materializedRow(
+                            pair.element, index: pair.offset, selectionMode: selectionMode, listChrome: listChrome,
+                            isEditing: isEditing, context: context, runtime: runtime, navigationState: navigationState)
                     }
                 )
             )
             // A List is greedy on macOS: it takes the space it is offered
             // and proposes the row width across, instead of shrink-wrapping
             // its widest row.
-            navigationState.installScope(on: node)
-            node.layoutFillAxes = .both
-            node.horizontalScrollBounceBehavior = context.horizontalScrollBounceBehavior.description
-            node.verticalScrollBounceBehavior = context.verticalScrollBounceBehavior.description
-            node.scrollTargetBehavior = context.scrollTargetBehavior?.description
-            node.scrollInputBehaviors = context.retainedScrollInputBehaviors
-            node.scrollIndicatorsFlashOnAppear = context.scrollIndicatorsFlashOnAppear
-            node.scrollIndicatorsFlashTrigger = context.scrollIndicatorsFlashTrigger
-            node.scrollPosition = context.scrollPositionMetadata
-            node.scrollIndicatorInsets = context.contentInsets(
-                for: .scrollIndicators,
-                defaultInsets: defaultRetainedScrollIndicatorInsets
-            )
-            // A List's scroller is the same overlay scroller a ScrollView gets;
-            // it used to keep the retained defaults, which are a blue-tinted
-            // near-white bar that is always on and invisible in light mode.
-            let listPalette = context.controlPalette
-            node.scrollIndicatorThickness = MacOSControlMetrics.Scroller.overlayThumbThickness
-            node.scrollIndicatorIdleColor = listPalette.scrollerKnob
-            node.scrollIndicatorHoverColor = listPalette.scrollerKnobHovered
-            node.scrollIndicatorActiveColor = listPalette.scrollerKnobActive
-            node.scrollIndicatorAutoHides =
-                context.verticalScrollIndicatorVisibility.usesRetainedOverlayScrollIndicator
-            node.scrollIndicatorColor = node.restingScrollIndicatorColor
-            node.initialScrollAnchor = retainedScrollAnchor(from: context.defaultScrollAnchor(for: .initialOffset))
-            node.scrollSizeChangeAnchor = retainedScrollAnchor(from: context.defaultScrollAnchor(for: .sizeChanges))
-            node.isScrollInputEnabled = context.isScrollEnabled
-            if !context.isScrollEnabled {
-                node.showsScrollIndicator = false
-            } else {
-                node.showsScrollIndicator = context.verticalScrollIndicatorVisibility.showsRetainedScrollIndicator
-            }
-            if context.isScrollClipDisabled {
-                node.clipsToBounds = false
-            }
+            Self.configureScrolling(node, context: context, navigationState: navigationState)
             // Preserve the historical eager layout for small lists (and the
             // compatibility tests inspecting it), while bounding recursive
             // layout work for genuinely long, scrollable collections.
@@ -10019,34 +10205,144 @@ public struct List: View {
         }
     }
 
-    private static func taggedRows<Data: RandomAccessCollection, ID: Hashable>(
-        _ data: Data,
-        id: KeyPath<Data.Element, ID>,
-        rowContent: (Data.Element) -> [AnyView]
-    ) -> [AnyView] {
-        var views: [AnyView] = []
-        for (elementIndex, element) in data.enumerated() {
-            let elementID = element[keyPath: id]
-            let elementIDDescription = String(describing: elementID)
-            let elementViews = normalizedProjectedViewList(rowContent(element))
-            for (index, view) in elementViews.enumerated() {
-                views.append(
-                    view.ensuringViewIdentitySlot(index).mappingViewIdentity { content in
-                        AnyView(
-                            DynamicListEditMetadataView(
-                                content: AnyView(
-                                    content.implicitForEachScrollTarget(elementIDDescription, index: index)
-                                        .tag(elementID)
-                                ),
-                                dynamicContentIndex: elementIndex
-                            )
-                        )
-                    }
-                    .prefixedViewIdentity([.role(.row), .keyed(RetainedViewIdentity.Key(elementID))])
-                )
+    static func configureScrolling(
+        _ node: ViewNode, context: ViewBuildContext, navigationState: ListKeyboardNavigationState,
+        includesUnrealizedRows: Bool = false
+    ) {
+        navigationState.installScope(on: node, includesUnrealizedRows: includesUnrealizedRows)
+        node.layoutFillAxes = .both
+        node.horizontalScrollBounceBehavior = context.horizontalScrollBounceBehavior.description
+        node.verticalScrollBounceBehavior = context.verticalScrollBounceBehavior.description
+        node.scrollTargetBehavior = context.scrollTargetBehavior?.description
+        node.scrollInputBehaviors = context.retainedScrollInputBehaviors
+        node.scrollIndicatorsFlashOnAppear = context.scrollIndicatorsFlashOnAppear
+        node.scrollIndicatorsFlashTrigger = context.scrollIndicatorsFlashTrigger
+        node.scrollPosition = context.scrollPositionMetadata
+        node.scrollIndicatorInsets = context.contentInsets(
+            for: .scrollIndicators,
+            defaultInsets: defaultRetainedScrollIndicatorInsets
+        )
+        // A List's scroller is the same overlay scroller a ScrollView gets;
+        // it used to keep the retained defaults, which are a blue-tinted
+        // near-white bar that is always on and invisible in light mode.
+        let listPalette = context.controlPalette
+        node.scrollIndicatorThickness = MacOSControlMetrics.Scroller.overlayThumbThickness
+        node.scrollIndicatorIdleColor = listPalette.scrollerKnob
+        node.scrollIndicatorHoverColor = listPalette.scrollerKnobHovered
+        node.scrollIndicatorActiveColor = listPalette.scrollerKnobActive
+        node.scrollIndicatorAutoHides =
+            context.verticalScrollIndicatorVisibility.usesRetainedOverlayScrollIndicator
+        node.scrollIndicatorColor = node.restingScrollIndicatorColor
+        node.initialScrollAnchor = retainedScrollAnchor(from: context.defaultScrollAnchor(for: .initialOffset))
+        node.scrollSizeChangeAnchor = retainedScrollAnchor(from: context.defaultScrollAnchor(for: .sizeChanges))
+        node.isScrollInputEnabled = context.isScrollEnabled
+        if !context.isScrollEnabled {
+            node.showsScrollIndicator = false
+        } else {
+            node.showsScrollIndicator = context.verticalScrollIndicatorVisibility.showsRetainedScrollIndicator
+        }
+        if context.isScrollClipDisabled {
+            node.clipsToBounds = false
+        }
+    }
+
+    static func materializedRow(
+        _ view: AnyView, index: Int, implicitTag: AnyHashable? = nil, prefersImplicitTag: Bool = false,
+        selectionMode: ListSelectionMode?, listChrome: RetainedListChrome, isEditing: Bool,
+        context: ViewBuildContext, runtime: RetainedViewRuntime, navigationState: ListKeyboardNavigationState,
+        logicalOrdinal: Int? = nil, logicalLeaf: Int? = nil, validateSource: () -> Bool = { true }
+    ) -> (node: ViewNode, isSelected: Bool) {
+        let activity = ViewListProjectionActivity(context: context)
+        guard activity.isCurrent else { return (rejectedRetainedViewNode(), false) }
+        let tag = prefersImplicitTag ? (implicitTag ?? view.selectionTag) : (view.selectionTag ?? implicitTag)
+        let isSelected = tag.map { selectionMode?.contains($0, isCurrent: { activity.isCurrent }) == true } == true
+        guard activity.isCurrent else { return (rejectedRetainedViewNode(), false) }
+        // Owned child installation may legitimately publish state slots. The
+        // metadata lookup ends here; construction follows its native activity.
+        func canConstruct() -> Bool {
+            context.viewIdentity.lazyList?.admission.isCurrent != false
+                && context.viewIdentity.descriptorComponent?.canConstruct != false
+        }
+        guard canConstruct(), validateSource(), canConstruct() else { return (rejectedRetainedViewNode(), false) }
+        // A selected row is an accent *wash* now, not a solid
+        // accent fill (§1.6), so its content is **not**
+        // inverted to white: white on `#E4E2F8` in the light
+        // appearance is unreadable, and the wash plus the
+        // row's leading indicator already says "this one".
+        // The inherited default is the primary rung — a
+        // selected row is the one you are meant to read — and
+        // a row whose content sets its own colour still wins.
+        //
+        // `.increased` background prominence stays what it
+        // has always been, the "this content sits on a filled
+        // emphasised surface" signal, and is therefore *not*
+        // set here: this surface is no longer filled.
+        var rowContext = context
+        if isSelected, context.environmentValues.controlActiveState != .inactive {
+            rowContext = rowContext.withForegroundColor(context.controlPalette.label)
+        }
+        let component = view.makeComponent(context: rowContext)
+        guard canConstruct(), validateSource(), canConstruct() else { return (rejectedRetainedViewNode(), false) }
+        var row = component.makeNode(runtime: runtime)
+        guard canConstruct(), validateSource(), canConstruct() else { return (rejectedRetainedViewNode(), false) }
+        if context.isSelectionDisabled, row.selectionDisabledOverride == nil {
+            row.selectionDisabled = true
+        }
+        if context.isDeleteDisabled, row.deleteDisabledOverride == nil {
+            row.deleteDisabled = true
+        }
+        if context.isMoveDisabled, row.moveDisabledOverride == nil {
+            row.moveDisabled = true
+        }
+        var isSelectionBoundRow = false
+        if let selectionMode, let tag, !row.selectionDisabled {
+            row = Self.selectableRow(
+                wrapping: row,
+                tag: tag,
+                selectionMode: selectionMode,
+                isSelected: isSelected,
+                isEditing: isEditing,
+                context: context,
+                runtime: runtime,
+                navigationState: navigationState,
+                logicalOrdinal: logicalOrdinal, logicalLeaf: logicalLeaf
+            )
+            guard canConstruct() else { return (rejectedRetainedViewNode(), false) }
+            isSelectionBoundRow = true
+        }
+        if logicalOrdinal != nil {
+            if listChrome.alternatesRowBackgrounds, !isSelected,
+                row.backgroundColor == nil, row.backgroundGradient == nil,
+                let background = listChrome.alternatingRowBackgroundColor
+            {
+                row.retainedLazyListRowChrome = RetainedLazyListRowChrome(alternatingBackground: background)
+            }
+        } else {
+            row = Self.alternatingRowIfNeeded(row, index: index, isSelected: isSelected, listChrome: listChrome)
+        }
+        // Rows keep a consistent minimum height so selection and
+        // hover chrome never changes row metrics. An explicit
+        // `defaultMinListRowHeight` environment value wins over
+        // the built-in default for selection-bound rows.
+        let rowMinHeight =
+            context.defaultMinListRowHeight > 0
+            ? context.defaultMinListRowHeight
+            : max(
+                listChrome.rowMinHeight,
+                isSelectionBoundRow ? Self.defaultSelectionRowMinHeight : 0
+            )
+        if rowMinHeight > 0 {
+            row.applyDefaultMinimumHeight(rowMinHeight)
+        }
+        if isSelectionBoundRow, context.isEnabled, let tag {
+            if let logicalOrdinal, let logicalLeaf {
+                DeferredListRowNavigation.install(on: row, ordinal: logicalOrdinal, leaf: logicalLeaf, tag: tag)
+            }
+            guard navigationState.registerRow(tag: tag, node: row, context: context), canConstruct() else {
+                return (rejectedRetainedViewNode(), false)
             }
         }
-        return views
+        return (row, isSelected)
     }
 
     /// Minimum total height applied to selection-bound rows when no explicit
@@ -10059,7 +10355,7 @@ public struct List: View {
     /// The rule is one physical pixel at any backing scale, like an AppKit
     /// separator — a 1pt line would double to 2px at 2x.
     @MainActor
-    private static func rowNodesWithSeparators(
+    static func rowNodesWithSeparators(
         listChrome: RetainedListChrome,
         palette: ControlPalette,
         displayScale: Double,
@@ -10117,7 +10413,7 @@ public struct List: View {
         return children
     }
 
-    private static var defaultSelectionRowMinHeight: Double { 28 }
+    static var defaultSelectionRowMinHeight: Double { 28 }
     private static var layoutVirtualizationRowThreshold: Int { 64 }
 
     /// Corner radius of the selection fill. macOS inset/sidebar selection is
@@ -10133,8 +10429,11 @@ public struct List: View {
         isEditing: Bool,
         context: ViewBuildContext,
         runtime: RetainedViewRuntime,
-        navigationState: ListKeyboardNavigationState
+        navigationState: ListKeyboardNavigationState,
+        logicalOrdinal: Int? = nil, logicalLeaf: Int? = nil
     ) -> ViewNode {
+        let activity = ViewListProjectionActivity(context: context)
+        guard activity.isCurrent else { return rejectedRetainedViewNode() }
         let selectionTint = context.tint
         if isEditing {
             row.layoutPriority = max(row.layoutPriority, 1)
@@ -10179,6 +10478,7 @@ public struct List: View {
             children: [rowContent]
         )
         rowNode.nodeTag = row.nodeTag ?? "selection:\(String(describing: tag.base))"
+        guard activity.isCurrent else { return rejectedRetainedViewNode() }
         rowNode.retainedViewIdentity = row.retainedViewIdentity
 
         // Mark both selected and unselected rows so platform accessibility
@@ -10217,7 +10517,9 @@ public struct List: View {
                 return
             }
 
-            navigationState.moveSelection(selectionMode, source: owner, delta: delta, invalidate: context.invalidate)
+            navigationState.moveSelection(
+                selectionMode, source: owner, delta: delta, sourceTag: tag,
+                logicalOrdinal: logicalOrdinal, logicalLeaf: logicalLeaf, invalidate: context.invalidate)
         }
         return rowNode
     }
@@ -10268,27 +10570,31 @@ public struct List: View {
 
     public init<Collection>(
         _ data: Binding<Collection>,
-        @ViewBuilder rowContent: (Binding<Collection.Element>) -> [AnyView]
+        @ViewBuilder rowContent: @escaping (Binding<Collection.Element>) -> [AnyView]
     )
     where
         Collection: MutableCollection & RandomAccessCollection,
         Collection.Element: Identifiable,
         Collection.Index: Hashable
     {
-        self.content = ForEach(data, content: rowContent).contentViews
+        self.content = []
+        self.deferredProjection = DeferredListProjection(ForEach(data, content: rowContent))
+        self.prefersImplicitSelectionTag = true
         self.selectionMode = nil
     }
 
     public init<Collection, ID: Hashable>(
         _ data: Binding<Collection>,
         id: KeyPath<Collection.Element, ID>,
-        @ViewBuilder rowContent: (Binding<Collection.Element>) -> [AnyView]
+        @ViewBuilder rowContent: @escaping (Binding<Collection.Element>) -> [AnyView]
     )
     where
         Collection: MutableCollection & RandomAccessCollection,
         Collection.Index: Hashable
     {
-        self.content = ForEach(data, id: id, content: rowContent).contentViews
+        self.content = []
+        self.deferredProjection = DeferredListProjection(ForEach(data, id: id, content: rowContent))
+        self.prefersImplicitSelectionTag = true
         self.selectionMode = nil
     }
 }
@@ -10854,8 +11160,13 @@ public struct Form: View {
                 .withEnvironmentValue(\.isInsideGroupedForm, true)
                 .withEnvironmentValue(\.groupedFormColumnScope, columnScope)
             let chrome = Self.retainedChrome(for: context.formStyle, palette: context.controlPalette)
+            guard
+                let occurrences = materializedViewListOccurrences(content, context: rowContext),
+                rowContext.viewIdentity.lazyList?.admission.isCurrent != false,
+                rowContext.viewIdentity.descriptorComponent?.canConstruct != false
+            else { return rejectedRetainedViewNode() }
             let rows = alignedGroupedFormRows(
-                viewIdentityOccurrences(content).map {
+                occurrences.map {
                     $0.makeComponent(context: rowContext).makeNode(runtime: runtime)
                 },
                 scope: columnScope
@@ -11173,7 +11484,12 @@ public struct Section: View {
                 .withFont(.footnote)
                 .withTextAlignment(.leading)
 
-            let headerNodes = viewIdentityOccurrences(header).map {
+            guard
+                let headerOccurrences = materializedViewListOccurrences(header, context: headerContext),
+                headerContext.viewIdentity.lazyList?.admission.isCurrent != false,
+                headerContext.viewIdentity.descriptorComponent?.canConstruct != false
+            else { return rejectedRetainedViewNode() }
+            let headerNodes = headerOccurrences.map {
                 let node = $0.makeComponent(context: headerContext).makeNode(runtime: runtime)
                 // Section headers are headers by construction; the projection
                 // maps isHeader to the UIA header control type.
@@ -11230,12 +11546,19 @@ public struct Section: View {
                 }
             }
 
-            let builtContentNodes =
-                expansionBinding?.wrappedValue == false
-                ? []
-                : viewIdentityOccurrences(content).map {
+            let builtContentNodes: [ViewNode]
+            if expansionBinding?.wrappedValue == false {
+                builtContentNodes = []
+            } else {
+                guard
+                    let occurrences = materializedViewListOccurrences(content, context: context),
+                    context.viewIdentity.lazyList?.admission.isCurrent != false,
+                    context.viewIdentity.descriptorComponent?.canConstruct != false
+                else { return rejectedRetainedViewNode() }
+                builtContentNodes = occurrences.map {
                     $0.makeComponent(context: context.withViewIdentityRole(.content)).makeNode(runtime: runtime)
                 }
+            }
             // This section resolves its own group first — the widest label in
             // *this* box — and hands the result to the enclosing form, which
             // widens every group to one column once all of them exist. A
@@ -11248,9 +11571,12 @@ public struct Section: View {
                     thickness: groupedFormRuleThickness
                 )
                 : builtContentNodes
+            guard let admittedFooterOccurrences = materializedViewListOccurrences(footer, context: footerContext) else {
+                return rejectedRetainedViewNode()
+            }
             let children =
                 (usesGroupedFormChrome ? [] : resolvedHeaderNodes) + contentNodes
-                + viewIdentityOccurrences(footer).map {
+                + admittedFooterOccurrences.map {
                     $0.makeComponent(context: footerContext).makeNode(runtime: runtime)
                 }
             let hidesScrollContentBackground =
@@ -11327,7 +11653,7 @@ public struct Section: View {
                 node.clipsToBounds = false
             }
             node.sectionHeaderChildCount = usesGroupedFormChrome ? 0 : resolvedHeaderNodes.count
-            node.sectionFooterChildCount = footer.count
+            node.sectionFooterChildCount = admittedFooterOccurrences.count
 
             guard usesGroupedFormChrome, !resolvedHeaderNodes.isEmpty else {
                 return node
@@ -11520,6 +11846,9 @@ public struct GroupBox: View {
             // that could only ever be right in one appearance, and was not the
             // same box the settings pane beside it drew.
             let palette = context.controlPalette
+            guard let admittedOccurrences = materializedViewListOccurrences(views, context: context) else {
+                return rejectedRetainedViewNode()
+            }
             let node = Controls.panel(
                 backgroundColor: palette.raisedSurface,
                 backgroundGradient: palette.raisedSurfaceFill,
@@ -11532,7 +11861,7 @@ public struct GroupBox: View {
                 cornerRadius: MacOSControlMetrics.GroupBox.cornerRadius,
                 layoutMode: .stack(.vertical(spacing: 8, padding: .all(12), alignment: .stretch)),
                 isHitTestVisible: false,
-                children: viewIdentityOccurrences(views).map {
+                children: admittedOccurrences.map {
                     $0.makeComponent(context: context).makeNode(runtime: runtime)
                 }
             )
@@ -11705,6 +12034,18 @@ public struct OutlineGroup<Element, ID: Hashable, Content: View>: View {
     private let childrenKeyPath: KeyPath<Element, [Element]?>
     private let content: (Element) -> Content
 
+    private struct PreparedOutlineRow {
+        let key: RetainedViewIdentity.Key
+        let occurrence: Int
+        let content: Content
+        let children: [PreparedOutlineRow]
+    }
+
+    private enum OutlineItem {
+        case source(Element)
+        case prepared(PreparedOutlineRow)
+    }
+
     public init<Data: RandomAccessCollection>(
         _ data: Data,
         children: KeyPath<Data.Element, [Data.Element]?>,
@@ -11756,8 +12097,21 @@ public struct OutlineGroup<Element, ID: Hashable, Content: View>: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        Self.makeOutlineComponent(
-            items: items,
+        let outlineItems: [OutlineItem]
+        if context.viewIdentity.lazyList != nil || context.viewIdentity.descriptorComponent != nil {
+            let activity = ViewListProjectionActivity(context: context)
+            let prepared = Self.prepareOutlineRows(
+                items: items, idKeyPath: idKeyPath, childrenKeyPath: childrenKeyPath,
+                content: content, activity: activity)
+            // The collector has released its temporary keys and model values.
+            // Check before child installation legitimately advances mount maps.
+            guard activity.isCurrent, let prepared else { return rejectedRetainedViewComponent() }
+            outlineItems = prepared.map(OutlineItem.prepared)
+        } else {
+            outlineItems = items.map(OutlineItem.source)
+        }
+        return Self.makeOutlineComponent(
+            items: outlineItems,
             idKeyPath: idKeyPath,
             childrenKeyPath: childrenKeyPath,
             content: content,
@@ -11766,25 +12120,82 @@ public struct OutlineGroup<Element, ID: Hashable, Content: View>: View {
         )
     }
 
-    private static func makeOutlineComponent(
+    @inline(never)
+    private static func prepareOutlineRows(
         items: [Element],
+        idKeyPath: KeyPath<Element, ID>,
+        childrenKeyPath: KeyPath<Element, [Element]?>,
+        content: (Element) -> Content,
+        activity: ViewListProjectionActivity
+    ) -> [PreparedOutlineRow]? {
+        guard activity.isCurrent else { return nil }
+        var occurrences = ManagedKeyedMap<RetainedViewIdentity.Key, Int>()
+        var rows: [PreparedOutlineRow] = []
+        rows.reserveCapacity(items.count)
+        for item in items {
+            guard activity.isCurrent else { return nil }
+            let identifier = item[keyPath: idKeyPath]
+            guard activity.isCurrent else { return nil }
+            let key = RetainedViewIdentity.Key(identifier)
+            let occurrence = occurrences[key, while: { activity.isCurrent }] ?? 0
+            guard activity.isCurrent else { return nil }
+            occurrences[key, while: { activity.isCurrent }] = occurrence + 1
+            guard activity.isCurrent else { return nil }
+            let itemContent = content(item)
+            guard activity.isCurrent else { return nil }
+            let childData = item[keyPath: childrenKeyPath]
+            guard activity.isCurrent else { return nil }
+            let children: [PreparedOutlineRow]
+            if let childData, !childData.isEmpty {
+                let prepared = Self.prepareOutlineRows(
+                    items: childData, idKeyPath: idKeyPath, childrenKeyPath: childrenKeyPath,
+                    content: content, activity: activity)
+                guard activity.isCurrent, let prepared else { return nil }
+                children = prepared
+            } else {
+                children = []
+            }
+            rows.append(
+                PreparedOutlineRow(
+                    key: key, occurrence: occurrence, content: itemContent, children: children))
+        }
+        return activity.isCurrent ? rows : nil
+    }
+
+    private static func makeOutlineComponent(
+        items: [OutlineItem],
         idKeyPath: KeyPath<Element, ID>,
         childrenKeyPath: KeyPath<Element, [Element]?>,
         content: @escaping (Element) -> Content,
         context: ViewBuildContext,
         indentLevel: Int
     ) -> Component {
+        // Only the ordinary source route uses this dictionary. Managed rows
+        // arrive with checked keys, occurrences, and content already collected.
         var occurrences: [RetainedViewIdentity.Key: Int] = [:]
         let childComponents: [Component] = items.map { item in
-            let key = RetainedViewIdentity.Key(item[keyPath: idKeyPath])
-            let occurrence = occurrences[key, default: 0]
-            occurrences[key] = occurrence + 1
-            let rowContext = context.withViewIdentityRole(.row)
-                .withViewIdentityPrefix([.keyed(key), .occurrence(occurrence)])
-            let itemContent = makeViewComponent(content(item), context: rowContext.withViewIdentityRole(.content))
-            let childData = item[keyPath: childrenKeyPath]
+            let rowContext: ViewBuildContext
+            let itemContent: Component
+            let childData: [OutlineItem]
+            switch item {
+            case .source(let item):
+                let key = RetainedViewIdentity.Key(item[keyPath: idKeyPath])
+                let occurrence = occurrences[key, default: 0]
+                occurrences[key] = occurrence + 1
+                rowContext = context.withViewIdentityRole(.row)
+                    .withViewIdentityPrefix([.keyed(key), .occurrence(occurrence)])
+                itemContent = makeViewComponent(
+                    content(item), context: rowContext.withViewIdentityRole(.content))
+                childData = (item[keyPath: childrenKeyPath] ?? []).map(OutlineItem.source)
+            case .prepared(let item):
+                rowContext = context.withViewIdentityRole(.row)
+                    .withViewIdentityPrefix([.keyed(item.key), .occurrence(item.occurrence)])
+                itemContent = makeViewComponent(
+                    item.content, context: rowContext.withViewIdentityRole(.content))
+                childData = item.children.map(OutlineItem.prepared)
+            }
 
-            if let childData = childData, !childData.isEmpty {
+            if !childData.isEmpty {
                 let expansionState = OutlineExpansionState()
                 let labelComponent = itemContent
                 let nestedComponent = Self.makeOutlineComponent(
@@ -16731,7 +17142,12 @@ public struct DatePicker: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        let labelViews = label
+        let labelContext = context.withForegroundColor(.secondary).withTextAlignment(.leading).withLineLimit(1)
+        // The carrier itself is not a label. Resolve it once before either
+        // composition or empty-label layout/accessibility decisions.
+        guard let labelViews = materializedDeferredViewList(label, context: labelContext) else {
+            return rejectedRetainedViewComponent()
+        }
         let selection = selection
         let displayedComponents = displayedComponents
         let range = range
@@ -16741,11 +17157,7 @@ public struct DatePicker: View {
         interactionCalendar.timeZone = environmentValues.timeZone
         let labelComponent = composeComponent(
             from: labelViews,
-            context:
-                context
-                .withForegroundColor(.secondary)
-                .withTextAlignment(.leading)
-                .withLineLimit(1),
+            context: labelContext,
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
             isHitTestVisible: false
         )
@@ -17375,7 +17787,10 @@ public struct ColorPicker: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        let labelViews = label
+        let labelContext = context.withTextAlignment(.leading).withLineLimit(1)
+        guard let labelViews = materializedDeferredViewList(label, context: labelContext) else {
+            return rejectedRetainedViewComponent()
+        }
         let selection = selection
         let supportsOpacity = supportsOpacity
         // A colour picker's label is a row label like any other. Forcing it
@@ -17383,10 +17798,7 @@ public struct ColorPicker: View {
         // sibling row in an otherwise uniform Form.
         let labelComponent = composeComponent(
             from: labelViews,
-            context:
-                context
-                .withTextAlignment(.leading)
-                .withLineLimit(1),
+            context: labelContext,
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
             isHitTestVisible: false
         )
@@ -18235,9 +18647,13 @@ public struct Picker<SelectionValue: Hashable>: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let selection = selection
-        let labelViews = label
-        let currentValueLabelViews = currentValueLabel
-        let contentViews = content
+        let currentLabelContext = context.withTextAlignment(.trailing).withLineLimit(1)
+        guard let labelViews = materializedDeferredViewList(label, context: context),
+            let currentValueLabelViews = materializedDeferredViewList(currentValueLabel, context: currentLabelContext),
+            let contentViews = materializedDeferredViewList(content, context: context)
+        else {
+            return rejectedRetainedViewComponent()
+        }
         let labelComponent = composeComponent(
             from: labelViews,
             context: context,
@@ -18246,10 +18662,7 @@ public struct Picker<SelectionValue: Hashable>: View {
         )
         let currentValueLabelComponent = composeComponent(
             from: currentValueLabelViews,
-            context:
-                context
-                .withTextAlignment(.trailing)
-                .withLineLimit(1),
+            context: currentLabelContext,
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
             isHitTestVisible: false
         )
@@ -19851,9 +20264,10 @@ public struct Slider: View {
         let range = bounds
         let step = step
         let onEditingChanged = onEditingChanged
-        let labelViews = label
-        let minimumLabelViews = minimumValueLabel
-        let maximumLabelViews = maximumValueLabel
+        guard let labelViews = materializedDeferredViewList(label, context: context),
+            let minimumLabelViews = materializedDeferredViewList(minimumValueLabel, context: context),
+            let maximumLabelViews = materializedDeferredViewList(maximumValueLabel, context: context)
+        else { return rejectedRetainedViewComponent() }
         let labelComponent = composeComponent(
             from: labelViews,
             context: context,
@@ -20193,17 +20607,22 @@ public struct ProgressView: View {
                 value: value, total: total, label: label, currentValueLabel: currentValueLabel)
             return installation.makeComponent(configuration: configuration, context: context)
         }
+        let labelContext = usesConfigurationLabelIdentity ? context.withViewIdentityRole(.label) : context
+        let currentLabelContext = usesConfigurationLabelIdentity ? context.withViewIdentityRole(.value) : context
+        guard let labelViews = materializedDeferredViewList(label, context: labelContext),
+            let currentValueLabelViews = materializedDeferredViewList(currentValueLabel, context: currentLabelContext)
+        else { return rejectedRetainedViewComponent() }
         // Configuration has two independent label roles even when their
         // source arrays contain the same concrete stateful view type.
         let labelComponent = composeComponent(
-            from: label,
-            context: usesConfigurationLabelIdentity ? context.withViewIdentityRole(.label) : context,
+            from: labelViews,
+            context: labelContext,
             fallbackLayout: .stack(.vertical(spacing: 0, alignment: .leading)),
             isHitTestVisible: false
         )
         let currentValueLabelComponent = composeComponent(
-            from: currentValueLabel,
-            context: usesConfigurationLabelIdentity ? context.withViewIdentityRole(.value) : context,
+            from: currentValueLabelViews,
+            context: currentLabelContext,
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
             isHitTestVisible: false
         )
@@ -20232,7 +20651,7 @@ public struct ProgressView: View {
                 return progressNode
             }
 
-            guard !label.isEmpty || !currentValueLabel.isEmpty else {
+            guard !labelViews.isEmpty || !currentValueLabelViews.isEmpty else {
                 return progressNode
             }
 
@@ -20240,7 +20659,7 @@ public struct ProgressView: View {
             // label/header does so the label text never overflows onto it.
             progressNode.layoutPriority = -1
 
-            guard !currentValueLabel.isEmpty else {
+            guard !currentValueLabelViews.isEmpty else {
                 let labelNode = labelComponent.makeNode(runtime: runtime)
                 // Default accessibility name from the label content; an
                 // explicit accessibilityLabel modifier wins. The retained
@@ -20266,7 +20685,7 @@ public struct ProgressView: View {
             }
 
             var headerChildren: [ViewNode] = []
-            if !label.isEmpty {
+            if !labelViews.isEmpty {
                 let labelNode = labelComponent.makeNode(runtime: runtime)
                 progressNode.accessibilityLabel = firstRetainedText(in: labelNode)
                 headerChildren.append(labelNode)
@@ -20483,33 +20902,40 @@ public struct Gauge: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
+        let accessoryLabelContext = context.withFont(.caption).withForegroundColor(.secondary)
+        guard let labelViews = materializedDeferredViewList(label, context: context),
+            let currentValueLabelViews = materializedDeferredViewList(currentValueLabel, context: context),
+            let minimumLabelViews = materializedDeferredViewList(minimumValueLabel, context: accessoryLabelContext),
+            let maximumLabelViews = materializedDeferredViewList(maximumValueLabel, context: accessoryLabelContext),
+            let markedLabelViews = materializedDeferredViewList(markedValueLabels, context: accessoryLabelContext)
+        else { return rejectedRetainedViewComponent() }
         let labelComponent = composeComponent(
-            from: label,
+            from: labelViews,
             context: context,
             fallbackLayout: .stack(.vertical(spacing: 0, alignment: .leading)),
             isHitTestVisible: false
         )
         let currentValueLabelComponent = composeComponent(
-            from: currentValueLabel,
+            from: currentValueLabelViews,
             context: context,
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
             isHitTestVisible: false
         )
         let minimumValueLabelComponent = composeComponent(
-            from: minimumValueLabel,
-            context: context.withFont(.caption).withForegroundColor(.secondary),
+            from: minimumLabelViews,
+            context: accessoryLabelContext,
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .leading)),
             isHitTestVisible: false
         )
         let maximumValueLabelComponent = composeComponent(
-            from: maximumValueLabel,
-            context: context.withFont(.caption).withForegroundColor(.secondary),
+            from: maximumLabelViews,
+            context: accessoryLabelContext,
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .trailing)),
             isHitTestVisible: false
         )
         let markedValueLabelsComponent = composeComponent(
-            from: markedValueLabels,
-            context: context.withFont(.caption).withForegroundColor(.secondary),
+            from: markedLabelViews,
+            context: accessoryLabelContext,
             fallbackLayout: .stack(.horizontal(spacing: 8, alignment: .center)),
             isHitTestVisible: false
         )
@@ -20540,9 +20966,9 @@ public struct Gauge: View {
                 return gaugeNode
             }
 
-            let hasHeader = !label.isEmpty || !currentValueLabel.isEmpty
-            let hasBounds = !minimumValueLabel.isEmpty || !maximumValueLabel.isEmpty
-            let hasMarkedLabels = !markedValueLabels.isEmpty
+            let hasHeader = !labelViews.isEmpty || !currentValueLabelViews.isEmpty
+            let hasBounds = !minimumLabelViews.isEmpty || !maximumLabelViews.isEmpty
+            let hasMarkedLabels = !markedLabelViews.isEmpty
             guard hasHeader || hasBounds || hasMarkedLabels else {
                 return gaugeNode
             }
@@ -20554,7 +20980,7 @@ public struct Gauge: View {
             // A gauge whose only accessory is its label is a grouped-form
             // row like any other: label in the shared column, bar spanning
             // the value column beside it.
-            if context.isInsideGroupedForm, !label.isEmpty, currentValueLabel.isEmpty, !hasBounds,
+            if context.isInsideGroupedForm, !labelViews.isEmpty, currentValueLabelViews.isEmpty, !hasBounds,
                 !hasMarkedLabels
             {
                 let labelNode = labelComponent.makeNode(runtime: runtime)
@@ -20571,7 +20997,7 @@ public struct Gauge: View {
             var children: [ViewNode] = []
             if hasHeader {
                 var headerChildren: [ViewNode] = []
-                if !label.isEmpty {
+                if !labelViews.isEmpty {
                     let labelNode = labelComponent.makeNode(runtime: runtime)
                     // Default accessibility name from the label content; an
                     // explicit accessibilityLabel modifier wins. The retained
@@ -20579,7 +21005,7 @@ public struct Gauge: View {
                     gaugeNode.accessibilityLabel = firstRetainedText(in: labelNode)
                     headerChildren.append(labelNode)
                 }
-                if !currentValueLabel.isEmpty {
+                if !currentValueLabelViews.isEmpty {
                     headerChildren.append(currentValueLabelComponent.makeNode(runtime: runtime))
                 }
 
@@ -20600,11 +21026,11 @@ public struct Gauge: View {
 
             if hasBounds {
                 var boundsChildren: [ViewNode] = []
-                if !minimumValueLabel.isEmpty {
+                if !minimumLabelViews.isEmpty {
                     boundsChildren.append(minimumValueLabelComponent.makeNode(runtime: runtime))
                 }
                 boundsChildren.append(Controls.panel(layoutPriority: 1, isHitTestVisible: false))
-                if !maximumValueLabel.isEmpty {
+                if !maximumLabelViews.isEmpty {
                     boundsChildren.append(maximumValueLabelComponent.makeNode(runtime: runtime))
                 }
 
@@ -21988,6 +22414,9 @@ private func buildSplitComponent(
     onRatioChanged: ((Double) -> Void)?,
     context: ViewBuildContext
 ) -> Component {
+    guard let content = materializedDeferredViewList(content, context: context) else {
+        return rejectedRetainedViewComponent()
+    }
     let primaryViews = content.isEmpty ? [] : [content[0]]
     let secondaryViews = content.count > 1 ? Array(content.dropFirst()) : []
     let primaryComponent = composeComponent(from: primaryViews, context: context)

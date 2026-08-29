@@ -3071,6 +3071,14 @@ the per-row slope, by
 
 ##### Why lazy construction needs an API
 
+**Historical source analysis:** the excerpt and proposed seam below describe the
+pre-deferred-List implementation. ForEach now retains its factory and builder
+projection; public flat data and `List { ForEach }` declarations consume that
+seam without constructing every row. Ordinary lazy stacks/grids still expand
+all their rows. The current source checkpoint and remaining requirements are
+in [DeferredListConstruction.md](DeferredListConstruction.md); this historical
+analysis is not fresh execution evidence.
+
 The tempting version of the fix is that `ForEach` over a range is the
 common case and already carries its data plus a per-element closure, so
 the runtime could call that closure only for rows inside the window

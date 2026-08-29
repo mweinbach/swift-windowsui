@@ -18992,68 +18992,56 @@ final class WinSwiftUITests: XCTestCase {
     func testTaskIDModifierRerunsWhenValueChanges() async {
         let counter = AsyncTaskCounter()
 
-        await MainActor.run {
-            let runtime = RetainedViewRuntime(root: ViewNode())
-            let host = ComponentHost(runtime: runtime)
-            let context = ViewBuildContext(
-                canvasSizeProvider: { Size(width: 200, height: 100) },
-                invalidateHandler: {}
-            )
+        let host = await MainActor.run {
             var taskID = 1
-
-            host.setComponents {
-                [
+            let host = MountedOnChangeTestHost(size: Size(width: 200, height: 100)) {
+                AnyView(
                     Text("LOAD")
                         .task(id: taskID) {
                             await counter.increment()
-                        }
-                        .makeComponent(context: context)
-                ]
+                        })
             }
 
-            runtime.setRootSize(IntSize(width: 200, height: 100))
-            _ = runtime.renderFrame()
+            host.runtime.setRootSize(IntSize(width: 200, height: 100))
+            _ = host.runtime.renderFrame()
 
             taskID = 2
             host.reload()
+            return host
         }
 
         await waitForAsyncTaskCounter(counter, toReach: 2)
         let finalCount = await counter.value()
         XCTAssertEqual(finalCount, 2)
+
+        await MainActor.run {
+            host.close()
+        }
     }
 
     func testTaskIDModifierCancelsPreviousTaskWhenValueChanges() async {
         let recorder = AsyncTaskLifecycleRecorder()
         var changeIDAndReload: (@MainActor () -> Void)?
 
-        await MainActor.run {
-            let runtime = RetainedViewRuntime(root: ViewNode())
-            let host = ComponentHost(runtime: runtime)
-            let context = ViewBuildContext(
-                canvasSizeProvider: { Size(width: 200, height: 100) },
-                invalidateHandler: {}
-            )
+        let host = await MainActor.run {
             var taskID = 1
-
-            host.setComponents {
+            let host = MountedOnChangeTestHost(size: Size(width: 200, height: 100)) {
                 let currentID = taskID
-                return [
+                return AnyView(
                     Text("LOAD")
                         .task(id: currentID) {
                             await cancellableTask(id: currentID, recorder: recorder)
-                        }
-                        .makeComponent(context: context)
-                ]
+                        })
             }
 
-            runtime.setRootSize(IntSize(width: 200, height: 100))
-            _ = runtime.renderFrame()
+            host.runtime.setRootSize(IntSize(width: 200, height: 100))
+            _ = host.runtime.renderFrame()
 
             changeIDAndReload = {
                 taskID = 2
                 host.reload()
             }
+            return host
         }
 
         await waitForTaskStart(recorder, toReach: 1)
@@ -19068,6 +19056,10 @@ final class WinSwiftUITests: XCTestCase {
         let cancellations = await recorder.cancellations()
         XCTAssertEqual(startedIDs, [1, 2])
         XCTAssertEqual(cancellations, 1)
+
+        await MainActor.run {
+            host.close()
+        }
     }
 
     func testRefreshableProvidesRefreshEnvironmentAction() async {
@@ -21556,7 +21548,21 @@ private func makeNode<V: View>(
 ) -> ViewNode {
     let runtime = RetainedViewRuntime(root: ViewNode())
     let context = ViewBuildContext(canvasSizeProvider: { size }, invalidateHandler: onInvalidate)
-    return view.makeComponent(context: context).makeNode(runtime: runtime)
+    let node = view.makeComponent(context: context).makeNode(runtime: runtime)
+    if containsDeferredList(node) {
+        // These semantic row assertions need an actual viewport. A layout
+        // query constructs only that viewport and does not start appearances.
+        node.frame = Rect(origin: .zero, size: size)
+        runtime.root.addChild(node)
+        runtime.setRootSize(IntSize(width: Int32(size.width), height: Int32(size.height)))
+        XCTAssertNotNil(runtime.resolvedLayoutFrame(of: runtime.root))
+    }
+    return node
+}
+
+@MainActor
+private func containsDeferredList(_ node: ViewNode) -> Bool {
+    node.retainedLazyListAdapter != nil || node.children.contains { containsDeferredList($0) }
 }
 
 /// The value a colour takes once the build context has resolved it for the
@@ -21690,8 +21696,9 @@ private func firstBitmapNode(in node: ViewNode) -> ViewNode? {
 @MainActor
 private func listRows(of node: ViewNode) -> [ViewNode] {
     let separator = ControlPalette.darkStandard.separator
-    return node.children.filter { child in
-        !(child.backgroundColor == separator && child.text == nil && child.children.isEmpty)
+    let content = node.children.first { $0.retainedLazyListAdapter != nil } ?? node
+    return content.children.filter { child in
+        !child.isSeparatorRule && !(child.backgroundColor == separator && child.text == nil && child.children.isEmpty)
     }
 }
 

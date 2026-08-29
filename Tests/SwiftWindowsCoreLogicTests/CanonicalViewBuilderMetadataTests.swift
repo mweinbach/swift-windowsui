@@ -181,8 +181,10 @@ final class CanonicalViewBuilderMetadataTests: XCTestCase {
         }
         .onDelete { deleted.append(Array($0)) }
         .onMove { moved.append((Array($0), $1)) }
+        XCTAssertTrue(recorder.elementCalls.isEmpty)
         XCTAssertEqual(
             rows.contentViews.map { $0.selectionTag?.base as? String }, ["one.a", "one.b", "two.a", "two.b"])
+        XCTAssertEqual(recorder.elementCalls, ["one", "two"])
         XCTAssertTrue(recorder.leafBodies.isEmpty)
         let rendered = makeRoot(VStack(spacing: 0) { rows })
         defer { withExtendedLifetime(rendered.runtime) {} }
@@ -291,8 +293,12 @@ final class CanonicalViewBuilderMetadataTests: XCTestCase {
         XCTAssertEqual(second.dynamicContentIndex, 8)
         let firstTargets = first.retainedPreferenceValues.values.compactMap { $0 as? RetainedScrollTargetIdentity }
         let secondTargets = second.retainedPreferenceValues.values.compactMap { $0 as? RetainedScrollTargetIdentity }
-        XCTAssertTrue(firstTargets.contains { $0.identifier == "8" && $0.isImplicitForEach })
-        XCTAssertTrue(secondTargets.contains { $0.identifier == "explicit-8" && !$0.isImplicitForEach })
+        XCTAssertTrue(
+            firstTargets.contains { $0.identifier == RetainedViewIdentity.Key(AnyHashable(8)) && $0.isImplicitForEach })
+        XCTAssertTrue(
+            secondTargets.contains {
+                $0.identifier == RetainedViewIdentity.Key(AnyHashable("explicit-8")) && !$0.isImplicitForEach
+            })
 
         reader.scrollTo(8, anchor: .top)
         XCTAssertEqual(rendered.node.scrollOffset, 400, accuracy: 0.000_001)
@@ -318,12 +324,13 @@ final class CanonicalViewBuilderMetadataTests: XCTestCase {
                         )))
             ]
         }
-        XCTAssertEqual(recorder.elementCalls, ["one", "two"])
+        XCTAssertTrue(recorder.elementCalls.isEmpty)
         XCTAssertTrue(recorder.leafBodies.isEmpty)
 
         let rendered = makeRoot(list, onInvalidate: { invalidations += 1 })
+        XCTAssertEqual(recorder.elementCalls, ["one", "two"])
         defer { withExtendedLifetime(rendered.runtime) {} }
-        let rows = rendered.node.children.filter { $0.accessibilityTraits.contains(.isSelectable) }
+        let rows = allNodes(in: rendered.node).filter { $0.accessibilityTraits.contains(.isSelectable) }
         XCTAssertEqual(rows.count, 4)
         XCTAssertEqual(rows.map(\.nodeTag), ["one#0", "one#1", "two#0", "two#1"])
         XCTAssertEqual(rows.map { $0.accessibilityTraits.contains(.isSelected) }, [false, false, true, true])
@@ -460,11 +467,13 @@ final class CanonicalViewBuilderMetadataTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        XCTAssertEqual(recorder.elementCalls, ["one", "two"], file: file, line: line)
+        XCTAssertTrue(recorder.elementCalls.isEmpty, file: file, line: line)
         XCTAssertTrue(
             recorder.leafBodies.isEmpty, "Metadata projection must not evaluate custom bodies", file: file, line: line)
         XCTAssertEqual(rows.contentViews.count, 4, file: file, line: line)
         XCTAssertEqual(rows.contentViews.map { $0.selectionTag?.base as? String }, labels, file: file, line: line)
+        XCTAssertEqual(recorder.elementCalls, ["one", "two"], file: file, line: line)
+        XCTAssertTrue(recorder.leafBodies.isEmpty, file: file, line: line)
 
         let rendered = makeRoot(VStack(spacing: 0) { rows })
         defer { withExtendedLifetime(rendered.runtime) {} }
@@ -495,6 +504,12 @@ final class CanonicalViewBuilderMetadataTests: XCTestCase {
         let runtime = RetainedViewRuntime(root: ViewNode())
         let context = ViewBuildContext(canvasSizeProvider: { size }, invalidateHandler: onInvalidate)
         let node = AnyView(view).makeComponent(context: context).makeNode(runtime: runtime)
+        if allNodes(in: node).contains(where: { $0.retainedLazyListAdapter != nil }) {
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: Int(size.width), height: Int(size.height)))
+            node.frame = Rect(origin: .zero, size: size)
+            _ = runtime.renderFrame()
+        }
         return (runtime, node)
     }
 

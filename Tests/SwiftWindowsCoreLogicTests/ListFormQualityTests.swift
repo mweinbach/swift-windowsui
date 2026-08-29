@@ -1,11 +1,8 @@
 import Foundation
-
 import SwiftWindowsCore
-
 import XCTest
 
 @testable import SwiftWindowsUI
-
 @testable import WinSwiftUI
 
 /// The list's *row* children, skipping the hairline rules the default
@@ -14,7 +11,10 @@ import XCTest
 /// every row assertion.
 @MainActor
 private func rows(of node: ViewNode) -> [ViewNode] {
-    node.children.filter { $0.text != nil || !$0.children.isEmpty || $0.onActivate != nil }
+    let content = node.children.first { $0.retainedLazyListAdapter != nil } ?? node
+    return content.children.filter {
+        !$0.isSeparatorRule && ($0.text != nil || !$0.children.isEmpty || $0.onActivate != nil)
+    }
 }
 
 /// The styled column inside a `Form`. A Form builds a centring box whose
@@ -308,13 +308,14 @@ final class ListFormQualityTests: XCTestCase {
             )
 
             let tags = ["r1", "r2", "r3", "r4", "r5"]
-            let (_, node) = makeListFormRuntimeNode(
+            let (runtime, node) = makeListFormRuntimeNode(
                 List(tags, id: \.self, selection: selection) { tag in
                     Text(tag.uppercased())
                         .frame(height: 40)
                 },
                 size: Size(width: 320, height: 100)
             )
+            defer { withExtendedLifetime(runtime) {} }
 
             // Five 52pt rows (40pt content + 12pt row padding) in a 100pt
             // viewport, with the default style's hairline rules between
@@ -323,7 +324,9 @@ final class ListFormQualityTests: XCTestCase {
             XCTAssertEqual(node.scrollOffset, 0)
 
             for index in 0..<(tags.count - 1) {
-                rows(of: node)[index].onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.downArrow.rawValue))
+                let source = rows(of: node).first { $0.nodeTag == "\(tags[index])#0" }
+                XCTAssertNotNil(source)
+                source?.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.downArrow.rawValue))
             }
 
             XCTAssertEqual(selected, "r5")
@@ -335,7 +338,9 @@ final class ListFormQualityTests: XCTestCase {
             XCTAssertEqual(node.scrollOffset, contentBottom - 100, accuracy: 0.5)
 
             for index in stride(from: tags.count - 1, through: 1, by: -1) {
-                rows(of: node)[index].onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.upArrow.rawValue))
+                let source = rows(of: node).first { $0.nodeTag == "\(tags[index])#0" }
+                XCTAssertNotNil(source)
+                source?.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.upArrow.rawValue))
             }
 
             XCTAssertEqual(selected, "r1")

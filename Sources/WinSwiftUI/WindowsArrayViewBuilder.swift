@@ -14,6 +14,9 @@ public enum WindowsArrayViewBuilder {
     public static func buildExpression<Data, ID>(
         _ expression: ForEach<Data, ID>
     ) -> [AnyView] {
+        // This explicit array builder promises rows before block assembly.
+        // ForEach itself keeps its factory deferred; requesting contentViews
+        // opts this expression into the shared eager compatibility cache.
         expression.contentViews.map {
             $0.prefixedViewIdentity([.view(ObjectIdentifier(ForEach<Data, ID>.self)), .role(.content)])
         }

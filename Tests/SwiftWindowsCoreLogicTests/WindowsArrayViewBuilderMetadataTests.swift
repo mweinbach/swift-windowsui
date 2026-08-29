@@ -82,6 +82,7 @@ final class WindowsArrayViewBuilderMetadataTests: XCTestCase {
             recorder.elementCalls.append(String(index))
             return [AnyView(WindowsArrayMetadataLeaf(label: "row \(index)", recorder: recorder))]
         }
+        XCTAssertTrue(recorder.elementCalls.isEmpty)
         let expression = WindowsArrayViewBuilder.buildExpression(rows)
         let forEachType = ObjectIdentifier(ForEach<[Int], Int>.self)
 
@@ -114,9 +115,10 @@ final class WindowsArrayViewBuilderMetadataTests: XCTestCase {
         .onDelete { deleted.append(Array($0)) }
         .onMove { moved.append((Array($0), $1)) }
 
-        XCTAssertEqual(recorder.elementCalls, ["one", "two"])
+        XCTAssertTrue(recorder.elementCalls.isEmpty)
         XCTAssertTrue(recorder.leafBodies.isEmpty)
         let rendered = makeRoot(VStack(spacing: 0) { rows })
+        XCTAssertEqual(recorder.elementCalls, ["one", "two"])
         defer { withExtendedLifetime(rendered.runtime) {} }
         let nodes = rendered.node.children
         try assertMetadataContent(nodes)
@@ -152,11 +154,12 @@ final class WindowsArrayViewBuilderMetadataTests: XCTestCase {
         .onMove { moved.append((Array($0), $1)) }
         let list = List(selection: selection) { content }
 
-        XCTAssertEqual(recorder.elementCalls, ["one", "two"])
+        XCTAssertTrue(recorder.elementCalls.isEmpty)
         XCTAssertTrue(recorder.leafBodies.isEmpty)
         let rendered = makeRoot(list, onInvalidate: { invalidations += 1 })
+        XCTAssertEqual(recorder.elementCalls, ["one", "two"])
         defer { withExtendedLifetime(rendered.runtime) {} }
-        let rows = rendered.node.children.filter { $0.accessibilityTraits.contains(.isSelectable) }
+        let rows = allNodes(in: rendered.node).filter { $0.accessibilityTraits.contains(.isSelectable) }
         XCTAssertEqual(rows.map(\.nodeTag), ["one#0", "one#1", "two#0", "two#1"])
         XCTAssertEqual(rows.map { $0.accessibilityTraits.contains(.isSelected) }, [false, false, false, true])
         let owners = try rows.map { row -> ViewNode in
@@ -201,11 +204,12 @@ final class WindowsArrayViewBuilderMetadataTests: XCTestCase {
             return prebuilt
         }
 
-        XCTAssertEqual(recorder.elementCalls, ["one", "two"])
+        XCTAssertTrue(recorder.elementCalls.isEmpty)
         XCTAssertTrue(recorder.leafBodies.isEmpty)
         let rendered = makeRoot(list)
+        XCTAssertEqual(recorder.elementCalls, ["one", "two"])
         defer { withExtendedLifetime(rendered.runtime) {} }
-        let rows = rendered.node.children.filter { $0.accessibilityTraits.contains(.isSelectable) }
+        let rows = allNodes(in: rendered.node).filter { $0.accessibilityTraits.contains(.isSelectable) }
         XCTAssertEqual(rows.map(\.nodeTag), ["one#0", "one#1", "two#0", "two#1"])
         XCTAssertEqual(rows.map { $0.accessibilityTraits.contains(.isSelected) }, [false, false, true, true])
         let owners = try rows.map { row -> ViewNode in
@@ -257,6 +261,12 @@ final class WindowsArrayViewBuilderMetadataTests: XCTestCase {
         let context = ViewBuildContext(
             canvasSizeProvider: { Size(width: 400, height: 400) }, invalidateHandler: onInvalidate)
         let node = AnyView(view).makeComponent(context: context).makeNode(runtime: runtime)
+        if allNodes(in: node).contains(where: { $0.retainedLazyListAdapter != nil }) {
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 400, height: 400))
+            node.frame = Rect(origin: .zero, size: Size(width: 400, height: 400))
+            _ = runtime.renderFrame()
+        }
         return (runtime, node)
     }
 

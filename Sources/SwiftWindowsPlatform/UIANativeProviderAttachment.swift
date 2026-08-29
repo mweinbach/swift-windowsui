@@ -26,6 +26,17 @@ struct UIANativeProviderFactory: NativeWindowOwnerAttachmentFactory {
     let session: UIANativeProviderSession
     let callbackContext: UIANativeCallbackContext
     let nativeCalls: UIANativeCalls
+    let supportsLogicalItems: Bool
+
+    init(
+        session: UIANativeProviderSession, callbackContext: UIANativeCallbackContext,
+        nativeCalls: UIANativeCalls, supportsLogicalItems: Bool = false
+    ) {
+        self.session = session
+        self.callbackContext = callbackContext
+        self.nativeCalls = nativeCalls
+        self.supportsLogicalItems = supportsLogicalItems
+    }
 
     var attachmentID: NativeWindowAttachmentID { session.attachmentID }
 
@@ -34,7 +45,8 @@ struct UIANativeProviderFactory: NativeWindowOwnerAttachmentFactory {
         let retainedCallback = Unmanaged.passRetained(callbackContext).toOpaque()
         let drainWake = UIANativeDrainWake(wake: context.wake, diagnostics: session.diagnostics)
         let retainedWake = Unmanaged.passRetained(drainWake).toOpaque()
-        var callbacks = UIANativeProviderCallbacks.make(context: retainedCallback)
+        var callbacks = UIANativeProviderCallbacks.make(
+            context: retainedCallback, supportsLogicalItems: supportsLogicalItems)
         var wake = SWUUIADrainWake()
         wake.context = retainedWake
         wake.signal = signalUIANativeDrainWake

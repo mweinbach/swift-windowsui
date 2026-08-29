@@ -8080,3 +8080,50 @@ bounded-transport cases, but no compilation, discovery, native execution or
 live timing result has yet been obtained for this root composition. The
 following List join must preserve these ownership and transport contracts.
 All original completion requirements remain unchanged and open.
+
+### Ninth implementation pass: deferred public Lists joined to native ownership (2026-08-29)
+
+The public List construction path now defers supported flat and ForEach rows,
+including transparent groups and bound collections, instead of constructing
+every retained row before layout. Logical identity and visited State ownership
+remain separate from the bounded physical row nodes. Eviction retires row
+tasks, observations and presentation activity; checked adoption, keyboard
+focus, programmatic scrolling and logical UIA realization share that ownership.
+This does not make model IDs or scalar metadata viewport-sized: those remain
+O(data), and arbitrary explicit ID discovery can still require O(data) total
+authored factory work across bounded probes.
+
+The join keeps native dialog hooks in all 26 explicit ViewBuildContext
+constructors. Shared native invocation storage clears both List construction
+attributions and installed owner/epoch values; this does not renew old row
+action authority. Component adoption checks finite-fit configuration without
+copying private measurement caches. A changing scalar List extent is measured
+before either cache probe and records its current inherited fill axes without
+inserting a stale memo or using an uninitialized placement plan.
+
+Logical UIA state and property-zero ItemContainer enumeration now use typed
+native requests, actor-captured capabilities and fresh copied geometry. The
+full C-call lease covers dispatch, foreign identity/Release, related-provider
+allocation and final output marshalling. A transport HRESULT takes precedence
+over payload booleans. Actor handling never waits for native-owner progress;
+logical enumeration must not construct rows. Nonzero property searches and a
+custom legacy-only mapper without copied geometry still fail explicitly.
+
+The source patch is the separate private commit
+`5e54123311ef5fd094b7ff92bb2d7a773729dea5`, SHA-256
+`adbe0faf730788b2e42a697ab66d596075dde9c2a191b5049cbf4aae8eac9cf0`.
+All changed production/test postimages match it on the root; contract and
+whitespace checks passed. The 478 List methods, 269 native methods and all
+19 held lifecycle test originals retain their source oracles. Sixteen
+additional async integration methods cover native invocation contexts and
+logical UIA/call lifetimes. Compilation and execution are still pending for
+this larger root composition; the preceding 64-case result is not transferred.
+
+Nonidentity removal transitions remain refused before mutation. Completing
+them still requires passive captured paint with original geometry and retired
+activity, replayed without builders, Canvas callbacks, actions or observations.
+Tree/opaque projection, spacing and unknown-prefix limits, nested unbuilt
+targets, unobserved external binding removal intervals, per-leaf logical
+enumeration and arbitrary work inside a row factory remain tracked gaps.
+These are unfinished requirements, not new compatibility exceptions. All
+original completion gates remain open.

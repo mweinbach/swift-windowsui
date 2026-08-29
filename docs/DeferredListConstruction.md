@@ -1,4 +1,235 @@
-# Deferred List construction: internal model and integration boundary
+# Deferred public List construction
+
+This is a source checkpoint, not a completed compatibility or performance gate.
+The composed changes have source checks but have not been compiled or executed
+together. The original collection, lifecycle, accessibility, animation, visual,
+and resource requirements in `goal.md` remain unchanged.
+
+Flat `List(data, id:)`, Identifiable and mutable Binding data initializers now
+retain a logical projection. `List { ForEach(...) }` uses that projection too,
+including transparent Group, array, optional, conditional, and mixed static
+fragments. ForEach stores its collection and one row factory; collecting IDs
+does not call that factory. A native viewport request invokes only the selected
+records. A record can produce zero, one, or several ordinary row leaves. No
+synthetic visual wrapper is inserted around a record to manufacture identity,
+focus, task appearance, or accessibility geometry.
+
+Explicit static List content keeps its existing physical construction path.
+Ordinary eager consumers such as Picker, TabView, stacks, grids, toolbars, and
+Canvas symbol composition expand opaque builder segments where their semantics
+need actual content. Explicit array-returning builder helper calls keep their
+existing eager contract. This change does not make every ForEach consumer lazy.
+
+## Ownership and bounds
+
+Model IDs, duplicate occurrences, scalar measurements, and source metadata are
+O(data count). Visited State and StateObject payloads can remain alive while
+their exact keyed property declarations remain present. Those authored values
+are distinct from evictable physical nodes, observations, task attempts,
+presentation anchors, and deferred child leases. The latter belong to accepted
+physical activity and retire on viewport eviction or actual removal. Escaped
+Bindings keep their last readable snapshot but cannot write a retired generation
+or a later same-key reinsertion.
+
+The public adapter uses a bounded prefetch extent, native record/leaf limits,
+and a capped set of protected interaction targets. A normal owned render or
+layout shares the runtime's element and convergence allowance across viewport
+work, target realization, probes, and lifecycle callbacks. Exhaustion yields to
+ordinary later layout; it does not authorize another full budget in a nested
+callback. A single row factory remains authored code: its own computation,
+returned View values, and arbitrary nested content cannot be bounded by the
+number of logical records. The facade also checks projected sibling count
+before building their physical nodes. Exceeding that cap closes the original
+source after temporary View cleanup; later frames do not retry an unsupported
+shape or accept it as an empty row.
+
+The current runtime defaults allow 128 element admissions and four convergence
+rounds per owned pass. Public List prefetch is three estimated row extents,
+clamped to 64–256 points. Its record cap is the larger of 512 and the declared
+canvas height rounded up plus 64, with the height capped at 16,384; the leaf cap
+is eight times that record cap, and interaction protection is capped at 16
+records. Gaps count as retained leaves. These are source limits, not measured
+latency, memory, or native performance results.
+
+Accepted source replacement stages a new descriptor without revoking the old
+one during body construction. The checked native exchange carries surviving
+tokens, keyed state, bounded physical rows and compatible task ownership;
+rejected or incomplete replacement is not proof that an omitted row departed.
+Managed keyed tables use native buckets and check the original operation after
+each authored hash/equality. The underlying model identity is checked again
+after custom body, component and node construction, and after temporary View
+cleanup, rather than only checking an immutable aggregate key.
+
+Declared but unevaluated children and deferred child regions carry exact native
+ownership provenance. Removing one accepted region retires only its own slot
+generations. Native weak activity records and expired zero-output registrations
+are pruned; a permanent set of every revoked anchor is not retained until the
+whole List leaves. The new ownership and reentry tests must still run against
+this composition before the earlier L06/L21/L23 gaps can be called verified.
+See [LazyListStateActivity.md](LazyListStateActivity.md).
+
+## Navigation, scrolling and accessibility
+
+Direct data initializers preserve element-ID selection precedence. Builder rows
+preserve their explicit `.tag` values. Keyboard movement realizes a real target,
+protects the prepared source and target through the accepted action, and uses
+the existing physical focus/reveal receipt. A later root rebuild cannot revive
+an escaped old handler. Pending work retains one native demand; it does not
+retain a registry of all row owners visited. Selection is written once, with
+the original transaction, and focus needs an actual completed settlement.
+
+One native scope slot owns a prepared request across accepted row-handler
+replacement. Supersession, departure, external focus and host closure notify
+terminal cancellation after native revocation and safe cleanup. Once the first
+reveal is accepted, one runtime continuation owns only the native receipt and
+weak physical endpoints. It waits through bounded layout and the accepted
+tween without retaining the facade binding or repeating its write/reveal.
+Animated focus requires a real terminal render; focus consumes that exact
+settlement rather than borrowing a later nested query's proof.
+
+Typed implicit scroll IDs are metadata. Arbitrary authored `.id` values and
+selection tags cannot be inferred from that metadata. Finding a tag's first
+eligible occurrence can need a search even when a later matching leaf is
+already focused. Their ordered search may require **O(data) total row-factory
+work**, in bounded slices. Each speculative row is abandoned; the search does not mount it, start
+its tasks, keep its nodes, or publish a provisional jump. Explicit scroll IDs
+continue to take precedence over implicit IDs. This search cost is separate
+from the viewport construction bound.
+
+UIA ItemContainer property-zero enumeration uses logical tokens without
+constructing rows. Unknown names, bounds and actions stay unavailable instead
+of being invented from estimated geometry. Realize enters the actual retained
+admission and layout path. Logical IDs survive bounded receipt-cache eviction
+and accepted same-membership adapter replacement, but not departure or
+removal/reinsertion. Physical action receipts still expire on their original
+attachment. One multi-output record uses its first actual projected leaf for
+its logical provider; remaining leaves use ordinary provider identities.
+
+## Remaining work under the original goal
+
+- Tree OutlineGroup data initializers still need their own deferred hierarchy
+  semantics. Dynamic collections hidden inside opaque row bodies or Section
+  containers are not flattened into this public flat-record projection.
+- Nonidentity structural row-removal transitions remain rejected before
+  mutation. Supporting them requires passive removal replay with the original
+  placement and effects, described below; silently dropping the transition is
+  not acceptable.
+- The native pending-focus source now consumes `requiresRevealBeforeFocus`,
+  including budget exhaustion after an accepted reveal. The separate frozen
+  animated List cohort and its receipt/capture regressions still require a
+  context join and combined execution; its earlier compilation does not
+  qualify this composed implementation.
+- Negative or nonfinite List row spacing is currently refused by this deferred
+  path; matching the existing authored spacing semantics remains required.
+- Unknown extents remain estimates. Alternating row parity uses actual known
+  projected counts and estimates one row for a never-measured record; parity
+  after an unknown zero/multiple-output prefix is not qualified. Layout must
+  not construct the entire prefix merely to choose a stripe color.
+- UIA searches by Name or AutomationID return `E_NOTIMPL`. Per-leaf logical
+  metadata enumeration is not implemented. Opaque scroll targets inside an
+  unbuilt nested List under the same reader return an explicit unsupported
+  outcome rather than a false no-match or an incorrect implicit fallback.
+- A raw external collection Binding cannot detect a removal/reinsertion interval
+  that was never observed by any source update. Hosted bindings use exact
+  logical membership. Producing the public `Set<Value>` selection payload also
+  leaves one standard-library Hashable operation opaque; construction avoids
+  that operation and event publication checks its surrounding receipt.
+- An unknown predecessor gap can remain unresolved if required rows consume
+  every record or leaf slot; the runtime does not invent an adjacency summary.
+  Raw construction without a coordinator does not supply managed State
+  continuity. A custom primitive/native producer that assigns two distinct
+  GeometryReader build nodes to one installed component is still refused.
+  Ordinary separately attributed sibling GeometryReaders have distinct owners.
+- Fresh combined compilation, all preserved and new tests, retained visual
+  review, native UIA/host behavior, animation characterization and resource
+  measurements remain required. Source lint does not substitute for them.
+
+## Removal-transition continuation
+
+The current removal-overlay route in Runtime/ScenePainter paints a detached root
+from a new zero origin and fresh clip, and can execute a Canvas draw closure
+again while replaying the overlay. A lazy row cannot safely keep that route
+alive after its state, observations, tasks and action ownership have retired.
+
+The follow-on implementation must capture the outgoing row's original absolute
+placement, scroll presentation, transforms, opacity, and effective ancestor
+clip while the accepted attachment is still valid. It must capture passive
+renderer-neutral paint/effect data, retire the outgoing activity before any
+callback, and replay the captured data without running view builders, Canvas
+closures, actions, tasks or observers. Animation may transform that passive
+snapshot but cannot recover authority to the old row. Interrupted or rejected
+capture must leave the existing refusal in place, not fall back to a live
+detached subtree. Tests need scrolled, clipped, transformed, translucent and
+Canvas rows, cancellation/reentry during retirement, and eventual release of
+the overlay resources.
+
+## Context join with the current retained controls
+
+The public source has been joined onto the root containing shared-track Grid,
+interactive graphical DatePicker, fixed-frame sizing intent, bitmap cap/tile
+sampling, and the newer geometry diagnostics. Grid and GridRow expand deferred
+ForEach carriers before structural child insertion, without replacing their
+new layout modes with stacks. Reconciliation copies fixed-axis and bitmap
+resizing flags through the same checked property path as other row content;
+changed Grid configuration remains an update, not a new row identity.
+
+Control labels are also eager consumers. DatePicker, ColorPicker, Picker,
+Slider, primitive ProgressView, and Gauge resolve each label list once under
+its existing environment before testing emptiness. An empty ForEach label no
+longer creates a blank column, header, or bounds row. ProgressView custom-style
+dispatch retains its own label construction path. Source regressions compare
+static and deferred labels and cover Grid updates, image/frame flags, and
+calendar browse state after eviction through both public List forms.
+
+Logical UIA identity must survive the interval between an accepted adapter
+exchange and its first prepared viewport. Absence of prepared metadata is not
+proof of container departure. Current logical membership is checked against
+the accepted source's native token table without invoking a row factory;
+unknown physical properties remain unavailable. A direct Realize prepares and
+resolves the same token under one work allowance and original native ownership,
+while a deleted token cannot borrow the replacement container's lifetime.
+Framework prefix-anchor corrections may continue that exact preparation;
+authored scrolling, including a same-value write, cancels it. If a row callback
+accepts another source on the same scroll owner, the obsolete preparation also
+blocks that successor's anchor writes until the original query unwinds.
+These regressions, including first-query and exhausted-budget cases, remain
+unexecuted with this source composition.
+
+The native host source now shares this construction path. Logical item-state
+and property-zero ItemContainer lookup use typed native requests with copied
+geometry. The full C-call lease spans actor dispatch, foreign start-after
+identity checks, provider allocation, and final output marshalling. Transport
+HRESULTs remain distinct from lookup status and Boolean action results. The
+actor captures whether a source supports ItemContainer before creating its
+native attachment; native code does not inspect actor-owned source objects.
+No synchronous UIA operation may wait for native-owner progress or a
+presentation acknowledgment. Nonzero property searches remain unsupported.
+
+Both native dialog hooks survive every derived ViewBuildContext. The shared
+retained invocation helper clears lazy-row and descriptor construction
+attribution as well as the installed owner and epoch, without eagerly reading
+a deferred file-dialog environment provider. An invocation context preserves
+captured inputs; it does not restore a retired row's action authority.
+
+Finite aspect-fit configuration is copied through the checked reconciliation
+path. Its private measurement cache is never copied from construction nodes.
+A lazy List's current scalar extent is resolved before persistent and per-walk
+cache probes, stored with the current measurement key and no fit admission,
+and never memoized as a stable child measurement. This path does not use a
+measurement plan that has not yet been initialized.
+
+The combined native/List source and its integration regressions remain
+uncompiled and unrun at this handoff. All original held lifecycle tests are
+preserved. The separate animated 125-test runtime cohort also remains unrun;
+neither source composition nor lint closes an original goal gate.
+
+## Foundation contract retained from the initial model
+
+The following specification is retained from the initial internal-model
+checkpoint. Its descriptions of an inactive public path refer to that earlier
+source snapshot, not to the candidate above. Its ownership, measurement, work
+budget, integration, and qualification requirements remain in force. The
+current source join has not yet supplied their combined execution evidence.
 
 The original requirement in `goal.md` sections 3 and 7 remains unchanged:
 construction and retained row resources must follow the viewport and bounded
@@ -9,7 +240,7 @@ Those controls still construct their existing row values and nodes eagerly.
 Passing the model tests would not establish lazy rendering, native behavior,
 or completion of either goal section.
 
-## Source contract and ownership
+### Source contract and ownership
 
 `SwiftWindowsUI/RetainedLazyListProvider.swift` defines a package-only provider
 contract with an associated row-content type. It does not import `WinSwiftUI`,
@@ -62,7 +293,7 @@ lifecycle tasks, renderer resources, or mounted State/StateObject cells. The
 collection factory itself is one retained application closure. None of these
 facts proves a bound on application-owned state or total process memory.
 
-## Extent index and work budget
+### Extent index and work budget
 
 `SwiftWindowsUI/RetainedLazyListExtentIndex.swift` stores logical tokens and
 scalar extent metadata. An unknown estimate must be finite and positive so an
@@ -108,7 +339,7 @@ consume rounds around its bounded convergence loop. The budget creates no wakeup
 or retry, and its completion value reports only whether the caller declared
 pending work. It does not assert runtime layout settlement.
 
-## Required next integration
+### Required next integration
 
 1. Preserve the existing public initializer shapes, adding the escaping row
    factories confirmed by the pinned SwiftUI interface. Route by-value data
@@ -152,7 +383,7 @@ characterizations for `LazyVStack` plus `ForEach` until that path changes. For
 data List tests, replace obsolete eager node counts with logical counts and
 bounded materialization assertions while preserving semantic assertions.
 
-## Validation scope
+### Validation scope
 
 The new provider and extent-index test classes are pure model tests. They cover
 metadata enumeration without factory calls, bounded requests, typed keys,

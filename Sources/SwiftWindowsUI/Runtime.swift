@@ -1873,6 +1873,65 @@ private final class ViewNodeDropHandlers {
     var dragEnd: ((Point, Point) -> Void)?
 }
 
+/// Scalar style for the framework's separator gap before one actual List row.
+/// A zero thickness means the style has spacing but no separator. The gap
+/// contains no row View, callback, provider, or ownership authority.
+package struct RetainedLazyListGap: Equatable, Sendable {
+    package let spacing: Double
+    package let separatorThickness: Double
+    package let nextRowIsSelected: Bool
+    package let nextRowIsGrouped: Bool
+
+    package init?(
+        spacing: Double, separatorThickness: Double,
+        nextRowIsSelected: Bool, nextRowIsGrouped: Bool
+    ) {
+        guard spacing.isFinite, spacing >= 0,
+            separatorThickness.isFinite, separatorThickness >= 0
+        else { return nil }
+        let maximumExtent = separatorThickness == 0 ? spacing : 2 * spacing + separatorThickness
+        guard maximumExtent.isFinite else { return nil }
+        self.spacing = spacing
+        self.separatorThickness = separatorThickness
+        self.nextRowIsSelected = nextRowIsSelected
+        self.nextRowIsGrouped = nextRowIsGrouped
+    }
+}
+
+/// Framework chrome for an eligible row whose authored background is empty.
+/// The native prefix index supplies alternating parity only after actual row
+/// output is accepted; an unvisited prefix remains an explicit estimate.
+package struct RetainedLazyListRowChrome: Equatable, Sendable {
+    package let alternatingBackground: Color
+
+    package init(alternatingBackground: Color) {
+        self.alternatingBackground = alternatingBackground
+    }
+}
+
+@MainActor
+private final class RetainedLazyListRowChromePublication {
+    let metadata: RetainedLazyListRowChrome
+    let originalCornerRadius: Double
+    var expectedBackground: Color?
+    var expectedCornerRadius: Double
+    var isSuppressed: Bool
+    var isPublishing = false
+    var usesEstimatedParity: Bool?
+
+    init(metadata: RetainedLazyListRowChrome, initialBackground: Color?, initialCornerRadius: Double) {
+        self.metadata = metadata
+        originalCornerRadius = initialCornerRadius
+        expectedBackground = initialBackground
+        expectedCornerRadius = initialCornerRadius
+        isSuppressed = initialBackground != nil
+    }
+
+    func noteExternalFieldAssignment() {
+        if !isPublishing { isSuppressed = true }
+    }
+}
+
 /// Layout/lifecycle observers and GeometryReader rebuilding are deliberately
 /// separate from control input: most retained nodes use none of these, while
 /// observable list rows can install one without paying for pointer handlers.
@@ -1888,6 +1947,315 @@ private final class ViewNodeLifecycleHandlers {
     var sizeChange: ((Rect) -> Void)?
     var geometryReaderBuild: ((RetainedViewRuntime, Size) -> [ViewNode])?
     var retainedSubtreeBuildLease: (any RetainedSubtreeBuildLease)?
+    var retainedTasks: RetainedTaskNodeState?
+    var retainedLazyListActivity: RetainedLazyListNodeActivityStorage?
+    var completedLazyTaskAppearance: RetainedLazyListActualAttachment?
+    var retainedLazyListAdapter: RetainedLazyListRuntimeAdapter?
+    var retainedLazyListGap: RetainedLazyListGap?
+    var retainedLazyListRowChrome: RetainedLazyListRowChromePublication?
+    var lazyListContentRevision: UInt64 = 0
+    var lazyListEnvironmentRevision: UInt64 = 0
+    var lazyListAttachmentIdentity: RetainedLazyListAttachmentIdentity?
+    var lazyListLayoutIdentity: RetainedLazyListAttachmentIdentity?
+    var lazyListViewIdentity: RetainedLazyListAttachmentIdentity?
+    var lazyListScrollIntentIdentity: RetainedLazyListAttachmentIdentity?
+    var lazyListRetirementIdentity: RetainedLazyListAttachmentIdentity?
+}
+
+/// Native identity only. Old proofs keep this allocation distinct without
+/// keeping a node, provider, callback, or runtime alive.
+fileprivate final class RetainedLazyListAttachmentIdentity {}
+
+@MainActor
+fileprivate struct RetainedLazyListLocalLayoutProof {
+    weak var node: ViewNode?
+    let identity: RetainedLazyListAttachmentIdentity
+    let attachment: RetainedLazyListAttachmentProof
+
+    var isCurrent: Bool {
+        node?.lazyListLayoutIdentity === identity && attachment.isCurrent
+    }
+}
+
+/// A pure witness for the identity field, separate from attachment. Equality
+/// of authored keys is checked explicitly; any later assignment, including an
+/// equal-value ABA, invalidates this proof before old key payloads can unwind.
+@MainActor
+final class RetainedLazyListViewIdentityProof {
+    private weak var node: ViewNode?
+    private let identity: RetainedLazyListAttachmentIdentity
+
+    fileprivate init(node: ViewNode, identity: RetainedLazyListAttachmentIdentity) {
+        self.node = node
+        self.identity = identity
+    }
+
+    var isCurrent: Bool { node?.lazyListViewIdentity === identity }
+}
+
+@MainActor
+final class RetainedLazyListAttachmentProof {
+    private weak var node: ViewNode?
+    private weak var parent: ViewNode?
+    private weak var runtime: RetainedViewRuntime?
+    private let hadParent: Bool
+    private let hadRuntime: Bool
+    private let identity: RetainedLazyListAttachmentIdentity
+
+    fileprivate init(node: ViewNode, identity: RetainedLazyListAttachmentIdentity) {
+        self.node = node
+        self.parent = node.parent
+        self.runtime = node.runtime
+        self.hadParent = node.parent != nil
+        self.hadRuntime = node.runtime != nil
+        self.identity = identity
+    }
+
+    var isCurrent: Bool {
+        guard let node, node.lazyListAttachmentIdentity === identity,
+            !node.isRetiringLazyListAttachment
+        else { return false }
+        if hadParent {
+            guard let parent, node.parent === parent else { return false }
+        } else if node.parent != nil {
+            return false
+        }
+        if hadRuntime {
+            guard let runtime, node.runtime === runtime else { return false }
+        } else if node.runtime != nil {
+            return false
+        }
+        return true
+    }
+}
+
+/// A request-owned continuation contains only native proofs and weak actual
+/// attachments. It cannot keep a provider, authored key, view or state alive.
+@MainActor
+package final class RetainedLazyListScrollSearchCursor {
+    fileprivate weak var runtime: RetainedViewRuntime?
+    fileprivate weak var container: ViewNode?
+    fileprivate weak var content: ViewNode?
+    fileprivate weak var adapter: RetainedLazyListRuntimeAdapter?
+    fileprivate weak var lease: (any RetainedSubtreeBuildLease)?
+    fileprivate weak var descriptor: RetainedLazyListManagedLogicalDescriptorBinding?
+    fileprivate let hadManagedDescriptor: Bool
+    fileprivate let containerAttachment: RetainedLazyListAttachmentProof
+    fileprivate let contentAttachment: RetainedLazyListAttachmentProof
+    fileprivate let containerIdentity: RetainedLazyListViewIdentityProof
+    fileprivate let contentIdentity: RetainedLazyListViewIdentityProof
+    fileprivate let adapterProof: RetainedLazyListRuntimeAdapter.LayoutProof
+    fileprivate let ancestry: [RetainedLazyListAttachmentProof]
+    fileprivate let lastExaminedToken: RetainedLazyListRowToken?
+
+    fileprivate init(
+        runtime: RetainedViewRuntime, container: ViewNode, content: ViewNode,
+        adapter: RetainedLazyListRuntimeAdapter, lease: any RetainedSubtreeBuildLease,
+        descriptor: RetainedLazyListManagedLogicalDescriptorBinding?,
+        adapterProof: RetainedLazyListRuntimeAdapter.LayoutProof
+    ) {
+        self.runtime = runtime
+        self.container = container
+        self.content = content
+        self.adapter = adapter
+        self.lease = lease
+        self.descriptor = descriptor
+        hadManagedDescriptor = descriptor != nil
+        containerAttachment = container.captureLazyListAttachmentProof()
+        contentAttachment = content.captureLazyListAttachmentProof()
+        containerIdentity = container.captureLazyListIdentityProof()
+        contentIdentity = content.captureLazyListIdentityProof()
+        self.adapterProof = adapterProof
+        var proofs: [RetainedLazyListAttachmentProof] = []
+        var ancestor: ViewNode? = content
+        while let node = ancestor, proofs.count < ViewNode.maximumTraversalDepth {
+            proofs.append(node.captureLazyListAttachmentProof())
+            if node === runtime.root { break }
+            ancestor = node.parent
+        }
+        ancestry = proofs
+        lastExaminedToken = nil
+    }
+
+    fileprivate init(advancing previous: RetainedLazyListScrollSearchCursor, through token: RetainedLazyListRowToken) {
+        runtime = previous.runtime
+        container = previous.container
+        content = previous.content
+        adapter = previous.adapter
+        lease = previous.lease
+        descriptor = previous.descriptor
+        hadManagedDescriptor = previous.hadManagedDescriptor
+        containerAttachment = previous.containerAttachment
+        contentAttachment = previous.contentAttachment
+        containerIdentity = previous.containerIdentity
+        contentIdentity = previous.contentIdentity
+        adapterProof = previous.adapterProof
+        ancestry = previous.ancestry
+        lastExaminedToken = token
+    }
+}
+
+@MainActor
+package enum RetainedLazyListScrollSearchResult {
+    case found(RetainedLazyListRowToken)
+    case more(RetainedLazyListScrollSearchCursor)
+    case notFound
+    case obsolete
+    case deferred
+}
+
+/// One admitted retained operation. This reads only owned identity and scalar
+/// state, including the source's native generation proof; it invokes no lease,
+/// provider, application getter, focus operation, or accessibility operation.
+@MainActor
+final class RetainedLazyListAdoptionAdmission {
+    private weak var container: ViewNode?
+    private weak var runtime: RetainedViewRuntime?
+    private weak var adapter: RetainedLazyListRuntimeAdapter?
+    private weak var lease: (any RetainedSubtreeBuildLease)?
+    private let attachment: RetainedLazyListAttachmentProof
+    private var candidate: RetainedLazyListRuntimeAdapter.Candidate?
+    private let coordinator: RetainedBuildCoordinator
+    private let sequence: UInt64
+    private let layoutProofs: [RetainedLazyListLocalLayoutProof]
+    private let expectedDisplayScale: Double
+    private let expectedLayoutPassID: UInt64
+    private var completedSubtrees: [RetainedLazyListAdoptionCompletion] = []
+    private var wasRevoked = false
+    private var isFinishingCandidate = false
+    private(set) var didMutate = false
+
+    init(
+        adapter: RetainedLazyListRuntimeAdapter,
+        candidate: RetainedLazyListRuntimeAdapter.Candidate? = nil,
+        container: ViewNode, runtime: RetainedViewRuntime,
+        coordinator: RetainedBuildCoordinator, sequence: UInt64
+    ) {
+        self.adapter = adapter
+        self.candidate = candidate
+        self.container = container
+        self.runtime = runtime
+        self.lease = container.retainedSubtreeBuildLease
+        self.attachment = container.captureLazyListAttachmentProof()
+        self.coordinator = coordinator
+        self.sequence = sequence
+        self.expectedDisplayScale = runtime.displayScale
+        self.expectedLayoutPassID = runtime.layoutPassID
+        var proofs: [RetainedLazyListLocalLayoutProof] = []
+        var ancestor: ViewNode? = container
+        while let node = ancestor, proofs.count < ViewNode.maximumTraversalDepth {
+            proofs.append(node.captureLazyListLocalLayoutProof())
+            if node === runtime.root { break }
+            ancestor = node.parent
+        }
+        self.layoutProofs = proofs
+    }
+
+    var isCurrent: Bool {
+        !isFinishingCandidate && candidate != nil && isBuildCurrent
+    }
+
+    internal var admittedRuntime: RetainedViewRuntime? { runtime }
+    internal var admittedContainer: ViewNode? { container }
+
+    /// Before installing a row candidate this admits only construction. The
+    /// checked reconciler requires isCurrent, which also requires a candidate.
+    var isBuildCurrent: Bool {
+        let candidateCurrent = isFinishingCandidate ? candidate?.isOperationCurrent : candidate?.isCurrent
+        guard !wasRevoked, candidateCurrent != false, attachment.isCurrent,
+            let container, let runtime, let adapter, let lease,
+            runtime.permitsRetainedActionInvocation,
+            runtime.layoutPassID == expectedLayoutPassID,
+            runtime.displayScale == expectedDisplayScale, layoutProofs.allSatisfy(\.isCurrent),
+            completedSubtrees.allSatisfy(\.isCurrent),
+            container.runtime === runtime, container.retainedLazyListAdapter === adapter,
+            adapter.ownsAttachment(container),
+            container.retainedSubtreeBuildLease === lease,
+            coordinator.isBuilding, !coordinator.wasSuperseded(since: sequence)
+        else { return false }
+        var ancestor: ViewNode? = container
+        var depth = 0
+        while let node = ancestor, depth < ViewNode.maximumTraversalDepth {
+            if node === runtime.root { return true }
+            ancestor = node.parent
+            depth += 1
+        }
+        return false
+    }
+
+    func markMutationStarted() { didMutate = true }
+    func revoke() { wasRevoked = true }
+
+    func installCandidate(_ candidate: RetainedLazyListRuntimeAdapter.Candidate) -> Bool {
+        guard !isFinishingCandidate, self.candidate == nil, isBuildCurrent, let adapter,
+            adapter.ownsCandidate(candidate), candidate.isCurrent
+        else { return false }
+        self.candidate = candidate
+        return isCurrent
+    }
+
+    func isBuildCurrent(for adapter: RetainedLazyListRuntimeAdapter) -> Bool {
+        self.adapter === adapter && isBuildCurrent
+    }
+
+    func recordCompletion(_ completion: RetainedLazyListAdoptionCompletion) -> Bool {
+        guard isCurrent, completion.isCurrent else { return false }
+        completedSubtrees.append(completion)
+        return isCurrent
+    }
+
+    func claimDepartingEmptyRows(journal: RetainedLazyListAdoptionJournal) -> Bool {
+        guard isCurrent, let candidate, let adapter else { return false }
+        return adapter.claimDepartingEmptyRows(in: candidate, journal: journal)
+    }
+
+    func recordCompletedOwnedSource(
+        from source: ViewNode, to actual: ViewNode, journal: RetainedLazyListAdoptionJournal
+    ) {
+        guard isCurrent, let candidate, let container else { return }
+        candidate.recordCompletedSource(from: source, to: actual, in: container, journal: journal)
+    }
+
+    /// A build token cannot be borrowed to mutate another retained subtree.
+    /// Detached construction nodes are prepared separately and are admitted
+    /// here only after their actual parent membership has been published.
+    func permitsMutation(of node: ViewNode) -> Bool {
+        guard isCurrent, let container, let runtime, node.runtime === runtime else { return false }
+        var current = node
+        var depth = 0
+        while depth < ViewNode.maximumTraversalDepth {
+            if current === container { return true }
+            guard let parent = current.parent, parent.runtime === runtime,
+                parent.children.contains(where: { $0 === current })
+            else { return false }
+            current = parent
+            depth += 1
+        }
+        return false
+    }
+
+    func revokeUnfinishedCandidate() {
+        // Do not revoke a newer attempt installed by a cleanup callback.
+        if candidate?.isOperationCurrent == true { adapter?.revokePendingCandidate() }
+    }
+
+    func finishCandidatePayload() {
+        guard !isFinishingCandidate else { return }
+        // Revoke mutation before any source-node/key/closure destructor runs.
+        // Native generation/operation and actual retained-tree witnesses can
+        // still be checked once those owned temporary payloads have unwound.
+        isFinishingCandidate = true
+        candidate?.discardBuiltContent()
+    }
+
+    func removalReason(for root: ViewNode) -> RetainedChildRemovalReason {
+        candidate?.virtualizedDepartureRoots.contains(ObjectIdentifier(root)) == true ? .virtualization : .structural
+    }
+}
+
+enum RetainedChildRemovalReason {
+    case structural
+    case virtualization
 }
 
 /// Chart compatibility modifiers are rare on retained nodes, but their
@@ -1936,6 +2304,179 @@ public final class ViewNode {
     internal var hasAllocatedDropHandlers: Bool { dropHandlers != nil }
     internal var hasAllocatedLifecycleHandlers: Bool { lifecycleHandlers != nil }
     internal var hasAllocatedChartMetadata: Bool { chartMetadata != nil }
+
+    internal var existingRetainedTaskState: RetainedTaskNodeState? { lifecycleHandlers?.retainedTasks }
+    internal var retainedLazyListRuntime: RetainedViewRuntime? { runtime }
+
+    /// Physical membership only. This is deliberately not permission to invoke
+    /// an action, render callback, Task, input handler, or accessibility request.
+    internal func isRetainedLazyListAttached(in expectedRuntime: RetainedViewRuntime) -> Bool {
+        var current: ViewNode? = self
+        var depth = 0
+        while let node = current, depth < Self.maximumTraversalDepth {
+            guard node.runtime === expectedRuntime, !node.isRetiringLazyListAttachment else { return false }
+            if node === expectedRuntime.root { return true }
+            guard let parent = node.parent, parent.children.contains(where: { $0 === node }) else { return false }
+            current = parent
+            depth += 1
+        }
+        return false
+    }
+
+    /// Native attribution and receipts remain sparse. Merely inspecting an
+    /// ordinary node must not allocate activity or lifecycle storage.
+    internal var retainedLazyListActivityStorage: RetainedLazyListNodeActivityStorage? {
+        get { lifecycleHandlers?.retainedLazyListActivity }
+        set {
+            if let lifecycleHandlers {
+                lifecycleHandlers.retainedLazyListActivity = newValue
+            } else if let newValue {
+                let handlers = ViewNodeLifecycleHandlers()
+                handlers.retainedLazyListActivity = newValue
+                lifecycleHandlers = handlers
+            }
+        }
+    }
+
+    /// Native presence only: reading these stored values executes no authored
+    /// getter or equality. Scalar paint/layout defaults do not keep an old
+    /// owner writable after its last reference-bearing field is replaced.
+    internal var retainedSourcePayloadFields: [PartialKeyPath<ViewNode>] {
+        var fields: [PartialKeyPath<ViewNode>] = []
+        if canvasDraw != nil { fields.append(\.canvasDraw) }
+        if onDeleteAction != nil { fields.append(\.onDeleteAction) }
+        if onMoveAction != nil { fields.append(\.onMoveAction) }
+        if dragContainerItemID != nil { fields.append(\.dragContainerItemID) }
+        if fileExporterConfiguration != nil { fields.append(\.fileExporterConfiguration) }
+        if fileImporterConfiguration != nil { fields.append(\.fileImporterConfiguration) }
+        if fileImporterMultiConfiguration != nil { fields.append(\.fileImporterMultiConfiguration) }
+        if fileMoverConfiguration != nil { fields.append(\.fileMoverConfiguration) }
+        if accessibilityMagicTapAction != nil { fields.append(\.accessibilityMagicTapAction) }
+        if platformView != nil { fields.append(\.platformView) }
+        if platformViewCoordinator != nil { fields.append(\.platformViewCoordinator) }
+        if onUpdatePlatformView != nil { fields.append(\.onUpdatePlatformView) }
+        if onDismantlePlatformView != nil { fields.append(\.onDismantlePlatformView) }
+        if textRenderer != nil { fields.append(\.textRenderer) }
+        if widgetBackgroundStyle != nil { fields.append(\.widgetBackgroundStyle) }
+        if retainedViewIdentity != nil { fields.append(\.retainedViewIdentity) }
+        if retainedSubtreeBuildLease != nil { fields.append(\.retainedSubtreeBuildLease) }
+        if retainedLazyListAdapter != nil { fields.append(\.retainedLazyListAdapter) }
+        if textInputController != nil { fields.append(\.textInputController) }
+        if !retainedScrollGeometryPayloads.isEmpty { fields.append(\.retainedScrollGeometryPayloads) }
+        if !retainedScrollPhasePayloads.isEmpty { fields.append(\.retainedScrollPhasePayloads) }
+        if !retainedScrollVisibilityPayloads.isEmpty { fields.append(\.retainedScrollVisibilityPayloads) }
+        if onPointerEnter != nil { fields.append(\.onPointerEnter) }
+        if onPointerExit != nil { fields.append(\.onPointerExit) }
+        if onPointerMove != nil { fields.append(\.onPointerMove) }
+        if onPointerDown != nil { fields.append(\.onPointerDown) }
+        if onPointerUpInside != nil { fields.append(\.onPointerUpInside) }
+        if onPointerUpInsideAt != nil { fields.append(\.onPointerUpInsideAt) }
+        if onPointerUpOutside != nil { fields.append(\.onPointerUpOutside) }
+        if onContextMenu != nil { fields.append(\.onContextMenu) }
+        if onFocusEnter != nil { fields.append(\.onFocusEnter) }
+        if onFocusExit != nil { fields.append(\.onFocusExit) }
+        if onKeyDown != nil { fields.append(\.onKeyDown) }
+        if onIMEComposition != nil { fields.append(\.onIMEComposition) }
+        if textInputCaretRectProvider != nil { fields.append(\.textInputCaretRectProvider) }
+        if onKeyUp != nil { fields.append(\.onKeyUp) }
+        if onActivate != nil { fields.append(\.onActivate) }
+        if onRepeatActivate != nil { fields.append(\.onRepeatActivate) }
+        if longPressGesture != nil { fields.append(\.longPressGesture) }
+        if onDeleteRows != nil { fields.append(\.onDeleteRows) }
+        if onMoveRows != nil { fields.append(\.onMoveRows) }
+        if onInsertRows != nil { fields.append(\.onInsertRows) }
+        if onDropRows != nil { fields.append(\.onDropRows) }
+        if onValidateDrop != nil { fields.append(\.onValidateDrop) }
+        if onDropEntered != nil { fields.append(\.onDropEntered) }
+        if onDropUpdated != nil { fields.append(\.onDropUpdated) }
+        if onDropExited != nil { fields.append(\.onDropExited) }
+        if onDropProviders != nil { fields.append(\.onDropProviders) }
+        if onDropPayloads != nil { fields.append(\.onDropPayloads) }
+        if onMakeDropConfiguration != nil { fields.append(\.onMakeDropConfiguration) }
+        if onMakeDragPayload != nil { fields.append(\.onMakeDragPayload) }
+        if onMakeDragItemProvider != nil { fields.append(\.onMakeDragItemProvider) }
+        if onDragStart != nil { fields.append(\.onDragStart) }
+        if onDragChange != nil { fields.append(\.onDragChange) }
+        if onDragEnd != nil { fields.append(\.onDragEnd) }
+        if onLayout != nil { fields.append(\.onLayout) }
+        if onLayoutWithNode != nil { fields.append(\.onLayoutWithNode) }
+        if absoluteChildFrame != nil { fields.append(\.absoluteChildFrame) }
+        if onAppearWithNode != nil { fields.append(\.onAppearWithNode) }
+        if onDisappearWithNode != nil { fields.append(\.onDisappearWithNode) }
+        if onAppear != nil { fields.append(\.onAppear) }
+        if onDisappear != nil { fields.append(\.onDisappear) }
+        if onSizeChange != nil { fields.append(\.onSizeChange) }
+        if geometryReaderBuild != nil { fields.append(\.geometryReaderBuild) }
+        if !accessibilityActions.isEmpty { fields.append(\.accessibilityActions) }
+        if !commandHandlers.isEmpty { fields.append(\.commandHandlers) }
+        if !retainedPreferenceValues.isEmpty { fields.append(\.retainedPreferenceValues) }
+        if !retainedLayoutValues.isEmpty { fields.append(\.retainedLayoutValues) }
+        if !retainedContainerValues.isEmpty { fields.append(\.retainedContainerValues) }
+        if !reconcileAnimationModifiers.isEmpty { fields.append(\.reconcileAnimationModifiers) }
+        if !pendingLifecycleTaskLaunches.isEmpty { fields.append(\.pendingLifecycleTaskLaunches) }
+        if swipeActionsLeading?.isEmpty == false { fields.append(\.swipeActionsLeading) }
+        if swipeActionsTrailing?.isEmpty == false { fields.append(\.swipeActionsTrailing) }
+        if toolbarTitleMenuChildren?.isEmpty == false { fields.append(\.toolbarTitleMenuChildren) }
+        if toolbarTitleActionsChildren?.isEmpty == false { fields.append(\.toolbarTitleActionsChildren) }
+        if accessibilityRepresentationChildren?.isEmpty == false {
+            fields.append(\.accessibilityRepresentationChildren)
+        }
+        return fields
+    }
+
+    internal func retainedTaskState() -> RetainedTaskNodeState {
+        if let state = lifecycleHandlers?.retainedTasks { return state }
+        let handlers: ViewNodeLifecycleHandlers
+        if let lifecycleHandlers {
+            handlers = lifecycleHandlers
+        } else {
+            handlers = ViewNodeLifecycleHandlers()
+            lifecycleHandlers = handlers
+        }
+        let state = RetainedTaskNodeState(node: self)
+        handlers.retainedTasks = state
+        return state
+    }
+
+    /// Construction's runtime argument is not proof of attachment. Check the
+    /// actual root and every parent edge without authored identity operations.
+    internal func isRetainedTaskTarget(in runtime: RetainedViewRuntime) -> Bool {
+        guard self.runtime === runtime, runtime.permitsRetainedActionInvocation else { return false }
+        var current: ViewNode? = self
+        var depth = 0
+        while let candidate = current, depth < Self.maximumTraversalDepth {
+            guard candidate.acceptsLifecycleTasks, candidate.runtime === runtime, !candidate.isRemovalOverlay
+            else { return false }
+            if candidate === runtime.root { return true }
+            guard let parent = candidate.parent, parent.children.contains(where: { $0 === candidate })
+            else { return false }
+            current = parent
+            depth += 1
+        }
+        return false
+    }
+
+    internal func isRetainedTaskAppearanceCurrent(in runtime: RetainedViewRuntime, revision: UInt64) -> Bool {
+        hasAppeared && hasPendingAppearanceCallbacks
+            && runtime.isDeliveringRetainedTaskAppearance(revision: revision)
+            && runtime.canDeliverRenderLifecycle(to: self)
+    }
+
+    internal func isRetainedLazyTaskRenderAdmissionCurrent(in runtime: RetainedViewRuntime, revision: UInt64) -> Bool {
+        hasAppeared && !hasPendingAppearanceCallbacks
+            && runtime.isDeliveringRetainedTaskAppearance(revision: revision)
+            && runtime.canDeliverRenderLifecycle(to: self)
+    }
+
+    internal func hasCurrentCompletedRetainedTaskAppearance(
+        in runtime: RetainedViewRuntime, attachment: RetainedLazyListActualAttachment
+    ) -> Bool {
+        guard hasAppeared, !hasPendingAppearanceCallbacks, runtime.canDeliverRenderLifecycle(to: self),
+            let completed = lifecycleHandlers?.completedLazyTaskAppearance,
+            completed.target === attachment.target, completed.attachment === attachment.attachment
+        else { return false }
+        return completed.isAttached && attachment.isAttached && isRetainedLazyListAttached(in: runtime)
+    }
 
     @inline(__always)
     private func setInteractionHandler<Value>(
@@ -2019,7 +2560,10 @@ public final class ViewNode {
     }
 
     public var backgroundColor: Color? {
-        didSet { invalidateRuntime(.paint) }
+        didSet {
+            lifecycleHandlers?.retainedLazyListRowChrome?.noteExternalFieldAssignment()
+            invalidateRuntime(.paint)
+        }
     }
 
     public var backgroundGradient: GradientType? {
@@ -2078,7 +2622,10 @@ public final class ViewNode {
     }
 
     public var cornerRadius: Double {
-        didSet { invalidateRuntime(.paint) }
+        didSet {
+            lifecycleHandlers?.retainedLazyListRowChrome?.noteExternalFieldAssignment()
+            invalidateRuntime(.paint)
+        }
     }
 
     /// Optional per-corner rounding for the node's border/background
@@ -2578,12 +3125,11 @@ public final class ViewNode {
     public var isScrollInputEnabled: Bool {
         get { scrollContainerState?.isInputEnabled ?? true }
         set {
-            guard let state = scrollContainerState, state.isInputEnabled != newValue else { return }
-            state.isInputEnabled = newValue
-            if !newValue { runtime?.disableScrollInput(for: self) }
-            invalidateRuntime(.paint)
+            _ = reconcileScrollInputEnabled(newValue, admission: nil)
         }
     }
+
+    private var storedScrollOffset: Double
 
     public var scrollOffset: Double {
         // Scrolling is a paint change — except over virtualized content,
@@ -2596,13 +3142,8 @@ public final class ViewNode {
         // This is also the one funnel every scroll reaches — wheel, keyboard,
         // thumb drag, momentum, scroll-into-view, `scrollPosition` — so it is
         // where an overlay scroller learns it should be on screen.
-        didSet {
-            runtime?.cancelProgrammaticScrollIfTargetChanged(for: self)
-            invalidateRuntime(hasVirtualizedDescendants ? [.paint, .layout] : .paint)
-            if scrollIndicatorAutoHides, scrollOffset != oldValue {
-                runtime?.revealScrollIndicator(for: self)
-            }
-        }
+        get { storedScrollOffset }
+        set { _ = assignScrollOffset(newValue, admission: nil) }
     }
 
     /// One *line* of scroll, because that is what a wheel delta counts: the
@@ -3416,7 +3957,9 @@ public final class ViewNode {
     /// Typed declarative identity takes precedence over the legacy node tag
     /// during reconciliation. Raw retained nodes leave this nil and retain
     /// their existing tag or positional matching behavior.
-    public var retainedViewIdentity: RetainedViewIdentity?
+    public var retainedViewIdentity: RetainedViewIdentity? {
+        willSet { lifecycleHandlers?.lazyListViewIdentity = nil }
+    }
 
     /// Snapshot of previous property values for animation interpolation.
     /// When an animation context is active and a property changes, the old
@@ -3497,6 +4040,28 @@ public final class ViewNode {
         animationModifierStorage?.insertionTransaction = transaction
     }
 
+    @discardableResult
+    func retainInsertionTransaction(
+        _ transaction: Transaction?, admission: RetainedLazyListAdoptionAdmission?
+    ) -> Bool {
+        guard admission?.isCurrent != false else { return false }
+        replaceInsertionTransactionPayload(transaction, admission: admission)
+        return admission?.isCurrent != false
+    }
+
+    private func replaceInsertionTransactionPayload(
+        _ transaction: Transaction?, admission: RetainedLazyListAdoptionAdmission?
+    ) {
+        let previous = animationModifierStorage?.insertionTransaction
+        if transition.kind != .identity, !didPlayInsertionTransition,
+            transaction != nil || animationModifierStorage != nil
+        {
+            admission?.markMutationStarted()
+            retainInsertionTransaction(transaction)
+        }
+        withExtendedLifetime(previous) {}
+    }
+
     /// Marks this node as a text input's insertion indicator, so the runtime
     /// can blink it. Set by the text-input chrome builder; nothing else in the
     /// tree carries it.
@@ -3567,7 +4132,127 @@ public final class ViewNode {
             setInteractionHandler(newValue, at: \.textInputController)
             // Reconciliation can install an editor on an already-attached
             // node without changing child identities or calling setRuntime.
-            if runtime != nil { newValue?.attach(to: self) }
+            if runtime != nil, !isRetiringLazyListAttachment { newValue?.attach(to: self) }
+        }
+    }
+
+    func reconcileTextInputController(
+        from source: ViewNode, admission: RetainedLazyListAdoptionAdmission? = nil,
+        lazyJournal: RetainedLazyListAdoptionJournal? = nil,
+        taskAdoption: RetainedTaskAdoptionContext? = nil
+    ) -> Bool {
+        guard admission?.isCurrent != false else { return false }
+        if let lazyJournal {
+            let checked = admission != nil || !lazyJournal.isOrdinaryAdoption
+            let targetAttachment = checked ? captureLazyListAttachmentProof() : nil
+            let targetIdentity = checked ? captureLazyListIdentityProof() : nil
+            let sourceAttachment = checked ? source.captureLazyListAttachmentProof() : nil
+            let sourceIdentity = checked ? source.captureLazyListIdentityProof() : nil
+            let completed = reconcileJournalTextInputController(
+                from: source, admission: admission, journal: lazyJournal, taskAdoption: taskAdoption)
+            return completed && admission?.isCurrent != false
+                && (lazyJournal.isOrdinaryAdoption || lazyJournal.canContinueAdoption)
+                && targetAttachment?.isCurrent != false && targetIdentity?.isCurrent != false
+                && sourceAttachment?.isCurrent != false && sourceIdentity?.isCurrent != false
+        }
+        let completed = reconcileTextInputControllerPayload(from: source, admission: admission)
+        // Controller payload destruction happens before this final primitive
+        // check, outside the stored handler's exclusive write access.
+        return completed && admission?.isCurrent != false
+    }
+
+    private func reconcileTextInputControllerPayload(
+        from source: ViewNode, admission: RetainedLazyListAdoptionAdmission?
+    ) -> Bool {
+        let previous = textInputController
+        let incoming = source.textInputController
+        guard let admission else {
+            if let incoming {
+                textInputController = incoming
+                incoming.reconcile(from: previous, onto: self)
+            } else if let previous {
+                previous.detach(from: self)
+                textInputController = nil
+            }
+            return true
+        }
+        let attachment = captureLazyListAttachmentProof()
+        guard admission.isCurrent, attachment.isCurrent else { return false }
+        if let incoming {
+            admission.markMutationStarted()
+            textInputController = incoming
+            guard admission.isCurrent, attachment.isCurrent, textInputController === incoming else { return false }
+            incoming.reconcile(from: previous, onto: self)
+            guard admission.isCurrent, attachment.isCurrent, textInputController === incoming else { return false }
+        } else if let previous {
+            admission.markMutationStarted()
+            previous.detach(from: self)
+            guard admission.isCurrent, attachment.isCurrent, textInputController === previous else { return false }
+            textInputController = nil
+        }
+        withExtendedLifetime(previous) {}
+        return admission.isCurrent && attachment.isCurrent
+    }
+
+    /// Publish the actual controller field before attach/reconcile can release
+    /// callbacks held by the displaced controller. Ordinary nil calls above
+    /// retain their existing setter and lifecycle order.
+    private func reconcileJournalTextInputController(
+        from source: ViewNode, admission: RetainedLazyListAdoptionAdmission?,
+        journal: RetainedLazyListAdoptionJournal, taskAdoption: RetainedTaskAdoptionContext?
+    ) -> Bool {
+        let previous = textInputController
+        let incoming = source.textInputController
+        let checked = admission != nil || !journal.isOrdinaryAdoption
+        let targetAttachment = checked ? captureLazyListAttachmentProof() : nil
+        let targetIdentity = checked ? captureLazyListIdentityProof() : nil
+        let sourceAttachment = checked ? source.captureLazyListAttachmentProof() : nil
+        let sourceIdentity = checked ? source.captureLazyListIdentityProof() : nil
+        func isCurrent() -> Bool {
+            admission?.isCurrent != false
+                && (journal.isOrdinaryAdoption || journal.canContinueAdoption)
+                && targetAttachment?.isCurrent != false && targetIdentity?.isCurrent != false
+                && sourceAttachment?.isCurrent != false && sourceIdentity?.isCurrent != false
+                && (!checked || source.textInputController === incoming)
+        }
+        guard isCurrent() else { return false }
+        if incoming == nil, previous == nil { return true }
+        let prepared = journal.preparePropertyCopy(from: source, to: self, keyPath: \ViewNode.textInputController)
+        guard journal.isOrdinaryAdoption || prepared else { return false }
+        let started = journal.markMutationStarted()
+        guard journal.isOrdinaryAdoption || started else { return false }
+        admission?.markMutationStarted()
+        if let incoming {
+            // The public setter immediately calls attach. Keep the same native
+            // write and callback order, with acceptance between those steps.
+            setInteractionHandler(incoming, at: \.textInputController)
+            recordAcceptedLazyProperty(
+                from: source, keyPath: \ViewNode.textInputController, journal: journal, taskAdoption: taskAdoption)
+            guard isCurrent(), textInputController === incoming else { return false }
+            if runtime != nil, !isRetiringLazyListAttachment { incoming.attach(to: self) }
+            guard isCurrent(), textInputController === incoming else { return false }
+            incoming.reconcile(from: previous, onto: self)
+            guard isCurrent(), textInputController === incoming else { return false }
+        } else if let previous {
+            previous.detach(from: self)
+            guard isCurrent(), textInputController === previous else { return false }
+            setInteractionHandler(nil, at: \.textInputController)
+            recordAcceptedLazyProperty(
+                from: source, keyPath: \ViewNode.textInputController, journal: journal, taskAdoption: taskAdoption)
+        }
+        withExtendedLifetime(previous) {}
+        return isCurrent()
+    }
+
+    private func recordAcceptedLazyProperty(
+        from source: ViewNode, keyPath: PartialKeyPath<ViewNode>, journal: RetainedLazyListAdoptionJournal,
+        taskAdoption: RetainedTaskAdoptionContext?
+    ) {
+        for group in journal.recordAcceptedProperty(from: source, to: self, keyPath: keyPath) {
+            taskAdoption?.associateLazyAccepted(group, journal: journal)
+        }
+        for group in journal.takeAcceptedDescriptorTaskGroups() {
+            taskAdoption?.associateDescriptorAccepted(group, journal: journal)
         }
     }
 
@@ -3799,7 +4484,455 @@ public final class ViewNode {
     /// copies this metadata without retiring an owner that survives the build.
     public var retainedSubtreeBuildLease: (any RetainedSubtreeBuildLease)? {
         get { lifecycleHandlers?.retainedSubtreeBuildLease }
-        set { setLifecycleHandler(newValue, at: \.retainedSubtreeBuildLease) }
+        set {
+            if lifecycleHandlers?.retainedSubtreeBuildLease !== newValue {
+                lifecycleHandlers?.retainedLazyListAdapter?.revokePendingCandidate()
+            }
+            setLifecycleHandler(newValue, at: \.retainedSubtreeBuildLease)
+        }
+    }
+
+    /// Deferred public List construction shares the ordinary retained build,
+    /// state, and input lifetimes. Sparse lifecycle storage keeps nodes that
+    /// are not lazy List containers unchanged.
+    package var retainedLazyListAdapter: RetainedLazyListRuntimeAdapter? {
+        get { lifecycleHandlers?.retainedLazyListAdapter }
+        set {
+            setRetainedLazyListAdapter(newValue, descriptorCopy: .unmanaged, lazyJournal: nil)
+        }
+    }
+
+    package var retainedLazyListGap: RetainedLazyListGap? {
+        get { lifecycleHandlers?.retainedLazyListGap }
+        set {
+            guard lifecycleHandlers?.retainedLazyListGap != newValue else { return }
+            setLifecycleHandler(newValue, at: \.retainedLazyListGap)
+            invalidateRuntime(.layout)
+        }
+    }
+
+    package var retainedLazyListRowChrome: RetainedLazyListRowChrome? {
+        get { lifecycleHandlers?.retainedLazyListRowChrome?.metadata }
+        set {
+            guard newValue != nil || lifecycleHandlers?.retainedLazyListRowChrome != nil else { return }
+            // A fresh accepted row declaration resets this native publication
+            // even when the palette is equal. Its background property has
+            // already been reconciled before ComponentHost copies this field.
+            let publication = newValue.map {
+                RetainedLazyListRowChromePublication(
+                    metadata: $0, initialBackground: backgroundColor, initialCornerRadius: cornerRadius)
+            }
+            setLifecycleHandler(publication, at: \.retainedLazyListRowChrome)
+            invalidateRuntime(.layout)
+        }
+    }
+
+    package var retainedLazyListRowChromeUsesEstimatedParity: Bool? {
+        lifecycleHandlers?.retainedLazyListRowChrome?.usesEstimatedParity
+    }
+
+    fileprivate func publishRetainedLazyListRowChrome(isOdd: Bool, hasUnknownPrefix: Bool) {
+        guard let publication = lifecycleHandlers?.retainedLazyListRowChrome else { return }
+        publication.usesEstimatedParity = hasUnknownPrefix
+        guard !publication.isSuppressed else { return }
+        guard backgroundColor == publication.expectedBackground, cornerRadius == publication.expectedCornerRadius else {
+            // Raw authored mutation after the declaration wins. A later fresh
+            // declaration can opt back in after its own eligibility check.
+            publication.isSuppressed = true
+            return
+        }
+        let color = isOdd ? publication.metadata.alternatingBackground : nil
+        let radius = isOdd ? max(publication.originalCornerRadius, 8) : publication.originalCornerRadius
+        publication.expectedBackground = color
+        publication.expectedCornerRadius = radius
+        publication.isPublishing = true
+        defer { publication.isPublishing = false }
+        if backgroundColor != color { backgroundColor = color }
+        if cornerRadius != radius { cornerRadius = radius }
+    }
+
+    private func setRetainedLazyListAdapter(
+        _ incoming: RetainedLazyListRuntimeAdapter?,
+        descriptorCopy: RetainedLazyListDescriptorCopyPreparation,
+        lazyJournal: RetainedLazyListAdoptionJournal?, source: ViewNode? = nil,
+        taskAdoption: RetainedTaskAdoptionContext? = nil
+    ) {
+        let previous = lifecycleHandlers?.retainedLazyListAdapter
+        guard !isRetiringLazyListAttachment, previous !== incoming else { return }
+        let ownedPrevious = previous?.ownsAttachment(self) == true
+        let inheritsMountedRecords: Bool
+        if source != nil, ownedPrevious, let previous, let incoming {
+            inheritsMountedRecords = incoming.canInheritMountedRecords(from: previous, in: self)
+        } else {
+            inheritsMountedRecords = false
+        }
+        // A staged successor is a conditional continuation, not permission to
+        // replace the List if its original predecessor proof has expired.
+        if runtime != nil, incoming?.hasStagedPredecessor == true, !inheritsMountedRecords { return }
+        if !inheritsMountedRecords { previous?.revokePendingCandidate() }
+        runtime?.unregisterLazyListContainer(self, revokingAdapter: !inheritsMountedRecords)
+        setLifecycleHandler(incoming, at: \.retainedLazyListAdapter)
+        if case .ready(let publication) = descriptorCopy {
+            // Releasing old mounted records can run application destructors
+            // even while their adapter remains pinned. Publish here, before
+            // that release, rather than after the property's setter returns.
+            lazyJournal?.recordAcceptedLogicalDeclaration(publication)
+        } else if case .removal(let publication) = descriptorCopy {
+            lazyJournal?.recordAcceptedLogicalScopeRemoval(publication)
+        }
+        if inheritsMountedRecords, let previous, let incoming {
+            // Both stages are native publications. Transfer the existing
+            // physical records before property/task transport or old payload
+            // cleanup can call out. New factories still run under the fresh
+            // descriptor and reconcile onto these retained children.
+            _ = incoming.inheritMountedRecords(from: previous, in: self)
+        }
+        if let lazyJournal, let source {
+            recordAcceptedLazyProperty(
+                from: source, keyPath: \ViewNode.retainedLazyListAdapter,
+                journal: lazyJournal, taskAdoption: taskAdoption)
+        }
+        if ownedPrevious {
+            // Keep the weak claim until destructors from old mapped leaves
+            // finish; they cannot install this adapter elsewhere and have its
+            // new records cleared by this old release.
+            previous?.releaseMountedRecords(journal: lazyJournal)
+            previous?.releaseAttachment(from: self)
+        }
+        if lifecycleHandlers?.retainedLazyListAdapter === incoming, incoming != nil {
+            runtime?.registerLazyListContainer(self)
+        }
+        invalidateRuntime(.layout)
+        withExtendedLifetime(previous) {}
+    }
+
+    /// The facade will supply revisions captured with its inherited build
+    /// environment. These are cache tags, never build or input authority.
+    /// Width and display scale are supplied by actual retained layout.
+    package func setRetainedLazyListMeasurementRevisions(content: UInt64, environment: UInt64) {
+        guard lazyListContentRevision != content || lazyListEnvironmentRevision != environment else { return }
+        retainedLazyListAdapter?.revokePendingCandidate()
+        if lifecycleHandlers == nil { lifecycleHandlers = ViewNodeLifecycleHandlers() }
+        lifecycleHandlers?.lazyListContentRevision = content
+        lifecycleHandlers?.lazyListEnvironmentRevision = environment
+        invalidateRuntime(.layout)
+    }
+
+    fileprivate var lazyListContentRevision: UInt64 { lifecycleHandlers?.lazyListContentRevision ?? 0 }
+    fileprivate var lazyListEnvironmentRevision: UInt64 { lifecycleHandlers?.lazyListEnvironmentRevision ?? 0 }
+
+    fileprivate var lazyListAttachmentIdentity: RetainedLazyListAttachmentIdentity? {
+        lifecycleHandlers?.lazyListAttachmentIdentity
+    }
+
+    fileprivate var lazyListLayoutIdentity: RetainedLazyListAttachmentIdentity? {
+        lifecycleHandlers?.lazyListLayoutIdentity
+    }
+
+    fileprivate var lazyListViewIdentity: RetainedLazyListAttachmentIdentity? {
+        lifecycleHandlers?.lazyListViewIdentity
+    }
+
+    fileprivate var lazyListScrollIntentIdentity: RetainedLazyListAttachmentIdentity? {
+        lifecycleHandlers?.lazyListScrollIntentIdentity
+    }
+
+    fileprivate func revokeLazyListScrollIntent() {
+        lifecycleHandlers?.lazyListScrollIntentIdentity = nil
+    }
+
+    fileprivate func captureLazyListScrollIntentIdentity() -> RetainedLazyListAttachmentIdentity {
+        if lifecycleHandlers == nil { lifecycleHandlers = ViewNodeLifecycleHandlers() }
+        if lifecycleHandlers?.lazyListScrollIntentIdentity == nil {
+            lifecycleHandlers?.lazyListScrollIntentIdentity = RetainedLazyListAttachmentIdentity()
+        }
+        return lifecycleHandlers!.lazyListScrollIntentIdentity!
+    }
+
+    func captureLazyListIdentityProof() -> RetainedLazyListViewIdentityProof {
+        if lifecycleHandlers == nil { lifecycleHandlers = ViewNodeLifecycleHandlers() }
+        if lifecycleHandlers?.lazyListViewIdentity == nil {
+            lifecycleHandlers?.lazyListViewIdentity = RetainedLazyListAttachmentIdentity()
+        }
+        return RetainedLazyListViewIdentityProof(node: self, identity: lifecycleHandlers!.lazyListViewIdentity!)
+    }
+
+    fileprivate func captureLazyListLocalLayoutProof() -> RetainedLazyListLocalLayoutProof {
+        let attachment = captureLazyListAttachmentProof()
+        if lifecycleHandlers?.lazyListLayoutIdentity == nil {
+            lifecycleHandlers?.lazyListLayoutIdentity = RetainedLazyListAttachmentIdentity()
+        }
+        return RetainedLazyListLocalLayoutProof(
+            node: self, identity: lifecycleHandlers!.lazyListLayoutIdentity!, attachment: attachment)
+    }
+
+    fileprivate var isRetiringLazyListAttachment: Bool {
+        lifecycleHandlers?.lazyListRetirementIdentity != nil
+    }
+
+    func captureLazyListAttachmentProof() -> RetainedLazyListAttachmentProof {
+        if lifecycleHandlers == nil { lifecycleHandlers = ViewNodeLifecycleHandlers() }
+        if lifecycleHandlers?.lazyListAttachmentIdentity == nil {
+            lifecycleHandlers?.lazyListAttachmentIdentity = RetainedLazyListAttachmentIdentity()
+        }
+        return RetainedLazyListAttachmentProof(
+            node: self, identity: lifecycleHandlers!.lazyListAttachmentIdentity!)
+    }
+
+    /// Revoke before a callback can observe a detach, including a move through
+    /// detached construction parents. Returning to the same parent is new.
+    fileprivate func revokeLazyListAttachmentProofs() {
+        // Detached source transfers have never published physical activity.
+        // Their reserved insertion IDs must survive until that first write.
+        if runtime != nil { retainedLazyListActivityStorage?.revokeAttachment() }
+        lifecycleHandlers?.completedLazyTaskAppearance = nil
+        lifecycleHandlers?.lazyListAttachmentIdentity = nil
+        lifecycleHandlers?.retainedLazyListAdapter?.revokePendingCandidate()
+    }
+
+    func childrenForLazyListReconciliation(from source: ViewNode) -> [ViewNode] {
+        if let adapter = retainedLazyListAdapter, let incoming = source.retainedLazyListAdapter {
+            if incoming === adapter || incoming.canInheritMountedRecords(from: adapter, in: self) {
+                return children
+            }
+        }
+        return source.children
+    }
+
+    func canAdoptStagedLazyListAdapter(from source: ViewNode) -> Bool {
+        guard let incoming = source.retainedLazyListAdapter, incoming.hasStagedPredecessor else { return true }
+        guard let previous = retainedLazyListAdapter else { return false }
+        return incoming.canInheritMountedRecords(from: previous, in: self)
+    }
+
+    func reconcileLazyListAdapter(
+        from source: ViewNode, admission: RetainedLazyListAdoptionAdmission? = nil,
+        lazyJournal: RetainedLazyListAdoptionJournal? = nil,
+        taskAdoption: RetainedTaskAdoptionContext? = nil
+    ) -> Bool {
+        let metadataOnly = lazyJournal?.isOrdinaryAdoption == true
+        guard admission?.isCurrent != false, metadataOnly || lazyJournal?.canContinueAdoption != false else {
+            return false
+        }
+        guard canAdoptStagedLazyListAdapter(from: source) else { return false }
+        let descriptorCopy: RetainedLazyListDescriptorCopyPreparation
+        if let lazyJournal, !metadataOnly || lazyJournal.canContinueAdoption {
+            descriptorCopy = lazyJournal.prepareDescriptorCopy(from: source, to: self)
+        } else {
+            descriptorCopy = .unmanaged
+        }
+        if case .rejected = descriptorCopy { return false }
+        if retainedLazyListAdapter !== source.retainedLazyListAdapter {
+            if let lazyJournal {
+                let prepared = lazyJournal.preparePropertyCopy(
+                    from: source, to: self, keyPath: \ViewNode.retainedLazyListAdapter)
+                guard metadataOnly || prepared else { return false }
+            }
+            let started = lazyJournal?.markMutationStarted()
+            guard metadataOnly || started != false else { return false }
+            admission?.markMutationStarted()
+            replaceLazyListAdapterPayload(
+                with: source.retainedLazyListAdapter, descriptorCopy: descriptorCopy, lazyJournal: lazyJournal,
+                source: source, taskAdoption: taskAdoption)
+        }
+        guard admission?.isCurrent != false, metadataOnly || lazyJournal?.canContinueAdoption != false else {
+            return false
+        }
+        if lazyListContentRevision != source.lazyListContentRevision
+            || lazyListEnvironmentRevision != source.lazyListEnvironmentRevision
+        {
+            let started = lazyJournal?.markMutationStarted()
+            guard metadataOnly || started != false else { return false }
+            admission?.markMutationStarted()
+            setRetainedLazyListMeasurementRevisions(
+                content: source.lazyListContentRevision, environment: source.lazyListEnvironmentRevision)
+        }
+        return admission?.isCurrent != false && (metadataOnly || lazyJournal?.canContinueAdoption != false)
+    }
+
+    private func replaceLazyListAdapterPayload(
+        with incoming: RetainedLazyListRuntimeAdapter?,
+        descriptorCopy: RetainedLazyListDescriptorCopyPreparation,
+        lazyJournal: RetainedLazyListAdoptionJournal?, source: ViewNode,
+        taskAdoption: RetainedTaskAdoptionContext?
+    ) {
+        let previous = retainedLazyListAdapter
+        setRetainedLazyListAdapter(
+            incoming, descriptorCopy: descriptorCopy, lazyJournal: lazyJournal, source: source,
+            taskAdoption: taskAdoption)
+        withExtendedLifetime(previous) {}
+    }
+
+    func reconciliationAnimationTime(admission: RetainedLazyListAdoptionAdmission? = nil) -> Double? {
+        guard admission?.isCurrent != false else { return nil }
+        let time = animationClockNow
+        guard admission?.isCurrent != false else { return nil }
+        if let admission, !time.isFinite {
+            admission.revoke()
+            return nil
+        }
+        return time
+    }
+
+    /// Native preflight for the checked adopter. Copying a nil axis
+    /// drops existing scroll state; otherwise its input policy is preserved.
+    /// Any subsequently created state starts with input enabled.
+    func supportsLazyListScrollInputAdoption(from source: ViewNode) -> Bool {
+        guard let incoming = source.scrollContainerState, !incoming.isInputEnabled else { return true }
+        let retainedInputEnabled =
+            source.scrollAxis == nil && scrollAxis != nil ? true : (scrollContainerState?.isInputEnabled ?? true)
+        return !retainedInputEnabled || runtime?.hasActiveScrollInputCapture(for: self) != true
+    }
+
+    @discardableResult
+    func reconcileScrollInputEnabled(
+        _ enabled: Bool, admission: RetainedLazyListAdoptionAdmission?,
+        nativeCheck: ComponentHost.NodeReconcileAdmission? = nil
+    ) -> Bool {
+        guard admission?.isCurrent != false, nativeCheck?.isCurrent != false else { return false }
+        guard let state = scrollContainerState, state.isInputEnabled != enabled else { return true }
+        // An earlier admitted callback may have started a capture after the
+        // whole-plan preflight. Leave its input policy and capture untouched.
+        if admission != nil || nativeCheck != nil, !enabled,
+            runtime?.hasActiveScrollInputCapture(for: self) == true
+        {
+            return false
+        }
+        let attachment = admission == nil ? nil : captureLazyListAttachmentProof()
+        if let nativeCheck, let source = nativeCheck.source {
+            guard nativeCheck.preparePropertyCopy(from: source, to: self, keyPath: \ViewNode.isScrollInputEnabled)
+            else { return false }
+        }
+        admission?.markMutationStarted()
+        state.isInputEnabled = enabled
+        if let nativeCheck, let source = nativeCheck.source, let journal = nativeCheck.lazyJournal {
+            recordAcceptedLazyProperty(
+                from: source, keyPath: \ViewNode.isScrollInputEnabled, journal: journal,
+                taskAdoption: nativeCheck.taskAdoption)
+        }
+        if !enabled, let runtime,
+            !runtime.disableScrollInput(for: self, admission: admission, nativeCheck: nativeCheck)
+        {
+            return false
+        }
+        guard admission?.isCurrent != false, attachment?.isCurrent != false, nativeCheck?.isCurrent != false,
+            (admission == nil && nativeCheck == nil) || scrollContainerState === state
+        else { return false }
+        invalidateRuntime(.paint)
+        return true
+    }
+
+    @discardableResult
+    func reconcileScrollOffset(
+        from source: ViewNode, admission: RetainedLazyListAdoptionAdmission?,
+        nativeCheck: ComponentHost.NodeReconcileAdmission? = nil
+    ) -> Bool {
+        guard admission?.isCurrent != false, nativeCheck?.isCurrent != false else { return false }
+        // Preserve the existing facade convention: an unconfigured zero does
+        // not reset the user's retained position during ordinary adoption.
+        guard source.scrollOffset != 0, scrollOffset != source.scrollOffset else { return true }
+        return assignScrollOffset(
+            source.scrollOffset, admission: admission, nativeCheck: nativeCheck,
+            authoredSource: nativeCheck == nil ? nil : source)
+    }
+
+    /// The same setter funnel serves ordinary input and checked adoption.
+    /// History cleanup during cancellation can reenter; no later observer or
+    /// indicator write is admitted after that operation loses its attachment.
+    @discardableResult
+    fileprivate func assignScrollOffset(
+        _ value: Double, admission: RetainedLazyListAdoptionAdmission?,
+        nativeCheck: ComponentHost.NodeReconcileAdmission? = nil, authoredSource: ViewNode? = nil,
+        continuingListReveal: RetainedListNavigationRevealContinuation? = nil,
+        continuingAccessibilityAnchor: RetainedLazyListAttachmentIdentity? = nil
+    ) -> Bool {
+        guard admission?.isCurrent != false, nativeCheck?.isCurrent != false else { return false }
+        if let continuingListReveal {
+            guard admission == nil, nativeCheck == nil, authoredSource == nil,
+                continuingAccessibilityAnchor == nil,
+                continuingListReveal.container === self, continuingListReveal.state == .waiting,
+                runtime?.isListNavigationRevealCurrent(continuingListReveal) == true
+            else { return false }
+        }
+        if let continuingAccessibilityAnchor {
+            guard admission == nil, nativeCheck == nil, authoredSource == nil, continuingListReveal == nil,
+                runtime?.canBeginLazyListAccessibilityAnchorCorrection(
+                    in: self, intent: continuingAccessibilityAnchor) == true
+            else { return false }
+        }
+        if let nativeCheck, let authoredSource {
+            guard nativeCheck.preparePropertyCopy(from: authoredSource, to: self, keyPath: \ViewNode.scrollOffset)
+            else { return false }
+        }
+        // Even an equal authored assignment supersedes a pending lazy anchor.
+        // Ordinary scroll containers allocate no proof storage for this check.
+        if let continuingListReveal {
+            // This is the one callback-free correction admitted from a fixed
+            // settlement. Publish its exact successor intent before the shared
+            // offset observer tests cancellation. Authored writes cannot use it.
+            let nextIntent = RetainedLazyListAttachmentIdentity()
+            lifecycleHandlers?.lazyListScrollIntentIdentity = nextIntent
+            continuingListReveal.scrollIntent = nextIntent
+            continuingListReveal.expectedOffset = value
+        } else if let continuingAccessibilityAnchor {
+            // Reserve the exact post-write identity before invalidation can
+            // release a queued callback. An authored nested write clears it.
+            lifecycleHandlers?.lazyListScrollIntentIdentity = continuingAccessibilityAnchor
+        } else {
+            lifecycleHandlers?.lazyListScrollIntentIdentity = nil
+        }
+        let attachment = admission == nil ? nil : captureLazyListAttachmentProof()
+        let previous = storedScrollOffset
+        admission?.markMutationStarted()
+        storedScrollOffset = value
+        if let nativeCheck, let authoredSource, let journal = nativeCheck.lazyJournal {
+            recordAcceptedLazyProperty(
+                from: authoredSource, keyPath: \ViewNode.scrollOffset, journal: journal,
+                taskAdoption: nativeCheck.taskAdoption)
+        }
+        if let runtime,
+            !runtime.cancelProgrammaticScrollIfTargetChanged(for: self, admission: admission, nativeCheck: nativeCheck)
+        {
+            return false
+        }
+        guard admission?.isCurrent != false, attachment?.isCurrent != false, nativeCheck?.isCurrent != false
+        else { return false }
+        if let continuingAccessibilityAnchor,
+            runtime?.isLazyListAccessibilityAnchorCorrectionCurrent(
+                in: self, intent: continuingAccessibilityAnchor) != true
+        {
+            return false
+        }
+        invalidateRuntime(hasVirtualizedDescendants ? [.paint, .layout] : .paint)
+        if let continuingAccessibilityAnchor,
+            runtime?.isLazyListAccessibilityAnchorCorrectionCurrent(
+                in: self, intent: continuingAccessibilityAnchor) != true
+        {
+            return false
+        }
+        if scrollIndicatorAutoHides, storedScrollOffset != previous {
+            runtime?.revealScrollIndicator(for: self)
+        }
+        if let continuingAccessibilityAnchor,
+            runtime?.isLazyListAccessibilityAnchorCorrectionCurrent(
+                in: self, intent: continuingAccessibilityAnchor) != true
+        {
+            return false
+        }
+        return admission?.isCurrent != false && attachment?.isCurrent != false && nativeCheck?.isCurrent != false
+    }
+
+    func reconcileScrollIndicatorsFlashTrigger(
+        from source: ViewNode, admission: RetainedLazyListAdoptionAdmission? = nil
+    ) -> Bool {
+        guard admission?.isCurrent != false else { return false }
+        if scrollIndicatorsFlashTrigger != source.scrollIndicatorsFlashTrigger {
+            admission?.markMutationStarted()
+            // This setter schedules the existing primitive reveal state; it
+            // neither reads the animation clock nor invokes an app callback.
+            scrollIndicatorsFlashTrigger = source.scrollIndicatorsFlashTrigger
+        }
+        return admission?.isCurrent != false
     }
 
     /// The slot size `children` were last built against. `nil` on a node that
@@ -4375,7 +5508,7 @@ public final class ViewNode {
         self.sensoryFeedback = sensoryFeedback
         self.scrollAxis = scrollAxis
         self.scrollContainerState = scrollAxis.map { RetainedScrollContainerState(axis: $0) }
-        self.scrollOffset = scrollOffset
+        self.storedScrollOffset = scrollOffset
         self.scrollStep = scrollStep
         self.showsScrollIndicator = showsScrollIndicator
         self.scrollIndicatorAutoHides = scrollIndicatorAutoHides
@@ -4586,6 +5719,9 @@ public final class ViewNode {
     }
 
     public func addChild(_ child: ViewNode) {
+        guard !isRetiringLazyListAttachment, !child.isRetiringLazyListAttachment,
+            child.parent?.isRetiringLazyListAttachment != true
+        else { return }
         let interactionRuntime = runtime
         let sourceRuntime = child.runtime
         interactionRuntime?.beginLongPressReconciliation()
@@ -4595,9 +5731,13 @@ public final class ViewNode {
             interactionRuntime?.endLongPressReconciliation()
         }
         child.removeFromParent()
+        guard !isRetiringLazyListAttachment, !child.isRetiringLazyListAttachment, child.parent == nil else { return }
+        child.revokeLazyListAttachmentProofs()
         child.parent = self
         child.setRuntime(runtime)
+        guard !isRetiringLazyListAttachment, !child.isRetiringLazyListAttachment, child.parent === self else { return }
         children.append(child)
+        runtime?.registerLazyListAttachments(in: child)
         invalidateRuntime(.children)
     }
 
@@ -4613,22 +5753,33 @@ public final class ViewNode {
     }
 
     public func removeAllChildren() {
+        guard !isRetiringLazyListAttachment, !children.contains(where: \.isRetiringLazyListAttachment) else { return }
         let interactionRuntime = runtime
+        let groupTaskCleanup = Self.claimLazyGroupTaskDepartures(in: children)
         interactionRuntime?.beginLongPressReconciliation()
-        defer { interactionRuntime?.endLongPressReconciliation() }
+        defer {
+            interactionRuntime?.endLongPressReconciliation()
+            for cleanup in groupTaskCleanup { cleanup.finish() }
+        }
         for child in children { child.revokeTextInputOwnership() }
         for child in children {
+            guard !isRetiringLazyListAttachment, !child.isRetiringLazyListAttachment else { return }
+            child.revokeLazyListAttachmentProofs()
             if runtime != nil, child.transition.removal.kind != .identity, child.applyRemovalTransition() {
+                guard !isRetiringLazyListAttachment, !child.isRetiringLazyListAttachment else { return }
                 child.isRemovalOverlay = true
                 child.cachedFrameKey = nil
                 child.cachedFrameCommandRange = nil
                 child.cachedSceneKey = nil
                 child.cachedScenePaintRange = nil
                 runtime?.transitionOverlays.append(child)
+                child.revokeLazyListAttachmentProofs()
                 child.parent = nil
                 child.setRuntime(nil)
             } else {
                 child.markSubtreeDisappeared()
+                guard !isRetiringLazyListAttachment, !child.isRetiringLazyListAttachment else { return }
+                child.revokeLazyListAttachmentProofs()
                 child.parent = nil
                 child.setRuntime(nil)
             }
@@ -4636,45 +5787,69 @@ public final class ViewNode {
         if !children.isEmpty {
             runtime?.invalidate()
         }
+        guard !isRetiringLazyListAttachment else { return }
         children.removeAll(keepingCapacity: false)
         invalidateRuntime(.children)
     }
 
     /// Replace the child at the given index with a new node.
     public func replaceChild(at index: Int, with newChild: ViewNode) {
+        guard !isRetiringLazyListAttachment, !newChild.isRetiringLazyListAttachment,
+            newChild.parent?.isRetiringLazyListAttachment != true
+        else { return }
         guard index >= 0, index < children.count else {
             return
         }
 
         let interactionRuntime = runtime
         let sourceRuntime = newChild.runtime
+        let groupTaskCleanup = Self.claimLazyGroupTaskDepartures(in: [children[index]])
         interactionRuntime?.beginLongPressReconciliation()
         if sourceRuntime !== interactionRuntime { sourceRuntime?.beginLongPressReconciliation() }
         defer {
             if sourceRuntime !== interactionRuntime { sourceRuntime?.endLongPressReconciliation() }
             interactionRuntime?.endLongPressReconciliation()
+            for cleanup in groupTaskCleanup { cleanup.finish() }
         }
 
         let old = children[index]
+        guard !old.isRetiringLazyListAttachment else { return }
         detachRemovedChild(old)
 
+        guard !isRetiringLazyListAttachment, !newChild.isRetiringLazyListAttachment,
+            newChild.parent?.isRetiringLazyListAttachment != true
+        else { return }
         newChild.removeFromParent()
+        guard !isRetiringLazyListAttachment, !newChild.isRetiringLazyListAttachment, newChild.parent == nil else {
+            return
+        }
+        newChild.revokeLazyListAttachmentProofs()
         newChild.parent = self
         newChild.setRuntime(runtime)
+        guard !isRetiringLazyListAttachment, !newChild.isRetiringLazyListAttachment, newChild.parent === self else {
+            return
+        }
         children[index] = newChild
+        runtime?.registerLazyListAttachments(in: newChild)
         invalidateRuntime()
     }
 
     /// Remove the child at the given index.
     public func removeChild(at index: Int) {
+        guard !isRetiringLazyListAttachment else { return }
         guard index >= 0, index < children.count else {
             return
         }
 
         let interactionRuntime = runtime
+        let groupTaskCleanup = Self.claimLazyGroupTaskDepartures(in: [children[index]])
         interactionRuntime?.beginLongPressReconciliation()
-        defer { interactionRuntime?.endLongPressReconciliation() }
+        defer {
+            interactionRuntime?.endLongPressReconciliation()
+            for cleanup in groupTaskCleanup { cleanup.finish() }
+        }
 
+        guard !children[index].isRetiringLazyListAttachment else { return }
         let removed = children.remove(at: index)
         detachRemovedChild(removed)
         invalidateRuntime()
@@ -4685,11 +5860,15 @@ public final class ViewNode {
     /// place that decides what leaving looks like — shared by `removeChild`,
     /// `replaceChild` and `setChildren`.
     private func detachRemovedChild(_ removed: ViewNode) {
+        guard !isRetiringLazyListAttachment, !removed.isRetiringLazyListAttachment else { return }
+        removed.revokeLazyListAttachmentProofs()
         removed.revokeTextInputOwnership()
         removed.onDismantlePlatformView?(removed)
+        guard !isRetiringLazyListAttachment, !removed.isRetiringLazyListAttachment else { return }
         // Adoption also removes fresh nodes from temporary construction
         // parents. Only a mounted parent can own and retire a removal overlay.
         if runtime != nil, removed.transition.removal.kind != .identity, removed.applyRemovalTransition() {
+            guard !isRetiringLazyListAttachment, !removed.isRetiringLazyListAttachment else { return }
             removed.isRemovalOverlay = true
             removed.cachedFrameKey = nil
             removed.cachedFrameCommandRange = nil
@@ -4697,10 +5876,13 @@ public final class ViewNode {
             removed.cachedScenePaintRange = nil
             runtime?.transitionOverlays.append(removed)
             runtime?.invalidate()
+            removed.revokeLazyListAttachmentProofs()
             removed.parent = nil
             removed.setRuntime(nil)
         } else {
             removed.markSubtreeDisappeared()
+            guard !isRetiringLazyListAttachment, !removed.isRetiringLazyListAttachment else { return }
+            removed.revokeLazyListAttachmentProofs()
             removed.parent = nil
             removed.setRuntime(nil)
         }
@@ -4715,7 +5897,11 @@ public final class ViewNode {
     /// and rebuilding it: the index-walking API could only ever replace in
     /// place, so a keyed match that changed position had no way to be
     /// expressed.
-    func setChildren(_ nextChildren: [ViewNode]) {
+    private func setChildrenUnchecked(
+        _ nextChildren: [ViewNode], lazyJournal: RetainedLazyListAdoptionJournal? = nil,
+        taskAdoption: RetainedTaskAdoptionContext? = nil, sourceParent: ViewNode? = nil
+    ) {
+        guard !isRetiringLazyListAttachment else { return }
         // A rebuild reconciles every node in the window, and for the
         // overwhelming majority of them it hands back the same child objects
         // in the same order — the reconcile already matched them and updated
@@ -4727,10 +5913,21 @@ public final class ViewNode {
         // and the reason a rebuild used to re-descend subtrees nothing had
         // touched.
         if isChildListUnchanged(nextChildren) {
+            if let sourceParent, let lazyJournal,
+                lazyJournal.prepareOwnedStructuralDeclaration(from: sourceParent, to: self)
+            {
+                lazyJournal.recordAcceptedOwnedStructuralDeclaration(from: sourceParent, to: self)
+            }
             return
         }
+        guard !children.contains(where: \.isRetiringLazyListAttachment),
+            !nextChildren.contains(where: {
+                $0.isRetiringLazyListAttachment || $0.parent?.isRetiringLazyListAttachment == true
+            })
+        else { return }
 
         let interactionRuntime = runtime
+        var groupTaskCleanup: [RetainedLazyListAcceptedTaskCleanup] = []
         interactionRuntime?.beginLongPressReconciliation()
         var sourceRuntimes: [RetainedViewRuntime] = []
         for child in nextChildren {
@@ -4744,23 +5941,82 @@ public final class ViewNode {
         defer {
             for sourceRuntime in sourceRuntimes { sourceRuntime.endLongPressReconciliation() }
             interactionRuntime?.endLongPressReconciliation()
+            for cleanup in groupTaskCleanup { cleanup.finish() }
         }
 
         let surviving = Set(nextChildren.map(ObjectIdentifier.init))
         let departing = children.filter { !surviving.contains(ObjectIdentifier($0)) }
+        groupTaskCleanup = Self.claimLazyGroupTaskDepartures(in: departing)
+        if let lazyJournal {
+            for cleanup in groupTaskCleanup { lazyJournal.claimTaskCleanup(cleanup) }
+            for node in Self.lazyListNodes(in: departing) ?? [] {
+                _ = lazyJournal.recordPhysicalDeparture(of: node, cause: .acceptedReplacement)
+            }
+            for node in Self.lazyListNodes(in: nextChildren.filter { $0.parent !== self }) ?? [] {
+                _ = lazyJournal.prepareInsertedNode(from: node)
+            }
+        }
         for child in departing { child.revokeTextInputOwnership() }
+        var recordsEmptyDeclaration = false
+        if nextChildren.isEmpty, let sourceParent, let lazyJournal {
+            recordsEmptyDeclaration = lazyJournal.prepareOwnedStructuralDeclaration(from: sourceParent, to: self)
+        }
         children = []
+        if recordsEmptyDeclaration, let sourceParent {
+            lazyJournal?.recordAcceptedOwnedStructuralDeclaration(from: sourceParent, to: self)
+        }
         for child in departing {
             detachRemovedChild(child)
         }
+        guard !isRetiringLazyListAttachment else { return }
         for child in nextChildren {
+            guard !child.isRetiringLazyListAttachment, child.parent?.isRetiringLazyListAttachment != true else {
+                return
+            }
             if child.parent !== self {
                 child.removeFromParent()
+                guard !isRetiringLazyListAttachment, !child.isRetiringLazyListAttachment, child.parent == nil else {
+                    return
+                }
+                child.revokeLazyListAttachmentProofs()
                 child.parent = self
             }
             child.setRuntime(runtime)
+            guard !isRetiringLazyListAttachment, !child.isRetiringLazyListAttachment, child.parent === self else {
+                return
+            }
+        }
+        guard !isRetiringLazyListAttachment,
+            !nextChildren.contains(where: \.isRetiringLazyListAttachment)
+        else { return }
+        var recordsDeclaration = false
+        if !nextChildren.isEmpty, let sourceParent, let lazyJournal {
+            recordsDeclaration = lazyJournal.prepareOwnedStructuralDeclaration(from: sourceParent, to: self)
         }
         children = nextChildren
+        if recordsDeclaration, let sourceParent {
+            lazyJournal?.recordAcceptedOwnedStructuralDeclaration(from: sourceParent, to: self)
+        }
+        for child in nextChildren { runtime?.registerLazyListAttachments(in: child) }
+        if let lazyJournal {
+            // The legacy setter's publication point stays in its original
+            // position. These are metadata facts for the ordinary epoch; the
+            // selective descriptor path uses the checked publication engine.
+            for node in Self.lazyListNodes(in: nextChildren) ?? [] {
+                for group in lazyJournal.recordAcceptedInsertedNode(on: node) {
+                    taskAdoption?.associateLazyAccepted(group, journal: lazyJournal)
+                }
+                for group in lazyJournal.takeAcceptedDescriptorTaskGroups() {
+                    taskAdoption?.associateDescriptorAccepted(group, journal: lazyJournal)
+                }
+                for group in lazyJournal.recordCompletedNode(from: node, to: node) {
+                    taskAdoption?.associateLazyAccepted(group, journal: lazyJournal)
+                }
+                for group in lazyJournal.takeAcceptedDescriptorTaskGroups() {
+                    taskAdoption?.associateDescriptorAccepted(group, journal: lazyJournal)
+                }
+            }
+        }
         invalidateRuntime(.children)
     }
 
@@ -4843,9 +6099,27 @@ public final class ViewNode {
     }
 
     fileprivate func setRuntime(_ runtime: RetainedViewRuntime?, hasRevokedTextInputOwnership: Bool = false) {
+        guard !isRetiringLazyListAttachment else { return }
+        if let previousRuntime = self.runtime, previousRuntime !== runtime,
+            let adapter = retainedLazyListAdapter, adapter.ownsAttachment(self)
+        {
+            // An owned deferred container must finish its old mapping/claim
+            // before another runtime can acquire it. The supported transfer
+            // is detach, complete cleanup, then attach on a fresh operation.
+            guard runtime == nil else { return }
+            detachLazyListRuntime(
+                from: previousRuntime, adapter: adapter,
+                hasRevokedTextInputOwnership: hasRevokedTextInputOwnership)
+            return
+        }
         let didChangeRuntime = self.runtime !== runtime
         if didChangeRuntime { storedAccessibilityAttachmentIdentity = nil }
         let isLeavingRuntime = self.runtime != nil && self.runtime !== runtime
+        if isLeavingRuntime { lifecycleHandlers?.retainedTasks?.invalidateAttachment() }
+        if didChangeRuntime {
+            revokeLazyListAttachmentProofs()
+            self.runtime?.unregisterLazyListContainer(self)
+        }
         if isLeavingRuntime, !hasRevokedTextInputOwnership {
             revokeTextInputOwnership()
         }
@@ -4854,11 +6128,15 @@ public final class ViewNode {
             if let state = scrollContainerState { state.attachmentGeneration &+= 1 }
             self.runtime?.unregisterScrollObservationNode(self)
             scrollObserverStorage?.reset()
+            guard !isRetiringLazyListAttachment else { return }
             if self.runtime != nil { textInputController?.willDetach(from: self) }
+            guard !isRetiringLazyListAttachment else { return }
             self.runtime?.releaseInteractionTargets(in: self)
+            guard !isRetiringLazyListAttachment else { return }
             self.runtime?.cancelColorAnimations(of: self)
             if runtime == nil {
                 textInputController?.detach(from: self)
+                guard !isRetiringLazyListAttachment else { return }
             }
         }
 
@@ -4878,14 +6156,79 @@ public final class ViewNode {
         }
         if runtime != nil {
             textInputController?.attach(to: self)
+            guard !isRetiringLazyListAttachment else { return }
         }
         if scrollObserverStorage != nil {
             runtime?.registerScrollObservationNode(self)
         }
+        if retainedLazyListAdapter != nil { runtime?.registerLazyListContainer(self) }
         for child in children {
             child.setRuntime(
                 runtime, hasRevokedTextInputOwnership: hasRevokedTextInputOwnership || isLeavingRuntime)
         }
+    }
+
+    /// Only protects adapter mapping/claim lifetime in the legacy runtime
+    /// bridge. Generic removal may already have delivered dismantle/appearance
+    /// callbacks before reaching here; it is not the checked eviction path.
+    private func detachLazyListRuntime(
+        from previousRuntime: RetainedViewRuntime, adapter: RetainedLazyListRuntimeAdapter,
+        hasRevokedTextInputOwnership: Bool
+    ) {
+        let gate = LazyListRetirementGate(nodes: [self])
+        drainLazyListRuntimeDetach(
+            from: previousRuntime, adapter: adapter, gateIdentity: gate.identity,
+            hasRevokedTextInputOwnership: hasRevokedTextInputOwnership)
+        // The helper's old payload captures have unwound while the gate and
+        // weak claim still exclude a new owner. Existing queued cleanup also
+        // finishes before the gate releases that claim.
+        previousRuntime.afterRetainedCallbacks { gate.finish() }
+    }
+
+    private func drainLazyListRuntimeDetach(
+        from previousRuntime: RetainedViewRuntime, adapter: RetainedLazyListRuntimeAdapter,
+        gateIdentity: RetainedLazyListAttachmentIdentity, hasRevokedTextInputOwnership: Bool
+    ) {
+        storedAccessibilityAttachmentIdentity = nil
+        let controller = textInputController
+        let storage = scrollObserverStorage
+        let detachedChildren = children
+        let scopedTaskCleanup = existingRetainedTaskState?.claimLazyPhysicalDeparture()
+        revokeLazyListAttachmentProofs()
+        previousRuntime.unregisterLazyListContainer(self)
+        if !hasRevokedTextInputOwnership { revokeTextInputOwnership() }
+        fileDialogPresenterLease?.invalidate()
+        if let state = scrollContainerState { state.attachmentGeneration &+= 1 }
+        previousRuntime.unregisterScrollObservationNode(self)
+        let history = storage?.takeLazyListRetiredHistory() ?? []
+
+        // These are captured cleanup obligations. A callback replacing an
+        // editor field does not redirect the old editor's terminal detach.
+        controller?.willDetach(from: self)
+        previousRuntime.releaseInteractionTargets(in: self)
+        previousRuntime.cancelColorAnimations(of: self)
+        controller?.detach(from: self)
+        if lifecycleHandlers?.lazyListRetirementIdentity === gateIdentity,
+            retainedLazyListAdapter === adapter, runtime === previousRuntime
+        {
+            previousRuntime.unregisterAnimatingNode(self)
+            revokeLazyListAttachmentProofs()
+            runtime = nil
+            for child in detachedChildren where child.parent === self && child.runtime === previousRuntime {
+                child.setRuntime(nil, hasRevokedTextInputOwnership: true)
+            }
+        }
+        if lifecycleHandlers?.lazyListRetirementIdentity === gateIdentity,
+            retainedLazyListAdapter === adapter, adapter.ownsAttachment(self)
+        {
+            adapter.releaseMountedRecords()
+        }
+        scopedTaskCleanup?.finish()
+        withExtendedLifetime(history) {}
+        withExtendedLifetime(controller) {}
+        withExtendedLifetime(storage) {}
+        withExtendedLifetime(detachedChildren) {}
+        withExtendedLifetime(scopedTaskCleanup) {}
     }
 
     internal func invalidateRenderLifecycleCandidates() {
@@ -4893,6 +6236,11 @@ public final class ViewNode {
     }
 
     internal func markSubtreeDisappeared() {
+        let groupTaskCleanup = Self.claimLazyGroupTaskDepartures(in: [self])
+        defer { for cleanup in groupTaskCleanup { cleanup.finish() } }
+        lifecycleHandlers?.completedLazyTaskAppearance = nil
+        let taskState = lifecycleHandlers?.retainedTasks
+        let taskDisappearance = taskState?.beginDisappearance()
         if hasAppeared {
             onDisappear?()
             onDisappearWithNode?(self)
@@ -4901,6 +6249,7 @@ public final class ViewNode {
             hasPendingAppearanceCallbacks = false
             hasPendingAppearanceNodeCallback = false
         }
+        if let taskDisappearance { taskState?.finishDisappearance(taskDisappearance) }
         // A node that leaves and comes back is a real insertion the second
         // time, whatever it was on the host's first build — and whatever it
         // played on the way in the first time.
@@ -4913,13 +6262,88 @@ public final class ViewNode {
     }
 
     public func launchLifecycleTask(_ launch: ViewLifecycleTaskLaunch) {
-        guard acceptsLifecycleTasks, runtime?.permitsRenderLifecycleCallbacks != false else { return }
+        guard acceptsLifecycleTasks, !isRetiringLazyListAttachment,
+            runtime?.permitsRenderLifecycleCallbacks != false
+        else { return }
         lifecycleTasks[launch.key]?.cancel()
         // Cancelling the previous task may synchronously close this owner.
-        guard acceptsLifecycleTasks, runtime?.permitsRenderLifecycleCallbacks != false else { return }
+        guard acceptsLifecycleTasks, !isRetiringLazyListAttachment,
+            runtime?.permitsRenderLifecycleCallbacks != false
+        else { return }
         lifecycleTasks[launch.key] = Task(priority: launch.priority) {
             await launch.action()
         }
+    }
+
+    @discardableResult
+    func launchLifecycleTask(
+        _ launch: ViewLifecycleTaskLaunch, admission: RetainedLazyListAdoptionAdmission?,
+        lazyJournal: RetainedLazyListAdoptionJournal? = nil, source: ViewNode? = nil
+    ) -> Bool {
+        guard let lazyJournal, !lazyJournal.isOrdinaryAdoption else {
+            guard let admission else {
+                launchLifecycleTask(launch)
+                return true
+            }
+            guard admission.isCurrent, acceptsLifecycleTasks,
+                runtime?.permitsRenderLifecycleCallbacks != false, !isRetiringLazyListAttachment
+            else { return false }
+            let attachment = captureLazyListAttachmentProof()
+            let completed = replaceLifecycleTask(launch, admission: admission, attachment: attachment)
+            return completed && admission.isCurrent && attachment.isCurrent
+        }
+        guard admission?.isCurrent != false, lazyJournal.canContinueAdoption, acceptsLifecycleTasks,
+            runtime?.permitsRenderLifecycleCallbacks != false, !isRetiringLazyListAttachment
+        else { return false }
+        let attachment = captureLazyListAttachmentProof()
+        let identity = captureLazyListIdentityProof()
+        let sourceAttachment = source?.captureLazyListAttachmentProof()
+        let sourceIdentity = source?.captureLazyListIdentityProof()
+        let completed = replaceJournalLifecycleTask(
+            launch, admission: admission, attachment: attachment, identity: identity,
+            sourceAttachment: sourceAttachment, sourceIdentity: sourceIdentity, lazyJournal: lazyJournal)
+        return completed && admission?.isCurrent != false && lazyJournal.canContinueAdoption
+            && attachment.isCurrent && identity.isCurrent
+            && sourceAttachment?.isCurrent != false && sourceIdentity?.isCurrent != false
+    }
+
+    private func replaceLifecycleTask(
+        _ launch: ViewLifecycleTaskLaunch, admission: RetainedLazyListAdoptionAdmission,
+        attachment: RetainedLazyListAttachmentProof
+    ) -> Bool {
+        admission.markMutationStarted()
+        let previous = lifecycleTasks.removeValue(forKey: launch.key)
+        previous?.cancel()
+        guard admission.isCurrent, attachment.isCurrent, acceptsLifecycleTasks,
+            runtime?.permitsRenderLifecycleCallbacks != false, lifecycleTasks[launch.key] == nil
+        else { return false }
+        lifecycleTasks[launch.key] = Task(priority: launch.priority) {
+            await launch.action()
+        }
+        withExtendedLifetime(previous) {}
+        return true
+    }
+
+    private func replaceJournalLifecycleTask(
+        _ launch: ViewLifecycleTaskLaunch, admission: RetainedLazyListAdoptionAdmission?,
+        attachment: RetainedLazyListAttachmentProof, identity: RetainedLazyListViewIdentityProof,
+        sourceAttachment: RetainedLazyListAttachmentProof?, sourceIdentity: RetainedLazyListViewIdentityProof?,
+        lazyJournal: RetainedLazyListAdoptionJournal?
+    ) -> Bool {
+        guard lazyJournal?.markMutationStarted() != false else { return false }
+        admission?.markMutationStarted()
+        let previous = lifecycleTasks.removeValue(forKey: launch.key)
+        previous?.cancel()
+        guard admission?.isCurrent != false, lazyJournal?.canContinueAdoption != false,
+            attachment.isCurrent, identity.isCurrent,
+            sourceAttachment?.isCurrent != false, sourceIdentity?.isCurrent != false, acceptsLifecycleTasks,
+            runtime?.permitsRenderLifecycleCallbacks != false, lifecycleTasks[launch.key] == nil
+        else { return false }
+        lifecycleTasks[launch.key] = Task(priority: launch.priority) {
+            await launch.action()
+        }
+        withExtendedLifetime(previous) {}
+        return true
     }
 
     public func cancelLifecycleTask(key: String) {
@@ -5033,9 +6457,29 @@ public final class ViewNode {
 
     /// One node's entry in the layout traversal — the whole state a level
     /// needs, which is why layout can afford to be a worklist.
+    @MainActor
     private struct LayoutTraversalContext {
         let node: ViewNode
         let depth: Int
+        let attachment: RetainedLazyListAttachmentProof?
+        weak var checkedRuntime: RetainedViewRuntime?
+
+        init(node: ViewNode, depth: Int) {
+            self.node = node
+            self.depth = depth
+            if let runtime = node.runtime, runtime.hasLazyListLayoutScope {
+                attachment = node.captureLazyListAttachmentProof()
+                checkedRuntime = runtime
+            } else {
+                attachment = nil
+                checkedRuntime = nil
+            }
+        }
+
+        var isCurrent: Bool {
+            attachment == nil
+                || (attachment?.isCurrent == true && checkedRuntime?.permitsRetainedActionInvocation == true)
+        }
     }
 
     private enum LayoutTraversalStep {
@@ -5067,6 +6511,10 @@ public final class ViewNode {
             let context: LayoutTraversalContext
             switch traversalStep {
             case .finish(let finishContext):
+                guard finishContext.isCurrent else {
+                    finishContext.checkedRuntime?.rejectLazyListLayoutVisit()
+                    continue
+                }
                 ViewNode.traversalDepth = baseDepth + finishContext.depth + 1
                 finishContext.node.finishLayoutPass()
                 continue
@@ -5076,6 +6524,10 @@ public final class ViewNode {
             }
 
             let node = context.node
+            guard context.isCurrent else {
+                context.checkedRuntime?.rejectLazyListLayoutVisit()
+                continue
+            }
             guard ViewNode.enterTraversal(atDepth: baseDepth + context.depth) else { continue }
             node.runtime?.recordLayoutVisit()
 
@@ -5101,6 +6553,9 @@ public final class ViewNode {
             if node.geometryReaderBuild != nil {
                 node.runtime?.recordGeometryReaderCandidate(node)
             }
+            if node.retainedLazyListAdapter != nil {
+                node.runtime?.recordLazyListLayoutCandidate(node)
+            }
 
             let layoutKey = ViewLayoutCacheKey(frame: node.resolvedFrame, displayScale: displayScale)
             let layoutDirtyFlags = node.subtreeDirtyFlags.intersection([.layout, .children])
@@ -5110,7 +6565,7 @@ public final class ViewNode {
                 continue
             }
 
-            node.beginLayoutPass()
+            guard node.beginLayoutPass(context: context) else { continue }
 
             // The node's own frame is settled and its children's frames are
             // computed here; `finish` closes the pass once they have been laid
@@ -5124,9 +6579,18 @@ public final class ViewNode {
     /// the layout callbacks, `.position()`'s re-centring, and the scroll offset
     /// a descendant `.lazyStack` will resolve its viewport against.
     @inline(never)
-    private func beginLayoutPass() {
+    private func beginLayoutPass(context: LayoutTraversalContext) -> Bool {
         onLayout?(resolvedFrame)
+        guard context.isCurrent else {
+            context.checkedRuntime?.rejectLazyListLayoutVisit()
+            return false
+        }
+
         onLayoutWithNode?(self, resolvedFrame)
+        guard context.isCurrent else {
+            context.checkedRuntime?.rejectLazyListLayoutVisit()
+            return false
+        }
 
         if let position = position {
             let size = resolvedFrame.size
@@ -5146,6 +6610,7 @@ public final class ViewNode {
         // the assignment at the end of the pass stands as the authoritative
         // one and this is the best estimate available before it.
         resolvedScrollOffset = effectiveScrollOffset
+        return true
     }
 
     /// Places the children and enqueues the ones that still have to be laid
@@ -5158,21 +6623,25 @@ public final class ViewNode {
     ) {
         pendingLayoutKey = layoutKey
         var descendants: [ViewNode] = []
-        switch layoutMode {
-        case .absolute:
-            layoutAbsoluteChildren(descendants: &descendants)
+        if retainedLazyListAdapter != nil {
+            layoutRetainedLazyListChildren(descendants: &descendants)
+        } else {
+            switch layoutMode {
+            case .absolute:
+                layoutAbsoluteChildren(descendants: &descendants)
 
-        case .stack(let stackLayout), .lazyStack(let stackLayout):
-            layoutStackChildren(stackLayout: stackLayout, descendants: &descendants)
+            case .stack(let stackLayout), .lazyStack(let stackLayout):
+                layoutStackChildren(stackLayout: stackLayout, descendants: &descendants)
 
-        case .flex(let flexStyle):
-            layoutFlexChildren(flexStyle: flexStyle, descendants: &descendants)
+            case .flex(let flexStyle):
+                layoutFlexChildren(flexStyle: flexStyle, descendants: &descendants)
 
-        case .grid(let gridLayout):
-            layoutGridChildren(gridLayout: gridLayout, descendants: &descendants)
+            case .grid(let gridLayout):
+                layoutGridChildren(gridLayout: gridLayout, descendants: &descendants)
 
-        case .gridRow(let rowLayout):
-            layoutGridRowChildren(rowLayout: rowLayout, descendants: &descendants)
+            case .gridRow(let rowLayout):
+                layoutGridRowChildren(rowLayout: rowLayout, descendants: &descendants)
+            }
         }
 
         for child in descendants.reversed() {
@@ -5183,7 +6652,7 @@ public final class ViewNode {
     /// Closes a node's layout pass, once its subtree has been laid out.
     @inline(never)
     private func finishLayoutPass() {
-        if case .absolute = layoutMode {
+        if case .absolute = layoutMode, retainedLazyListAdapter == nil {
             // Read back rather than accumulated during placement: a child with
             // `.position()` rewrites its own frame while *it* lays out, so the
             // union is only correct once the subtree below has settled.
@@ -5227,7 +6696,9 @@ public final class ViewNode {
         resolvedScrollOffset = effectiveScrollOffset
 
         var descendants: [ViewNode] = []
-        if layoutMode.virtualizesChildren, let mainAxis = layoutMode.stackLayout?.axis {
+        if retainedLazyListAdapter != nil {
+            layoutRetainedLazyListChildren(descendants: &descendants)
+        } else if layoutMode.virtualizesChildren, let mainAxis = layoutMode.stackLayout?.axis {
             let window = layoutVirtualizationWindow()
             for child in children {
                 if Self.isOutsideLayoutViewport(child.resolvedFrame, viewport: window, axis: mainAxis) {
@@ -5765,6 +7236,112 @@ public final class ViewNode {
         }
     }
 
+    /// Deferred data rows use the metadata prefix index; no placeholder node
+    /// and no factory participates in measuring or placing an absent record.
+    /// The vertical lazy stack uses the adapter's inter-leaf spacing under a
+    /// finite viewport. Styled outer padding belongs to its scroll container.
+    fileprivate func lazyListViewport(
+        displayScale: Double
+    ) -> (RetainedLazyListRuntimeAdapter.Viewport, ViewNode, Double)? {
+        var contentOrigin: Point?
+        guard !isHidden, !isRetiringLazyListAttachment, scrollAxis == nil,
+            case .lazyStack(let stack) = layoutMode, stack.axis == .vertical,
+            stack.spacing == retainedLazyListAdapter?.interLeafSpacing,
+            stack.padding == .zero, stack.mainAlignment == .start,
+            stack.distribution == .fill, stack.alignment == .leading || stack.alignment == .stretch,
+            let window = layoutVirtualizationWindow(contentOrigin: &contentOrigin),
+            let scroll = virtualizationScrollAncestor,
+            scroll.scrollAxis == .vertical, !scroll.isHidden,
+            resolvedFrame.width.isFinite, resolvedFrame.width > 0,
+            window.height.isFinite, window.height > 0,
+            let context = RetainedLazyListMeasurementContext(
+                width: resolvedFrame.width, displayScale: displayScale,
+                contentRevision: lazyListContentRevision, environmentRevision: lazyListEnvironmentRevision),
+            let viewport = RetainedLazyListRuntimeAdapter.Viewport(
+                context: context, offset: window.minY, extent: window.height)
+        else { return nil }
+        // Preserve the canonical ancestor sum. Subtracting two offsets back
+        // out of the window can change its low bits when clamping scrolls.
+        guard let origin = contentOrigin?.y, origin.isFinite else { return nil }
+        return (viewport, scroll, origin)
+    }
+
+    @inline(never)
+    private func layoutRetainedLazyListChildren(descendants: inout [ViewNode]) {
+        guard let adapter = retainedLazyListAdapter else { return }
+        resolvedContentSize = sanitizedLayoutSize(
+            Size(width: resolvedFrame.width, height: adapter.contentExtent))
+        guard let runtime, let (visit, plan) = runtime.lazyListLayoutPlan(for: self) else { return }
+        if plan.hasLogicalOmissions || plan.requiresResolution {
+            virtualizationScrollAncestor?.hasVirtualizedDescendants = true
+        }
+        var recordToken: RetainedLazyListRowToken?
+        var recordOrigin = 0.0
+        var localOffset = 0.0
+        for placement in plan.placements {
+            guard runtime.lazyListVisitIsCurrent(visit), placement.node.parent === self,
+                placement.node.runtime === runtime
+            else {
+                runtime.rejectLazyListLayoutVisit()
+                return
+            }
+            if recordToken != placement.token {
+                recordToken = placement.token
+                recordOrigin = placement.originY
+                localOffset = 0
+            }
+            let child = placement.node
+            let attachment = child.captureLazyListAttachmentProof()
+            // The measured prefix places later records. Natural measurement
+            // of this bounded mounted leaf also detects local state changes
+            // which do not replace the provider's logical generation.
+            let measured: Size
+            if child.isHidden {
+                measured = .zero
+            } else if child.retainedLazyListGap != nil {
+                // An unknown predecessor gives provisional zero geometry.
+                // The adapter withholds measurement publication/settlement
+                // until its bounded native boundary query has an answer.
+                measured = Size(width: resolvedFrame.width, height: placement.extent ?? 0)
+            } else {
+                measured = child.sizeThatFits(in: LayoutConstraints(maxWidth: resolvedFrame.width))
+            }
+            guard runtime.lazyListVisitIsCurrent(visit), attachment.isCurrent,
+                measured.width.isFinite, measured.height.isFinite, measured.height >= 0
+            else {
+                runtime.rejectLazyListLayoutVisit()
+                return
+            }
+            let measuredWidth = min(resolvedFrame.width, max(0, measured.width))
+            let expands =
+                layoutMode.stackLayout?.alignment == .stretch
+                || (measuredWidth == 0 && child.expandsAlongStackCrossAxis)
+            let width = child.isHidden ? 0 : expands ? resolvedFrame.width : measuredWidth
+            let origin = recordOrigin + localOffset
+            localOffset += measured.height + adapter.interLeafSpacing
+            guard origin.isFinite, localOffset.isFinite else {
+                runtime.rejectLazyListLayoutVisit()
+                return
+            }
+            let crossOrigin =
+                stackCrossOriginUsingAlignmentGuide(
+                    for: child, stackAxis: .vertical,
+                    stackAlignment: layoutMode.stackLayout?.alignment ?? .leading,
+                    contentOrigin: 0, contentExtent: resolvedFrame.width, childExtent: width) ?? 0
+            guard crossOrigin.isFinite else {
+                runtime.rejectLazyListLayoutVisit()
+                return
+            }
+            child.resolvedFrame = Rect(x: crossOrigin, y: origin, width: width, height: measured.height)
+            _ = child.resumeVirtualizedLayout()
+            runtime.recordLazyListLeafMeasurement(
+                placement, attachment: attachment, container: self)
+            // Even clean mounted leaves get the actual pass stamp. The
+            // traversal's existing cache still skips their unchanged subtrees.
+            if !child.isHidden { descendants.append(child) }
+        }
+    }
+
     /// Places one child of a stack and answers whether it should now be laid
     /// out — false when it is hidden, or when virtualization defers it.
     @inline(never)
@@ -6196,6 +7773,11 @@ public final class ViewNode {
     /// Kept out of line so the placement loop it is called from gains a call
     /// and not a rectangle.
     internal func layoutVirtualizationWindow() -> Rect? {
+        var contentOrigin: Point?
+        return layoutVirtualizationWindow(contentOrigin: &contentOrigin)
+    }
+
+    private func layoutVirtualizationWindow(contentOrigin: inout Point?) -> Rect? {
         guard layoutMode.virtualizesChildren else { return nil }
         var offsetX: Double = 0
         var offsetY: Double = 0
@@ -6218,6 +7800,7 @@ public final class ViewNode {
                     y: (axis == .vertical ? current.resolvedScrollOffset : 0) - offsetY,
                     width: current.resolvedFrame.size.width,
                     height: current.resolvedFrame.size.height)
+                contentOrigin = Point(x: offsetX, y: offsetY)
                 return window.origin.x.isFinite && window.origin.y.isFinite ? window : nil
             }
             offsetX += current.resolvedFrame.origin.x
@@ -7309,6 +8892,11 @@ public final class ViewNode {
         let isCompletingAppearance = isFirstAppearance || hasPendingAppearanceCallbacks
         let didMove = !isCompletingAppearance && previousFrame != nil && previousFrame != absoluteFrame
         let revision = runtime.renderLifecycleRevision
+        let taskState = lifecycleHandlers?.retainedTasks
+        let taskAppearance = taskState?.beginAppearance(in: runtime, revision: revision)
+        defer {
+            if let taskAppearance { taskState?.endAppearance(taskAppearance) }
+        }
         // Commit this event before invoking application code. Nested renders
         // must not observe an unfinished appearance or repeat a size change.
         hasAppeared = true
@@ -7339,12 +8927,28 @@ public final class ViewNode {
             for launch in launches where lifecycleTasks[launch.key] == nil {
                 launchLifecycleTask(launch)
             }
+            if let taskState = lifecycleHandlers?.retainedTasks {
+                taskState.deliverPendingAppearance(in: runtime, revision: revision)
+                guard hasAppeared, runtime.canDeliverRenderLifecycle(to: self),
+                    runtime.renderLifecycleRevision == revision
+                else { return }
+            }
             hasPendingAppearanceCallbacks = false
             if scrollIndicatorsFlashOnAppear {
                 runtime.flashScrollIndicator(for: self)
             }
         }
         if didMove { onSizeChange?(absoluteFrame) }
+        guard isRetainedLazyTaskRenderAdmissionCurrent(in: runtime, revision: revision) else { return }
+        if let activity = retainedLazyListActivityStorage {
+            // Record an actual completed render for this physical generation.
+            // A later first Task modifier may reuse this native fact; flags
+            // alone cannot prove that appearance predates no detach/reattach.
+            lifecycleHandlers?.completedLazyTaskAppearance = activity.captureActualAttachment(of: self, in: runtime)
+        }
+        if let taskState, lifecycleHandlers?.retainedTasks === taskState {
+            taskState.noteLazyTaskRenderAdmission(in: runtime, revision: revision)
+        }
     }
 
     /// The replay key both walks mint, out of line so each pays for one key
@@ -7903,6 +9507,10 @@ public final class ViewNode {
     }
 
     private func invalidateRuntime(_ flags: DirtyFlags = .all) {
+        // Only the receiver's authored layout changes revoke this stamp.
+        // Dirty propagation from a child is not an ancestor configuration
+        // change, and an admitted child-list replacement has its own proof.
+        if flags.contains(.layout) { lifecycleHandlers?.lazyListLayoutIdentity = nil }
         markDirty(flags)
         runtime?.invalidate(flags, from: self)
     }
@@ -8229,6 +9837,21 @@ public final class ViewNode {
         let displayScale = runtime?.displayScale ?? 1.0
         let effectiveConstraints = applyingLayoutConstraints(to: constraints)
         let cacheKey = ViewMeasureCacheKey(constraints: effectiveConstraints, displayScale: displayScale)
+        if let adapter = retainedLazyListAdapter {
+            // This branch intentionally precedes both cache probes. Prefix
+            // updates are scalar metadata, not a reason to measure all rows.
+            let width =
+                effectiveConstraints.maxWidth.isFinite
+                ? max(0, effectiveConstraints.maxWidth) : max(0, explicitWidth ?? frame.width)
+            let measured = applyingExplicitDimensions(
+                to: Size(width: width, height: adapter.contentExtent), constraints: effectiveConstraints)
+            let resolved = sanitizedLayoutSize(measured)
+            cachedMeasurement = ViewMeasurementCacheEntry(
+                key: cacheKey,
+                result: ViewMeasurementResult(
+                    size: resolved, fittedAspect: nil, inheritedFillAxes: inheritedStackFillAxes))
+            return resolved
+        }
         let layoutDirtyFlags = subtreeDirtyFlags.intersection([.layout, .children])
         if layoutDirtyFlags.isEmpty, let cachedMeasurement, cachedMeasurement.key == cacheKey {
             return reuseMeasuredSize(cachedMeasurement.result, cacheKey: cacheKey)
@@ -9390,17 +11013,30 @@ public final class ViewNode {
     /// gradient wins over `backgroundColor` at paint time, so a tween that
     /// moved only the colour under a snapped gradient would not be visible at
     /// all.
+    @discardableResult
     func applyReconcileFillTween(
         fromBackgroundColor: Color?, fromBackgroundGradient: GradientType?,
-        animation: AnimationTransaction?, animationsDisabled: Bool
-    ) {
-        guard let runtime else { return }
+        animation: AnimationTransaction?, animationsDisabled: Bool,
+        admission: RetainedLazyListAdoptionAdmission? = nil,
+        nativeCheck: ComponentHost.NodeReconcileAdmission? = nil
+    ) -> Bool {
+        guard admission?.isCurrent != false, nativeCheck?.isCurrent != false else { return false }
+        guard let runtime else { return true }
+        let attachment = admission == nil ? nil : captureLazyListAttachmentProof()
         if let target = backgroundColor {
             let fromBackgroundColor = fromBackgroundColor ?? .clear
-            if fromBackgroundColor != target { backgroundColor = fromBackgroundColor }
-            runtime.reconcileColor(
-                .background, of: self, to: target, animation: animation, animationsDisabled: animationsDisabled)
+            if fromBackgroundColor != target {
+                admission?.markMutationStarted()
+                backgroundColor = fromBackgroundColor
+            }
+            guard
+                runtime.reconcileColor(
+                    .background, of: self, to: target, animation: animation,
+                    animationsDisabled: animationsDisabled, admission: admission, nativeCheck: nativeCheck),
+                admission?.isCurrent != false, attachment?.isCurrent != false, nativeCheck?.isCurrent != false
+            else { return false }
         } else if fromBackgroundColor != nil {
+            admission?.markMutationStarted()
             runtime.cancelColorAnimation(.background, of: self)
         }
         if let fromBackgroundGradient, let target = backgroundGradient {
@@ -9408,17 +11044,30 @@ public final class ViewNode {
             let endColor = target.endColor
             let startingGradient = target.replacingStartColor(with: fromBackgroundGradient.startColor)
                 .replacingEndColor(with: fromBackgroundGradient.endColor)
-            if backgroundGradient != startingGradient { backgroundGradient = startingGradient }
-            runtime.reconcileColor(
-                .backgroundGradientStart, of: self, to: startColor,
-                animation: animation, animationsDisabled: animationsDisabled)
-            runtime.reconcileColor(
-                .backgroundGradientEnd, of: self, to: endColor,
-                animation: animation, animationsDisabled: animationsDisabled)
+            if backgroundGradient != startingGradient {
+                admission?.markMutationStarted()
+                backgroundGradient = startingGradient
+            }
+            guard
+                runtime.reconcileColor(
+                    .backgroundGradientStart, of: self, to: startColor,
+                    animation: animation, animationsDisabled: animationsDisabled, admission: admission,
+                    nativeCheck: nativeCheck),
+                admission?.isCurrent != false, attachment?.isCurrent != false, nativeCheck?.isCurrent != false
+            else { return false }
+            guard
+                runtime.reconcileColor(
+                    .backgroundGradientEnd, of: self, to: endColor,
+                    animation: animation, animationsDisabled: animationsDisabled, admission: admission,
+                    nativeCheck: nativeCheck),
+                admission?.isCurrent != false, attachment?.isCurrent != false, nativeCheck?.isCurrent != false
+            else { return false }
         } else if backgroundGradient == nil, fromBackgroundGradient != nil {
+            admission?.markMutationStarted()
             runtime.cancelColorAnimation(.backgroundGradientStart, of: self)
             runtime.cancelColorAnimation(.backgroundGradientEnd, of: self)
         }
+        return admission?.isCurrent != false && attachment?.isCurrent != false && nativeCheck?.isCurrent != false
     }
 
     func applyInsertionTransition() {
@@ -10122,6 +11771,163 @@ package final class RetainedAccessibilityTarget {
     }
 }
 
+/// One already accepted List reveal. The runtime owns this finite native
+/// record, not a selection binding, row factory, or public controller. Its
+/// endpoints and attachment paths remain weak, and its receipt points back
+/// weakly so terminal cancellation has no actor-deinit or reference cycle.
+@MainActor
+final class RetainedListNavigationRevealContinuation {
+    enum State { case unarmed, waiting, consuming, finished }
+
+    private(set) var receipt: RetainedListNavigationReceipt?
+    private(set) var state = State.unarmed
+    fileprivate weak var target: ViewNode?
+    fileprivate weak var container: ViewNode?
+    fileprivate let targetAttachment: RetainedAccessibilityTarget
+    fileprivate let containerAttachment: RetainedAccessibilityTarget
+    fileprivate let containerEpoch: RetainedScrollSourceEpoch?
+    fileprivate let axis: ScrollAxis
+    fileprivate let pointerSequence: UInt64
+    fileprivate var scrollIntent: RetainedLazyListAttachmentIdentity
+    fileprivate var expectedOffset: Double
+    fileprivate var hasAnimation = false
+    fileprivate var animationHasCompleted = false
+    fileprivate var focusResolutionSequence: UInt64?
+    fileprivate var focusGeometryRevision: UInt64?
+
+    fileprivate init(
+        receipt: RetainedListNavigationReceipt, target: ViewNode, container: ViewNode,
+        targetAttachment: RetainedAccessibilityTarget, containerAttachment: RetainedAccessibilityTarget,
+        axis: ScrollAxis, pointerSequence: UInt64
+    ) {
+        self.receipt = receipt
+        self.target = target
+        self.container = container
+        self.targetAttachment = targetAttachment
+        self.containerAttachment = containerAttachment
+        containerEpoch = container.scrollSourceEpoch
+        self.axis = axis
+        self.pointerSequence = pointerSequence
+        scrollIntent = container.captureLazyListScrollIntentIdentity()
+        expectedOffset = container.scrollOffset
+    }
+
+    fileprivate func arm() -> Bool {
+        guard state == .unarmed else { return false }
+        state = .waiting
+        return true
+    }
+
+    fileprivate func take() -> Bool {
+        guard state == .waiting else { return false }
+        state = .consuming
+        return true
+    }
+
+    fileprivate func finish() {
+        state = .finished
+        receipt = nil
+    }
+}
+
+/// An on-demand logical List item, not an offscreen ViewNode or an authority
+/// to run row actions. The token owns only native identity markers; every
+/// runtime, adapter, and container reference is weak. A replaced adapter or
+/// physical attachment invalidates an escaped action item instead of retargeting
+/// it. A native membership marker can separately keep UIA identity metadata
+/// across an accepted source continuation; it grants no action authority.
+@MainActor
+package final class RetainedLazyListAccessibilityItem {
+    package let token: RetainedLazyListRowToken
+    package private(set) weak var container: ViewNode?
+    fileprivate weak var content: ViewNode?
+    fileprivate weak var adapter: RetainedLazyListRuntimeAdapter?
+    fileprivate weak var runtime: RetainedViewRuntime?
+    fileprivate let attachment: RetainedAccessibilityTarget
+    fileprivate let identity: RetainedLazyListViewIdentityProof
+    fileprivate let containerIdentity: RetainedLazyListViewIdentityProof
+    fileprivate let membership: RetainedLazyListMembershipIdentity
+    fileprivate let realizationOwner = RetainedLazyListLogicalRealizationOwner()
+    fileprivate var realization: RetainedLazyListLogicalRealization?
+
+    fileprivate init(
+        token: RetainedLazyListRowToken, container: ViewNode, content: ViewNode,
+        adapter: RetainedLazyListRuntimeAdapter, runtime: RetainedViewRuntime,
+        attachment: RetainedAccessibilityTarget
+    ) {
+        self.token = token
+        self.container = container
+        self.content = content
+        self.adapter = adapter
+        self.runtime = runtime
+        self.attachment = attachment
+        identity = content.captureLazyListIdentityProof()
+        containerIdentity = container.captureLazyListIdentityProof()
+        membership = adapter.logicalMembershipIdentity
+    }
+
+    /// Nil is unknown, not a promise that an element has one projected row.
+    package var knownLeafCount: Int? {
+        guard runtime?.isLazyListAccessibilityItemCurrent(self) == true else { return nil }
+        return adapter?.knownLeafCount(for: token)
+    }
+}
+
+/// One synchronous UIA preparation. Only native anchor corrections may advance
+/// its scroll intent; every source, attachment, and input proof stays original.
+@MainActor
+private final class RetainedLazyListAccessibilityPreparation {
+    let token: RetainedLazyListRowToken
+    let witness: RetainedLazyListAccessibilityItem
+    weak var adapter: RetainedLazyListRuntimeAdapter?
+    let descriptor: RetainedLazyListManagedLogicalDescriptorBinding?
+    let generation: RetainedLazyListGeneration
+    let mutation: RetainedAccessibilityMutation
+    weak var scroll: ViewNode?
+    let scrollAttachment: RetainedAccessibilityTarget
+    let scrollEpoch: RetainedScrollSourceEpoch?
+    var scrollIntent: RetainedLazyListAttachmentIdentity
+    var reservedAnchorIntent: RetainedLazyListAttachmentIdentity?
+    let focusRevision: UInt64
+    let pointerSequence: UInt64
+    let modal: ObjectIdentifier?
+    var isActive = true
+
+    init(
+        token: RetainedLazyListRowToken, witness: RetainedLazyListAccessibilityItem,
+        adapter: RetainedLazyListRuntimeAdapter, descriptor: RetainedLazyListManagedLogicalDescriptorBinding?,
+        generation: RetainedLazyListGeneration, mutation: RetainedAccessibilityMutation,
+        scroll: ViewNode, scrollAttachment: RetainedAccessibilityTarget,
+        focusRevision: UInt64, pointerSequence: UInt64, modal: ObjectIdentifier?
+    ) {
+        self.token = token
+        self.witness = witness
+        self.adapter = adapter
+        self.descriptor = descriptor
+        self.generation = generation
+        self.mutation = mutation
+        self.scroll = scroll
+        self.scrollAttachment = scrollAttachment
+        scrollEpoch = scroll.scrollSourceEpoch
+        scrollIntent = scroll.captureLazyListScrollIntentIdentity()
+        self.focusRevision = focusRevision
+        self.pointerSequence = pointerSequence
+        self.modal = modal
+    }
+}
+
+/// Ready roots are actual retained output. An after-layout caller may use
+/// their current pass geometry for programmatic scrolling; focus and UIA must
+/// still obtain their separate completed settlement/attachment authority.
+@MainActor
+package enum RetainedLazyListTargetResolution {
+    case ready([ViewNode])
+    case pending
+    case empty
+    case obsolete
+    case unsupported
+}
+
 @MainActor
 private final class RetainedAccessibilityScrollContinuation {
     let mutation: RetainedAccessibilityMutation
@@ -10633,6 +12439,10 @@ public final class RetainedViewRuntime {
     private var pendingDirtyNodes: [PendingNodeInvalidation] = []
     private var pendingAfterLayoutActions: [String: @MainActor () -> Void] = [:]
     private var pendingAfterLayoutActionKeys: [String] = []
+    private var preparedListNavigationReplays: [ObjectIdentifier: PreparedListNavigationReplay] = [:]
+    private var retiredPreparedListNavigationRetirements: [@MainActor () -> Void] = []
+    private var hasFinishedRenderLifecycleTaskCancellation = false
+    private var renderLifecycleTaskCancellationDepth = 0
     private var isDrainingAfterLayoutActions = false
     private var isUpdatingResolvedLayout = false
     private var isResolvingPresentationAction = false
@@ -10814,6 +12624,10 @@ public final class RetainedViewRuntime {
     package var layoutSettlementStatus: RetainedLayoutSettlementStatus {
         guard !layoutSettlementGenerationsExhausted else { return .unavailable }
         guard canReadLayoutSettlement else { return .unsettled }
+        // Provider replacement/close revokes its native generation even when
+        // no node property changed. A previously issued receipt cannot outlive
+        // that source proof; this check never invokes provider metadata.
+        guard !hasUnresolvedLazyListLayout else { return .unsettled }
         if case .settled = recordedLayoutSettlement,
             !pendingAfterLayoutActionKeys.isEmpty || !pendingPreciseScrollAlignments.isEmpty
         {
@@ -10874,7 +12688,7 @@ public final class RetainedViewRuntime {
             lastUnmutatedLayoutPassRevision == layoutSettlementGeometryRevision,
             ViewNode.traversalDepthOverflowCount == traversalOverflowCount,
             pendingAfterLayoutActionKeys.isEmpty, pendingPreciseScrollAlignments.isEmpty,
-            !hasUnresolvedLayoutSettlementReader
+            !hasUnresolvedLayoutSettlementReader, !hasUnresolvedLazyListLayout
         else { return }
 
         let identity = layoutSettlementIdentity ?? RetainedLayoutSettlementIdentity()
@@ -10919,6 +12733,414 @@ public final class RetainedViewRuntime {
     /// trees, which is what keeps the convergence loop free when no reader
     /// is on screen.
     private var pendingGeometryReaderNodes: [WeakViewNodeRef] = []
+
+    private struct LazyListRegistration {
+        weak var node: ViewNode?
+        weak var adapter: RetainedLazyListRuntimeAdapter?
+    }
+
+    fileprivate struct LazyListLayoutVisit {
+        weak var node: ViewNode?
+        weak var adapter: RetainedLazyListRuntimeAdapter?
+        weak var scrollContainer: ViewNode?
+        let attachment: RetainedLazyListAttachmentProof
+        let scrollAttachment: RetainedLazyListAttachmentProof?
+        let viewport: RetainedLazyListRuntimeAdapter.Viewport?
+        let contentOriginY: Double
+        let expectedScrollOffset: Double
+        let scrollEpoch: RetainedScrollSourceEpoch?
+        let passID: UInt64
+        let geometryRevision: UInt64
+    }
+
+    private struct LazyListLeafMeasurement {
+        let token: RetainedLazyListRowToken
+        let leafIndex: Int
+        weak var node: ViewNode?
+        let attachment: RetainedLazyListAttachmentProof
+    }
+
+    /// Only an already admitted anchor may normalize its stored offset after
+    /// the next full layout computes the enclosing range. This is a weak,
+    /// native record per affected scroll container, never a logical-row cache.
+    private struct LazyListAnchorClamp {
+        weak var node: ViewNode?
+        weak var adapter: RetainedLazyListRuntimeAdapter?
+        weak var scroll: ViewNode?
+        let adapterProof: RetainedLazyListRuntimeAdapter.LayoutProof
+        let layoutProofs: [RetainedLazyListLocalLayoutProof]
+        let scrollIntent: RetainedLazyListAttachmentIdentity
+        let scrollEpoch: RetainedScrollSourceEpoch?
+        let context: RetainedLazyListMeasurementContext
+        let contentOriginY: Double
+        let requestedOffset: Double
+        let issuingPass: UInt64
+    }
+
+    // These registries contain actual retained attachments only. Metadata and
+    // logical rows never allocate entries, and all node references are weak.
+    let lazyListLogicalHostLifetime = RetainedLazyListLogicalHostLifetime()
+    private var lazyListRegistrations: [ObjectIdentifier: LazyListRegistration] = [:]
+    private var pendingLazyListVisits: [ObjectIdentifier: LazyListLayoutVisit] = [:]
+    private var pendingLazyListOrder: [ObjectIdentifier] = []
+    private var pendingLazyListMeasurements: [ObjectIdentifier: [LazyListLeafMeasurement]] = [:]
+    private var pendingLazyListAnchorClamps: [ObjectIdentifier: LazyListAnchorClamp] = [:]
+    private var lazyListAnchorNeedsLayout = false
+    private var lazyListUnsupportedThisPass = false
+    private var lazyListResolutionBudget: RetainedLazyListWorkBudget?
+    private var lazyListResolutionDepth = 0
+    private var lazyListScrollWorkDepth = 0
+    private var isProbingLazyListScrollTarget = false
+    private var lazyListScrollSearchNeedsMoreWork = false
+    private var isResolvingLazyListLogicalTarget = false
+    private weak var lazyListLogicalRevealScroll: ViewNode?
+    private weak var lazyListAccessibilityPreparation: RetainedLazyListAccessibilityPreparation?
+    fileprivate var hasLazyListLayoutScope: Bool { lazyListResolutionBudget != nil }
+    private var lazyListElementLimit = 128
+    private var lazyListRoundLimit = 4
+    internal private(set) var lazyListResolveCount = 0
+    internal private(set) var lastLazyListWorkCompletion: RetainedLazyListWorkBudget.Completion = .complete
+    internal private(set) var lastLazyListConsumedElements = 0
+    internal private(set) var lastLazyListConsumedRounds = 0
+
+    /// Test/internal configuration only. A callback cannot expand the active
+    /// scope's budget. No continuation or retry is scheduled on exhaustion.
+    @discardableResult
+    package func configureLazyListResolutionBudget(elementLimit: Int, roundLimit: Int) -> Bool {
+        guard !isUpdatingResolvedLayout, !isResolvingLazyListLogicalTarget,
+            lazyListScrollWorkDepth == 0, !isProbingLazyListScrollTarget,
+            lazyListResolutionDepth == 0, elementLimit >= 0, roundLimit >= 0
+        else {
+            return false
+        }
+        lazyListElementLimit = elementLimit
+        lazyListRoundLimit = roundLimit
+        invalidate(.layout)
+        return true
+    }
+
+    private var hasUnresolvedLazyListLayout: Bool {
+        if !pendingLazyListAnchorClamps.isEmpty || lazyListAnchorNeedsLayout { return true }
+        guard !lazyListRegistrations.isEmpty else { return false }
+        if lazyListUnsupportedThisPass || hasActiveRetainedBuild { return true }
+        for registration in lazyListRegistrations.values {
+            guard let node = registration.node, let adapter = registration.adapter,
+                node.runtime === self, node.retainedLazyListAdapter === adapter
+            else { continue }
+            if !adapter.ownsAttachment(node) || adapter.hasUnresolvedWork { return true }
+        }
+        return false
+    }
+
+    fileprivate func registerLazyListContainer(_ node: ViewNode) {
+        guard node.runtime === self, let adapter = node.retainedLazyListAdapter,
+            !node.isRetiringLazyListAttachment, ownsLazyListAttachment(node)
+        else { return }
+        lazyListRegistrations[ObjectIdentifier(node)] = LazyListRegistration(node: node, adapter: adapter)
+        if !adapter.claimAttachment(to: node) { lazyListUnsupportedThisPass = true }
+        if lazyListResolutionDepth > 0 { ensureLazyListResolutionBudget() }
+    }
+
+    /// Legacy addChild publishes membership after assigning runtime. Finish
+    /// registration only once those nodes are actually in the retained tree;
+    /// the checked path already publishes the whole subtree before attaching.
+    fileprivate func registerLazyListAttachments(in root: ViewNode) {
+        var work: [(ViewNode, Int)] = [(root, 0)]
+        while let (node, depth) = work.popLast() {
+            guard depth < ViewNode.maximumTraversalDepth, node.runtime === self else { continue }
+            if node.retainedLazyListAdapter != nil { registerLazyListContainer(node) }
+            for child in node.children { work.append((child, depth + 1)) }
+        }
+    }
+
+    /// Revocation/registry removal is native and does not release mapped rows.
+    /// The retiring attachment holds the weak claim through its cleanup scope.
+    fileprivate func unregisterLazyListContainer(_ node: ViewNode, revokingAdapter: Bool = true) {
+        lazyListRegistrations.removeValue(forKey: ObjectIdentifier(node))
+        pendingLazyListAnchorClamps = pendingLazyListAnchorClamps.filter { _, correction in
+            correction.node != nil && correction.scroll != nil
+                && correction.node !== node && correction.scroll !== node
+        }
+        if revokingAdapter { node.retainedLazyListAdapter?.revokePendingCandidate() }
+    }
+
+    private func ensureLazyListResolutionBudget() {
+        guard lazyListResolutionBudget == nil, !lazyListRegistrations.isEmpty else { return }
+        lazyListScrollSearchNeedsMoreWork = false
+        lazyListResolutionBudget = RetainedLazyListWorkBudget(
+            elementLimit: lazyListElementLimit, roundLimit: lazyListRoundLimit)
+    }
+
+    private func finishLazyListResolutionBudgetIfIdle() {
+        guard lazyListResolutionDepth == 0, lazyListScrollWorkDepth == 0,
+            !isResolvingLazyListLogicalTarget
+        else { return }
+        if let budget = lazyListResolutionBudget {
+            lastLazyListConsumedElements = lazyListElementLimit - budget.remainingElements
+            lastLazyListConsumedRounds = lazyListRoundLimit - budget.remainingRounds
+            lastLazyListWorkCompletion = budget.completion(
+                hasPendingWork: hasUnresolvedLazyListLayout || hasUnresolvedLayoutSettlementReader
+                    || lazyListScrollSearchNeedsMoreWork)
+        } else {
+            lastLazyListConsumedElements = 0
+            lastLazyListConsumedRounds = 0
+            lastLazyListWorkCompletion = .complete
+        }
+        lazyListResolutionBudget = nil
+        lazyListScrollSearchNeedsMoreWork = false
+    }
+
+    fileprivate func ownsLazyListAttachment(_ node: ViewNode) -> Bool {
+        guard permitsRetainedActionInvocation, node.runtime === self,
+            !node.isRetiringLazyListAttachment
+        else { return false }
+        var child = node
+        var depth = 0
+        while child !== root, depth < ViewNode.maximumTraversalDepth {
+            guard let parent = child.parent, parent.runtime === self,
+                parent.children.contains(where: { $0 === child }), !parent.isRetiringLazyListAttachment
+            else { return false }
+            child = parent
+            depth += 1
+        }
+        return child === root
+    }
+
+    fileprivate func recordLazyListLayoutCandidate(_ node: ViewNode) {
+        guard let adapter = node.retainedLazyListAdapter else { return }
+        let key = ObjectIdentifier(node)
+        let context = node.lazyListViewport(displayScale: displayScale)
+        if pendingLazyListVisits[key] == nil { pendingLazyListOrder.append(key) }
+        pendingLazyListVisits[key] = LazyListLayoutVisit(
+            node: node, adapter: adapter, scrollContainer: context?.1,
+            attachment: node.captureLazyListAttachmentProof(),
+            scrollAttachment: context?.1.captureLazyListAttachmentProof(), viewport: context?.0,
+            contentOriginY: context?.2 ?? 0, expectedScrollOffset: context?.1.scrollOffset ?? 0,
+            scrollEpoch: context?.1.scrollSourceEpoch,
+            passID: layoutPassID, geometryRevision: layoutSettlementGeometryRevision)
+        if context == nil || lazyListRegistrations[key]?.adapter !== adapter || !adapter.ownsAttachment(node) {
+            lazyListUnsupportedThisPass = true
+        }
+    }
+
+    fileprivate func lazyListVisitIsCurrent(_ visit: LazyListLayoutVisit) -> Bool {
+        guard visit.passID == layoutPassID, visit.geometryRevision == layoutSettlementGeometryRevision,
+            visit.attachment.isCurrent, visit.scrollAttachment?.isCurrent == true,
+            let node = visit.node, let adapter = visit.adapter, let scroll = visit.scrollContainer,
+            let viewport = visit.viewport, ownsLazyListAttachment(node), ownsLazyListAttachment(scroll),
+            node.retainedLazyListAdapter === adapter, adapter.ownsAttachment(node),
+            lazyListRegistrations[ObjectIdentifier(node)]?.adapter === adapter,
+            scroll.scrollOffset == visit.expectedScrollOffset, scroll.scrollSourceEpoch == visit.scrollEpoch,
+            let current = node.lazyListViewport(displayScale: displayScale), current.0 == viewport,
+            current.1 === scroll, current.2 == visit.contentOriginY
+        else { return false }
+        return true
+    }
+
+    fileprivate func lazyListLayoutPlan(
+        for node: ViewNode
+    ) -> (LazyListLayoutVisit, RetainedLazyListRuntimeAdapter.LayoutPlan)? {
+        guard let visit = pendingLazyListVisits[ObjectIdentifier(node)], lazyListVisitIsCurrent(visit),
+            let viewport = visit.viewport, let adapter = visit.adapter
+        else {
+            lazyListUnsupportedThisPass = true
+            return nil
+        }
+        guard adapter.updateProtectedRoots(protectedLazyListRoots(in: node)) else {
+            lazyListUnsupportedThisPass = true
+            return nil
+        }
+        return (visit, adapter.layoutPlan(viewport: viewport))
+    }
+
+    fileprivate func rejectLazyListLayoutVisit() { lazyListUnsupportedThisPass = true }
+
+    fileprivate func recordLazyListLeafMeasurement(
+        _ placement: RetainedLazyListRuntimeAdapter.Placement,
+        attachment: RetainedLazyListAttachmentProof, container: ViewNode
+    ) {
+        pendingLazyListMeasurements[ObjectIdentifier(container), default: []].append(
+            LazyListLeafMeasurement(
+                token: placement.token, leafIndex: placement.leafIndex,
+                node: placement.node, attachment: attachment))
+    }
+
+    /// Leaf callbacks and child layout have finished before their scalar
+    /// heights reach the index. A reentrant pass, detach, context change, or
+    /// mutation anywhere in the pass leaves this batch explicitly unproven.
+    private func recordResolvedLazyListMeasurements() -> Bool {
+        var changed = false
+        for key in pendingLazyListOrder {
+            guard let visit = pendingLazyListVisits[key], lazyListVisitIsCurrent(visit),
+                let node = visit.node, let adapter = visit.adapter, let viewport = visit.viewport
+            else {
+                lazyListUnsupportedThisPass = true
+                continue
+            }
+            let records = pendingLazyListMeasurements[key, default: []]
+            var measurements: [RetainedLazyListRuntimeAdapter.Measurement] = []
+            var valid = true
+            for record in records {
+                guard let leaf = record.node, record.attachment.isCurrent, leaf.parent === node,
+                    leaf.runtime === self, leaf.isHidden || leaf.lastLayoutVisitPassID == visit.passID,
+                    leaf.resolvedFrame.height.isFinite, leaf.resolvedFrame.height >= 0
+                else {
+                    valid = false
+                    break
+                }
+                measurements.append(
+                    RetainedLazyListRuntimeAdapter.Measurement(
+                        token: record.token, leafIndex: record.leafIndex, node: leaf,
+                        extent: leaf.isHidden ? 0 : leaf.resolvedFrame.height))
+            }
+            guard valid, lazyListVisitIsCurrent(visit) else {
+                lazyListUnsupportedThisPass = true
+                continue
+            }
+            let anchor = lazyListAnchor(adapter: adapter, viewport: viewport)
+            guard let update = adapter.recordMeasurements(measurements, viewport: viewport),
+                lazyListVisitIsCurrent(visit)
+            else { continue }
+            guard publishLazyListRowChrome(records, in: node, adapter: adapter, visit: visit) else {
+                lazyListUnsupportedThisPass = true
+                continue
+            }
+            if update.extentChanged {
+                // Invalidate the old geometry before capturing this owned
+                // anchor correction. Active input, authored anchors, and
+                // explicit requests retain priority over its later range clamp.
+                node.markDirty(.layout)
+                invalidate(.layout, from: node)
+                if let anchor { _ = applyLazyListAnchor(anchor, adapter: adapter, visit: visit) }
+                changed = true
+            }
+        }
+        return changed
+    }
+
+    /// Only accepted, fully measured actual roots receive framework chrome.
+    /// This runs after leaf callbacks and outside layout traversal. Unknown
+    /// preceding output contributes estimated parity, never a prefix scan.
+    private func publishLazyListRowChrome(
+        _ records: [LazyListLeafMeasurement], in container: ViewNode,
+        adapter: RetainedLazyListRuntimeAdapter, visit: LazyListLayoutVisit
+    ) -> Bool {
+        guard records.contains(where: { $0.node?.retainedLazyListRowChrome != nil }) else { return true }
+        guard let proof = adapter.captureLayoutProof(), proof.isCurrent, lazyListVisitIsCurrent(visit) else {
+            return false
+        }
+        let groups = Dictionary(grouping: records, by: \.token)
+        for (token, group) in groups {
+            guard proof.isCurrent, lazyListVisitIsCurrent(visit) else { return false }
+            guard adapter.knownLeafCount(for: token) == group.count,
+                let ordinal = adapter.projectedRowOrdinalBefore(token)
+            else { continue }
+            var isOdd = ordinal.parity
+            for record in group.sorted(by: { $0.leafIndex < $1.leafIndex }) {
+                guard let node = record.node, record.attachment.isCurrent,
+                    node.parent === container, node.runtime === self,
+                    container.children.contains(where: { $0 === node }),
+                    proof.isCurrent, lazyListVisitIsCurrent(visit)
+                else { return false }
+                guard node.retainedLazyListGap == nil else { continue }
+                node.publishRetainedLazyListRowChrome(isOdd: isOdd, hasUnknownPrefix: ordinal.hasUnknownPrefix)
+                isOdd.toggle()
+            }
+        }
+        return proof.isCurrent && lazyListVisitIsCurrent(visit)
+    }
+
+    private func applyLazyListAnchor(
+        _ anchor: RetainedLazyListAnchor, adapter: RetainedLazyListRuntimeAdapter,
+        visit: LazyListLayoutVisit
+    ) -> Bool {
+        guard visit.passID == layoutPassID,
+            let node = visit.node, let scroll = visit.scrollContainer, let viewport = visit.viewport,
+            visit.attachment.isCurrent, visit.scrollAttachment?.isCurrent == true,
+            ownsLazyListAttachment(node), ownsLazyListAttachment(scroll), adapter.ownsAttachment(node),
+            node.retainedLazyListAdapter === adapter, lazyListAnchorMayControl(scroll),
+            scroll.scrollOffset == visit.expectedScrollOffset, scroll.scrollSourceEpoch == visit.scrollEpoch,
+            let adapterProof = adapter.captureLayoutProof(),
+            let local = adapter.resolveAnchor(anchor, viewportExtent: 0)
+        else { return false }
+        let requested = local + visit.contentOriginY
+        guard requested.isFinite, requested >= 0,
+            permitsLazyListAnchorDuringAccessibilityPreparation(in: scroll, for: node, adapter: adapter)
+        else { return false }
+        // No active tween needs cancellation, but invalidation can still
+        // release a displaced scheduler capture. A scoped UIA correction
+        // checks its reserved intent after the complete shared setter.
+        // The next layout pass clamps against the enclosing total extent.
+        // Keep this intent even when the local anchor did not move: a shorter
+        // last row can still reduce that enclosing range underneath it.
+        let changed = requested != scroll.scrollOffset
+        if changed {
+            guard setLazyListAnchorOffset(requested, in: scroll, for: node, adapter: adapter) else { return false }
+        }
+        var proofs: [RetainedLazyListLocalLayoutProof] = []
+        var ancestor: ViewNode? = node
+        while let current = ancestor, proofs.count < ViewNode.maximumTraversalDepth {
+            proofs.append(current.captureLazyListLocalLayoutProof())
+            if current === root { break }
+            ancestor = current.parent
+        }
+        pendingLazyListAnchorClamps[ObjectIdentifier(scroll)] = LazyListAnchorClamp(
+            node: node, adapter: adapter, scroll: scroll, adapterProof: adapterProof,
+            layoutProofs: proofs, scrollIntent: scroll.captureLazyListScrollIntentIdentity(),
+            scrollEpoch: scroll.scrollSourceEpoch, context: viewport.context,
+            contentOriginY: visit.contentOriginY, requestedOffset: requested, issuingPass: layoutPassID)
+        return changed
+    }
+
+    private func lazyListAnchorMayControl(_ scroll: ViewNode) -> Bool {
+        lazyListLogicalRevealScroll !== scroll
+            && !(pendingListNavigationReveal?.container === scroll
+                && pendingListNavigationReveal.map(isListNavigationRevealCurrent) == true)
+            && scroll.scrollAxis == .vertical && scroll.scrollPresentedDelta == 0 && scroll.scrollOvershoot == 0
+            && scrollPresentedTweens[ObjectIdentifier(scroll)] == nil
+            && scrollMomenta[ObjectIdentifier(scroll)] == nil
+            && scrollDragState?.node !== scroll && activeScrollIndicatorNode !== scroll
+            && !pendingPreciseScrollAlignments.contains(where: { $0.container === scroll })
+            && scroll.initialScrollAnchor == nil && scroll.scrollSizeChangeAnchor == nil
+    }
+
+    private func normalizeLazyListAnchorOffsets() -> Bool {
+        guard !pendingLazyListAnchorClamps.isEmpty else { return false }
+        let corrections = pendingLazyListAnchorClamps
+        pendingLazyListAnchorClamps = [:]
+        var changed = false
+        for correction in corrections.values {
+            guard correction.issuingPass != layoutPassID, correction.adapterProof.isCurrent,
+                correction.layoutProofs.allSatisfy(\.isCurrent),
+                let node = correction.node, let adapter = correction.adapter, let scroll = correction.scroll,
+                ownsLazyListAttachment(node), ownsLazyListAttachment(scroll), adapter.ownsAttachment(node),
+                node.retainedLazyListAdapter === adapter, lazyListAnchorMayControl(scroll),
+                node.lastLayoutVisitPassID == layoutPassID, scroll.lastLayoutVisitPassID == layoutPassID,
+                scroll.lazyListScrollIntentIdentity === correction.scrollIntent,
+                scroll.scrollSourceEpoch == correction.scrollEpoch, scroll.scrollOffset == correction.requestedOffset,
+                let current = node.lazyListViewport(displayScale: displayScale),
+                current.0.context == correction.context, current.1 === scroll,
+                current.2 == correction.contentOriginY
+            else { continue }
+            let normalized = scroll.clampedScrollOffset(for: correction.requestedOffset)
+            guard normalized != scroll.scrollOffset else { continue }
+            // The ownership policy above excludes the callbackful cancellation
+            // path. A following bounded pass must prove the corrected viewport.
+            guard setLazyListAnchorOffset(normalized, in: scroll, for: node, adapter: adapter) else { continue }
+            changed = true
+        }
+        return changed
+    }
+
+    private func lazyListAnchor(
+        adapter: RetainedLazyListRuntimeAdapter, viewport: RetainedLazyListRuntimeAdapter.Viewport
+    ) -> RetainedLazyListAnchor? {
+        // A list cannot claim the leading edge while it lies in an earlier
+        // header or later sibling. Index capture clamps such signed offsets;
+        // adding the list origin back would otherwise scroll that content away.
+        guard viewport.offset >= 0, viewport.offset < adapter.contentExtent else { return nil }
+        return adapter.captureAnchor(at: viewport.offset)
+    }
 
     /// How many reader bodies have been rebuilt against a resolved slot over
     /// this runtime's lifetime. A test-visible convergence witness: it must
@@ -10980,6 +13202,11 @@ public final class RetainedViewRuntime {
                     && !self.isDrainingReconciliationCallbacks
                     && self.pendingLongPressCallbacks.isEmpty
                     && self.pendingRetainedBuildCompletions.isEmpty
+            },
+            layoutCallbacksAreAvailable: { [weak self] in
+                guard let self else { return false }
+                return self.canPrepareLayoutSettlement && !self.isResolvingLazyListLogicalTarget
+                    && !self.isProbingLazyListScrollTarget
             })
         retainedBuildCoordinatorStorage = coordinator
         return coordinator
@@ -11101,8 +13328,13 @@ public final class RetainedViewRuntime {
         var targetOffset: Double
         var scrollLimit: Double
         var origin: Origin
+        var listNavigationReveal: RetainedListNavigationRevealContinuation? = nil
     }
     private var scrollPresentedTweens: [ObjectIdentifier: ScrollPresentedTween] = [:]
+    private weak var latestListNavigationAction: RetainedListNavigationReceipt?
+    private var pendingListNavigationReveal: RetainedListNavigationRevealContinuation?
+    private var consumingListNavigationReveal: RetainedListNavigationRevealContinuation?
+    private var isDrainingListNavigationReveal = false
     private static let scrollKeyboardTweenDuration: Double = 0.22
 
     // MARK: - Overlay scroller reveal / auto-hide
@@ -12477,12 +14709,12 @@ public final class RetainedViewRuntime {
     /// return nil. This is layout space; node transforms are not applied.
     public func resolvedLayoutFrame(of node: ViewNode) -> Rect? {
         guard node.runtime === self, !isRendering, !isLayoutInProgress, !isResolvingLayoutFrame else { return nil }
-        isResolvingLayoutFrame = true
+        lazyListScrollWorkDepth += 1
         defer {
-            isResolvingLayoutFrame = false
-            drainPresentationFocusRestorations(layoutIsFresh: true)
+            lazyListScrollWorkDepth -= 1
+            finishLazyListResolutionBudgetIfIdle()
         }
-        updateResolvedLayout()
+        settleLayoutFrameQuery()
 
         var origin = Point.zero
         var current: ViewNode? = node
@@ -12505,6 +14737,165 @@ public final class RetainedViewRuntime {
             depth += 1
         }
         return nil
+    }
+
+    private func settleLayoutFrameQuery() {
+        isResolvingLayoutFrame = true
+        defer {
+            isResolvingLayoutFrame = false
+            let reveal = captureListNavigationRevealSettlement()
+            drainPresentationFocusRestorations(layoutIsFresh: true)
+            retainedBuildCoordinatorStorage?.retainedCallbacksDidDrain()
+            drainListNavigationReveal(reveal)
+        }
+        updateResolvedLayout()
+    }
+
+    /// Uses the existing settlement queue, not an independent scheduler.
+    /// Callers retain a native registration marker, capture their request
+    /// weakly, and recheck its exact target before any binding or focus work.
+    package func scheduleAfterLazyListLayout(
+        owner: AnyObject, perform action: @escaping @MainActor () -> Void
+    ) {
+        retainedBuildCoordinator.scheduleAfterLayoutAndBuildsSettled(owner: owner, action: action)
+    }
+
+    private func preparedListNavigationReplayKey(for owner: AnyObject) -> String {
+        "list.prepared.navigation.\(ObjectIdentifier(owner))"
+    }
+
+    /// The runtime and its existing queues own this bounded payload. A receipt
+    /// never stores the callbacks, so callbacks may retain a facade request
+    /// without forming a receipt/request cycle. The native owner keeps the
+    /// ObjectIdentifier key alive; the exact receipt reference remains weak.
+    @MainActor
+    private final class PreparedListNavigationReplay {
+        let owner: AnyObject
+        weak var receipt: RetainedListNavigationReceipt?
+        var action: (@MainActor () -> Void)?
+        private var onCancel: (@MainActor () -> Void)?
+
+        init(
+            owner: AnyObject, receipt: RetainedListNavigationReceipt,
+            action: @escaping @MainActor () -> Void, onCancel: @escaping @MainActor () -> Void
+        ) {
+            self.owner = owner
+            self.receipt = receipt
+            self.action = action
+            self.onCancel = onCancel
+        }
+
+        /// Clear native delivery authority before any callback or captured
+        /// application payload can be released. Locals retain both payloads
+        /// until the returned retirement reaches ordinary safe cleanup.
+        func takeRetirement(notifyingCancellation: Bool) -> (@MainActor () -> Void)? {
+            guard let action, let onCancel else { return nil }
+            self.action = nil
+            self.onCancel = nil
+            return {
+                if notifyingCancellation { onCancel() }
+                withExtendedLifetime((action, onCancel)) {}
+            }
+        }
+    }
+
+    func schedulePreparedListNavigationReplay(
+        owner: AnyObject, receipt: RetainedListNavigationReceipt, afterLayout: Bool,
+        perform action: @escaping @MainActor () -> Void, onCancel: @escaping @MainActor () -> Void
+    ) {
+        beginLongPressReconciliation()
+        defer { endLongPressReconciliation() }
+        let replay = PreparedListNavigationReplay(owner: owner, receipt: receipt, action: action, onCancel: onCancel)
+        let previous = preparedListNavigationReplays.updateValue(replay, forKey: ObjectIdentifier(owner))
+        var retirements: [@MainActor () -> Void] = []
+        if let previous,
+            let retirement = previous.takeRetirement(notifyingCancellation: previous.receipt !== receipt)
+        {
+            // Rescheduling the exact receipt replaces only this delivery. A
+            // newer receipt ends the old request even if its callback is in
+            // an existing delivery snapshot or still executing below it.
+            retirements.append(retirement)
+        }
+        let delivery: @MainActor () -> Void = { [weak self, replay] in
+            self?.deliverPreparedListNavigationReplay(replay)
+        }
+        let key = preparedListNavigationReplayKey(for: owner)
+        let displaced: (@MainActor () -> Void)?
+        if afterLayout {
+            displaced = retainedBuildCoordinatorStorage?.removeSettlementCallback(owner: owner)
+            scheduleAfterLayout(key: key, perform: delivery)
+        } else {
+            displaced = pendingAfterLayoutActions.removeValue(forKey: key)
+            pendingAfterLayoutActionKeys.removeAll { $0 == key }
+            scheduleAfterLazyListLayout(owner: owner, perform: delivery)
+        }
+        if let displaced { retirements.append { withExtendedLifetime(displaced) {} } }
+        schedulePreparedListNavigationRetirements(retirements)
+    }
+
+    private func deliverPreparedListNavigationReplay(_ replay: PreparedListNavigationReplay) {
+        let identifier = ObjectIdentifier(replay.owner)
+        guard preparedListNavigationReplays[identifier] === replay else { return }
+        guard replay.receipt?.permitsPreparedNavigationReplay == true else {
+            cancelPreparedListNavigationReplay(owner: replay.owner)
+            return
+        }
+        guard let action = replay.action else { return }
+        action()
+        // Keep the native record during the call so supersession, departure,
+        // or close can cancel an executing request. A callback that reschedules
+        // itself has already installed a distinct delivery for the same intent.
+        if preparedListNavigationReplays[identifier] === replay {
+            preparedListNavigationReplays.removeValue(forKey: identifier)
+            if let retirement = replay.takeRetirement(notifyingCancellation: false) {
+                schedulePreparedListNavigationRetirements([retirement])
+            }
+        }
+        withExtendedLifetime(action) {}
+    }
+
+    func cancelPreparedListNavigationReplay(owner: AnyObject) {
+        let replay = preparedListNavigationReplays.removeValue(forKey: ObjectIdentifier(owner))
+        var retirements: [@MainActor () -> Void] = []
+        if let retirement = replay?.takeRetirement(notifyingCancellation: true) { retirements.append(retirement) }
+        let key = preparedListNavigationReplayKey(for: owner)
+        let afterLayout = pendingAfterLayoutActions.removeValue(forKey: key)
+        pendingAfterLayoutActionKeys.removeAll { $0 == key }
+        let idle = retainedBuildCoordinatorStorage?.removeSettlementCallback(owner: owner)
+        let callbacks = [afterLayout, idle].compactMap { $0 }
+        if !callbacks.isEmpty { retirements.append { withExtendedLifetime(callbacks) {} } }
+        schedulePreparedListNavigationRetirements(retirements)
+    }
+
+    private func schedulePreparedListNavigationRetirements(_ retirements: [@MainActor () -> Void]) {
+        guard !retirements.isEmpty else { return }
+        if !permitsRenderLifecycleCallbacks && !hasFinishedRenderLifecycleTaskCancellation {
+            // stopRenderLifecycleCallbacks is a native revocation prepass.
+            // Neither cancellation nor captured payload destruction may run
+            // until the host has revoked State/editor/task writes.
+            retiredPreparedListNavigationRetirements.append(contentsOf: retirements)
+            return
+        }
+        afterRetainedCallbacks { [weak self] in
+            guard let self else { return }
+            // A retirement queued while live can cross host closure before
+            // this delivery. Check the native cleanup phase again here.
+            if !self.permitsRenderLifecycleCallbacks && !self.hasFinishedRenderLifecycleTaskCancellation {
+                self.retiredPreparedListNavigationRetirements.append(contentsOf: retirements)
+                return
+            }
+            for index in retirements.indices {
+                retirements[index]()
+                if !self.permitsRenderLifecycleCallbacks && !self.hasFinishedRenderLifecycleTaskCancellation {
+                    // A notification can start host closure. Do not invoke
+                    // the remaining notifications or destroy even the already
+                    // invoked payloads until its terminal cleanup completes.
+                    self.retiredPreparedListNavigationRetirements.append(contentsOf: retirements.dropFirst(index + 1))
+                    self.retiredPreparedListNavigationRetirements.append { withExtendedLifetime(retirements) {} }
+                    return
+                }
+            }
+        }
     }
 
     /// Schedules one callback after the next complete retained layout, shared
@@ -12541,7 +14932,14 @@ public final class RetainedViewRuntime {
 
     /// A modifier outside a ScrollView observes the first enclosed container,
     /// not every nested scroller. Stop descending at each container boundary.
-    private func observedScrollSource(for owner: ViewNode, storage: RetainedScrollObserverStorage) -> ViewNode? {
+    private func observedScrollSource(
+        for owner: ViewNode, storage: RetainedScrollObserverStorage,
+        admission: RetainedLazyListAdoptionAdmission? = nil,
+        nativeCheck: ComponentHost.NodeReconcileAdmission? = nil
+    ) -> ViewNode? {
+        guard admission?.isCurrent != false, nativeCheck?.isCurrent != false else { return nil }
+        let attachment = admission == nil && nativeCheck == nil ? nil : owner.captureLazyListAttachmentProof()
+        let identity = nativeCheck == nil ? nil : owner.captureLazyListIdentityProof()
         var work: [(ViewNode, Int)] = [(owner, 0)]
         var first: ViewNode?
         while let (node, depth) = work.popLast() {
@@ -12563,7 +14961,14 @@ public final class RetainedViewRuntime {
             }
             for child in node.children.reversed() { work.append((child, depth + 1)) }
         }
-        storage.selectSource(first)
+        guard
+            storage.selectSource(
+                first, admission: admission, attachment: attachment, nativeCheck: nativeCheck,
+                owner: nativeCheck == nil ? nil : owner, ownerIdentity: identity),
+            admission?.isCurrent != false, attachment?.isCurrent != false, identity?.isCurrent != false,
+            nativeCheck?.isCurrent != false,
+            (admission == nil && nativeCheck == nil) || owner.scrollObserverStorage === storage
+        else { return nil }
         return first
     }
 
@@ -12620,22 +15025,39 @@ public final class RetainedViewRuntime {
             geometry: geometry ?? scrollGeometry(of: node, useResolvedOffset: false), velocity: velocity)
     }
 
+    @discardableResult
     private func recordScrollPhase(
         _ phase: RetainedScrollPhase,
         for node: ViewNode,
-        geometry: RetainedScrollGeometry? = nil
-    ) {
-        guard let registry = scrollObserverRegistry else { return }
+        geometry: RetainedScrollGeometry? = nil,
+        admission: RetainedLazyListAdoptionAdmission? = nil,
+        nativeCheck: ComponentHost.NodeReconcileAdmission? = nil
+    ) -> Bool {
+        guard admission?.isCurrent != false, nativeCheck?.isCurrent != false else { return false }
+        let attachment = admission == nil ? nil : node.captureLazyListAttachmentProof()
+        guard let registry = scrollObserverRegistry else { return true }
         for reference in registry.nodes {
+            guard admission?.isCurrent != false, attachment?.isCurrent != false, nativeCheck?.isCurrent != false
+            else { return false }
             guard let owner = reference.node, owner.runtime === self,
-                let storage = owner.scrollObserverStorage, !storage.phase.isEmpty,
-                observedScrollSource(for: owner, storage: storage) === node
+                let storage = owner.scrollObserverStorage, !storage.phase.isEmpty
             else { continue }
+            let ownerAttachment = admission == nil && nativeCheck == nil ? nil : owner.captureLazyListAttachmentProof()
+            let ownerIdentity = nativeCheck == nil ? nil : owner.captureLazyListIdentityProof()
+            let source = observedScrollSource(
+                for: owner, storage: storage, admission: admission, nativeCheck: nativeCheck)
+            guard admission?.isCurrent != false, attachment?.isCurrent != false,
+                ownerAttachment?.isCurrent != false, ownerIdentity?.isCurrent != false,
+                nativeCheck?.isCurrent != false,
+                (admission == nil && nativeCheck == nil) || owner.scrollObserverStorage === storage
+            else { return false }
+            guard source === node else { continue }
             if storage.currentPhase != phase {
                 storage.recordPhase(phase, context: scrollPhaseContext(of: node, geometry: geometry))
                 invalidate(.paint)
             }
         }
+        return admission?.isCurrent != false && attachment?.isCurrent != false && nativeCheck?.isCurrent != false
     }
 
     /// A final momentum tick can retire without changing a pixel. It must still
@@ -13100,8 +15522,290 @@ public final class RetainedViewRuntime {
         withExtendedLifetime(retiredValues) {}
     }
 
+    /// A valid action supersedes an older reveal even when its selection is
+    /// unchanged. Stale handlers never reach this native publication point.
+    func didPrepareListNavigationAction(_ receipt: RetainedListNavigationReceipt) {
+        latestListNavigationAction = receipt
+        if let pendingListNavigationReveal { cancelListNavigationReveal(pendingListNavigationReveal) }
+        if let consumingListNavigationReveal { cancelListNavigationReveal(consumingListNavigationReveal) }
+    }
+
+    func cancelListNavigationReveal(_ continuation: RetainedListNavigationRevealContinuation) {
+        guard continuation.state != .finished else { return }
+        let receipt = continuation.receipt
+        if pendingListNavigationReveal === continuation { pendingListNavigationReveal = nil }
+        if consumingListNavigationReveal === continuation { consumingListNavigationReveal = nil }
+        if let container = continuation.container,
+            scrollPresentedTweens[ObjectIdentifier(container)]?.listNavigationReveal === continuation
+        {
+            // Revoking focus ownership does not undo an already accepted
+            // visual scroll. A later explicit scroll owns tween cancellation.
+            scrollPresentedTweens[ObjectIdentifier(container)]?.listNavigationReveal = nil
+        }
+        continuation.finish()
+        receipt?.cancelReveal()
+    }
+
+    /// Original native intent and physical paths, without consulting layout,
+    /// providers, selection getters, or the old geometry revision. Ordinary
+    /// bounded viewport adoption is allowed to produce a later settlement.
+    func isListNavigationRevealCurrent(_ continuation: RetainedListNavigationRevealContinuation) -> Bool {
+        guard continuation.state != .finished,
+            pendingListNavigationReveal === continuation
+                || (consumingListNavigationReveal === continuation && continuation.state == .consuming),
+            let receipt = continuation.receipt, latestListNavigationAction === receipt,
+            receipt.ownsRevealContinuation(continuation), permitsRetainedActionInvocation,
+            let container = continuation.container, let target = continuation.target,
+            continuation.targetAttachment.isCurrent(in: self), continuation.containerAttachment.isCurrent(in: self),
+            container.scrollAxis == continuation.axis, container.scrollSourceEpoch == continuation.containerEpoch,
+            container.scrollOffset == continuation.expectedOffset,
+            container.lazyListScrollIntentIdentity === continuation.scrollIntent,
+            pointerSequence == continuation.pointerSequence,
+            nearestRetainedScrollContainer(of: target) === container,
+            !hasActiveScrollInputCapture(for: container), scrollMomenta[ObjectIdentifier(container)] == nil
+        else { return false }
+        let tween = scrollPresentedTweens[ObjectIdentifier(container)]
+        if continuation.hasAnimation && !continuation.animationHasCompleted {
+            guard tween?.listNavigationReveal === continuation else { return false }
+        } else if tween != nil || container.scrollPresentedDelta != 0 || container.scrollOvershoot != 0 {
+            return false
+        }
+        return true
+    }
+
+    /// Ordinary focus invalidates its own paint/chrome fields, but a nested
+    /// query, active build, or revoked logical source cannot renew the fixed
+    /// terminal settlement that admitted this asynchronous continuation.
+    func isListNavigationRevealFocusCurrent(_ continuation: RetainedListNavigationRevealContinuation) -> Bool {
+        continuation.state == .consuming && isListNavigationRevealCurrent(continuation)
+            && canReadLayoutSettlement && !hasUnresolvedLazyListLayout && !hasUnresolvedLayoutSettlementReader
+            && continuation.focusResolutionSequence == layoutSettlementResolutionSequence
+            && continuation.focusGeometryRevision == layoutSettlementGeometryRevision
+    }
+
+    private func recordOwnedListNavigationRevealFocusEffects(_ receipt: RetainedListNavigationReceipt) {
+        guard let continuation = consumingListNavigationReveal, continuation.receipt === receipt else { return }
+        guard isListNavigationRevealCurrent(continuation), canReadLayoutSettlement,
+            !hasUnresolvedLazyListLayout, !hasUnresolvedLayoutSettlementReader,
+            continuation.focusResolutionSequence == layoutSettlementResolutionSequence
+        else {
+            cancelListNavigationReveal(continuation)
+            return
+        }
+        // Called only at the existing callback-free focus mutation sites.
+        // Never update the resolution sequence or borrow a later query's proof.
+        continuation.focusGeometryRevision = layoutSettlementGeometryRevision
+    }
+
+    private func registerListNavigationReveal(
+        receipt: RetainedListNavigationReceipt, target: ViewNode, container: ViewNode, axis: ScrollAxis
+    ) -> RetainedListNavigationRevealContinuation? {
+        guard receipt.canRegisterRevealContinuation, latestListNavigationAction === receipt,
+            let targetAttachment = accessibilityTarget(for: target),
+            let containerAttachment = accessibilityTarget(for: container)
+        else { return nil }
+        let continuation = RetainedListNavigationRevealContinuation(
+            receipt: receipt, target: target, container: container,
+            targetAttachment: targetAttachment, containerAttachment: containerAttachment,
+            axis: axis, pointerSequence: pointerSequence)
+        guard receipt.registerRevealContinuation(continuation) else { return nil }
+        if let pendingListNavigationReveal { cancelListNavigationReveal(pendingListNavigationReveal) }
+        pendingListNavigationReveal = continuation
+        return continuation
+    }
+
+    func armListNavigationReveal(
+        _ continuation: RetainedListNavigationRevealContinuation, target: ViewNode,
+        receipt: RetainedListNavigationReceipt
+    ) -> Bool {
+        guard continuation.receipt === receipt, continuation.target === target,
+            receipt.permitsContinuation, isListNavigationRevealCurrent(continuation)
+        else { return false }
+        return continuation.arm()
+    }
+
+    private struct ListNavigationRevealSettlement {
+        let continuation: RetainedListNavigationRevealContinuation
+        let settlement: RetainedLayoutSettlementReceipt?
+    }
+
+    /// Capture before ordinary callbacks. A callback may invalidate this
+    /// proof, but a nested query may not lend its replacement proof to us.
+    private func captureListNavigationRevealSettlement() -> ListNavigationRevealSettlement? {
+        guard !isDrainingListNavigationReveal, let continuation = pendingListNavigationReveal,
+            continuation.state == .waiting
+        else { return nil }
+        let settlement: RetainedLayoutSettlementReceipt?
+        if case .settled(let value) = layoutSettlementStatus { settlement = value } else { settlement = nil }
+        return ListNavigationRevealSettlement(continuation: continuation, settlement: settlement)
+    }
+
+    private func drainListNavigationReveal(
+        _ captured: ListNavigationRevealSettlement?, afterRender: Bool = false
+    ) {
+        guard let captured, pendingListNavigationReveal === captured.continuation else { return }
+        _ = completeListNavigationReveal(
+            captured.continuation, settlement: captured.settlement, queryingLayout: false, afterRender: afterRender)
+    }
+
+    /// False can mean an accepted scroll waiting for ordinary layout/tween
+    /// completion. The native slot owns that continuation; callers must never
+    /// repeat their binding write or call finishNavigation on it again.
+    func completeListNavigationRevealIfReady(
+        _ continuation: RetainedListNavigationRevealContinuation, queryingLayout: Bool
+    ) -> Bool {
+        let settlement: RetainedLayoutSettlementReceipt?
+        if case .settled(let value) = layoutSettlementStatus { settlement = value } else { settlement = nil }
+        return completeListNavigationReveal(
+            continuation, settlement: settlement, queryingLayout: queryingLayout, afterRender: false)
+    }
+
+    private func completeListNavigationReveal(
+        _ continuation: RetainedListNavigationRevealContinuation,
+        settlement capturedSettlement: RetainedLayoutSettlementReceipt?, queryingLayout: Bool, afterRender: Bool
+    ) -> Bool {
+        guard !isDrainingListNavigationReveal, continuation.state == .waiting,
+            pendingListNavigationReveal === continuation
+        else { return false }
+        guard isListNavigationRevealCurrent(continuation),
+            let receipt = continuation.receipt, receipt.permitsPendingRevealContinuation(continuation),
+            let target = continuation.target, let container = continuation.container,
+            !layoutSettlementGenerationsExhausted
+        else {
+            cancelListNavigationReveal(continuation)
+            return false
+        }
+        if continuation.hasAnimation {
+            guard continuation.animationHasCompleted,
+                scrollPresentedTweens[ObjectIdentifier(container)] == nil, afterRender
+            else { return false }
+        }
+        guard canPrepareLayoutSettlement, !hasActiveRetainedBuild,
+            !isResolvingLazyListLogicalTarget, !isProbingLazyListScrollTarget
+        else { return false }
+        isDrainingListNavigationReveal = true
+        lazyListScrollWorkDepth += 1
+        defer {
+            lazyListScrollWorkDepth -= 1
+            finishLazyListResolutionBudgetIfIdle()
+            isDrainingListNavigationReveal = false
+        }
+        let settlement = queryingLayout ? queryListNavigationRevealSettlement() : capturedSettlement
+        guard isListNavigationRevealCurrent(continuation), receipt.permitsPendingRevealContinuation(continuation) else {
+            cancelListNavigationReveal(continuation)
+            return false
+        }
+        guard let settlement, isLayoutSettlementReceiptCurrent(settlement),
+            isPresentationNodeAvailable(target, requiresEnabled: false), !isListNavigationTargetDeferred(target)
+        else {
+            if listNavigationRevealCanWaitForLayout {
+                // Paint wakeup only: do not erase a settlement merely to
+                // register waiting work, or manufacture another factory budget.
+                invalidate(.paint)
+            } else {
+                cancelListNavigationReveal(continuation)
+            }
+            return false
+        }
+        if scrollVisibilityFraction(of: target) <= 0 {
+            guard
+                let requested = ViewNode.requestedScrollOffset(
+                    for: target, within: container, anchor: nil, visibleOffset: container.effectiveScrollOffset),
+                container.clampedScrollOffset(for: requested) != container.scrollOffset,
+                isListNavigationRevealCurrent(continuation), isLayoutSettlementReceiptCurrent(settlement),
+                container.assignScrollOffset(
+                    container.clampedScrollOffset(for: requested), admission: nil,
+                    continuingListReveal: continuation)
+            else {
+                cancelListNavigationReveal(continuation)
+                return false
+            }
+            // One native correction from accepted actual geometry. It owns
+            // no new tween and can build only on the next ordinary opportunity.
+            invalidate(.paint)
+            return false
+        }
+        guard isListNavigationRevealCurrent(continuation), receipt.permitsPendingRevealContinuation(continuation),
+            isLayoutSettlementReceiptCurrent(settlement), continuation.take()
+        else { return false }
+        pendingListNavigationReveal = nil
+        consumingListNavigationReveal = continuation
+        continuation.focusResolutionSequence = settlement.resolutionSequence
+        continuation.focusGeometryRevision = settlement.geometryRevision
+        defer {
+            if consumingListNavigationReveal === continuation { consumingListNavigationReveal = nil }
+            continuation.finish()
+        }
+        // Refresh only from the fixed, still-current terminal proof, before
+        // entering focus. The focus path keeps its existing callback checks.
+        receipt.recordGeometryRevision(settlement.geometryRevision)
+        return receipt.finishPendingRevealFocus(continuation, target: target, in: self, settlement: settlement)
+    }
+
+    private var listNavigationRevealCanWaitForLayout: Bool {
+        guard !layoutSettlementGenerationsExhausted, !lazyListUnsupportedThisPass else { return false }
+        switch layoutSettlementStatus {
+        case .settled:
+            // A callback produced a different proof. Require another ordinary
+            // opportunity instead of borrowing that callback's settlement.
+            return true
+        case .unavailable:
+            return false
+        case .unsettled:
+            if hasActiveRetainedBuild || !pendingAfterLayoutActionKeys.isEmpty
+                || !pendingPreciseScrollAlignments.isEmpty
+            {
+                return true
+            }
+            if hasUnresolvedLazyListLayout {
+                return lazyListResolutionBudget?.completion(hasPendingWork: true) == .budgetExhausted
+            }
+            if case .unsettled = recordedLayoutSettlement { return true }
+            return false
+        }
+    }
+
+    @inline(never)
+    private func queryListNavigationRevealSettlement() -> RetainedLayoutSettlementReceipt? {
+        guard canPrepareLayoutSettlement else { return nil }
+        isResolvingLayoutFrame = true
+        updateResolvedLayout()
+        isResolvingLayoutFrame = false
+        let settlement: RetainedLayoutSettlementReceipt?
+        if case .settled(let value) = layoutSettlementStatus { settlement = value } else { settlement = nil }
+        deliverListNavigationSettlementCallbacks()
+        guard let settlement, isLayoutSettlementReceiptCurrent(settlement) else { return nil }
+        return settlement
+    }
+
+    @inline(never)
+    private func deliverListNavigationSettlementCallbacks() {
+        drainPresentationFocusRestorations(layoutIsFresh: true)
+        retainedBuildCoordinatorStorage?.retainedCallbacksDidDrain()
+    }
+
     /// A setter may synchronously rebuild the List. Query the actual retained
     /// target once, then validate after layout callbacks and their cleanup.
+    func settlePreparedListNavigationTarget(
+        _ target: ViewNode, receipt: RetainedListNavigationReceipt
+    ) -> RetainedListNavigationReadiness {
+        guard receipt.permitsContinuation, target.runtime === self else { return .obsolete }
+        guard canPrepareLayoutSettlement, !hasActiveRetainedBuild,
+            !isResolvingLazyListLogicalTarget, !isProbingLazyListScrollTarget
+        else { return .pending }
+        guard queryListNavigationLayout(target), receipt.permitsContinuation else {
+            return receipt.permitsContinuation ? .pending : .obsolete
+        }
+        switch layoutSettlementStatus {
+        case .settled(let settlement):
+            return isLayoutSettlementReceiptCurrent(settlement) && receipt.permitsContinuation ? .ready : .pending
+        case .unsettled:
+            return .pending
+        case .unavailable:
+            return .obsolete
+        }
+    }
+
     func prepareListNavigationTarget(_ target: ViewNode, receipt: RetainedListNavigationReceipt) -> Bool {
         guard receipt.permitsContinuation, canPrepareLayoutSettlement,
             queryListNavigationLayout(target), receipt.permitsContinuation,
@@ -13425,12 +16129,29 @@ public final class RetainedViewRuntime {
         // This proof admits one offset attempt. The later realization query
         // must produce its own settlement; no callback may refresh this proof.
         listNavigation?.consumePreparedLayoutSettlement()
+        // A new explicit request supersedes prior intent even when clamping
+        // produces the same number and the ordinary setter has no work to do.
+        scrollContainer.revokeLazyListScrollIntent()
         _ = scrollContainer.setScrollOffset(requestedOffset)
         accessibility?.expectedOffset = scrollContainer.scrollOffset
+        let listReveal: RetainedListNavigationRevealContinuation?
+        if let listNavigation, listNavigation.canRegisterRevealContinuation {
+            guard
+                let continuation = registerListNavigationReveal(
+                    receipt: listNavigation, target: descendant, container: scrollContainer, axis: axis)
+            else {
+                listNavigation.cancelReveal()
+                return false
+            }
+            listReveal = continuation
+        } else {
+            listReveal = nil
+        }
         let delta = presentedOffset - scrollContainer.scrollOffset
         if let animation, animation.duration.isFinite, animation.duration > 0,
             timestamp.isFinite, delta.isFinite, delta != 0
         {
+            listReveal?.hasAnimation = true
             scrollContainer.scrollPresentedDelta = delta
             scrollPresentedTweens[ObjectIdentifier(scrollContainer)] = ScrollPresentedTween(
                 node: scrollContainer,
@@ -13441,7 +16162,8 @@ public final class RetainedViewRuntime {
                 duration: animation.duration,
                 targetOffset: scrollContainer.scrollOffset,
                 scrollLimit: scrollContainer.maxScrollOffset,
-                origin: .programmatic(animation.easing)
+                origin: .programmatic(animation.easing),
+                listNavigationReveal: listReveal
             )
             if let accessibility {
                 invalidate(.paint)
@@ -13486,7 +16208,7 @@ public final class RetainedViewRuntime {
         pendingPreciseScrollAlignments.removeAll {
             $0.container == nil || $0.target == nil || $0.container === scrollContainer
         }
-        if target !== descendant {
+        if target !== descendant, listNavigation?.hasNativeRevealContinuation != true {
             pendingPreciseScrollAlignments.append(
                 PendingPreciseScrollAlignment(
                     target: descendant,
@@ -13881,30 +16603,51 @@ public final class RetainedViewRuntime {
     /// A rebuild with the same colour destination must keep the original
     /// tween, just as it does for scalar properties. Re-seeding it here would
     /// prevent a switch's track from ever arriving during frequent updates.
+    @discardableResult
     fileprivate func reconcileColor(
         _ property: AnimatedColorProperty, of node: ViewNode, to targetColor: Color,
-        animation: AnimationTransaction?, animationsDisabled: Bool
-    ) {
+        animation: AnimationTransaction?, animationsDisabled: Bool,
+        admission: RetainedLazyListAdoptionAdmission? = nil,
+        nativeCheck: ComponentHost.NodeReconcileAdmission? = nil
+    ) -> Bool {
+        guard admission?.isCurrent != false, nativeCheck?.isCurrent != false else { return false }
         let key = ColorAnimationKey(node: node, property: property)
-        if !animationsDisabled, colorAnimations[key]?.endColor == targetColor { return }
+        if !animationsDisabled, colorAnimations[key]?.endColor == targetColor { return true }
         if !animationsDisabled, property == .background, let running = colorAnimations[key],
             let surface = node.interactionSurface,
             surface.background(for: interactionPhase(for: node)) == running.endColor
         {
-            return
+            return true
         }
         guard node.color(for: property) != targetColor else {
+            admission?.markMutationStarted()
             colorAnimations.removeValue(forKey: key)
-            return
+            return true
         }
         if let animation, animation.duration > 0, !animationsDisabled {
+            let timestamp: Double
+            if let admission {
+                let attachment = node.captureLazyListAttachmentProof()
+                guard let currentTime = node.reconciliationAnimationTime(admission: admission),
+                    admission.isCurrent, attachment.isCurrent
+                else { return false }
+                timestamp = currentTime
+            } else {
+                // Preserve the ordinary runtime clock, including its original
+                // ownership if an unguarded caller supplied a detached node.
+                timestamp = clock()
+            }
+            guard nativeCheck?.isCurrent != false else { return false }
+            admission?.markMutationStarted()
             animateColor(
                 property, of: node, to: targetColor, duration: animation.duration,
-                at: clock(), easing: animation.easing)
+                at: timestamp, easing: animation.easing)
         } else {
+            admission?.markMutationStarted()
             colorAnimations.removeValue(forKey: key)
             if node.color(for: property) != targetColor { node.setColor(targetColor, for: property) }
         }
+        return admission?.isCurrent != false && nativeCheck?.isCurrent != false
     }
 
     fileprivate func cancelColorAnimation(_ property: AnimatedColorProperty, of node: ViewNode) {
@@ -14046,7 +16789,17 @@ public final class RetainedViewRuntime {
         }
     }
 
-    fileprivate func disableScrollInput(for node: ViewNode) {
+    fileprivate func hasActiveScrollInputCapture(for node: ViewNode) -> Bool {
+        scrollDragState?.node === node || activeScrollIndicatorNode === node
+    }
+
+    @discardableResult
+    fileprivate func disableScrollInput(
+        for node: ViewNode, admission: RetainedLazyListAdoptionAdmission? = nil,
+        nativeCheck: ComponentHost.NodeReconcileAdmission? = nil
+    ) -> Bool {
+        guard admission?.isCurrent != false, nativeCheck?.isCurrent != false else { return false }
+        let attachment = admission == nil ? nil : node.captureLazyListAttachmentProof()
         // Freeze an in-flight keyboard tween or glide where the content is
         // currently presented, rather than exposing its logical target when
         // the presentation delta is cleared. Rubber-band space is clamped
@@ -14056,12 +16809,26 @@ public final class RetainedViewRuntime {
         cancelScrollMomentum(for: node)
         if !hasProgrammaticTween {
             cancelScrollPresentedTween(for: node, cancelsPendingAlignment: false)
-            _ = node.setScrollOffset(presentedOffset)
+            let nextOffset = node.clampedScrollOffset(for: presentedOffset)
+            if nextOffset != node.scrollOffset,
+                !node.assignScrollOffset(nextOffset, admission: admission, nativeCheck: nativeCheck)
+            {
+                return false
+            }
         }
+        guard admission?.isCurrent != false, attachment?.isCurrent != false, nativeCheck?.isCurrent != false
+        else { return false }
         if scrollDragState?.node === node || activeScrollIndicatorNode === node {
+            // Offset observers above can start a new interaction. Legacy
+            // cancellation does not carry checked admission through its
+            // hover, phase, clock, and chrome callbacks; never enter it here.
+            guard admission == nil, nativeCheck == nil else { return false }
             pointerCancelled()
         }
-        recordScrollPhase(hasProgrammaticTween ? .animating : .idle, for: node)
+        guard admission?.isCurrent != false, attachment?.isCurrent != false, nativeCheck?.isCurrent != false
+        else { return false }
+        return recordScrollPhase(
+            hasProgrammaticTween ? .animating : .idle, for: node, admission: admission, nativeCheck: nativeCheck)
     }
 
     /// Drops any in-flight presented scroll tween for `node` so the next
@@ -14071,6 +16838,12 @@ public final class RetainedViewRuntime {
         preservingPresentation: Bool = false,
         cancelsPendingAlignment: Bool = true
     ) {
+        if let pendingListNavigationReveal, pendingListNavigationReveal.container === node {
+            cancelListNavigationReveal(pendingListNavigationReveal)
+        }
+        if let consumingListNavigationReveal, consumingListNavigationReveal.container === node {
+            cancelListNavigationReveal(consumingListNavigationReveal)
+        }
         if cancelsPendingAlignment {
             pendingPreciseScrollAlignments.removeAll {
                 $0.container === node || $0.container == nil || $0.target == nil
@@ -14085,12 +16858,29 @@ public final class RetainedViewRuntime {
         }
     }
 
-    fileprivate func cancelProgrammaticScrollIfTargetChanged(for node: ViewNode) {
+    @discardableResult
+    fileprivate func cancelProgrammaticScrollIfTargetChanged(
+        for node: ViewNode, admission: RetainedLazyListAdoptionAdmission? = nil,
+        nativeCheck: ComponentHost.NodeReconcileAdmission? = nil
+    ) -> Bool {
+        guard admission?.isCurrent != false, nativeCheck?.isCurrent != false else { return false }
+        if let pendingListNavigationReveal, pendingListNavigationReveal.container === node,
+            node.scrollOffset != pendingListNavigationReveal.expectedOffset
+                || node.lazyListScrollIntentIdentity !== pendingListNavigationReveal.scrollIntent
+        {
+            cancelListNavigationReveal(pendingListNavigationReveal)
+        }
+        if let consumingListNavigationReveal, consumingListNavigationReveal.container === node,
+            node.scrollOffset != consumingListNavigationReveal.expectedOffset
+                || node.lazyListScrollIntentIdentity !== consumingListNavigationReveal.scrollIntent
+        {
+            cancelListNavigationReveal(consumingListNavigationReveal)
+        }
         guard let tween = scrollPresentedTweens[ObjectIdentifier(node)],
             tween.origin.isProgrammatic, node.scrollOffset != tween.targetOffset
-        else { return }
+        else { return true }
         cancelScrollPresentedTween(for: node)
-        recordScrollPhase(.idle, for: node)
+        return recordScrollPhase(.idle, for: node, admission: admission, nativeCheck: nativeCheck)
     }
 
     private func settleProgrammaticScrollRangeChanges() -> Bool {
@@ -14614,8 +17404,16 @@ public final class RetainedViewRuntime {
     /// This terminal revocation also prevents retained accessibility actions
     /// from entering application code through the still-inspectable tree.
     public func stopRenderLifecycleCallbacks() {
+        lazyListLogicalHostLifetime.revoke()
         permitsRenderLifecycleCallbacks = false
+        lazyListAccessibilityPreparation?.isActive = false
+        lazyListAccessibilityPreparation = nil
+        if let pendingListNavigationReveal { cancelListNavigationReveal(pendingListNavigationReveal) }
+        if let consumingListNavigationReveal { cancelListNavigationReveal(consumingListNavigationReveal) }
         renderLifecycleRevision &+= 1
+        pendingLazyListAnchorClamps = [:]
+        lazyListAnchorNeedsLayout = false
+        for registration in lazyListRegistrations.values { registration.adapter?.revokePendingCandidate() }
         for request in pendingPresentationFocusRequests { request.revoke() }
         var nodes = [root] + transitionOverlays
         var visited = Set<ObjectIdentifier>()
@@ -14624,6 +17422,10 @@ public final class RetainedViewRuntime {
             nodes.append(contentsOf: node.children)
             node.listNavigationOwner?.revoke()
         }
+        // Also retire a slot already removed from an ordinary queue for
+        // delivery, or whose stale scope no longer appears in the live tree.
+        let replayOwners = preparedListNavigationReplays.values.map(\.owner)
+        for owner in replayOwners { cancelPreparedListNavigationReplay(owner: owner) }
     }
 
     /// Cancel a closed host's tasks only after its editor and State writes
@@ -14631,19 +17433,46 @@ public final class RetainedViewRuntime {
     /// code. Clear every owned task slot before the first handler runs, without
     /// synthesizing disappearance, focus changes, or platform callbacks.
     public func cancelRenderLifecycleTasks() {
+        renderLifecycleTaskCancellationDepth += 1
+        if renderLifecycleTaskCancellationDepth == 1 { hasFinishedRenderLifecycleTaskCancellation = false }
+        let navigationRetirements = retiredPreparedListNavigationRetirements
+        retiredPreparedListNavigationRetirements.removeAll()
+        let groupTaskCleanup = ViewNode.claimLazyGroupTaskDepartures(in: [root] + transitionOverlays)
         let focusRequests = pendingPresentationFocusRequests
         for request in focusRequests { request.revoke() }
         pendingPresentationFocusRequests.removeAll()
         var nodes = [root] + transitionOverlays
         var visited = Set<ObjectIdentifier>()
         var tasks: [Task<Void, Never>] = []
+        var scopedRetirements: [RetainedTaskRetirement] = []
         while let node = nodes.popLast() {
             guard visited.insert(ObjectIdentifier(node)).inserted else { continue }
             nodes.append(contentsOf: node.children)
             tasks.append(contentsOf: node.takeLifecycleTasks(retiring: true))
+            if let state = node.existingRetainedTaskState {
+                scopedRetirements.append(state.takeForTerminal())
+            }
         }
         for request in focusRequests { request.finish() }
         for task in tasks { task.cancel() }
+        for retirement in scopedRetirements { retirement.cancel() }
+        for cleanup in groupTaskCleanup { cleanup.finish() }
+        withExtendedLifetime(scopedRetirements) {}
+        renderLifecycleTaskCancellationDepth -= 1
+        guard renderLifecycleTaskCancellationDepth == 0 else {
+            // A cancellation handler may request task cleanup again. Its
+            // nested return cannot release payloads before the outer batch
+            // finishes the task retirements that were already claimed.
+            retiredPreparedListNavigationRetirements =
+                navigationRetirements + retiredPreparedListNavigationRetirements
+            return
+        }
+        hasFinishedRenderLifecycleTaskCancellation = !permitsRenderLifecycleCallbacks
+        // Task cleanup can reenter and retire another replay. Publish the
+        // completed native cleanup phase before releasing either batch.
+        let reentrantNavigationRetirements = retiredPreparedListNavigationRetirements
+        retiredPreparedListNavigationRetirements.removeAll()
+        schedulePreparedListNavigationRetirements(navigationRetirements + reentrantNavigationRetirements)
     }
 
     /// An accepted rebuild can retain a node while replacing its callbacks and
@@ -14666,6 +17495,10 @@ public final class RetainedViewRuntime {
             depth += 1
         }
         return false
+    }
+
+    fileprivate func isDeliveringRetainedTaskAppearance(revision: UInt64) -> Bool {
+        isDeliveringRenderLifecycleCallbacks && renderLifecycleRevision == revision
     }
 
     /// Both presentation paths enter here after layout has settled. Neither a
@@ -14755,6 +17588,10 @@ public final class RetainedViewRuntime {
             return false
         }
         isRendering = true
+        // Layout, after-layout work, and lifecycle callbacks in this owned
+        // render borrow one construction budget. An onAppear scroll request
+        // must not obtain another full budget after the initial layout ends.
+        lazyListScrollWorkDepth += 1
         pendingDirtyFlags = []
         pendingDirtyNodes.removeAll(keepingCapacity: true)
         return true
@@ -14771,6 +17608,10 @@ public final class RetainedViewRuntime {
     /// added inside the pass cannot leave `isRendering` stuck true.
     private func endRenderPass(ownsPass: Bool) {
         guard ownsPass else { return }
+        defer {
+            lazyListScrollWorkDepth -= 1
+            finishLazyListResolutionBudgetIfIdle()
+        }
         isRendering = false
         for pending in pendingDirtyNodes {
             pending.node.node?.markDirty(pending.flags)
@@ -14781,8 +17622,11 @@ public final class RetainedViewRuntime {
         if let registry = scrollObserverRegistry, registry.isDelivering {
             registry.renderedDuringDelivery = true
         }
+        let reveal = captureListNavigationRevealSettlement()
         deliverScrollObservations()
         drainPresentationFocusRestorations(layoutIsFresh: true)
+        retainedBuildCoordinatorStorage?.retainedCallbacksDidDrain()
+        drainListNavigationReveal(reveal, afterRender: true)
     }
 
     /// Number of nested render passes observed since process start. Diagnostic
@@ -15304,8 +18148,15 @@ public final class RetainedViewRuntime {
         for key in Array(scrollPresentedTweens.keys) {
             guard var tween = scrollPresentedTweens[key] else { continue }
             guard let node = tween.node, node.runtime === self else {
+                if let continuation = tween.listNavigationReveal { cancelListNavigationReveal(continuation) }
                 scrollPresentedTweens.removeValue(forKey: key)
                 continue
+            }
+            if let continuation = tween.listNavigationReveal,
+                !isListNavigationRevealCurrent(continuation) || continuation.receipt?.permitsContinuation != true
+            {
+                cancelListNavigationReveal(continuation)
+                tween.listNavigationReveal = nil
             }
             guard node.scrollAxis != nil, !Self.hasHiddenAncestor(node),
                 tween.origin.isProgrammatic || node.acceptsScrollInput,
@@ -15335,6 +18186,14 @@ public final class RetainedViewRuntime {
             }
             if progress >= 1 {
                 node.scrollPresentedDelta = 0
+                if let continuation = tween.listNavigationReveal, isListNavigationRevealCurrent(continuation) {
+                    continuation.animationHasCompleted = true
+                    // An easing sample can reach zero before elapsed time
+                    // reaches its end. The terminal native transition still
+                    // needs a real render, even when no pixel delta changes.
+                    didUpdate = true
+                    invalidate(.paint)
+                }
                 scrollPresentedTweens.removeValue(forKey: key)
             } else {
                 tween.lastTime = max(tween.lastTime, timestamp)
@@ -15346,6 +18205,19 @@ public final class RetainedViewRuntime {
     }
 
     private func updateResolvedLayout() {
+        lazyListResolutionDepth += 1
+        lazyListRegistrations = lazyListRegistrations.filter { _, registration in
+            guard let node = registration.node, let adapter = registration.adapter else { return false }
+            return node.runtime === self && node.retainedLazyListAdapter === adapter
+        }
+        pendingLazyListAnchorClamps = pendingLazyListAnchorClamps.filter { _, correction in
+            guard let node = correction.node, let adapter = correction.adapter, let scroll = correction.scroll else {
+                return false
+            }
+            return correction.adapterProof.isCurrent && node.runtime === self && scroll.runtime === self
+                && node.retainedLazyListAdapter === adapter && adapter.ownsAttachment(node)
+        }
+        ensureLazyListResolutionBudget()
         let wasResolvingLayoutSettlement = isResolvingLayoutSettlement
         let wasUpdatingLayout = isUpdatingResolvedLayout
         isResolvingLayoutSettlement = true
@@ -15353,7 +18225,14 @@ public final class RetainedViewRuntime {
         defer {
             isResolvingLayoutSettlement = wasResolvingLayoutSettlement
             isUpdatingResolvedLayout = wasUpdatingLayout
+            let reveal = !wasUpdatingLayout && !isRendering ? captureListNavigationRevealSettlement() : nil
             if !wasUpdatingLayout { drainPresentationFocusRestorations(layoutIsFresh: true) }
+            if !wasUpdatingLayout, !isRendering { retainedBuildCoordinatorStorage?.retainedCallbacksDidDrain() }
+            drainListNavigationReveal(reveal)
+            // Keep the budget through nested queries and focus restoration's
+            // ordinary settle passes. Only the outermost scope releases it.
+            lazyListResolutionDepth -= 1
+            finishLazyListResolutionBudgetIfIdle()
         }
         let settlementSequence = beginLayoutSettlementResolution()
         let traversalOverflowCount = ViewNode.traversalDepthOverflowCount
@@ -15371,13 +18250,7 @@ public final class RetainedViewRuntime {
         // loop hands it back to the body that asked for it and re-lays out.
         // A tree with no reader in it never enters the loop and pays for one
         // nil-check per pass.
-        var convergenceRounds = 0
-        while convergenceRounds < Self.geometryReaderConvergenceLimit,
-            resolveGeometryReaderSlots()
-        {
-            convergenceRounds += 1
-            runLayoutPass()
-        }
+        convergeResolvedSubtrees()
 
         if settleProgrammaticScrollRangeChanges() {
             settleLayoutAfterProgrammaticScroll()
@@ -15514,11 +18387,25 @@ public final class RetainedViewRuntime {
 
     private func settleLayoutAfterProgrammaticScroll() {
         runLayoutPass()
-        var convergenceRounds = 0
-        while convergenceRounds < Self.geometryReaderConvergenceLimit,
-            resolveGeometryReaderSlots()
-        {
-            convergenceRounds += 1
+        convergeResolvedSubtrees()
+    }
+
+    private func convergeResolvedSubtrees() {
+        var legacyRounds = 0
+        while true {
+            if let budget = lazyListResolutionBudget {
+                guard budget.consumeRound() else { return }
+            } else {
+                guard legacyRounds < Self.geometryReaderConvergenceLimit else { return }
+            }
+            var changed = lazyListAnchorNeedsLayout
+            if !changed {
+                changed = recordResolvedLazyListMeasurements()
+                if resolveGeometryReaderSlots() { changed = true }
+                if let budget = lazyListResolutionBudget, resolveLazyListContainers(budget: budget) { changed = true }
+            }
+            guard changed else { return }
+            legacyRounds += 1
             runLayoutPass()
         }
     }
@@ -15545,8 +18432,21 @@ public final class RetainedViewRuntime {
         layoutPassID &+= 1
         currentPassLayoutVisitCount = 0
         pendingGeometryReaderNodes.removeAll(keepingCapacity: true)
+        pendingLazyListVisits.removeAll(keepingCapacity: true)
+        pendingLazyListOrder.removeAll(keepingCapacity: true)
+        pendingLazyListMeasurements.removeAll(keepingCapacity: true)
+        lazyListUnsupportedThisPass = false
         root.resolvedFrame = root.frame
         root.layoutSubtree(displayScale: displayScale)
+        if !wasLayoutInProgress, lazyListResolutionDepth == 1,
+            geometryRevision == layoutSettlementGeometryRevision,
+            resolutionSequence == layoutSettlementResolutionSequence,
+            traversalOverflowCount == ViewNode.traversalDepthOverflowCount
+        {
+            // Failed or nested passes cannot erase the fact that a previous
+            // correction still needs its viewport proved by fresh layout.
+            lazyListAnchorNeedsLayout = normalizeLazyListAnchorOffsets()
+        }
     }
 
     /// Records a reader the running layout pass walked past. Called from the
@@ -15574,6 +18474,7 @@ public final class RetainedViewRuntime {
 
         var didRebuild = false
         for reference in pendingGeometryReaderNodes {
+            if hasLazyListLayoutScope, !permitsRetainedActionInvocation { break }
             guard let node = reference.node, node.runtime === self, let build = node.geometryReaderBuild else {
                 continue
             }
@@ -15593,6 +18494,8 @@ public final class RetainedViewRuntime {
                 continue
             }
 
+            if let budget = lazyListResolutionBudget, !budget.consumeElement() { break }
+
             if let lease = node.retainedSubtreeBuildLease {
                 if rebuildManagedGeometryReader(node, slot: slot, build: build, lease: lease) {
                     didRebuild = true
@@ -15609,61 +18512,600 @@ public final class RetainedViewRuntime {
         return didRebuild
     }
 
+    private struct LazyListAdoptedCandidate {
+        let candidate: RetainedLazyListRuntimeAdapter.Candidate
+        let completion: RetainedLazyListAdoptionCompletion
+    }
+
+    /// The pointer/focus/scroll targets are a bounded exception to the visible
+    /// window, not permission to retain every previously visited row. The
+    /// adapter applies its configured owner/record/leaf caps to this set.
+    private func protectedLazyListRoots(in container: ViewNode) -> Set<ObjectIdentifier> {
+        var targets: [ViewNode?] = [
+            focusedNode, pressedNode, longPressAttempt?.node, nodeDragState?.node,
+            scrollDragState?.node, activeScrollIndicatorNode,
+        ]
+        targets.append(
+            contentsOf: scrollPresentedTweens.values.compactMap { tween in
+                tween.origin.isProgrammatic ? tween.target : nil
+            })
+        targets.append(contentsOf: pendingPreciseScrollAlignments.compactMap(\.target))
+        targets.append(contentsOf: pendingPreciseScrollAlignments.compactMap(\.coarseTarget))
+        // A prepared List action needs its actual source through target
+        // realization and focus, even when no node was focused at entry. The
+        // native scope keeps this receipt weakly; no visited row is cached.
+        var ancestor: ViewNode? = container
+        var ancestorDepth = 0
+        while let node = ancestor, ancestorDepth < ViewNode.maximumTraversalDepth {
+            targets.append(contentsOf: node.listNavigationOwner?.currentActionProtectedNodes(in: self) ?? [])
+            ancestor = node.parent
+            ancestorDepth += 1
+        }
+        var protected = Set<ObjectIdentifier>()
+        for target in targets {
+            guard var node = target, node !== container, node.runtime === self else { continue }
+            var depth = 0
+            while let parent = node.parent, depth < ViewNode.maximumTraversalDepth {
+                if parent === container {
+                    if container.children.contains(where: { $0 === node }) { protected.insert(ObjectIdentifier(node)) }
+                    break
+                }
+                node = parent
+                depth += 1
+            }
+        }
+        return protected
+    }
+
+    private func resolveLazyListContainers(budget: RetainedLazyListWorkBudget) -> Bool {
+        var changed = false
+        // Copy only the native order. A callback can replace the pass registry;
+        // each visit is admitted again before its first protocol call.
+        let order = pendingLazyListOrder
+        for key in order {
+            guard let visit = pendingLazyListVisits[key], lazyListVisitIsCurrent(visit),
+                let node = visit.node, let adapter = visit.adapter, let viewport = visit.viewport,
+                adapter.hasUnresolvedWork
+            else { continue }
+            if rebuildLazyList(node, adapter: adapter, viewport: viewport, visit: visit, budget: budget) {
+                changed = true
+            }
+        }
+        return changed
+    }
+
+    private func rebuildLazyList(
+        _ node: ViewNode, adapter: RetainedLazyListRuntimeAdapter,
+        viewport: RetainedLazyListRuntimeAdapter.Viewport, visit: LazyListLayoutVisit,
+        budget: RetainedLazyListWorkBudget
+    ) -> Bool {
+        guard lazyListVisitIsCurrent(visit), let lease = node.retainedSubtreeBuildLease else { return false }
+        let managedDescriptor = adapter.managedLogicalDescriptorBinding
+        let managedIdentity = managedDescriptor == nil ? nil : node.captureLazyListIdentityProof()
+        let canBuild = lease.canBuild
+        guard canBuild, lazyListVisitIsCurrent(visit), node.retainedSubtreeBuildLease === lease,
+            managedIdentity?.isCurrent != false
+        else { return false }
+        let coordinator = retainedBuildCoordinator
+        // Pending is explicit. This adapter adds no retry queue or scheduler;
+        // the next ordinary build/layout opportunity can retry with fresh proof.
+        guard let sequence = coordinator.beginBuild() else { return false }
+        if managedDescriptor != nil {
+            guard lazyListVisitIsCurrent(visit), managedIdentity?.isCurrent == true,
+                node.retainedSubtreeBuildLease === lease
+            else {
+                coordinator.finishBuild()
+                return false
+            }
+        }
+        let admission = RetainedLazyListAdoptionAdmission(
+            adapter: adapter, container: node, runtime: self, coordinator: coordinator, sequence: sequence)
+        let transaction = RetainedBuildTransaction()
+        let originalExtent = adapter.contentExtent
+        let anchor = lazyListAnchor(adapter: adapter, viewport: viewport)
+        var epoch: (any RetainedBuildEpoch)?
+        var lazyJournal: RetainedLazyListAdoptionJournal?
+        var lazyActivity: (any RetainedLazyListBuildActivity)?
+        var adopted: LazyListAdoptedCandidate?
+        func performBuild() {
+            beginLongPressReconciliation()
+            epoch = admission.isBuildCurrent ? lease.beginBuild() : nil
+            coordinator.install(epoch, startedAt: sequence)
+
+            if managedDescriptor != nil, let epoch, let activity = epoch as? any RetainedLazyListBuildActivity,
+                admission.isBuildCurrent, managedDescriptor?.isCurrent == true,
+                let scope = coordinator.beginDescriptorBuildScope(
+                    origin: .managedSubtree, epoch: epoch, hostLifetime: lazyListLogicalHostLifetime,
+                    ownerLifetime: node.lazyListActivityStorage().descriptorOwnerLifetime)
+            {
+                let journal = RetainedLazyListAdoptionJournal(admission: admission, transaction: transaction)
+                let bound = activity.bindLazyListDescriptorScope(scope)
+                if bound, scope.canConstructDescriptors, admission.isBuildCurrent, journal.bindDescriptorScope(scope) {
+                    lazyJournal = journal
+                    lazyActivity = activity
+                } else {
+                    journal.revokeBeforeAbandon()
+                }
+            }
+            if let epoch, admission.isBuildCurrent {
+                if managedDescriptor == nil || (lazyJournal != nil && lazyActivity != nil) {
+                    adopted = prepareAndAdoptLazyList(
+                        node, adapter: adapter, viewport: viewport, budget: budget,
+                        protectedRoots: protectedLazyListRoots(in: node), epoch: epoch, admission: admission,
+                        lazyJournal: lazyJournal, lazyActivity: lazyActivity, transaction: transaction,
+                        preservingAnchor: visit.scrollContainer.map(lazyListAnchorMayControl) == true ? anchor : nil)
+                } else {
+                    // A present binding that failed its exact refinement or scope
+                    // cannot enter the ordinary raw provider path.
+                    adopted = nil
+                }
+            } else {
+                adopted = nil
+            }
+            // Once a retained mutation started, abandonment would be a rollback
+            // of accepted application effects. Finish that admitted scope even
+            // when it is now obsolete; never continue its remaining adoption.
+            if managedDescriptor != nil {
+                if let lazyJournal, let lazyActivity {
+                    let disposition = lazyJournal.seal(completedCheckedAdoption: adopted != nil)
+                    if disposition.stop != .noAcceptance || adopted != nil {
+                        lazyActivity.commitLazyList(disposition)
+                    } else {
+                        lazyJournal.revokeBeforeAbandon()
+                        epoch?.abandon()
+                    }
+                } else {
+                    epoch?.abandon()
+                }
+            } else if admission.didMutate || adopted != nil {
+                epoch?.commit()
+            } else {
+                epoch?.abandon()
+            }
+            endLongPressReconciliation()
+        }
+        if managedDescriptor == nil {
+            performBuild()
+        } else {
+            transaction.perform(performBuild)
+        }
+
+        afterRetainedCallbacks { [weak self, weak node, weak adapter] in
+            transaction.perform {
+                epoch?.finishAfterCallbacks()
+                lazyJournal?.finishAcceptedTaskCleanup()
+                // Completion permission is distinct from construction permission.
+                // This getter is a callout too: check the native admitted scope
+                // again before publishing any actual-row mapping.
+                let mayComplete = adopted != nil ? epoch?.canComplete == true : false
+                var accepted = false
+                if mayComplete, let node, let adapter, let adopted,
+                    admission.isCurrent, adopted.completion.isCurrent,
+                    lazyJournal != nil
+                        || adapter.complete(candidate: adopted.candidate, adoptedChildren: node.children),
+                    admission.isCurrent, adopted.completion.isCurrent
+                {
+                    accepted = true
+                }
+                admission.finishCandidatePayload()
+                lazyJournal?.releaseUnadoptedTransport()
+                let completedAfterPayloadCleanup = accepted ? epoch?.canComplete == true : false
+                if completedAfterPayloadCleanup, let self, let node, let adapter, let adopted,
+                    admission.isBuildCurrent, adopted.completion.isCurrent
+                {
+                    self.lazyListResolveCount += 1
+                    node.markDirty(.layout)
+                    self.invalidate(.layout, from: node)
+                    if let anchor { _ = self.applyLazyListAnchor(anchor, adapter: adapter, visit: visit) }
+                } else {
+                    admission.revokeUnfinishedCandidate()
+                }
+            }
+            // Epoch cleanup and candidate acceptance remain inside the one
+            // existing coordinator scope; queued root requests run afterwards.
+            coordinator.finishBuild()
+        }
+
+        let extentChanged = adapter.contentExtent != originalExtent
+        if extentChanged, ownsLazyListAttachment(node), node.retainedLazyListAdapter === adapter {
+            node.markDirty(.layout)
+            invalidate(.layout, from: node)
+        }
+        return admission.didMutate || adopted != nil || extentChanged
+    }
+
+    private func prepareAndAdoptLazyList(
+        _ node: ViewNode, adapter: RetainedLazyListRuntimeAdapter,
+        viewport: RetainedLazyListRuntimeAdapter.Viewport, budget: RetainedLazyListWorkBudget,
+        protectedRoots: Set<ObjectIdentifier>, epoch: any RetainedBuildEpoch,
+        admission: RetainedLazyListAdoptionAdmission,
+        lazyJournal: RetainedLazyListAdoptionJournal?, lazyActivity: (any RetainedLazyListBuildActivity)?,
+        transaction: RetainedBuildTransaction, preservingAnchor: RetainedLazyListAnchor?
+    ) -> LazyListAdoptedCandidate? {
+        let mayPrepare = epoch.canAdopt
+        guard mayPrepare, admission.isBuildCurrent else { return nil }
+        lazyJournal?.seedExistingContributions(from: node.children)
+        lazyJournal?.seedExistingRowActivities(adapter.materializedRowActivities)
+        let preparation = adapter.prepare(
+            viewport: viewport, protectedRoots: protectedRoots, budget: budget, admission: admission,
+            activity: lazyActivity, journal: lazyJournal, preserving: preservingAnchor)
+        guard admission.isBuildCurrent else { return nil }
+        guard case .ready(let candidate) = preparation, candidate.viewport == viewport,
+            admission.installCandidate(candidate)
+        else { return nil }
+        let mayAdopt = epoch.canAdopt
+        guard mayAdopt, admission.isCurrent else { return nil }
+        let nativePreparation: RetainedLazyListAdoptionPreparation?
+        if let lazyJournal {
+            guard let lazyActivity, lazyJournal.canContinueConstruction else { return nil }
+            guard lazyJournal.registerSourceDescriptors(in: candidate.children) else { return nil }
+            for child in candidate.children where child.parent === node { lazyJournal.recordUnchangedNode(child) }
+            guard let preparation = lazyJournal.preparation(), admission.isCurrent else { return nil }
+            let prepared = lazyActivity.willAdoptLazyList(preparation)
+            guard admission.isCurrent, let prepared,
+                lazyJournal.beginAdoption(preparation, preparedActivity: prepared),
+                candidate.configureManagedPublication(preparation)
+            else { return nil }
+            nativePreparation = preparation
+        } else {
+            let prepared = epoch.willAdopt()
+            // willAdopt may leave the epoch's construction phase. Its successful
+            // one-shot predicate is not rerun; only primitive admitted proof is.
+            guard prepared, admission.isCurrent else { return nil }
+            nativePreparation = nil
+        }
+        let taskAdoption = lazyJournal.map { _ in
+            RetainedTaskAdoptionContext(runtime: self, epoch: epoch, transaction: transaction)
+        }
+        let result = ComponentHost.reconcileChildren(
+            of: node, oldChildren: node.children, newNodes: candidate.children, admission: admission,
+            taskAdoption: taskAdoption, lazyJournal: lazyJournal)
+        guard result.completed, admission.isCurrent, let completion = result.completion, completion.isCurrent else {
+            return nil
+        }
+        if let lazyJournal {
+            let anchor = node.lazyListActivityStorage().captureActualAttachment(of: node, in: self)
+            guard nativePreparation != nil,
+                adapter.complete(
+                    candidate: candidate, adoptedChildren: node.children, journal: lazyJournal,
+                    structuralAnchor: anchor),
+                admission.isCurrent, completion.isCurrent
+            else { return nil }
+        }
+        return LazyListAdoptedCandidate(candidate: candidate, completion: completion)
+    }
+
     private func rebuildManagedGeometryReader(
         _ node: ViewNode, slot: Size, build: (RetainedViewRuntime, Size) -> [ViewNode],
         lease: any RetainedSubtreeBuildLease
     ) -> Bool {
+        let parent = node.parent
+        let nativeAdmission = GeometryDescriptorAdmission(node: node, runtime: self, lease: lease, parent: parent)
+        let hasManagedNativeActivity = node.retainedLazyListActivityStorage != nil
         guard lease.canBuild else {
             // Cleanup can render while the adopted reader's lease is still
             // provisional. Preserve its unresolved path through this render;
             // ordinary idle denial must not create retries or new work.
             if isRendering, hasActiveRetainedBuild, node.runtime === self,
-                node.retainedSubtreeBuildLease === lease, node.geometryReaderBuild != nil
+                node.retainedSubtreeBuildLease === lease, node.geometryReaderBuild != nil,
+                !hasManagedNativeActivity || nativeAdmission.isCurrent
             {
                 node.markDirty(.layout)
                 invalidate(.layout, from: node)
             }
             return false
         }
+        guard !hasManagedNativeActivity || nativeAdmission.isCurrent else { return false }
         let coordinator = retainedBuildCoordinator
-        let parent = node.parent
         guard let sequence = coordinator.beginBuild() else {
             coordinator.scheduleWhenIdle(for: node) { [weak self, weak node, weak parent] in
                 guard let self, let node, node.runtime === self, node.parent === parent,
-                    node.retainedSubtreeBuildLease === lease, lease.canBuild
+                    node.retainedSubtreeBuildLease === lease,
+                    !hasManagedNativeActivity || nativeAdmission.isCurrent,
+                    lease.canBuild, !hasManagedNativeActivity || nativeAdmission.isCurrent
                 else { return }
                 node.markDirty(.layout)
                 self.invalidate(.layout, from: node)
             }
             return false
         }
+        guard !hasManagedNativeActivity || nativeAdmission.isCurrent else {
+            coordinator.finishBuild()
+            return false
+        }
         let transaction = RetainedBuildTransaction()
-        let epoch = lease.beginBuild()
-        coordinator.install(epoch, startedAt: sequence)
+        var epoch: (any RetainedBuildEpoch)?
+        if hasManagedNativeActivity {
+            transaction.perform {
+                epoch = lease.beginBuild()
+                coordinator.install(epoch, startedAt: sequence)
+            }
+        } else {
+            epoch = lease.beginBuild()
+            coordinator.install(epoch, startedAt: sequence)
+        }
         beginLongPressReconciliation()
 
         var didAdopt = false
-        if let epoch, epoch.canAdopt, let rebuilt = build(self, slot).first,
-            node.runtime === self, node.parent === parent, node.retainedSubtreeBuildLease === lease,
-            lease.canBuild, epoch.canAdopt, !coordinator.wasSuperseded(since: sequence), epoch.willAdopt()
-        {
-            adoptGeometryReader(rebuilt, into: node, slot: slot)
-            didAdopt = true
-            epoch.commit()
+        var descriptorBuild: GeometryDescriptorBuild?
+        if let epoch, let activity = epoch as? any RetainedLazyListBuildActivity {
+            transaction.perform {
+                descriptorBuild = beginGeometryDescriptorBuild(
+                    on: node, epoch: epoch, activity: activity, transaction: transaction, admission: nativeAdmission)
+                if let descriptorBuild {
+                    didAdopt = buildAndAdoptGeometryDescriptor(
+                        on: node, parent: parent, slot: slot, build: build, lease: lease, epoch: epoch,
+                        descriptorBuild: descriptorBuild, sequence: sequence, transaction: transaction)
+                    // The helper's throwaway node and typed payloads have
+                    // unwound. Their destructors cannot certify completion.
+                    didAdopt = didAdopt && descriptorBuild.permitsCompletion
+                    let disposition = descriptorBuild.journal.seal(
+                        completedCheckedAdoption: didAdopt && descriptorBuild.completion?.isCurrent == true)
+                    if descriptorBuild.usesManagedPublication {
+                        if didAdopt || disposition.stop != .noAcceptance {
+                            activity.commitLazyList(disposition)
+                        } else {
+                            descriptorBuild.journal.revokeBeforeAbandon()
+                            epoch.abandon()
+                        }
+                    } else if didAdopt {
+                        epoch.commit()
+                    } else {
+                        descriptorBuild.journal.revokeBeforeAbandon()
+                        epoch.abandon()
+                    }
+                } else {
+                    epoch.abandon()
+                }
+                endLongPressReconciliation()
+            }
         } else {
-            epoch?.abandon()
+            if let epoch, epoch.canAdopt, let rebuilt = build(self, slot).first,
+                node.runtime === self, node.parent === parent, node.retainedSubtreeBuildLease === lease,
+                lease.canBuild, epoch.canAdopt, !coordinator.wasSuperseded(since: sequence), epoch.willAdopt()
+            {
+                let taskAdoption = RetainedTaskAdoptionContext(runtime: self, epoch: epoch, transaction: transaction)
+                adoptGeometryReader(rebuilt, into: node, slot: slot, taskAdoption: taskAdoption)
+                didAdopt = true
+                epoch.commit()
+            } else {
+                epoch?.abandon()
+            }
+            endLongPressReconciliation()
         }
 
-        endLongPressReconciliation()
         afterRetainedCallbacks {
-            transaction.perform { epoch?.finishAfterCallbacks() }
+            transaction.perform {
+                epoch?.finishAfterCallbacks()
+                descriptorBuild?.journal.finishAcceptedTaskCleanup()
+                descriptorBuild?.journal.releaseUnadoptedTransport()
+            }
             coordinator.finishBuild()
         }
         return didAdopt
     }
 
-    private func adoptGeometryReader(_ rebuilt: ViewNode, into node: ViewNode, slot: Size) {
-        ComponentHost.adopt(source: rebuilt, into: node)
+    /// Original physical and lease identity captured before any deferred-build
+    /// callout. Replacing just the lease must reject the old construction too.
+    @MainActor
+    private final class GeometryDescriptorAdmission {
+        weak var node: ViewNode?
+        private weak var runtime: RetainedViewRuntime?
+        private weak var lease: (any RetainedSubtreeBuildLease)?
+        private weak var parent: ViewNode?
+        private let hadParent: Bool
+        private let attachment: RetainedLazyListAttachmentProof
+        private let identity: RetainedLazyListViewIdentityProof
+
+        init(node: ViewNode, runtime: RetainedViewRuntime, lease: any RetainedSubtreeBuildLease, parent: ViewNode?) {
+            self.node = node
+            self.runtime = runtime
+            self.lease = lease
+            self.parent = parent
+            hadParent = parent != nil
+            attachment = node.captureLazyListAttachmentProof()
+            identity = node.captureLazyListIdentityProof()
+        }
+
+        var isPhysicallyCurrent: Bool {
+            guard let node, let runtime, !hadParent || parent != nil else { return false }
+            return attachment.isCurrent && identity.isCurrent && node.parent === parent
+                && node.isRetainedLazyListAttached(in: runtime)
+        }
+
+        var isCurrent: Bool {
+            guard let node, let lease else { return false }
+            return isPhysicallyCurrent && node.retainedSubtreeBuildLease === lease
+        }
+    }
+
+    @MainActor
+    private final class GeometryDescriptorBuild {
+        let journal: RetainedLazyListAdoptionJournal
+        let activity: any RetainedLazyListBuildActivity
+        let attribution: RetainedLazyListBuildAttribution?
+        let admission: GeometryDescriptorAdmission
+        var completion: RetainedLazyListAdoptionCompletion?
+        weak var acceptedLease: (any RetainedSubtreeBuildLease)?
+        var acceptedHadLease = false
+        var usesManagedPublication: Bool
+
+        init(
+            journal: RetainedLazyListAdoptionJournal, activity: any RetainedLazyListBuildActivity,
+            attribution: RetainedLazyListBuildAttribution?, admission: GeometryDescriptorAdmission
+        ) {
+            self.journal = journal
+            self.activity = activity
+            self.attribution = attribution
+            self.admission = admission
+            usesManagedPublication = attribution != nil
+        }
+
+        var permitsCompletion: Bool {
+            guard usesManagedPublication else { return true }
+            guard admission.isPhysicallyCurrent, completion?.isCurrent == true,
+                let node = admission.node, !acceptedHadLease || acceptedLease != nil
+            else { return false }
+            return node.retainedSubtreeBuildLease === acceptedLease
+        }
+    }
+
+    private func beginGeometryDescriptorBuild(
+        on node: ViewNode, epoch: any RetainedBuildEpoch, activity: any RetainedLazyListBuildActivity,
+        transaction: RetainedBuildTransaction, admission: GeometryDescriptorAdmission
+    ) -> GeometryDescriptorBuild? {
+        guard admission.isCurrent else { return nil }
+        let storage = node.lazyListActivityStorage()
+        guard
+            let initial = retainedBuildCoordinator.beginDescriptorBuildScope(
+                origin: .managedSubtree, epoch: epoch, hostLifetime: lazyListLogicalHostLifetime,
+                ownerLifetime: storage.descriptorOwnerLifetime), initial.canConstructDescriptors
+        else { return nil }
+        let scope: RetainedLazyListDescriptorBuildScope
+        if let anchor = storage.deferredSubtreeAnchor {
+            guard anchor.isCurrent,
+                let qualified = initial.withAdmittedDeferredSubtree(
+                    originalActivity: anchor.contribution, originalAttachment: anchor.actual)
+            else {
+                initial.revoke()
+                return nil
+            }
+            scope = qualified
+        } else if let anchor = storage.descriptorDeferredSubtreeAnchor {
+            guard anchor.isCurrent,
+                let qualified = initial.withAdmittedOrdinaryDeferredSubtree(
+                    originalActivity: anchor.contribution, originalAttachment: anchor.actual)
+            else {
+                initial.revoke()
+                return nil
+            }
+            scope = qualified
+        } else {
+            scope = initial
+        }
+        guard activity.bindLazyListDescriptorScope(scope), scope.canConstructDescriptors,
+            admission.isCurrent
+        else {
+            scope.revoke()
+            return nil
+        }
+        let journal = RetainedLazyListAdoptionJournal(descriptorScope: scope, transaction: transaction)
+        journal.seedExistingContributions(from: [node])
+        let attribution: RetainedLazyListBuildAttribution?
+        if let anchor = storage.deferredSubtreeAnchor {
+            guard let admitted = journal.beginDeferredSubtree(originalAnchor: anchor) else {
+                journal.revokeBeforeAbandon()
+                return nil
+            }
+            attribution = admitted
+        } else {
+            attribution = nil
+        }
+        return GeometryDescriptorBuild(
+            journal: journal, activity: activity, attribution: attribution, admission: admission)
+    }
+
+    @inline(never)
+    private func buildAndAdoptGeometryDescriptor(
+        on node: ViewNode, parent: ViewNode?, slot: Size, build: (RetainedViewRuntime, Size) -> [ViewNode],
+        lease: any RetainedSubtreeBuildLease, epoch: any RetainedBuildEpoch,
+        descriptorBuild: GeometryDescriptorBuild, sequence: UInt64, transaction: RetainedBuildTransaction
+    ) -> Bool {
+        let nativeAdmission = descriptorBuild.admission
+        let journal = descriptorBuild.journal
+        var didAdopt = false
+        defer { if !didAdopt { journal.revokeBeforeAbandon() } }
+        func nativeConstructionIsCurrent() -> Bool {
+            journal.canContinueConstruction && nativeAdmission.isCurrent
+                && !retainedBuildCoordinator.wasSuperseded(since: sequence)
+        }
+        guard epoch.canAdopt, nativeConstructionIsCurrent() else { return false }
+        let candidates = buildGeometryDescriptorContent(
+            slot: slot, build: build, descriptorBuild: descriptorBuild)
+        guard nativeConstructionIsCurrent(), candidates.count == 1,
+            !ViewNode.containsRejectedRetainedSource(in: candidates), let rebuilt = candidates.first
+        else { return false }
+        let leaseCanBuild = lease.canBuild
+        guard nativeConstructionIsCurrent(), leaseCanBuild, epoch.canAdopt, nativeConstructionIsCurrent(),
+            journal.registerSourceDescriptors(in: candidates), let preparation = journal.preparation()
+        else { return false }
+        descriptorBuild.usesManagedPublication =
+            descriptorBuild.usesManagedPublication || journal.hasManagedContributions
+        if descriptorBuild.usesManagedPublication {
+            let prepared = descriptorBuild.activity.willAdoptLazyList(preparation)
+            guard nativeAdmission.isCurrent, let prepared,
+                journal.beginAdoption(preparation, preparedActivity: prepared)
+            else { return false }
+        } else {
+            guard epoch.willAdopt() else { return false }
+            _ = journal.beginOrdinaryAdoption()
+        }
+        let taskAdoption = RetainedTaskAdoptionContext(runtime: self, epoch: epoch, transaction: transaction)
+        let expectedLease = rebuilt.retainedSubtreeBuildLease
+        let result = ComponentHost.adopt(
+            source: rebuilt, into: node, taskAdoption: taskAdoption, lazyJournal: journal)
+        if !journal.isOrdinaryAdoption {
+            guard result.completed, nativeAdmission.isPhysicallyCurrent,
+                node.retainedSubtreeBuildLease === expectedLease,
+                journal.canContinueAdoption
+            else { return false }
+        }
+        descriptorBuild.completion =
+            result.completed
+            ? (result.completion ?? RetainedLazyListAdoptionCompletion(of: node)) : nil
+        descriptorBuild.acceptedLease = expectedLease
+        descriptorBuild.acceptedHadLease = expectedLease != nil
+        // This scalar is the actual slot used for the accepted reader body.
+        node.geometryReaderBuiltSize = slot
+        let anchor = node.lazyListActivityStorage().captureActualAttachment(of: node, in: self)
+        let ordinaryEmpty = preparation.ordinaryComponents.flatMap(\.groups)
+            .filter { $0.construction == .closedEmpty }.map(\.group)
+        if result.completed {
+            journal.recordAcceptedOrdinaryEmptyGroups(structuralAnchor: anchor, groups: ordinaryEmpty)
+            let recordedScope = journal.recordCompletedOwnedDescriptorScope(structuralAnchor: anchor)
+            if !journal.isOrdinaryAdoption, !recordedScope { return false }
+        }
+        if let attribution = descriptorBuild.attribution {
+            for proposal in preparation.groups
+            where proposal.membership === attribution.membership && proposal.physical === attribution.physical.id
+                && proposal.construction == .closedEmpty
+            {
+                _ = journal.recordAcceptedEmpty(proposal, structuralAnchor: anchor)
+            }
+        }
+        geometryReaderResolveCount &+= 1
+        didAdopt = true
+        return true
+    }
+
+    /// The entered frame is always left before its caller rechecks native
+    /// admission, including failure during enter or the existing build closure.
+    @inline(never)
+    private func buildGeometryDescriptorContent(
+        slot: Size, build: (RetainedViewRuntime, Size) -> [ViewNode], descriptorBuild: GeometryDescriptorBuild
+    ) -> [ViewNode] {
+        guard let attribution = descriptorBuild.attribution else {
+            return descriptorBuild.journal.canContinueConstruction && descriptorBuild.admission.isCurrent
+                ? build(self, slot) : []
+        }
+        guard descriptorBuild.admission.isCurrent, descriptorBuild.journal.canContinueConstruction else { return [] }
+        let entered = descriptorBuild.activity.enterLazyListMaterialization(attribution)
+        let nodes: [ViewNode]
+        if entered, descriptorBuild.admission.isCurrent, descriptorBuild.journal.canContinueConstruction,
+            attribution.constructionState == .admittedForConstruction
+        {
+            nodes = build(self, slot)
+        } else {
+            nodes = []
+        }
+        descriptorBuild.activity.leaveLazyListMaterialization(attribution)
+        return nodes
+    }
+
+    private func adoptGeometryReader(
+        _ rebuilt: ViewNode, into node: ViewNode, slot: Size, taskAdoption: RetainedTaskAdoptionContext? = nil
+    ) {
+        ComponentHost.adopt(source: rebuilt, into: node, taskAdoption: taskAdoption)
         // The builder and its resolved size travel together during adoption.
         // This explicit assignment also bounds convergence for custom readers.
         node.geometryReaderBuiltSize = slot
@@ -16006,7 +19448,7 @@ public final class RetainedViewRuntime {
     private func focusTargetIsEligible(
         _ node: ViewNode, origin: RetainedFocusOrigin, beganAttached: Bool
     ) -> Bool {
-        guard node.isFocusable, !Self.hasHiddenAncestor(node) else { return false }
+        guard !node.isRetiringLazyListAttachment, node.isFocusable, !Self.hasHiddenAncestor(node) else { return false }
         if beganAttached || origin == .accessibility {
             guard isAttachedFocusNode(node),
                 isPresentationNodeAvailable(node, requiresEnabled: origin == .accessibility)
@@ -16142,6 +19584,7 @@ public final class RetainedViewRuntime {
         // chrome, or explicit invalidation writes below. This does not alter
         // the runtime's global prepaint or layout settlement authority.
         operation.mutationWitness = presentationMutationRevision
+        if let receipt = operation.listNavigationReceipt { recordOwnedListNavigationRevealFocusEffects(receipt) }
         operation.listNavigationReceipt?.recordGeometryRevision(layoutSettlementGeometryRevision)
     }
 
@@ -16712,5 +20155,1559 @@ public struct PropertySnapshot {
     public init(opacity: Double? = nil, backgroundColor: Color? = nil) {
         self.opacity = opacity
         self.backgroundColor = backgroundColor
+    }
+}
+
+@MainActor
+private struct LazyListAttachmentEntry {
+    let node: ViewNode
+    let children: [ViewNode]
+    var attachment: RetainedLazyListAttachmentProof
+    let identity: RetainedLazyListViewIdentityProof
+    let controller: (any RetainedTextInputController)?
+    let observerStorage: RetainedScrollObserverStorage?
+    let adapter: RetainedLazyListRuntimeAdapter?
+
+    init(_ node: ViewNode) {
+        self.node = node
+        children = node.children
+        attachment = node.captureLazyListAttachmentProof()
+        identity = node.captureLazyListIdentityProof()
+        controller = node.textInputController
+        observerStorage = node.scrollObserverStorage
+        adapter = node.retainedLazyListAdapter
+    }
+
+    var isCurrent: Bool {
+        attachment.isCurrent && identity.isCurrent && ViewNode.sameLazyListChildren(children, node.children)
+            && node.textInputController === controller && node.scrollObserverStorage === observerStorage
+            && node.retainedLazyListAdapter === adapter
+    }
+}
+
+/// The current parent membership and every subtree accepted before a later
+/// controller callback. This is native data, not an arbitrary validator.
+@MainActor
+private struct LazyListPublishedChildrenProof {
+    weak var parent: ViewNode?
+    let attachment: RetainedLazyListAttachmentProof
+    let identity: RetainedLazyListViewIdentityProof
+    let children: [ViewNode]
+    let entries: [LazyListAttachmentEntry]
+
+    var isCurrent: Bool {
+        guard let parent else { return false }
+        return attachment.isCurrent && identity.isCurrent && ViewNode.sameLazyListChildren(children, parent.children)
+            && entries.allSatisfy(\.isCurrent)
+    }
+}
+
+@MainActor
+private struct LazyListRetiredNode {
+    let node: ViewNode
+    let runtime: RetainedViewRuntime?
+    let controller: (any RetainedTextInputController)?
+    let observerStorage: RetainedScrollObserverStorage?
+    let adapter: RetainedLazyListRuntimeAdapter?
+    let dismantle: ((ViewNode) -> Void)?
+    let disappear: (() -> Void)?
+    let disappearWithNode: ((ViewNode) -> Void)?
+    let tasks: [Task<Void, Never>]
+    let history: [Any]
+
+    init(_ node: ViewNode) {
+        self.node = node
+        runtime = node.runtime
+        controller = node.textInputController
+        observerStorage = node.scrollObserverStorage
+        adapter = node.retainedLazyListAdapter
+        dismantle = node.onDismantlePlatformView
+        disappear = node.hasAppeared ? node.onDisappear : nil
+        disappearWithNode = node.hasAppeared ? node.onDisappearWithNode : nil
+        // Both helpers transfer old payloads without releasing them. In
+        // particular, geometry history destructors cannot run during capture.
+        tasks = node.takeLifecycleTasks()
+        history = node.scrollObserverStorage?.takeLazyListRetiredHistory() ?? []
+        node.consumeLazyListAppearanceForRetirement()
+    }
+}
+
+/// This contains only native identity/weak references. The delayed completion
+/// must not retain captured callbacks or opaque history after it clears gates.
+@MainActor
+private final class LazyListRetirementGate {
+    let identity = RetainedLazyListAttachmentIdentity()
+    private let nodes: [WeakViewNodeRef]
+    private var didFinish = false
+
+    init(nodes: [ViewNode]) {
+        self.nodes = nodes.map { WeakViewNodeRef(node: $0) }
+        for node in nodes { node.installLazyListRetirementGate(identity) }
+    }
+
+    func finish() {
+        guard !didFinish else { return }
+        didFinish = true
+        for reference in nodes {
+            reference.node?.finishLazyListRetirementGate(identity)
+        }
+    }
+}
+
+extension ViewNode {
+    /// Claim complete group owners across a physical forest before its first
+    /// callback. Individual participant states may return the same native
+    /// owner; claiming is one-shot and never cancels application Tasks here.
+    fileprivate static func claimLazyGroupTaskDepartures(in roots: [ViewNode]) -> [RetainedLazyListAcceptedTaskCleanup]
+    {
+        var pending = roots
+        var visited = Set<ObjectIdentifier>()
+        var cleanup: [RetainedLazyListAcceptedTaskCleanup] = []
+        while let node = pending.popLast() {
+            guard visited.insert(ObjectIdentifier(node)).inserted else { continue }
+            if let state = node.existingRetainedTaskState {
+                cleanup.append(contentsOf: state.claimLazyGroupTaskDepartures())
+            }
+            pending.append(contentsOf: node.children)
+        }
+        return cleanup
+    }
+
+    /// The shared completion snapshot lives in ComponentHost.swift; keep the
+    /// runtime reference fileprivate and expose only this native comparison.
+    func hasSameLazyListRuntime(as other: ViewNode) -> Bool { runtime === other.runtime }
+
+    /// Prepared reconciliation calls this for each actual departure batch,
+    /// recursively, BEFORE any ownership revocation or property adoption.
+    /// The second call in setChildrenChecked is a defensive repeat.
+    static func supportsLazyListRemoval(
+        of roots: [ViewNode], admission: RetainedLazyListAdoptionAdmission?,
+        removalReason: RetainedChildRemovalReason = .structural,
+        lazyJournal: RetainedLazyListAdoptionJournal? = nil
+    ) -> Bool {
+        guard admission?.isCurrent != false, lazyJournal?.canContinueAdoption != false,
+            let nodes = lazyListNodes(in: roots)
+        else { return false }
+        guard nodes.allSatisfy({ !$0.isRetiringLazyListAttachment }) else { return false }
+        for root in roots {
+            let reason: RetainedChildRemovalReason
+            switch removalReason {
+            case .virtualization: reason = .virtualization
+            case .structural: reason = admission?.removalReason(for: root) ?? .structural
+            }
+            if case .structural = reason, root.runtime != nil, root.transition.removal.kind != .identity {
+                // A structural overlay defers disappearance until animation
+                // completion. This dormant slice has no captured-overlay
+                // completion/close bridge, so it must not change that timing.
+                return false
+            }
+        }
+        let identifiers = Set(nodes.map(ObjectIdentifier.init))
+        var inspectedRuntimes = Set<ObjectIdentifier>()
+        for node in nodes {
+            guard let runtime = node.runtime,
+                inspectedRuntimes.insert(ObjectIdentifier(runtime)).inserted
+            else { continue }
+            guard runtime.canRetireLazyListInteractionOwners(in: identifiers) else { return false }
+        }
+        return admission?.isCurrent != false && lazyJournal?.canContinueAdoption != false
+    }
+
+    /// A bounded-depth physical-tree walk, not a walk of logical model IDs.
+    /// Reject a malformed/cyclic snapshot before publishing any mutation.
+    fileprivate static func lazyListNodes(in roots: [ViewNode]) -> [ViewNode]? {
+        var result: [ViewNode] = []
+        var work = roots.reversed().map { ($0, 0) }
+        var seen = Set<ObjectIdentifier>()
+        while let (node, depth) = work.popLast() {
+            guard depth < maximumTraversalDepth, seen.insert(ObjectIdentifier(node)).inserted else { return nil }
+            result.append(node)
+            for child in node.children.reversed() {
+                guard child.parent === node, child.runtime === node.runtime else { return nil }
+                work.append((child, depth + 1))
+            }
+        }
+        return result
+    }
+
+    fileprivate static func sameLazyListChildren(_ first: [ViewNode], _ second: [ViewNode]) -> Bool {
+        first.count == second.count && zip(first, second).allSatisfy { pair in pair.0 === pair.1 }
+    }
+
+    fileprivate func installLazyListRetirementGate(_ identity: RetainedLazyListAttachmentIdentity) {
+        if lifecycleHandlers == nil { lifecycleHandlers = ViewNodeLifecycleHandlers() }
+        lifecycleHandlers?.lazyListRetirementIdentity = identity
+    }
+
+    fileprivate func finishLazyListRetirementGate(_ identity: RetainedLazyListAttachmentIdentity) {
+        guard lifecycleHandlers?.lazyListRetirementIdentity === identity else { return }
+        // The claim prevented another node from acquiring this adapter while
+        // old mounted payloads and callbacks were being drained. It confers no
+        // runtime, focus, UIA, or physical attachment power.
+        if let adapter = retainedLazyListAdapter, adapter.ownsAttachment(self) {
+            adapter.releaseAttachment(from: self)
+        }
+        lifecycleHandlers?.lazyListRetirementIdentity = nil
+    }
+
+    fileprivate func consumeLazyListAppearanceForRetirement() {
+        hasAppeared = false
+        hasPendingAppearanceCallbacks = false
+        hasPendingAppearanceNodeCallback = false
+        isInitialBuildNode = false
+        didPlayInsertionTransition = false
+    }
+
+    @discardableResult
+    func setChildren(
+        _ nextChildren: [ViewNode], admission: RetainedLazyListAdoptionAdmission? = nil,
+        removalReason: RetainedChildRemovalReason = .structural,
+        lazyJournal: RetainedLazyListAdoptionJournal? = nil,
+        taskAdoption: RetainedTaskAdoptionContext? = nil,
+        sourceParent: ViewNode? = nil
+    ) -> RetainedLazyListAdoptionResult {
+        guard !isRetiringLazyListAttachment,
+            lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false
+        else {
+            return RetainedLazyListAdoptionResult(completed: false, didMutate: false, children: children)
+        }
+        if admission == nil, lazyJournal?.isOrdinaryAdoption != false {
+            let changed = !isChildListUnchanged(nextChildren)
+            setChildrenUnchecked(
+                nextChildren, lazyJournal: lazyJournal, taskAdoption: taskAdoption, sourceParent: sourceParent)
+            return RetainedLazyListAdoptionResult(
+                completed: isChildListUnchanged(nextChildren), didMutate: changed, children: children)
+        }
+        guard admission?.permitsMutation(of: self) != false else {
+            return lazyListChildResult(false, admission: admission, lazyJournal: lazyJournal)
+        }
+        let parentAttachment = captureLazyListAttachmentProof()
+        let parentIdentity = captureLazyListIdentityProof()
+        let interactionRuntime = runtime
+        interactionRuntime?.beginLongPressReconciliation()
+        let completion = setChildrenChecked(
+            nextChildren, admission: admission, parentAttachment: parentAttachment, parentIdentity: parentIdentity,
+            removalReason: removalReason,
+            lazyJournal: lazyJournal, taskAdoption: taskAdoption, sourceParent: sourceParent)
+        // Do not form the result in a return followed by a defer. Ending this
+        // scope can drain callbacks that change both admission and children.
+        interactionRuntime?.endLongPressReconciliation()
+        return lazyListChildResult(
+            completion?.isCurrent == true && parentAttachment.isCurrent && parentIdentity.isCurrent
+                && admission?.permitsMutation(of: self) != false,
+            admission: admission, lazyJournal: lazyJournal, completion: completion)
+    }
+
+    private func lazyListChildResult(
+        _ completed: Bool, admission: RetainedLazyListAdoptionAdmission?,
+        lazyJournal: RetainedLazyListAdoptionJournal?,
+        completion: RetainedLazyListAdoptionCompletion? = nil
+    ) -> RetainedLazyListAdoptionResult {
+        RetainedLazyListAdoptionResult(
+            completed: completed && admission?.isCurrent != false
+                && lazyJournal?.canContinueAdoption != false && completion?.isCurrent == true,
+            didMutate: admission?.didMutate ?? (lazyJournal?.hasAcceptedContributions == true),
+            children: children, completion: completion)
+    }
+
+    private func setChildrenChecked(
+        _ nextChildren: [ViewNode], admission: RetainedLazyListAdoptionAdmission?,
+        parentAttachment: RetainedLazyListAttachmentProof, parentIdentity: RetainedLazyListViewIdentityProof,
+        removalReason: RetainedChildRemovalReason,
+        lazyJournal: RetainedLazyListAdoptionJournal?, taskAdoption: RetainedTaskAdoptionContext?,
+        sourceParent: ViewNode?
+    ) -> RetainedLazyListAdoptionCompletion? {
+        guard admission?.isCurrent != false, parentAttachment.isCurrent && parentIdentity.isCurrent,
+            lazyJournal?.canContinueAdoption != false
+        else {
+            return nil
+        }
+        if isChildListUnchanged(nextChildren) {
+            if let sourceParent, let lazyJournal {
+                guard lazyJournal.prepareOwnedStructuralDeclaration(from: sourceParent, to: self) else { return nil }
+                lazyJournal.recordAcceptedOwnedStructuralDeclaration(from: sourceParent, to: self)
+            }
+            return RetainedLazyListAdoptionCompletion(of: self)
+        }
+        guard Set(nextChildren.map(ObjectIdentifier.init)).count == nextChildren.count else { return nil }
+        let oldChildren = children
+        let surviving = Set(nextChildren.map(ObjectIdentifier.init))
+        let departing = oldChildren.filter { !surviving.contains(ObjectIdentifier($0)) }
+        guard
+            Self.supportsLazyListRemoval(
+                of: departing, admission: admission, removalReason: removalReason, lazyJournal: lazyJournal),
+            let departingNodes = Self.lazyListNodes(in: departing)
+        else { return nil }
+        let departingIDs = Set(departingNodes.map(ObjectIdentifier.init))
+        let survivingChildren = nextChildren.filter { $0.parent === self }
+        guard
+            survivingChildren.allSatisfy({ child in
+                oldChildren.contains(where: { $0 === child }) && child.runtime === runtime
+            }), let survivingNodes = Self.lazyListNodes(in: survivingChildren),
+            departingNodes.allSatisfy({ $0.runtime === runtime })
+        else { return nil }
+        var retainedEntries = survivingNodes.map(LazyListAttachmentEntry.init)
+
+        // Existing retained children survive in place. Every new subtree must
+        // still be a detached candidate from this attempt. A callback may move
+        // it elsewhere; this path never steals it back from the new owner.
+        var incoming: [ObjectIdentifier: [LazyListAttachmentEntry]] = [:]
+        for child in nextChildren where child.parent !== self {
+            guard child !== self, let nodes = Self.lazyListNodes(in: [child]),
+                nodes.allSatisfy({
+                    $0 !== self && !departingIDs.contains(ObjectIdentifier($0))
+                        && !$0.isRetiringLazyListAttachment && $0.runtime == nil && !$0.hasAppeared
+                }), child.parent?.runtime == nil, child.parent?.isRetiringLazyListAttachment != true
+            else { return nil }
+            incoming[ObjectIdentifier(child)] = nodes.map(LazyListAttachmentEntry.init)
+            for node in nodes {
+                guard lazyJournal?.prepareInsertedNode(from: node) != false else { return nil }
+            }
+        }
+        guard admission?.isCurrent != false, parentAttachment.isCurrent && parentIdentity.isCurrent,
+            lazyJournal?.canContinueAdoption != false,
+            Self.sameLazyListChildren(oldChildren, children)
+        else { return nil }
+
+        var expectedChildren = survivingChildren
+        // An intermediate survivor list is not the source parent's declared
+        // children table. Publish its marker only at the exact final table.
+        let publishesFinalSurvivors = Self.sameLazyListChildren(expectedChildren, nextChildren)
+        var deferredOwnedDepartures: [ObjectIdentifier: RetainedLazyListDepartureCause] = [:]
+        if publishesFinalSurvivors, let sourceParent, let lazyJournal {
+            guard lazyJournal.prepareOwnedStructuralDeclaration(from: sourceParent, to: self) else { return nil }
+        }
+        if !departing.isEmpty {
+            guard lazyJournal?.markMutationStarted() != false else { return nil }
+            admission?.markMutationStarted()
+            deferredOwnedDepartures = retireLazyListChildren(
+                departing, nodes: departingNodes, survivingChildren: expectedChildren, admission: admission,
+                removalReason: removalReason, lazyJournal: lazyJournal,
+                deferringOwnedDeparture: sourceParent != nil && !publishesFinalSurvivors,
+                sourceParent: publishesFinalSurvivors ? sourceParent : nil)
+        } else if !Self.sameLazyListChildren(expectedChildren, children) {
+            guard lazyJournal?.markMutationStarted() != false else { return nil }
+            admission?.markMutationStarted()
+            children = expectedChildren
+            if publishesFinalSurvivors, let sourceParent {
+                lazyJournal?.recordAcceptedOwnedStructuralDeclaration(from: sourceParent, to: self)
+            }
+            invalidateRuntime(.children)
+        }
+        guard admission?.isCurrent != false, parentAttachment.isCurrent && parentIdentity.isCurrent,
+            lazyJournal?.canContinueAdoption != false,
+            retainedEntries.allSatisfy(\.isCurrent),
+            Self.sameLazyListChildren(expectedChildren, children)
+        else { return nil }
+
+        for (destinationIndex, child) in nextChildren.enumerated() {
+            guard admission?.isCurrent != false, parentAttachment.isCurrent && parentIdentity.isCurrent,
+                lazyJournal?.canContinueAdoption != false,
+                retainedEntries.allSatisfy(\.isCurrent),
+                Self.sameLazyListChildren(expectedChildren, children)
+            else { return nil }
+            if child.parent === self {
+                guard children.contains(where: { $0 === child }), child.runtime === runtime else { return nil }
+                continue
+            }
+            guard var entries = incoming[ObjectIdentifier(child)], entries.allSatisfy(\.isCurrent) else {
+                return nil
+            }
+            // Transfer out of a still-current temporary construction parent.
+            // No runtime or appearance ownership can exist in this branch.
+            if let temporaryParent = child.parent {
+                guard temporaryParent.runtime == nil, !temporaryParent.isRetiringLazyListAttachment,
+                    let index = temporaryParent.children.firstIndex(where: { $0 === child })
+                else { return nil }
+                guard lazyJournal?.markMutationStarted() != false else { return nil }
+                admission?.markMutationStarted()
+                temporaryParent.children.remove(at: index)
+                child.revokeLazyListAttachmentProofs()
+                child.parent = nil
+                temporaryParent.invalidateRuntime(.children)
+                entries[0].attachment = child.captureLazyListAttachmentProof()
+                // This matches the existing move out of a temporary parent:
+                // dismantling may call application code even with runtime nil.
+                child.onDismantlePlatformView?(child)
+                guard admission?.isCurrent != false, parentAttachment.isCurrent && parentIdentity.isCurrent,
+                    lazyJournal?.canContinueAdoption != false,
+                    entries.allSatisfy(\.isCurrent),
+                    retainedEntries.allSatisfy(\.isCurrent),
+                    Self.sameLazyListChildren(expectedChildren, children)
+                else { return nil }
+            }
+            guard child.parent == nil, entries.allSatisfy(\.isCurrent) else { return nil }
+            var publishedChildren = expectedChildren
+            publishedChildren.insert(child, at: destinationIndex)
+            let publishesFinalChildren = Self.sameLazyListChildren(publishedChildren, nextChildren)
+            if publishesFinalChildren, let sourceParent, let lazyJournal {
+                guard lazyJournal.prepareOwnedStructuralDeclaration(from: sourceParent, to: self) else { return nil }
+            }
+            guard lazyJournal?.markMutationStarted() != false else { return nil }
+            admission?.markMutationStarted()
+            child.revokeLazyListAttachmentProofs()
+            child.parent = self
+            expectedChildren = publishedChildren
+            children = expectedChildren
+            if publishesFinalChildren, let sourceParent {
+                lazyJournal?.recordAcceptedOwnedStructuralDeclaration(from: sourceParent, to: self)
+            }
+            if publishesFinalChildren {
+                // Earlier outgoing callbacks saw suspended structural writes.
+                // Only this final accepted table can now decide which owned
+                // declarations remain dormant and which slots actually leave.
+                for node in departingNodes {
+                    if let cause = deferredOwnedDepartures[ObjectIdentifier(node)] {
+                        lazyJournal?.recordOwnedPhysicalDeparture(of: node, cause: cause)
+                    }
+                }
+                deferredOwnedDepartures.removeAll()
+            }
+            invalidateRuntime(.children)
+            entries[0].attachment = child.captureLazyListAttachmentProof()
+            let published = LazyListPublishedChildrenProof(
+                parent: self, attachment: parentAttachment, identity: parentIdentity,
+                children: expectedChildren, entries: retainedEntries)
+            guard
+                let attachedEntries = child.attachLazyListCandidate(
+                    entries: entries, to: runtime, published: published, admission: admission,
+                    lazyJournal: lazyJournal, taskAdoption: taskAdoption),
+                admission?.isCurrent != false, parentAttachment.isCurrent && parentIdentity.isCurrent,
+                lazyJournal?.canContinueAdoption != false,
+                retainedEntries.allSatisfy(\.isCurrent),
+                Self.sameLazyListChildren(expectedChildren, children)
+            else { return nil }
+            // A later attachment callback can move a previously inserted
+            // subtree away and back. Keep its new native proof in the same
+            // cumulative set as the rows that survived this reconciliation.
+            retainedEntries.append(contentsOf: attachedEntries)
+        }
+        guard admission?.isCurrent != false, parentAttachment.isCurrent && parentIdentity.isCurrent,
+            lazyJournal?.canContinueAdoption != false,
+            retainedEntries.allSatisfy(\.isCurrent),
+            isChildListUnchanged(nextChildren)
+        else { return nil }
+        return RetainedLazyListAdoptionCompletion(of: self)
+    }
+
+    /// Publish a complete departure batch before any old callback or opaque
+    /// history payload is released. Reentry cannot revive these attachments.
+    private func retireLazyListChildren(
+        _ roots: [ViewNode], nodes: [ViewNode], survivingChildren: [ViewNode],
+        admission: RetainedLazyListAdoptionAdmission?, removalReason: RetainedChildRemovalReason,
+        lazyJournal: RetainedLazyListAdoptionJournal?,
+        deferringOwnedDeparture: Bool,
+        sourceParent: ViewNode?
+    ) -> [ObjectIdentifier: RetainedLazyListDepartureCause] {
+        let interactionRuntime = runtime
+        let groupTaskCleanup = Self.claimLazyGroupTaskDepartures(in: roots)
+        if let lazyJournal {
+            for cleanup in groupTaskCleanup { lazyJournal.claimTaskCleanup(cleanup) }
+        }
+        // Capture and revoke every original scoped state before even the first
+        // controller revocation. A zero-slot state still owns attachment and
+        // pending declaration authority; later callbacks cannot redirect this
+        // cleanup to a replacement state installed on the same ViewNode.
+        var scopedTaskCleanup: [RetainedLazyListAcceptedTaskCleanup] = []
+        var departureCauses: [ObjectIdentifier: RetainedLazyListDepartureCause] = [:]
+        for root in roots {
+            let cause: RetainedLazyListDepartureCause
+            switch admission?.removalReason(for: root) ?? removalReason {
+            case .virtualization: cause = .viewportEviction
+            case .structural: cause = .acceptedReplacement
+            }
+            var pending = [root]
+            while let node = pending.popLast() {
+                departureCauses[ObjectIdentifier(node)] = cause
+                pending.append(contentsOf: node.children)
+            }
+        }
+        for node in nodes {
+            let cause = departureCauses[ObjectIdentifier(node)] ?? .acceptedReplacement
+            let departure = lazyJournal?.recordPhysicalDeparture(of: node, cause: cause, retireOwned: false)
+            if let state = node.existingRetainedTaskState {
+                let cleanup: RetainedLazyListAcceptedTaskCleanup
+                if let departure {
+                    cleanup = state.claimLazyPhysicalDeparture(departure)
+                } else {
+                    cleanup = state.claimLazyPhysicalDeparture()
+                }
+                scopedTaskCleanup.append(cleanup)
+                lazyJournal?.claimTaskCleanup(cleanup)
+            }
+        }
+        let gate = LazyListRetirementGate(nodes: nodes)
+        // This phase is required by RetainedTextInputController's contract to
+        // invoke no bindings, release no application payloads, and run no app
+        // callbacks. Opaque implementations must honor that contract.
+        for node in nodes {
+            node.fileDialogPresenterIsDeparting = true
+            node.fileDialogPresenterLease?.invalidate()
+            node.revokeLazyListAttachmentProofs()
+            node.retainedLazyListAdapter?.revokePendingCandidate()
+        }
+        for node in nodes { node.textInputController?.revokeOwnership(from: node) }
+
+        // Capture task/history/appearance state before publishing callbacks.
+        // The helper's scope releases every captured old payload while gates
+        // are still installed; its return does not permit obsolete adoption.
+        publishAndDrainLazyListRetirement(
+            roots: roots, nodes: nodes, survivingChildren: survivingChildren,
+            interactionRuntime: interactionRuntime, admission: admission,
+            scopedTaskCleanup: scopedTaskCleanup, groupTaskCleanup: groupTaskCleanup,
+            lazyJournal: lazyJournal, sourceParent: sourceParent,
+            departureCauses: departureCauses, deferringOwnedDeparture: deferringOwnedDeparture)
+        if let interactionRuntime {
+            // Long-press terminal callbacks use the existing reconciliation
+            // queue. Their captured cleanup must run before reattachment is
+            // possible; no additional scheduler is introduced here.
+            interactionRuntime.afterRetainedCallbacks { gate.finish() }
+        } else {
+            gate.finish()
+        }
+        return deferringOwnedDeparture ? departureCauses : [:]
+    }
+
+    private func publishAndDrainLazyListRetirement(
+        roots: [ViewNode], nodes: [ViewNode], survivingChildren: [ViewNode],
+        interactionRuntime: RetainedViewRuntime?, admission: RetainedLazyListAdoptionAdmission?,
+        scopedTaskCleanup: [RetainedLazyListAcceptedTaskCleanup],
+        groupTaskCleanup: [RetainedLazyListAcceptedTaskCleanup],
+        lazyJournal: RetainedLazyListAdoptionJournal?, sourceParent: ViewNode?,
+        departureCauses: [ObjectIdentifier: RetainedLazyListDepartureCause], deferringOwnedDeparture: Bool
+    ) {
+        let captured = nodes.map(LazyListRetiredNode.init)
+        children = survivingChildren
+        if let sourceParent {
+            lazyJournal?.recordAcceptedOwnedStructuralDeclaration(from: sourceParent, to: self)
+        }
+        if !deferringOwnedDeparture {
+            for node in nodes {
+                if let cause = departureCauses[ObjectIdentifier(node)] {
+                    lazyJournal?.recordOwnedPhysicalDeparture(of: node, cause: cause)
+                }
+            }
+        }
+        for root in roots {
+            root.revokeLazyListAttachmentProofs()
+            root.parent = nil
+        }
+        for entry in captured {
+            let node = entry.node
+            entry.runtime?.unregisterLazyListContainer(node)
+            entry.runtime?.unregisterScrollObservationNode(node)
+            entry.runtime?.unregisterAnimatingNode(node)
+            entry.runtime?.cancelColorAnimations(of: node)
+            if let state = node.scrollContainerState { state.attachmentGeneration &+= 1 }
+            node.revokeLazyListAttachmentProofs()
+            node.storedAccessibilityAttachmentIdentity = nil
+            node.runtime = nil
+        }
+        invalidateRuntime(.children)
+        let interactionCallbacks = interactionRuntime?.takeLazyListRetiredInteractionCallbacks(in: nodes) ?? []
+
+        // These are already-admitted cleanup obligations, not permission to
+        // adopt more nodes. They all finish even when an earlier callback
+        // revokes the candidate, changes the source, or closes the host.
+        for entry in captured where entry.runtime != nil { entry.controller?.willDetach(from: entry.node) }
+        for callback in interactionCallbacks { callback() }
+        for entry in captured {
+            entry.dismantle?(entry.node)
+            entry.disappear?()
+            entry.disappearWithNode?(entry.node)
+        }
+        for entry in captured {
+            for task in entry.tasks { task.cancel() }
+            if entry.runtime != nil { entry.controller?.detach(from: entry.node) }
+        }
+        for cleanup in scopedTaskCleanup { cleanup.finish() }
+        for cleanup in groupTaskCleanup { cleanup.finish() }
+        for entry in captured {
+            if let adapter = entry.adapter, adapter.ownsAttachment(entry.node) {
+                adapter.releaseMountedRecords()
+            }
+        }
+        // Old history and task/controller captures unwind here, after the
+        // stored child/runtime writes and before retireLazyListChildren can
+        // arrange gate completion or inspect admission again.
+        withExtendedLifetime(captured) {}
+        withExtendedLifetime(interactionCallbacks) {}
+        withExtendedLifetime(scopedTaskCleanup) {}
+    }
+
+    /// The checked path only accepts previously detached incoming trees. It
+    /// never runs the callbackful legacy setRuntime over an attached old tree.
+    /// Actual parent membership has already been published by the caller.
+    private func attachLazyListCandidate(
+        entries originalEntries: [LazyListAttachmentEntry], to nextRuntime: RetainedViewRuntime?,
+        published: LazyListPublishedChildrenProof,
+        admission: RetainedLazyListAdoptionAdmission?,
+        lazyJournal: RetainedLazyListAdoptionJournal?, taskAdoption: RetainedTaskAdoptionContext?
+    ) -> [LazyListAttachmentEntry]? {
+        var entries = originalEntries
+        guard admission?.isCurrent != false, published.isCurrent, lazyJournal?.canContinueAdoption != false,
+            entries.allSatisfy(\.isCurrent),
+            entries.allSatisfy({ !$0.node.isRetiringLazyListAttachment && $0.node.runtime == nil }),
+            nextRuntime?.permitsRetainedActionInvocation != false
+        else { return nil }
+        for entry in entries {
+            let node = entry.node
+            if nextRuntime != nil {
+                node.storedAccessibilityAttachmentIdentity = nil
+                node.revokeLazyListAttachmentProofs()
+                if let state = node.scrollContainerState { state.attachmentGeneration &+= 1 }
+                node.fileDialogPresenterLease?.invalidate()
+                node.fileDialogPresenterIsDeparting = false
+                node.fileDialogPreparedRevocations = 0
+            }
+            node.runtime = nextRuntime
+            if !node.animationStates.isEmpty { nextRuntime?.registerAnimatingNode(node) }
+            if entry.observerStorage != nil { nextRuntime?.registerScrollObservationNode(node) }
+            if entry.adapter != nil { nextRuntime?.registerLazyListContainer(node) }
+        }
+        // These are the exact controlled attachment changes just published.
+        // No application call has occurred since the previous proof checks.
+        for index in entries.indices {
+            entries[index].attachment = entries[index].node.captureLazyListAttachmentProof()
+        }
+        // All native parent/runtime writes have landed, and no controller has
+        // run. Publish insertion acceptance at this boundary, never by scanning
+        // the final children after an attachment callback has released captures.
+        if let lazyJournal {
+            for entry in entries {
+                let node = entry.node
+                let accepted = lazyJournal.recordAcceptedInsertedNode(on: node)
+                for group in accepted {
+                    taskAdoption?.associateLazyAccepted(group, journal: lazyJournal)
+                }
+                for group in lazyJournal.takeAcceptedDescriptorTaskGroups() {
+                    taskAdoption?.associateDescriptorAccepted(group, journal: lazyJournal)
+                }
+            }
+        }
+        // Do not run even the first controller if a nested adapter failed its
+        // physical claim during publication. The partial tree is incomplete.
+        guard
+            entries.allSatisfy({ entry in
+                nextRuntime == nil || entry.adapter == nil || entry.adapter?.ownsAttachment(entry.node) == true
+            })
+        else { return nil }
+        for entry in entries {
+            guard admission?.isCurrent != false, published.isCurrent, lazyJournal?.canContinueAdoption != false,
+                entries.allSatisfy(\.isCurrent),
+                nextRuntime?.permitsRetainedActionInvocation != false,
+                entry.node.textInputController === entry.controller,
+                entry.node.scrollObserverStorage === entry.observerStorage,
+                entry.node.retainedLazyListAdapter === entry.adapter
+            else { return nil }
+            if let adapter = entry.adapter, nextRuntime != nil, !adapter.ownsAttachment(entry.node) {
+                return nil
+            }
+            if nextRuntime != nil { entry.controller?.attach(to: entry.node) }
+            guard admission?.isCurrent != false, published.isCurrent, lazyJournal?.canContinueAdoption != false,
+                entries.allSatisfy(\.isCurrent),
+                entry.node.textInputController === entry.controller
+            else { return nil }
+        }
+        if let lazyJournal {
+            for entry in entries {
+                guard admission?.isCurrent != false, published.isCurrent, lazyJournal.canContinueAdoption,
+                    entries.allSatisfy(\.isCurrent)
+                else { return nil }
+                let accepted = lazyJournal.recordCompletedNode(from: entry.node, to: entry.node)
+                for group in accepted {
+                    taskAdoption?.associateLazyAccepted(group, journal: lazyJournal)
+                }
+                for group in lazyJournal.takeAcceptedDescriptorTaskGroups() {
+                    taskAdoption?.associateDescriptorAccepted(group, journal: lazyJournal)
+                }
+                admission?.recordCompletedOwnedSource(from: entry.node, to: entry.node, journal: lazyJournal)
+            }
+        }
+        return admission?.isCurrent != false && lazyJournal?.canContinueAdoption != false
+            && published.isCurrent && entries.allSatisfy(\.isCurrent) ? entries : nil
+    }
+}
+
+extension RetainedViewRuntime {
+    /// No mutation/callbacks: retirement does not copy existing programmatic
+    /// scroll cancellation/anchor policy for a surviving outside container.
+    fileprivate func canRetireLazyListInteractionOwners(in identifiers: Set<ObjectIdentifier>) -> Bool {
+        func isDeparting(_ node: ViewNode?) -> Bool {
+            node.map { identifiers.contains(ObjectIdentifier($0)) } ?? false
+        }
+        for tween in scrollPresentedTweens.values {
+            if tween.origin.isProgrammatic, isDeparting(tween.target), !isDeparting(tween.node) { return false }
+        }
+        for alignment in pendingPreciseScrollAlignments {
+            if isDeparting(alignment.target) || isDeparting(alignment.coarseTarget),
+                !isDeparting(alignment.container)
+            {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// Native ownership removal only. It must run after ALL departed nodes
+    /// have runtime nil and their editor/file-dialog leases revoked, before
+    /// the first old controller, task, history, or lifecycle callback runs.
+    /// It deliberately does not call pointerCancelled/updateFocusTarget/
+    /// updateHoverTarget, which have trailing live-owner writes and clocks.
+    fileprivate func takeLazyListRetiredInteractionCallbacks(in nodes: [ViewNode]) -> [@MainActor () -> Void] {
+        let identifiers = Set(nodes.map(ObjectIdentifier.init))
+        func isDeparting(_ node: ViewNode?) -> Bool {
+            node.map { identifiers.contains(ObjectIdentifier($0)) } ?? false
+        }
+        precondition(canRetireLazyListInteractionOwners(in: identifiers))
+        var callbacks: [@MainActor () -> Void] = []
+        var pointerUpOutside: (() -> Void)?
+
+        // All motion whose physical owner leaves can be discarded natively.
+        // A tween owned outside this batch was rejected by the preflight.
+        pendingPreciseScrollAlignments.removeAll {
+            $0.container == nil || $0.target == nil || isDeparting($0.container)
+        }
+        for node in nodes {
+            scrollMomenta.removeValue(forKey: ObjectIdentifier(node))
+            scrollPresentedTweens.removeValue(forKey: ObjectIdentifier(node))
+            node.scrollOvershoot = 0
+            node.scrollPresentedDelta = 0
+            scrollIndicatorReveals.removeValue(forKey: ObjectIdentifier(node))
+        }
+
+        let ownsPointer =
+            isDeparting(pressedNode) || isDeparting(longPressAttempt?.node)
+            || isDeparting(nodeDragState?.node) || isDeparting(scrollDragState?.node)
+            || isDeparting(activeScrollIndicatorNode)
+        if ownsPointer {
+            pointerSequence &+= 1
+            let previousPressed = pressedNode
+            let previousDrag = nodeDragState
+            let previousAttempt = longPressAttempt
+            pressedNode = nil
+            buttonRepeatState = nil
+            nodeDragState = nil
+            scrollDragState = nil
+            activeScrollIndicatorNode = nil
+            if let previousAttempt, !previousAttempt.didFinish {
+                previousAttempt.didFinish = true
+                longPressAttempt = nil
+                let configuration = previousAttempt.configuration
+                let cleanup = previousAttempt.cleanup
+                let didNotifyPressing = previousAttempt.didNotifyPressing
+                previousAttempt.cleanup = nil
+                // Preserve the runtime's normal terminal-callback ordering.
+                // The gate finishes through afterRetainedCallbacks afterward.
+                callbacks.append { [weak self] in
+                    self?.performLongPressCallback {
+                        if didNotifyPressing { configuration.onPressingChanged?(false) }
+                        cleanup?()
+                    }
+                }
+            }
+            if let previousDrag, let dragNode = previousDrag.node, let action = dragNode.onDragEnd {
+                let delta = Point(
+                    x: previousDrag.lastPoint.x - previousDrag.startPoint.x,
+                    y: previousDrag.lastPoint.y - previousDrag.startPoint.y)
+                callbacks.append { action(previousDrag.lastPoint, delta) }
+            }
+            pointerUpOutside = previousPressed?.onPointerUpOutside
+            // Retired nodes are not painted; do not create new chrome tweens
+            // on them from an old cancellation callback or an authored clock.
+        }
+        // A hover owner outside the departing batch remains live. Retiring a
+        // row must not consume its callbacks or create a new clock/chrome
+        // transaction on behalf of an unrelated surviving node.
+        if isDeparting(hoveredNode) {
+            let previousHover = hoveredNode
+            hoveredNode = nil
+            previousHover?.isHovered = false
+            if let action = previousHover?.onPointerExit {
+                callbacks.append { @MainActor [action] in action() }
+            }
+        }
+        if isDeparting(hoveredScrollIndicatorNode) { hoveredScrollIndicatorNode = nil }
+        if let pointerUpOutside {
+            callbacks.append { @MainActor [pointerUpOutside] in pointerUpOutside() }
+        }
+        if isDeparting(focusedNode) {
+            let previousFocus = focusedNode
+            let onExit = previousFocus?.onFocusExit
+            let onAccessibilityChange = onAccessibilityFocusChanged
+            // advanceFocusRevision can finish authored receipt captures on
+            // exhaustion. Keep that cleanup after native ownership publication.
+            let revision = focusRevision.advance()
+            currentFocusEntry = nil
+            let retiredFocusRequests: [RetainedPresentationFocusRequest]
+            if revision == nil {
+                retiredFocusRequests = pendingPresentationFocusRequests
+                for request in retiredFocusRequests { request.revoke() }
+                pendingPresentationFocusRequests.removeAll()
+            } else {
+                retiredFocusRequests = []
+            }
+            focusedNode = nil
+            previousFocus?.isFocused = false
+            resetCaretBlink()
+            callbacks.append { [weak self] in
+                for request in retiredFocusRequests { request.finish() }
+                onExit?()
+                guard let self, self.permitsRetainedActionInvocation, self.focusedNode == nil else { return }
+                if let revision {
+                    guard !self.focusRevision.isExhausted, self.presentationFocusRevision == revision else { return }
+                } else {
+                    guard self.focusRevision.isExhausted else { return }
+                }
+                onAccessibilityChange?(nil)
+            }
+        }
+        invalidate(.paint)
+        return callbacks
+    }
+}
+
+extension RetainedViewRuntime {
+    /// A candidate List can inspect only an already attached predecessor. Typed
+    /// path equality runs under both the original physical witness and the
+    /// constructing descriptor scope, stopping after each authored key call.
+    package func lazyListPredecessor(
+        for identity: RetainedViewIdentity, during scope: RetainedLazyListDescriptorBuildScope? = nil
+    ) -> RetainedLazyListRuntimeAdapter? {
+        guard permitsRetainedActionInvocation, scope?.canConstructDescriptors != false,
+            scope == nil || scope?.logicalHostLifetimeForScopeConstruction === lazyListLogicalHostLifetime
+        else { return nil }
+        var result: RetainedLazyListRuntimeAdapter?
+        var resultNode: ViewNode?
+        var resultAttachment: RetainedLazyListAttachmentProof?
+        var resultIdentity: RetainedLazyListViewIdentityProof?
+        var resultBinding: RetainedLazyListManagedLogicalDescriptorBinding?
+        let registrations = Array(lazyListRegistrations.values)
+        for registration in registrations {
+            guard permitsRetainedActionInvocation, scope?.canConstructDescriptors != false else { return nil }
+            guard let node = registration.node, let adapter = registration.adapter,
+                ownsLazyListAttachment(node), adapter.ownsAttachment(node),
+                node.retainedLazyListAdapter === adapter,
+                let binding = adapter.managedLogicalDescriptorBinding, binding.isCurrent,
+                let currentIdentity = node.retainedViewIdentity
+            else { continue }
+            let attachment = node.captureLazyListAttachmentProof()
+            let identityProof = node.captureLazyListIdentityProof()
+            func isCurrent() -> Bool {
+                permitsRetainedActionInvocation && scope?.canConstructDescriptors != false
+                    && attachment.isCurrent && identityProof.isCurrent
+                    && ownsLazyListAttachment(node) && node.retainedLazyListAdapter === adapter
+                    && adapter.ownsAttachment(node) && adapter.managedLogicalDescriptorBinding === binding
+                    && binding.isCurrent
+            }
+            guard let matches = currentIdentity.checkedEquals(identity, isCurrent: isCurrent), isCurrent() else {
+                return nil
+            }
+            if matches {
+                // An ambiguous raw identity is not permission to pick whichever
+                // List happened to register first.
+                guard result == nil else { return nil }
+                result = adapter
+                resultNode = node
+                resultAttachment = attachment
+                resultIdentity = identityProof
+                resultBinding = binding
+            }
+        }
+        guard permitsRetainedActionInvocation, scope?.canConstructDescriptors != false,
+            let result, let resultNode, resultAttachment?.isCurrent == true,
+            resultIdentity?.isCurrent == true, ownsLazyListAttachment(resultNode),
+            resultNode.retainedLazyListAdapter === result, result.ownsAttachment(resultNode),
+            result.managedLogicalDescriptorBinding === resultBinding, resultBinding?.isCurrent == true
+        else { return nil }
+        return result
+    }
+
+    private func lazyListContent(in container: ViewNode) -> ViewNode? {
+        guard ownsLazyListAttachment(container), !Self.hasHiddenAncestor(container) else { return nil }
+        var node = container
+        var depth = 0
+        while depth < ViewNode.maximumTraversalDepth {
+            if let adapter = node.retainedLazyListAdapter {
+                return adapter.ownsAttachment(node) && adapter.hasCurrentLogicalSnapshot ? node : nil
+            }
+            // The public List has one inner lazy stack. Do not search arbitrary
+            // branches or accidentally enumerate a nested independent List.
+            guard node.children.count == 1, let child = node.children.first,
+                child.parent === node, child.runtime === self, !child.isHidden
+            else { return nil }
+            node = child
+            depth += 1
+        }
+        return nil
+    }
+
+    /// One public request can inspect several Lists and then realize its actual
+    /// destination. All of that work borrows the active layout budget, including
+    /// nested layout queries. A new independent layout pass gets a fresh budget.
+    /// This depth is separate from layout depth, which controls anchor proof.
+    package func withLazyListResolutionBudget<Result>(
+        _ body: () throws -> Result
+    ) rethrows -> Result {
+        lazyListScrollWorkDepth += 1
+        ensureLazyListResolutionBudget()
+        defer {
+            lazyListScrollWorkDepth -= 1
+            finishLazyListResolutionBudgetIfIdle()
+        }
+        return try body()
+    }
+
+    /// Captures only the accepted native source and its exact container path.
+    /// An empty source still needs this proof: a later explicit ID search must
+    /// not treat an obsolete empty List as proof that no matching row exists.
+    package func captureLazyListScrollSource(in container: ViewNode) -> RetainedLazyListScrollSearchCursor? {
+        guard permitsRetainedActionInvocation, ownsLazyListAttachment(container),
+            let content = lazyListContent(in: container), let adapter = content.retainedLazyListAdapter,
+            let lease = content.retainedSubtreeBuildLease, let proof = adapter.captureLayoutProof()
+        else { return nil }
+        return RetainedLazyListScrollSearchCursor(
+            runtime: self, container: container, content: content, adapter: adapter,
+            lease: lease, descriptor: adapter.managedLogicalDescriptorBinding, adapterProof: proof)
+    }
+
+    /// Unlike an actionable row receipt, a source witness can be checked while
+    /// the adapter is constructing a doomed search candidate. It performs no
+    /// row lookup, provider callback, or snapshot query that rejects preparing.
+    package func isLazyListScrollSourceCurrent(
+        _ source: RetainedLazyListScrollSearchCursor, in container: ViewNode
+    ) -> Bool {
+        permitsRetainedActionInvocation && lazyListScrollSearchIsCurrent(source, in: container)
+    }
+
+    /// The caller already checked the live reader tree. Only new detached row
+    /// roots reach matches; matching is inspection, not permission to invoke or
+    /// retain any candidate action. Neither result nor cursor owns row content.
+    package func probeLazyListScrollTarget(
+        in container: ViewNode,
+        after previous: RetainedLazyListScrollSearchCursor? = nil,
+        requestIsCurrent: @escaping @MainActor () -> Bool,
+        matches: @MainActor ([ViewNode]) -> Bool
+    ) -> RetainedLazyListScrollSearchResult {
+        withLazyListResolutionBudget {
+            guard !isProbingLazyListScrollTarget else { return .deferred }
+            isProbingLazyListScrollTarget = true
+            defer { isProbingLazyListScrollTarget = false }
+            let result = probeLazyListScrollTargetInCurrentBudget(
+                in: container, after: previous,
+                requestIsCurrent: requestIsCurrent, matches: matches)
+            switch result {
+            case .more, .deferred:
+                lazyListScrollSearchNeedsMoreWork = true
+            case .found, .notFound, .obsolete:
+                break
+            }
+            return result
+        }
+    }
+
+    private func lazyListScrollSearchIsCurrent(
+        _ cursor: RetainedLazyListScrollSearchCursor, in container: ViewNode
+    ) -> Bool {
+        guard cursor.runtime === self, cursor.container === container,
+            cursor.containerAttachment.isCurrent, cursor.contentAttachment.isCurrent,
+            cursor.containerIdentity.isCurrent, cursor.contentIdentity.isCurrent,
+            cursor.adapterProof.isCurrent, cursor.ancestry.allSatisfy(\.isCurrent),
+            let content = cursor.content, let adapter = cursor.adapter,
+            let lease = cursor.lease, content.retainedSubtreeBuildLease === lease,
+            content.retainedLazyListAdapter === adapter, !Self.hasHiddenAncestor(container),
+            adapter.ownsAttachment(content), ownsLazyListAttachment(container), ownsLazyListAttachment(content)
+        else { return false }
+        if cursor.hadManagedDescriptor {
+            guard let descriptor = cursor.descriptor,
+                adapter.managedLogicalDescriptorBinding === descriptor, descriptor.isCurrent
+            else { return false }
+        } else if adapter.managedLogicalDescriptorBinding != nil {
+            return false
+        }
+        // hasCurrentLogicalSnapshot intentionally denies queries while the
+        // adapter is preparing. Validate this original path without that query.
+        var node = content
+        var depth = 0
+        while node !== container, depth < ViewNode.maximumTraversalDepth {
+            guard let parent = node.parent, parent.children.count == 1,
+                parent.children.first === node, !node.isHidden
+            else { return false }
+            node = parent
+            depth += 1
+        }
+        return node === container
+    }
+
+    private func probeLazyListScrollTargetInCurrentBudget(
+        in container: ViewNode, after previous: RetainedLazyListScrollSearchCursor?,
+        requestIsCurrent: @escaping @MainActor () -> Bool,
+        matches: @MainActor ([ViewNode]) -> Bool
+    ) -> RetainedLazyListScrollSearchResult {
+        guard permitsRetainedActionInvocation, ownsLazyListAttachment(container), requestIsCurrent(),
+            permitsRetainedActionInvocation, ownsLazyListAttachment(container)
+        else { return .obsolete }
+        guard !isLayoutInProgress, !hasActiveRetainedBuild, activeAccessibilityMutation == nil else {
+            return .deferred
+        }
+        let originalAttachment = container.captureLazyListAttachmentProof()
+        let originalIdentity = container.captureLazyListIdentityProof()
+        // An existing after-layout callback already has its fresh native pass.
+        // It must not recursively enter updateResolvedLayout from this hook.
+        if !isUpdatingResolvedLayout, !hasCompletedLayout || hasPendingLayout {
+            updateResolvedLayout()
+        }
+        guard originalAttachment.isCurrent, originalIdentity.isCurrent,
+            requestIsCurrent(), originalAttachment.isCurrent, originalIdentity.isCurrent,
+            ownsLazyListAttachment(container)
+        else { return .obsolete }
+        guard let content = lazyListContent(in: container), let adapter = content.retainedLazyListAdapter,
+            let lease = content.retainedSubtreeBuildLease, let proof = adapter.captureLayoutProof()
+        else { return .deferred }
+        let cursor =
+            previous
+            ?? RetainedLazyListScrollSearchCursor(
+                runtime: self, container: container, content: content, adapter: adapter,
+                lease: lease, descriptor: adapter.managedLogicalDescriptorBinding, adapterProof: proof)
+        func isCurrent() -> Bool {
+            guard lazyListScrollSearchIsCurrent(cursor, in: container) else { return false }
+            let current = requestIsCurrent()
+            return current && lazyListScrollSearchIsCurrent(cursor, in: container)
+        }
+        guard isCurrent() else { return .obsolete }
+        if adapter.logicalRecordCount == 0 { return .notFound }
+        guard let budget = lazyListResolutionBudget, budget.remainingElements > 0,
+            budget.consumeRound()
+        else { return .deferred }
+        let canBuild = lease.canBuild
+        guard isCurrent() else { return .obsolete }
+        guard canBuild else { return .deferred }
+        let coordinator = retainedBuildCoordinator
+        guard let sequence = coordinator.beginBuild() else { return .deferred }
+        let admission = RetainedLazyListAdoptionAdmission(
+            adapter: adapter, container: content, runtime: self, coordinator: coordinator, sequence: sequence)
+        let transaction = RetainedBuildTransaction()
+        var epoch: (any RetainedBuildEpoch)?
+        var journal: RetainedLazyListAdoptionJournal?
+        var probe: RetainedLazyListRuntimeAdapter.ScrollProbeResult = .obsolete
+        beginLongPressReconciliation()
+        transaction.perform {
+            defer {
+                // A probe never calls willAdopt or mutates the retained tree.
+                // Revocation precedes teardown of candidate values and actions.
+                admission.revoke()
+                journal?.revokeBeforeAbandon()
+                _ = journal?.seal()
+                epoch?.abandon()
+            }
+            guard isCurrent(), admission.isBuildCurrent else { return }
+            epoch = lease.beginBuild()
+            coordinator.install(epoch, startedAt: sequence)
+            guard isCurrent(), admission.isBuildCurrent, let activeEpoch = epoch else { return }
+            let mayConstruct = activeEpoch.canAdopt
+            guard mayConstruct, isCurrent(), admission.isBuildCurrent else { return }
+            var activity: (any RetainedLazyListBuildActivity)?
+            if let descriptor = adapter.managedLogicalDescriptorBinding {
+                guard descriptor.isCurrent, let managed = activeEpoch as? any RetainedLazyListBuildActivity,
+                    let scope = coordinator.beginDescriptorBuildScope(
+                        origin: .managedSubtree, epoch: activeEpoch, hostLifetime: lazyListLogicalHostLifetime,
+                        ownerLifetime: content.lazyListActivityStorage().descriptorOwnerLifetime)
+                else { return }
+                let candidateJournal = RetainedLazyListAdoptionJournal(
+                    admission: admission, transaction: transaction)
+                journal = candidateJournal
+                let bound = managed.bindLazyListDescriptorScope(scope)
+                guard bound, isCurrent(), admission.isBuildCurrent, scope.canConstructDescriptors,
+                    candidateJournal.bindDescriptorScope(scope)
+                else { return }
+                activity = managed
+            }
+            probe = adapter.probeScrollTarget(
+                after: cursor.lastExaminedToken, budget: budget, admission: admission,
+                activity: activity, journal: journal, requestIsCurrent: isCurrent, matches: matches)
+            // The adapter has destroyed detached row roots and identity-key
+            // temporaries before this check. Their deinit may supersede us.
+            if !isCurrent() || !admission.isBuildCurrent { probe = .obsolete }
+        }
+        endLongPressReconciliation()
+        var finishedCleanup = false
+        afterRetainedCallbacks {
+            transaction.perform {
+                epoch?.finishAfterCallbacks()
+                journal?.finishAcceptedTaskCleanup()
+                admission.finishCandidatePayload()
+                journal?.releaseUnadoptedTransport()
+            }
+            // Queued root work cannot run until every speculative payload and
+            // provisional state transport is gone from this coordinator scope.
+            coordinator.finishBuild()
+            finishedCleanup = true
+        }
+        guard finishedCleanup else { return .deferred }
+        guard isCurrent() else { return .obsolete }
+        switch probe {
+        case .found(let token):
+            return adapter.containsLogicalToken(token) ? .found(token) : .obsolete
+        case .more(let last):
+            // A zero-progress slice is not permission to schedule an endless
+            // callback chain when the configured budget is zero or unavailable.
+            guard let last, last != cursor.lastExaminedToken else { return .deferred }
+            return .more(RetainedLazyListScrollSearchCursor(advancing: cursor, through: last))
+        case .notFound:
+            return .notFound
+        case .obsolete:
+            return .obsolete
+        }
+    }
+
+    package func supportsLazyListAccessibilityItems(in container: ViewNode) -> Bool {
+        lazyListContent(in: container) != nil
+    }
+
+    package func lazyListTarget(
+        in container: ViewNode, token: RetainedLazyListRowToken
+    ) -> RetainedLazyListAccessibilityItem? {
+        guard let content = lazyListContent(in: container), let adapter = content.retainedLazyListAdapter,
+            adapter.containsLogicalToken(token), let attachment = accessibilityTarget(for: content)
+        else { return nil }
+        return RetainedLazyListAccessibilityItem(
+            token: token, container: container, content: content, adapter: adapter,
+            runtime: self, attachment: attachment)
+    }
+
+    package func lazyListTarget(
+        in container: ViewNode, key: RetainedViewIdentity.Key, occurrence: Int = 0
+    ) -> RetainedLazyListAccessibilityItem? {
+        guard let content = lazyListContent(in: container), let adapter = content.retainedLazyListAdapter,
+            let attachment = accessibilityTarget(for: content)
+        else { return nil }
+        let identity = content.captureLazyListIdentityProof()
+        let token = adapter.token(for: key, occurrence: occurrence)
+        guard permitsRetainedActionInvocation, attachment.isCurrent(in: self),
+            identity.isCurrent,
+            lazyListContent(in: container) === content, content.retainedLazyListAdapter === adapter,
+            let token, adapter.containsLogicalToken(token)
+        else { return nil }
+        return RetainedLazyListAccessibilityItem(
+            token: token, container: container, content: content, adapter: adapter,
+            runtime: self, attachment: attachment)
+    }
+
+    package func lazyListAccessibilityItem(
+        in container: ViewNode, after previous: RetainedLazyListAccessibilityItem? = nil
+    ) -> RetainedLazyListAccessibilityItem? {
+        guard let content = lazyListContent(in: container), let adapter = content.retainedLazyListAdapter else {
+            return nil
+        }
+        if let previous {
+            guard isLazyListAccessibilityItemCurrent(previous), previous.content === content,
+                previous.adapter === adapter
+            else { return nil }
+        }
+        guard let token = adapter.logicalToken(after: previous?.token) else { return nil }
+        return lazyListTarget(in: container, token: token)
+    }
+
+    package func lazyListAccessibilityItem(
+        in container: ViewNode, containing node: ViewNode
+    ) -> RetainedLazyListAccessibilityItem? {
+        guard let content = lazyListContent(in: container), let adapter = content.retainedLazyListAdapter,
+            node.runtime === self, let token = adapter.mountedToken(containing: node)
+        else { return nil }
+        return lazyListTarget(in: container, token: token)
+    }
+
+    package func isLazyListAccessibilityContainerCurrent(_ item: RetainedLazyListAccessibilityItem) -> Bool {
+        guard item.runtime === self, permitsRetainedActionInvocation,
+            let container = item.container, let content = item.content, let adapter = content.retainedLazyListAdapter,
+            item.attachment.isCurrent(in: self), item.identity.isCurrent, item.containerIdentity.isCurrent,
+            adapter.logicalMembershipIdentity === item.membership, adapter.ownsAttachment(content),
+            ownsLazyListAttachment(container), ownsLazyListAttachment(content), !Self.hasHiddenAncestor(container)
+        else { return false }
+        if let descriptor = adapter.managedLogicalDescriptorBinding {
+            guard descriptor.isCurrent else { return false }
+        } else {
+            guard adapter.hasCurrentLogicalSnapshot else { return false }
+        }
+        var node = content
+        var depth = 0
+        while node !== container, depth < ViewNode.maximumTraversalDepth {
+            guard let parent = node.parent, parent.children.count == 1,
+                parent.children.first === node, !node.isHidden
+            else { return false }
+            node = parent
+            depth += 1
+        }
+        return node === container
+    }
+
+    package func isLazyListAccessibilityItemCurrent(_ item: RetainedLazyListAccessibilityItem) -> Bool {
+        guard isLazyListAccessibilityContainerCurrent(item), let adapter = item.adapter,
+            item.content?.retainedLazyListAdapter === adapter, adapter.hasCurrentLogicalSnapshot
+        else { return false }
+        return adapter.containsLogicalToken(item.token)
+    }
+
+    /// Logical presence only: an accepted successor may not have prepared any
+    /// rows yet. Keep the original container namespace, but query the currently
+    /// installed adapter rather than granting the witness's old physical item.
+    package func isLazyListAccessibilityTokenCurrent(
+        _ token: RetainedLazyListRowToken, in witness: RetainedLazyListAccessibilityItem
+    ) -> Bool {
+        guard isLazyListAccessibilityContainerCurrent(witness),
+            let adapter = witness.content?.retainedLazyListAdapter
+        else { return false }
+        return adapter.containsAcceptedLogicalToken(token)
+    }
+
+    /// The caller holds one withLazyListResolutionBudget around this preparation
+    /// and its subsequent realizer. This does one ordinary layout query, then
+    /// reconstructs the same logical token without reviving an old row receipt.
+    @inline(never)
+    package func prepareLazyListAccessibilityTarget(
+        token: RetainedLazyListRowToken, in witness: RetainedLazyListAccessibilityItem,
+        during mutation: RetainedAccessibilityMutation
+    ) -> RetainedLazyListAccessibilityItem? {
+        guard lazyListScrollWorkDepth > 0, lazyListAccessibilityPreparation == nil,
+            isAccessibilityMutationCurrent(mutation), isLazyListAccessibilityTokenCurrent(token, in: witness),
+            let content = witness.content, let adapter = content.retainedLazyListAdapter,
+            let generation = adapter.managedLogicalDescriptorBinding?.sourceGeneration
+                ?? adapter.currentLogicalGeneration,
+            let (_, scroll) = content.nearestScrollTarget(), scroll.scrollAxis == .vertical,
+            let scrollAttachment = accessibilityTarget(for: scroll)
+        else { return nil }
+        let preparation = RetainedLazyListAccessibilityPreparation(
+            token: token, witness: witness, adapter: adapter, descriptor: adapter.managedLogicalDescriptorBinding,
+            generation: generation, mutation: mutation, scroll: scroll, scrollAttachment: scrollAttachment,
+            focusRevision: presentationFocusRevision, pointerSequence: pointerSequence,
+            modal: presentationModalSnapshot.map(ObjectIdentifier.init))
+        lazyListAccessibilityPreparation = preparation
+        defer {
+            preparation.isActive = false
+            if lazyListAccessibilityPreparation === preparation { lazyListAccessibilityPreparation = nil }
+        }
+        guard isLazyListAccessibilityPreparationCurrent(preparation), prepareAccessibilityMutation(mutation),
+            isAccessibilityMutationCurrent(mutation), isLazyListAccessibilityPreparationCurrent(preparation),
+            let container = witness.container, let item = lazyListTarget(in: container, token: token),
+            item.adapter === adapter
+        else { return nil }
+        return item
+    }
+
+    /// This native check also runs inside the existing anchor pass, so it does
+    /// not require layout to be idle or borrow a later settlement as authority.
+    private func isLazyListAccessibilityPreparationCurrent(
+        _ preparation: RetainedLazyListAccessibilityPreparation, checkingScrollIntent: Bool = true
+    ) -> Bool {
+        guard preparation.isActive, lazyListAccessibilityPreparation === preparation,
+            activeAccessibilityMutation === preparation.mutation, !preparation.mutation.isExhausted,
+            isLazyListAccessibilityTokenCurrent(preparation.token, in: preparation.witness),
+            let content = preparation.witness.content, let adapter = preparation.adapter,
+            content.retainedLazyListAdapter === adapter,
+            adapter.managedLogicalDescriptorBinding === preparation.descriptor,
+            preparation.generation.isCurrent,
+            (preparation.descriptor?.sourceGeneration ?? adapter.currentLogicalGeneration) == preparation.generation,
+            !focusRevision.isExhausted, presentationFocusRevision == preparation.focusRevision,
+            pointerSequence == preparation.pointerSequence,
+            presentationModalSnapshot.map(ObjectIdentifier.init) == preparation.modal,
+            let scroll = preparation.scroll, preparation.scrollAttachment.isCurrent(in: self),
+            scroll.scrollAxis == .vertical, scroll.scrollSourceEpoch == preparation.scrollEpoch,
+            content.nearestScrollTarget()?.container === scroll, !hasActiveScrollInputCapture(for: scroll),
+            permitsConservativeAccessibilityValueTarget(content)
+        else { return false }
+        return !checkingScrollIntent || scroll.lazyListScrollIntentIdentity === preparation.scrollIntent
+    }
+
+    private func permitsLazyListAnchorDuringAccessibilityPreparation(
+        in scroll: ViewNode, for content: ViewNode, adapter: RetainedLazyListRuntimeAdapter
+    ) -> Bool {
+        guard let preparation = lazyListAccessibilityPreparation, preparation.scroll === scroll else { return true }
+        guard preparation.witness.content === content, preparation.adapter === adapter else {
+            // A successor may converge in the same layout query after the
+            // original row callback replaces its source. It cannot borrow the
+            // obsolete preparation to correct this scroll owner's offset.
+            preparation.isActive = false
+            return false
+        }
+        guard preparation.reservedAnchorIntent == nil, isLazyListAccessibilityPreparationCurrent(preparation) else {
+            // Also gate unchanged anchors: publishing their clamp would capture
+            // a newer authored intent even though no offset setter ran here.
+            preparation.isActive = false
+            return false
+        }
+        return true
+    }
+
+    private func setLazyListAnchorOffset(
+        _ offset: Double, in scroll: ViewNode, for content: ViewNode, adapter: RetainedLazyListRuntimeAdapter
+    ) -> Bool {
+        guard let preparation = lazyListAccessibilityPreparation, preparation.scroll === scroll else {
+            scroll.scrollOffset = offset
+            return true
+        }
+        guard permitsLazyListAnchorDuringAccessibilityPreparation(in: scroll, for: content, adapter: adapter) else {
+            // A failed matching preparation remains a barrier until its owner
+            // unwinds; later passes must not overwrite the newer scroll intent.
+            return false
+        }
+        let intent = RetainedLazyListAttachmentIdentity()
+        preparation.reservedAnchorIntent = intent
+        defer { preparation.reservedAnchorIntent = nil }
+        // Grid invalidation can release a displaced scheduler callback. Never
+        // read a replacement intent after that callout and bless it as ours.
+        guard scroll.assignScrollOffset(offset, admission: nil, continuingAccessibilityAnchor: intent),
+            isLazyListAccessibilityAnchorCorrectionCurrent(in: scroll, intent: intent)
+        else {
+            preparation.isActive = false
+            return false
+        }
+        preparation.scrollIntent = intent
+        return true
+    }
+
+    fileprivate func canBeginLazyListAccessibilityAnchorCorrection(
+        in scroll: ViewNode, intent: RetainedLazyListAttachmentIdentity
+    ) -> Bool {
+        guard let preparation = lazyListAccessibilityPreparation, preparation.scroll === scroll,
+            preparation.reservedAnchorIntent === intent
+        else { return false }
+        return isLazyListAccessibilityPreparationCurrent(preparation)
+    }
+
+    fileprivate func isLazyListAccessibilityAnchorCorrectionCurrent(
+        in scroll: ViewNode, intent: RetainedLazyListAttachmentIdentity
+    ) -> Bool {
+        guard let preparation = lazyListAccessibilityPreparation, preparation.scroll === scroll,
+            preparation.reservedAnchorIntent === intent, scroll.lazyListScrollIntentIdentity === intent
+        else { return false }
+        return isLazyListAccessibilityPreparationCurrent(preparation, checkingScrollIntent: false)
+    }
+
+    package func lazyListAccessibilityGeneration(
+        for item: RetainedLazyListAccessibilityItem
+    ) -> RetainedLazyListGeneration? {
+        guard isLazyListAccessibilityContainerCurrent(item) else { return nil }
+        return item.content?.retainedLazyListAdapter?.currentLogicalGeneration
+    }
+
+    /// Actual roots only. The facade/platform projection can choose one or
+    /// several accessibility elements; a logical record is never a fake row.
+    package func realizedLazyListAccessibilityNodes(for item: RetainedLazyListAccessibilityItem) -> [ViewNode]? {
+        guard isLazyListAccessibilityItemCurrent(item), case .settled = layoutSettlementStatus,
+            hasCurrentAccessibilityPrepaint, let content = item.content,
+            let nodes = item.adapter?.mountedNodes(for: item.token),
+            nodes.allSatisfy({ node in
+                node.parent === content && node.runtime === self && !node.isRetiringLazyListAttachment
+                    && !node.isLayoutDeferredByVirtualization && content.children.contains(where: { $0 === node })
+            })
+        else { return nil }
+        return nodes
+    }
+
+    /// Ends only this native logical protection. After navigation focuses the
+    /// actual target, ordinary focus protection keeps its row mounted. Failure
+    /// releases the extra row at the next bounded layout opportunity.
+    package func releaseLazyListTarget(_ item: RetainedLazyListAccessibilityItem) {
+        releaseLazyListTarget(item, invalidatingLayout: true)
+    }
+
+    private func releaseLazyListTarget(
+        _ item: RetainedLazyListAccessibilityItem, invalidatingLayout: Bool
+    ) {
+        guard item.runtime === self, let realization = item.realization else { return }
+        item.realization = nil
+        realization.revoke()
+        item.adapter?.endLogicalRealization(realization)
+        if invalidatingLayout, let content = item.content, ownsLazyListAttachment(content) {
+            content.markDirty(.layout)
+            invalidate(.layout, from: content)
+        }
+    }
+
+    private func beginLazyListTargetResolution(during mutation: RetainedAccessibilityMutation?) -> Bool {
+        guard !isResolvingLazyListLogicalTarget, permitsRetainedActionInvocation,
+            canReadLayoutSettlement, !isUpdatingResolvedLayout,
+            mutation == nil ? activeAccessibilityMutation == nil : mutation === activeAccessibilityMutation
+        else { return false }
+        if let mutation, !isAccessibilityMutationCurrent(mutation) { return false }
+        isResolvingLazyListLogicalTarget = true
+        ensureLazyListResolutionBudget()
+        return true
+    }
+
+    private func finishLazyListTargetResolution() {
+        lazyListLogicalRevealScroll = nil
+        isResolvingLazyListLogicalTarget = false
+        finishLazyListResolutionBudgetIfIdle()
+    }
+
+    /// Materializes one bounded logical exception without moving the viewport.
+    /// Its native lease remains held until releaseLazyListTarget, so a binding
+    /// write can rebuild the List before the caller prepares/focuses the real
+    /// row. Scrolling then uses the ordinary captured-transaction path.
+    package func realizeLazyListTarget(_ item: RetainedLazyListAccessibilityItem) -> ViewNode? {
+        guard case .ready(let roots) = resolveLazyListTarget(item),
+            let first = roots.first(where: { !$0.isHidden && !$0.isSeparatorRule })
+        else {
+            releaseLazyListTarget(item)
+            return nil
+        }
+        return first
+    }
+
+    /// Keeps a pending native demand alive across the framework's existing
+    /// after-layout replay. It does not enqueue another scheduler or repeat a
+    /// binding write; the request owner releases the item on cancellation.
+    package func resolveLazyListTarget(_ item: RetainedLazyListAccessibilityItem) -> RetainedLazyListTargetResolution {
+        guard item.runtime === self, permitsRetainedActionInvocation else { return .obsolete }
+        guard !hasActiveRetainedBuild, !isResolvingLazyListLogicalTarget else { return .pending }
+        guard isLazyListAccessibilityItemCurrent(item), let adapter = item.adapter, let content = item.content else {
+            return .obsolete
+        }
+        guard adapter.updateProtectedRoots(protectedLazyListRoots(in: content)) else { return .unsupported }
+        if adapter.knownLeafCount(for: item.token) == 0 { return .empty }
+        if isUpdatingResolvedLayout, isDrainingAfterLayoutActions {
+            guard activeAccessibilityMutation == nil else { return .unsupported }
+            if let roots = currentPassLazyListRoots(for: item), !roots.isEmpty,
+                roots.contains(where: { !$0.isHidden && !$0.isSeparatorRule })
+            {
+                // Existing pending protection must remain held through the
+                // caller's final scroll and request completion.
+                if item.realization?.isActive == true { return .ready(roots) }
+            }
+            if item.realization?.isActive != true {
+                guard let realization = adapter.beginLogicalRealization(of: item.token, owner: item.realizationOwner)
+                else { return adapter.hasUnresolvedWork ? .pending : .unsupported }
+                item.realization = realization
+                content.markDirty(.layout)
+                invalidate(.layout, from: content)
+            }
+            // The ordinary settle after this callback constructs the requested
+            // row. Recursive layout here would fabricate a nested settlement.
+            return .pending
+        }
+        guard beginLazyListTargetResolution(during: nil) else { return .pending }
+        defer { finishLazyListTargetResolution() }
+        if let roots = materializeLazyListTarget(item, during: nil) { return .ready(roots) }
+        guard isLazyListAccessibilityItemCurrent(item) else { return .obsolete }
+        return adapter.knownLeafCount(for: item.token) == 0 ? .empty : .pending
+    }
+
+    private func currentPassLazyListRoots(for item: RetainedLazyListAccessibilityItem) -> [ViewNode]? {
+        guard isLazyListAccessibilityItemCurrent(item), let content = item.content, let adapter = item.adapter,
+            !adapter.hasUnresolvedWork, let visit = pendingLazyListVisits[ObjectIdentifier(content)],
+            lazyListVisitIsCurrent(visit), content.lastLayoutVisitPassID == layoutPassID,
+            let nodes = adapter.mountedNodes(for: item.token),
+            nodes.allSatisfy({ node in
+                node.parent === content && node.runtime === self && !node.isRetiringLazyListAttachment
+                    && !node.isLayoutDeferredByVirtualization
+                    && (node.isHidden || node.lastLayoutVisitPassID == layoutPassID)
+                    && content.children.contains(where: { $0 === node })
+            })
+        else { return nil }
+        return nodes
+    }
+
+    private func materializeLazyListTarget(
+        _ item: RetainedLazyListAccessibilityItem, during mutation: RetainedAccessibilityMutation?
+    ) -> [ViewNode]? {
+        guard isLazyListAccessibilityItemCurrent(item), let content = item.content, let adapter = item.adapter,
+            adapter.knownLeafCount(for: item.token) != 0
+        else { return nil }
+        guard adapter.updateProtectedRoots(protectedLazyListRoots(in: content)) else { return nil }
+        let originalFocus = presentationFocusRevision
+        let originalPointer = pointerSequence
+        let originalModal = presentationModalSnapshot.map(ObjectIdentifier.init)
+        func isCurrent() -> Bool {
+            isLazyListAccessibilityItemCurrent(item) && presentationFocusRevision == originalFocus
+                && pointerSequence == originalPointer
+                && presentationModalSnapshot.map(ObjectIdentifier.init) == originalModal
+                && (mutation == nil || isAccessibilityMutationCurrent(mutation!))
+        }
+        if case .settled = layoutSettlementStatus {
+            // The existing settled viewport needs no additional query.
+        } else {
+            guard resolvedLayoutFrame(of: root) != nil, isCurrent(), case .settled = layoutSettlementStatus else {
+                return nil
+            }
+        }
+        if item.realization?.isActive != true {
+            guard
+                let realization = adapter.beginLogicalRealization(of: item.token, owner: item.realizationOwner),
+                isCurrent()
+            else { return nil }
+            item.realization = realization
+            content.markDirty(.layout)
+            invalidate(.layout, from: content)
+        }
+        guard resolvedLayoutFrame(of: content) != nil, isCurrent(), case .settled = layoutSettlementStatus,
+            let nodes = realizedLazyListAccessibilityNodes(for: item), !nodes.isEmpty
+        else { return nil }
+        return nodes
+    }
+
+    /// UIA receives only current attached roots after bounded construction and
+    /// a precise immediate reveal. No synthetic row is installed for unknown,
+    /// empty, expired, or still-unsettled logical output.
+    package func realizeLazyListAccessibilityItem(
+        _ item: RetainedLazyListAccessibilityItem, during mutation: RetainedAccessibilityMutation
+    ) -> [ViewNode]? {
+        guard beginLazyListTargetResolution(during: mutation) else { return nil }
+        var completed = false
+        defer {
+            releaseLazyListTarget(item, invalidatingLayout: !completed)
+            finishLazyListTargetResolution()
+        }
+        guard let nodes = materializeLazyListTarget(item, during: mutation),
+            let target = nodes.first(where: { !$0.isHidden && !$0.isSeparatorRule }),
+            let targetAttachment = accessibilityTarget(for: target),
+            let (_, scroll) = target.nearestScrollTarget(), scroll.scrollAxis == .vertical,
+            let scrollAttachment = accessibilityTarget(for: scroll), !hasActiveScrollInputCapture(for: scroll),
+            permitsConservativeAccessibilityValueTarget(target),
+            let requested = ViewNode.requestedScrollOffset(
+                for: target, within: scroll, anchor: nil, visibleOffset: scroll.effectiveScrollOffset)
+        else { return nil }
+        let originalFocus = presentationFocusRevision
+        let originalPointer = pointerSequence
+        let sourceEpoch = scroll.scrollSourceEpoch
+        func isCurrent() -> Bool {
+            isAccessibilityMutationCurrent(mutation) && isLazyListAccessibilityItemCurrent(item)
+                && targetAttachment.isCurrent(in: self) && scrollAttachment.isCurrent(in: self)
+                && presentationFocusRevision == originalFocus && pointerSequence == originalPointer
+                && scroll.scrollSourceEpoch == sourceEpoch && !hasActiveScrollInputCapture(for: scroll)
+                && permitsConservativeAccessibilityValueTarget(target)
+        }
+        lazyListLogicalRevealScroll = scroll
+        cancelScrollMomentum(for: scroll)
+        guard isCurrent() else { return nil }
+        cancelScrollPresentedTween(for: scroll)
+        guard isCurrent() else { return nil }
+        var nextOffset = requested
+        for _ in 0..<Self.geometryReaderConvergenceLimit {
+            _ = scroll.setScrollOffset(nextOffset)
+            guard isCurrent() else { return nil }
+            let expectedIntent = scroll.captureLazyListScrollIntentIdentity()
+            guard resolvedLayoutFrame(of: target) != nil, isCurrent(),
+                scroll.lazyListScrollIntentIdentity === expectedIntent,
+                case .settled = layoutSettlementStatus, hasCurrentAccessibilityPrepaint,
+                let realized = realizedLazyListAccessibilityNodes(for: item), !realized.isEmpty
+            else { return nil }
+            if scrollVisibilityFraction(of: target) > 0 {
+                completed = true
+                return realized
+            }
+            // The new viewport may have replaced estimates with real heights
+            // above the target. Correct from that accepted geometry, borrowing
+            // this same request's remaining work budget and exact attachments.
+            // A newer scroll intent or a zero-progress correction ends here.
+            guard let budget = lazyListResolutionBudget, budget.remainingRounds > 0,
+                let correction = ViewNode.requestedScrollOffset(
+                    for: target, within: scroll, anchor: nil, visibleOffset: scroll.effectiveScrollOffset),
+                scroll.clampedScrollOffset(for: correction) != scroll.scrollOffset,
+                isCurrent(), scroll.lazyListScrollIntentIdentity === expectedIntent
+            else { return nil }
+            nextOffset = correction
+        }
+        return nil
     }
 }

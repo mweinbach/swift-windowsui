@@ -58,6 +58,44 @@ function Quote-MemoryIsolationArgument {
     return '"' + ([regex]::Replace([regex]::Replace($Value, '(\\*)"', '$1$1\"'), '(\\+)$', '$1$1')) + '"'
 }
 
+function Get-MemoryIsolationEvidenceCommands {
+    param([Management.Automation.Language.ScriptBlockAst]$AgentAst)
+    # These four exceptions belong only to the reviewed, inactive evidence path.
+    # Pin the resolver and the ordered Full prefix, including both guards and
+    # the intervening test call. No added command name is generally allowed.
+    $resolver = @($AgentAst.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq "Resolve-SwiftTestEvidenceRequest" }, $true))
+    $full = @($AgentAst.EndBlock.Statements | Where-Object { $_ -is [Management.Automation.Language.IfStatementAst] -and $_.Clauses.Count -eq 1 -and $_.Clauses[0].Item1.Extent.Text -ceq '$Full' })
+    $parameter = @($AgentAst.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -ceq "EvidenceDirectory" })
+    if ($resolver.Count -ne 1 -or -not [object]::ReferenceEquals($resolver[0].Parent, $AgentAst.EndBlock) -or
+        $full.Count -ne 1 -or $full[0].Clauses[0].Item2.Statements.Count -lt 6 -or
+        $parameter.Count -ne 1 -or $parameter[0].DefaultValue -isnot [Management.Automation.Language.StringConstantExpressionAst] -or
+        $parameter[0].DefaultValue.Value -cne '') { throw "Unexpected copied evidence source." }
+    $prefix = @($full[0].Clauses[0].Item2.Statements[0..5])
+    $parts = @($resolver[0].Extent.Text) + @($prefix | ForEach-Object { $_.Extent.Text })
+    $parts = @($parts | ForEach-Object { $_.Replace(([string][char]13 + [string][char]10), [string][char]10) })
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { $digest = [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes(($parts -join [string][char]10)))).Replace('-', '').ToLowerInvariant() } finally { $sha.Dispose() }
+    # These seven extents contain no multiline literals. Only CRLF becomes LF;
+    # bare CR, other whitespace, tokens, and node identity remain significant.
+    if ($digest -cne '3f5e9c9b760ee57339ca08695bd799be840a7eb01b09c35ca899962ed5139428') { throw "Unexpected copied evidence source." }
+    $commands = @($prefix | ForEach-Object { $_.FindAll({
+        param($node)
+        $node -is [Management.Automation.Language.CommandAst] -and
+            ($node.GetCommandName() -cin @('Resolve-SwiftTestEvidenceRequest', 'New-SwiftTestEvidenceRequest', 'powershell') -or
+                $node.InvocationOperator -eq [Management.Automation.Language.TokenKind]::Dot)
+    }, $true) })
+    if ($commands.Count -ne 4) { throw "Unexpected copied evidence source." }
+    return $commands
+}
+
+function Remove-MemoryIsolationEvidenceEnvironment {
+    param([Diagnostics.ProcessStartInfo]$StartInfo)
+    # Mutate only the copied child's dictionary, never the parent environment.
+    foreach ($name in @('SWIFT_WINDOWSUI_TEST_EVIDENCE_DIRECTORY', 'GITHUB_ACTIONS', 'GITHUB_OUTPUT', 'RUNNER_TEMP')) {
+        [void]$StartInfo.EnvironmentVariables.Remove($name)
+    }
+}
+
 function Invoke-MemoryIsolationFixture {
     param(
         [string]$Name,
@@ -99,6 +137,7 @@ function Invoke-MemoryIsolationFixture {
     $startInfo.CreateNoWindow = $true
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
+    Remove-MemoryIsolationEvidenceEnvironment -StartInfo $startInfo
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
     $started = $false
@@ -221,16 +260,52 @@ try {
     }
     $allowedCommands = @("Join-Path", "Split-Path", "Get-ReportedExitCode", "Invoke-Step", "Write-Host", "Set-Variable")
     $allowedVariables = @("Command", "contractScript", "lintScript", "testScript", "portableTestScript", "buildScript", "screenshotScript", "galleryCompareScript", "memoryFixtureShell")
+    $evidenceCommands = @(Get-MemoryIsolationEvidenceCommands -AgentAst $agentAst)
+    Assert-MemoryIsolationFixture ($evidenceCommands.Count -eq 4) "only four reviewed evidence command nodes are admitted"
+    $lfSource = $agentSource.Replace(([string][char]13 + [string][char]10), [string][char]10)
+    $lfAst = [Management.Automation.Language.Parser]::ParseInput($lfSource, [ref]$tokens, [ref]$parseErrors)
+    $lfEvidenceCommands = @(Get-MemoryIsolationEvidenceCommands -AgentAst $lfAst)
+    Assert-MemoryIsolationFixture (@($parseErrors).Count -eq 0 -and $lfEvidenceCommands.Count -eq 4) "LF checkout source retains the same scoped evidence admission"
     foreach ($command in $agentAst.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] }, $true)) {
+        $isEvidenceCommand = $false
+        foreach ($admitted in $evidenceCommands) {
+            if ([object]::ReferenceEquals($command, $admitted)) { $isEvidenceCommand = $true; break }
+        }
         $commandName = $command.GetCommandName()
         if ($null -ne $commandName) {
-            Assert-MemoryIsolationFixture ($allowedCommands -ccontains $commandName) "the copied runner cannot call an unexpected command"
+            Assert-MemoryIsolationFixture (($allowedCommands -ccontains $commandName) -or $isEvidenceCommand) "the copied runner cannot call an unexpected command"
         } elseif ($command.CommandElements[0] -is [Management.Automation.Language.VariableExpressionAst]) {
             Assert-MemoryIsolationFixture ($allowedVariables -ccontains $command.CommandElements[0].VariablePath.UserPath) "dynamic commands stay within the known stage and fixture-host variables"
         } else {
-            Assert-MemoryIsolationFixture ($command.CommandElements[0].Extent.Text -match '^\(Join-Path \$PSScriptRoot "[^"/\\]+\.ps1"\)$') "computed stage commands only address copied scripts"
+            Assert-MemoryIsolationFixture (($command.CommandElements[0].Extent.Text -match '^\(Join-Path \$PSScriptRoot "[^"/\\]+\.ps1"\)$') -or $isEvidenceCommand) "computed stage commands only address copied scripts"
         }
     }
+    # Pure admission controls: altered scripts are parsed, never invoked.
+    foreach ($mutation in @(
+        @{ Before = 'return [string]$EnvironmentValue'; After = "return 'unexpected'" },
+        @{ Before = '& powershell @evidenceCheckArguments'; After = "& powershell -Command 'exit 0'" }
+    )) {
+        $altered = $agentSource.Replace($mutation.Before, $mutation.After)
+        $alteredAst = [Management.Automation.Language.Parser]::ParseInput($altered, [ref]$tokens, [ref]$parseErrors)
+        $rejected = $false
+        try { $null = @(Get-MemoryIsolationEvidenceCommands -AgentAst $alteredAst) } catch { $rejected = $_.Exception.Message -ceq "Unexpected copied evidence source." }
+        Assert-MemoryIsolationFixture (@($parseErrors).Count -eq 0 -and $rejected) "altering the reviewed resolver or Check site is rejected before invocation"
+    }
+    $outsideAst = [Management.Automation.Language.Parser]::ParseInput(($agentSource + [Environment]::NewLine + '& powershell @evidenceCheckArguments'), [ref]$tokens, [ref]$parseErrors)
+    $outsideEvidenceCommands = @(Get-MemoryIsolationEvidenceCommands -AgentAst $outsideAst)
+    $powershellCommands = @($outsideAst.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'powershell' }, $true))
+    $outsideAdmitted = @($outsideEvidenceCommands | Where-Object { [object]::ReferenceEquals($_, $powershellCommands[-1]) })
+    Assert-MemoryIsolationFixture (@($parseErrors).Count -eq 0 -and $powershellCommands.Count -eq 2 -and $outsideAdmitted.Count -eq 0 -and $allowedCommands -cnotcontains 'powershell') "another powershell site cannot inherit the reviewed node's admission"
+    $environmentProbe = [Diagnostics.ProcessStartInfo]::new()
+    $evidenceEnvironmentNames = @('SWIFT_WINDOWSUI_TEST_EVIDENCE_DIRECTORY', 'GITHUB_ACTIONS', 'GITHUB_OUTPUT', 'RUNNER_TEMP')
+    foreach ($name in $evidenceEnvironmentNames) { $environmentProbe.EnvironmentVariables[$name] = 'synthetic-parent-value' }
+    $environmentProbe.EnvironmentVariables['GITHUB_ACTIONS'] = 'true'
+    $environmentProbe.EnvironmentVariables['SWIFT_WINDOWSUI_MEMORY_FIXTURE_SENTINEL'] = 'keep'
+    Remove-MemoryIsolationEvidenceEnvironment -StartInfo $environmentProbe
+    foreach ($name in $evidenceEnvironmentNames) {
+        Assert-MemoryIsolationFixture (-not $environmentProbe.EnvironmentVariables.ContainsKey($name)) "the copied child excludes inherited evidence and Actions control variables"
+    }
+    Assert-MemoryIsolationFixture ($environmentProbe.EnvironmentVariables['SWIFT_WINDOWSUI_MEMORY_FIXTURE_SENTINEL'] -ceq 'keep') "the copied child retains unrelated environment values"
     $memoryPath = Join-Path $RepositoryRoot "scripts/test-swiftui-api-audit-memory.ps1"
     $report.memoryFixtureSha256 = (Get-FileHash -LiteralPath $memoryPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $memoryAst = [Management.Automation.Language.Parser]::ParseFile($memoryPath, [ref]$tokens, [ref]$parseErrors)

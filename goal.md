@@ -6256,3 +6256,82 @@ remain unrun in that owned attempt. Root integration remains a later slice.
 
 These additions preserve original sections1-9, all nine unchecked completion
 gates, earlier failed attempts and every earlier evidence boundary.
+
+### 2026-08-29: first combined Quick failure and scoped memory-fixture correction
+
+The CI evidence integration and preceding ledger were committed together as
+dd2e37111081aca029c60c4d608728f213c5fb3f, tree886728dbcb5ad5db01219721185912c9d915085c.
+The first fresh combined Quick attempt then failed before any Swift command.
+Actual launch1f2b99/session39591 closed at33932e/1. Its direct PowerShell child
+6304 returned1 naturally after19.281s; no timeout or forced termination occurred.
+Contracts, checkout metadata, explicit lint-path fixtures, baseline fixtures
+and API audit capture fixtures had passed. The next memory-isolation fixture
+stopped at assertion98 while inspecting its copied agent-check source, before
+launching any of its12 stub scenarios. The new evidence resolver was outside
+the old fixture's command whitelist. This was not a Swift test failure, a
+memory-workload result or a successful combined Quick run.
+
+[The failed Quick archive](artifacts/goal-seventh-root-quick-failed-v1/failure.json)
+preserves the raw2543-byte output, SHAa00094573255dadea4c1367342864b8c66a3ced1a482bc7b8fcf0b0f97e048dc,
+the nonzero runner result and all12 fixed archival payloads. Archiver9e1cd1/1
+means that a failed validation was completely archived, not that validation
+passed. The parent closure and copied612-byte fixture report retain the actual
+tool boundary and zero launched cases. All794 tracked regular source files
+and the index were preserved. No build artifact was copied or invoked for
+this failure, and the successful-run supplemental collector was not used.
+
+The correction changes only scripts/test-agent-check-memory-isolation.ps1.
+It admits four specific AST command objects inside the reviewed evidence
+prefix, while retaining the general command and variable whitelists and
+computed-stage rule. The resolver, empty default evidence directory and six
+ordered Full statements remain pinned. Seven source extents normalize only
+CRLF to LF before hashing; other whitespace, tokens and node identity remain
+significant. Pure negative controls reject a changed resolver, changed Check
+site and an unrelated PowerShell call. Child process dictionaries exclude
+exactly the four evidence/Actions control variables; the parent environment
+and unrelated child variables remain unchanged. The original12 scenario
+bodies are byte-identical, including Full's ordinary single -Sharded argument.
+The five production CI files are unchanged from the accepted CI237 inputs.
+
+The exact26608-byte corrected fixture has
+SHAef9e2dd39e6fb781d942c5e8ffb943c2219b6e4763f0f8500780e78d611e6ddc.
+One targeted serial pair passed333 assertions and all12 scenarios on each of
+Windows PowerShell5.1.26100.9223 and installed PowerShell7.6.5. PS5 toola36b35/0
+recorded child49124, natural0 and9114ms. PS7 launch122a80/session54198 closed
+at6cac77/0, recording child58252, natural0 and13862ms. The12 scenarios include
+expected failures: the missing-script exit is-196608 on PS5 and64 on PS7;
+both satisfy the unchanged nonzero-and-stop requirement. Neither result was
+standardized or retried. Independent review reconciled all24 call ledgers,
+344 stub calls and48 saved case-stream hashes, with zero real evidence-helper
+calls. These are fixture results, not actual Swift, Quick or Full execution.
+Saved case-stream hashes describe decoded-and-saved UTF8 output rather than
+original native pipe bytes; no descendant-closure claim is made.
+
+The final17-pin preservation check78c13c/0 released the root source/index
+at06:54:43.5435477Z before intake. The evidence copy and source intake are
+recorded under [the fixture evidence archive](artifacts/goal-seventh-memory-fixture-evidence-v1/COPY-MANIFEST.json).
+Actual intake10f071/0 verified all717 original payloads and copied719 files
+including their manifest and external seal. Its
+[receipt](artifacts/goal-seventh-memory-fixture-evidence-v1/INTAKE.json) records
+the sole changed source path, unchanged index and793 other regular source
+files. Post-intake ContractsOnly passed at e5b881/0; the
+[contract log](artifacts/goal-seventh-memory-fixture-evidence-v1/contracts-after.log)
+retains that output. No Swift source changed after the prior59-file strict lint.
+The original failed Quick attempt, superseded unrun source candidate,
+metadata-only failures and reviewer-only read/comparison failures remain
+separate and unchanged. No failure has been converted into a passing result.
+
+The current source census remains5461 XCTest declarations:5444 CoreLogic and
+17 Portable, with5109 async and352 synchronous methods. An independent lexical
+review corrected one historical per-method async flag whose declaration wraps
+onto the next line; the previously stated aggregate5109/352 was already right.
+The134 Swift Testing declarations are a separate source count. The static
+Quick plan expects2651 XCTest identifiers and9 Swift Testing declarations
+across167 test invocations, including31 methods selected by the existing
+substring rules. These are source expectations, not observed execution counts.
+
+A new combined Quick run and then Full, preserved compiled-registration
+evidence, gallery comparison, grouped push and exact-commit hosted validation
+remain pending at this checkpoint. This correction does not add feature scope
+or relax any acceptance requirement. Original sections1-9, all nine unchecked
+completion gates and all earlier evidence boundaries remain unchanged.

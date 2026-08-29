@@ -5838,3 +5838,246 @@ Its intake receipt is SHA256
 `1a511b9f469539d7e2c83544945d5f58c2dc77770bc1cce0ff3d393fbcaf4cae`.
 That intake verifies the named metadata, not a new transitive replay of old
 source, raw logs or binaries, and it does not transfer owned results to root.
+
+
+### 2026-08-29: Owned validation evidence frozen at 04:24 UTC
+
+All nine original completion gates remain open. These records add evidence to the
+existing ledger without replacing failures, treating source edits as execution,
+or applying historical Full/Quick results to a different source composition.
+
+**Grid170: the first compile failure remains separate from the corrected pass.**
+The first attempt on owned commit fbe62c83/tree e0ad5596 closed at tool 730da8
+(session 25145), exit 1. Its first PS5 child exited 1 before any test started;
+all 170 selections were unrun and the remaining twelve filters never launched.
+The compiler resolved `gridColumnAlignment` as an instance property instead of
+the private global helper. Its 50.109 seconds is runner aggregate before final
+receipt serialization, not an independently timed PS5 or native-test duration.
+
+A fresh owned commit 73c23ad5/tree f1bf6590 changed only the helper name and sole
+call to `gridTrackCrossAlignment` beyond the reviewed Grid source. One corrected
+run closed at 9bb323/session 90968, exit 0: thirteen PS5 exits 0, 170 distinct
+starts and passes, no failures or skips. The 36 new cases and 134 preservation
+cases include two explicit migrations; the 134 are not all untouched fixtures.
+The independent final audit reconciles 5,459 generated XCTest IDs and every flag,
+but only the selected 170 async cases ran; all thirteen Swift Testing runs were empty.
+
+The sealed 155-member result and 59-member independent audit retain the old
+failure and metadata incidents. The passing runner aggregate was 445.359 seconds
+before final serialization, with no timeout or overrun. Recorded source/index,
+tools and effects pins were preserved. Grid remains partial for spacing, spans,
+compression/priority, RTL and guides; future Stage2 composition and native parity
+are not qualified. Primary records: `grid-pass-result`, `grid-independent-reconciliation`.
+
+**Document1287: the corrected owned run now has a sealed independent audit.**
+One run against HEAD 26144ba3/tree c6151ed3 closed at 7d8e78/session 60884,
+exit 0. All 63 stock calls had PS5 exit 0 and explicit empty Swift Testing runs.
+The audit confirms 1,287 distinct starts and passes: 94 new plus 1,193 preservation
+cases across 37 complete classes, with no failed, skipped, duplicate, unexpected,
+unclosed or unrun cases. The earlier raw-capture pending label is preserved as
+a historical boundary; the later sealed audit supplies the focused qualification.
+
+The outer observation was 377.303 seconds; the runner receipt was 364.610 seconds.
+These are different observation points. Complete child logs total 573,717 bytes;
+the truncated supervisor progress display is not a complete console archive.
+Captured source/tool/index associations remained unchanged. The two build graphs
+differed only in the verified 40/20 quoted jobs tokens, not an agent jobs override.
+The generated census is 5,085 XCTest IDs; it is not a full-suite execution.
+
+The old e2c47 attempt remains 771 starts, 768 passes, three failures and 516 unrun.
+The c615 pass does not qualify a root overlay, a complete visible document workflow,
+native TranslateMessage behavior, loaded-image origin or descendant closure.
+Primary records: `doc-owner-outcome`, `doc-final-audit`, and `doc-final-audit-seal`.
+
+**Arc342: all cases completed, but three methods failed exact pixel assertions.**
+Owned HEAD 7478b0c7/tree ce7cf23a closed at e20d02/session 56462, exit 1.
+All 342 selected IDs started and terminated once: 339 passed (308 XCTest and
+31 Swift Testing), three XCTest methods failed, and none were skipped or unrun.
+Calls 1–18 passed the prior 330 cases; call 19 passed nine of twelve Arc methods.
+The three failed methods produced nine assertions of BGRA [255,0,0,247] rather
+than [255,0,0,255]. There was no tolerance or oracle change. The independent
+audit retains this failed result and the complete 5,435-ID generated census.
+The runner aggregate was 483.875 seconds, without timeout or finalization overrun.
+
+The separate source successor ce866d8a/tree 4a4ed0d1 adds the missing bevel
+connector between CPU stroke segment bodies; the existing 0.1 threshold still
+governs only additional exterior round/miter geometry. The gap attribution is
+source analysis and arithmetic, not instrumented evidence of which raster failed.
+Four paths changed, including eight new tests; all twelve Arc method bodies and
+the prior test files remain unchanged. The 51-member source packet is sealed,
+but its prospective 350-case selection has not compiled or run. General native,
+antialiasing, trim, gradient, clipping and unjoined Stage2 oracle limits remain.
+Primary records: `arc-failure-reconciliation`, `arc-failure-independent-review`,
+and `arc-successor-handoff`; the successor does not replace the failed run.
+
+**Date161: compilation failed; the later one-assertion correction is source-only.**
+HEAD 2be4dc20/tree 9464f7ca closed at 096403/session 93561, exit 1 after
+163.25 seconds. The first PS5 child exited naturally with code 1; partitions
+2–16 never launched. One private-member diagnostic for `hoveredNode` at
+GraphicalDatePickerControlTests.swift:461:42 appeared in twelve compiler jobs.
+There were zero case, suite or Swift Testing events: all 161 cases, including
+35 new and 126 preserved, were unrun. No generated registry file was present.
+The failure, raw outputs and partial build remain preserved, without a retry.
+
+Fresh commit 001f3b5b/tree 4d64fcb8 changes only that assertion to the existing
+`button.isHovered` getter. No production API or helper visibility was widened.
+The sealed 112-member source packet and independent source review preserve the
+other 791 source files, all 160 other selected method bodies and all 161 IDs.
+Contracts and strict formatting passed, but this successor has not compiled or run.
+Its 18 fresh hosts and 528 day-center checks are authored counts, not observed
+calls; the assertion is justified only for this fixture without hover callbacks.
+Clock, native-pixel, roving-focus and generic API parity remain unqualified.
+Primary records: `date-failure`, `date-successor-final`, `date-successor-review-manifest`.
+
+**CI235 synthetic pair: actual failure despite PS7's structured case results.**
+The pinned eleven-file source is a snapshot, not a new Git checkout; its historic
+HEAD/index copies do not establish a current checkout identity. Tool 65c31d
+completed with exit 1 and no yielded session in 7.1988969 seconds; the outer
+controller returned 1 at 7,020 ms, separately from its 6,455 ms launcher receipt.
+PS5 PID 54300 exited naturally with 1 during setup: zero cases and assertions;
+none of its 235 expected bodies executed. PS7 PID 35720 exited naturally with 0,
+and its structured result reports 235 cases and 720 assertions passed.
+
+The launcher nevertheless records PS7 stdout as null with
+`stdout-file-pin-unavailable`. A later file hash does not repair that original
+capture failure or establish EOF. The pair remains failed and unqualified.
+At this addition's freeze, the whole-packet handoff/final audit is still pending;
+the pinned raw snapshot and actual closure records support only the stated facts.
+No retry, source successor execution, Swift/native test or hosted CI run is implied.
+Primary records: `ci-raw-snapshot`, `ci-tool-observation`, `ci-launcher-receipt`
+and the separate `ci-ps5-result` / `ci-ps7-result` records.
+
+**Shared message-loop probe: direct compile/link success only.**
+Tool 75d385, the collector and direct compiler DWORD all returned 0 with normal
+EOF and no intervention; the sealed manifest has 60 members. The saved seal
+checkpoint is 254.0632182 seconds. The owner's later tool-message observation
+at 04:11:16.9185780Z is a separate 285.4001384-second point from the original
+04:06:31.5184396Z authority, within its unchanged 600 seconds and 120-second reserve.
+The primary metadata records complete before/after input checks. No probe,
+mock test, validator or native runtime ran; passive origin review remains pending.
+Ordinary App behavior, ABI, IME, host DLL origins and descendants are not qualified.
+Older F9/P6 failures and the separate P7 debugged experiment remain unchanged.
+Primary records: `loop-compile-summary`, `loop-compile-outcome`, `loop-compile-final-tool`.
+
+The companion map pins metadata paths, bytes and hashes. This drafting pass read
+and hashed metadata only: no source/binary/transitive replay, workloads or root edits.
+These owned results do not qualify a later root composition or close any of the nine gates.
+
+Local evidence map: [snapshot 0424](artifacts/goal-seventh-owned-ledger-intake-v1/0424/primary-evidence.json). The intake retains the referenced metadata as data; it does not repeat the underlying workloads.
+
+
+### 2026-08-29: Owned validation evidence frozen at 04:57 UTC
+
+This addition follows the 04:24 ledger freeze; it does not rewrite that record.
+All nine original completion gates remain open with unchanged requirements.
+Each result below belongs to its stated owned source and validation scope.
+
+**CI235: the final packet is sealed, and the original pair is still failed.**
+The 385-file packet now preserves 2,554,400 bytes, the rechecked 339 raw files,
+and the completed independent-audit copies. This resolves the earlier pending
+packet boundary, not the failed result. Tool 65c31d still exited 1; PS5 executed
+zero cases during its setup failure, while PS7 reported 235 cases and 720 assertions.
+PS7's null stdout pin and `stdout-file-pin-unavailable` remain disqualifying.
+The later stdout hash neither repairs that capture nor proves EOF. No pair retry,
+source repair, root intake or hosted CI success follows from the final seal.
+Primary records: `ci235-final-manifest` and `ci235-final-handoff`.
+
+**AST-only pair: the proposed newline mismatch was not observed.**
+The separate probe closed at a9f9ee with exit 0 and no yielded session.
+Tool time was 1.4925128 seconds; the collector recorded 1,390 ms.
+PS5 PID 14296 and PS7 PID 58604 both exited naturally with 0.
+In both engines, the expected literal and actual writer extent were ordinally
+equal: each operand was 151 UTF-8 bytes with four CRLF pairs and no lone CR/LF.
+Both input parses were clean; no fixture, helper or project definition was invoked.
+
+The conditional 239-case/728-assertion newline correction was withdrawn without
+implementation or execution. The original PS5 setup exception remains unknown;
+this observation is not a trace of that historical exception or a CI235 pass.
+The 33-file probe packet preserves the separate metadata timestamp-review stop
+and its later completion; neither was an observer rerun. Subsequent probe plans
+are outside this addition. Primary records: `ast-pair-handoff`, `ast-pair-tool`,
+`ast-pair-ps5`, `ast-pair-ps7`, and `ast-pair-post-audit`.
+
+**Joined Task95: one focused pass on the held 56706 composition.**
+Owned HEAD d5ef2f73/tree 56706c93 closed at 2c275e/session 62789 with exit 0.
+All six stock calls had PS5 exit 0; the independent raw audit confirms exactly
+95 starts and passing terminals, with no failed, skipped, missing, extra or
+duplicate IDs. The cases are 51 new task cases and 44 preservation cases.
+The runner aggregate was 418.859 seconds, with no overrun or retry.
+All six Swift Testing runs were empty; omitted printed suite-count fields were
+kept distinct from the independently checked absence of named suite events.
+
+The sealed 78-member capsule also contains independent reconciliation of all
+5,512 generated XCTest IDs and the selected 95 async adapters. The 5,417 other
+registrations and 134 authored Swift Testing methods were not run.
+Recorded preservation covers 797 source bindings, 806 physical pins and the
+private index. The first zero-test compiler failure and separate 7d34203 pass
+remain unchanged. This does not qualify the larger preservation union, unmanaged
+task ownership, native scheduling equivalence, lazy rows, or a root integration.
+Primary records: `task95-joined-final-result`, `task95-joined-raw-audit`,
+`task95-joined-registry-audit`, and `task95-joined-seal`.
+
+**Lazy1968: one existing preservation case failed after the first 235 passed.**
+On owned HEAD 87d88f57/tree 4964de1a, the parent observed 6761f3/session 37826
+close with exit 1. The sealed independent audit verifies 260 distinct starts
+and terminals: 259 passes, one failed case and two assertion headers, with no skips.
+The first sixteen calls passed all 235 Stage2 cases; call 17 ran all 25 cases
+and failed `ComponentHostTests.testReloadReusesNodeWithFreshStateAndHandlers`.
+Caret 1 remained instead of 4, and insertion-point/upstream selection remained
+instead of range 1..<3/downstream. The remaining 83 calls were not invoked:
+1,708 cases are unrun, comprising 1,677 XCTest and all 31 selected Swift Testing cases.
+
+The recorded runner aggregate was 553.547 seconds before final serialization.
+Direct-child receipts show no timeout or termination. The generated audit matches
+5,603 IDs and the 1,937 selected XCTest references; it is not a 1,968-case pass.
+Source actor attributes and generated array attributes remain separate evidence.
+The audit records the tool closure as owner-reported; it did not independently
+read the actual tool object. The full historical owner archive is still pending,
+so the stable run prefix is not described here as a finalized archive.
+
+Source comparison found the fixture byte-identical to root comparison commit
+46d22ff, while the extracted Host path omitted the raw caret/selection copies
+for an incoming node without a controller. The sealed 58e994 restoration proposal
+adds that fallback after the existing validity checks, without changing assertions.
+It remains a source-only proposal, not an implemented or tested repair.
+Public lazy construction, native parity and the full preservation union remain open.
+Primary records: `lazy1968-independent-review`, `lazy1968-independent-seal`,
+`lazy1968-proposal-note`, and `lazy1968-proposal-source-pins`.
+
+**FilePreview392: one accepted build, with all runtime cases still unrun.**
+Owned HEAD 11d02b18/tree 22857650 closed at 90cfe6/session 89825 with exit 0.
+The single stock `build --build-tests --package-path` used default jobs.
+The retained PS5 exit and fresh propagated Swift exit were 0; an independently
+retained native Swift OS exit is unknown. The owner reports the build-log time
+as 414.60 seconds, distinct from 420.4023417 seconds for PS5 and the supervisor's
+421.0004914 seconds before its outcome write. No timeout, cap or overrun occurred.
+
+The build verification records all 790 source files, the index and eleven tool
+pins unchanged. Its preparation seals are not runtime or discovery seals.
+All 392 runtime cases remain unrun. Passive registration/image qualification
+is still pending; no final registry audit, capture seal or PE hash is claimed.
+No test listing, test product, native fixture or visible-preview workflow ran.
+Primary records: `filepreview-build-verification`, `filepreview-tool-closed`,
+and `filepreview-build-exit`.
+
+**Arc350: the later CPU connector run is now independently sealed as passing.**
+Owned commit ce866d8a/tree 4a4ed0d1 closed at a6dd56/session 83135 with exit 0.
+All twenty stock PS5 calls returned 0. The audit confirms 350 unique starts and
+passing terminals, or 700 events: 319 XCTest plus 31 Swift Testing cases.
+All twelve unchanged Arc cases passed, including the three prior failures;
+all eight new connector cases also passed without changing thresholds or samples.
+The runner recorded 489.359 seconds, with no timeout, overrun, skip or retry.
+
+The 107-member result reconciles all 5,443 generated XCTest IDs and records
+789 source files, the index and ten tool pins preserved. Registration is not
+full-suite execution. The old 342-case result remains 339 passes, three failures
+and nine alpha-247 assertions; its source-only preparation records are not rewritten.
+This pass does not prove software-only rendering, native/full-image parity,
+promoted fractional-opacity behavior or the unjoined Stage2 stored-Arc oracles.
+Primary records: `arc350-outcome`, `arc350-independent-completion`, `arc350-seal`.
+
+The companion map pins metadata paths, sizes and hashes. This drafting pass made
+no root/goal/index edits, source or binary replay, workloads, or memory changes.
+Owned evidence here does not establish root Quick/Full, hosted CI or broader native parity.
+
+Local evidence map: [snapshot 0457](artifacts/goal-seventh-owned-ledger-intake-v1/0457/primary-evidence.json). The intake retains the referenced metadata as data; it does not repeat the underlying workloads.

@@ -8127,3 +8127,23 @@ targets, unobserved external binding removal intervals, per-leaf logical
 enumeration and arbitrary work inside a row factory remain tracked gaps.
 These are unfinished requirements, not new compatibility exceptions. All
 original completion gates remain open.
+
+### Ninth implementation pass: selected List rows preserve authored labels (2026-08-29)
+
+The joined List selection owner now forwards the exact optional accessibility
+label from its identified content root, including nil and an explicitly empty
+label. It retains the existing identity, selection, focus and action owner.
+It does not scrape descendant text, add a wrapper Button or expand logical
+enumeration or row decorations. This supplies the ordinary authored-label
+behavior needed by the separate file-preview template without a demo-specific
+accessibility workaround.
+
+The source is the separate `e1c9945faf08f9659fbc29e0ace96d4f65df99e4`
+join commit, with patch SHA-256
+`228edc0be20c40449419dc46f74cf0424200fe9531a062cba66ebb41f70fe54e`.
+It adds six production lines and eight MainActor async regression methods.
+Contracts and whitespace checks passed on the root; compilation and execution
+remain pending. Together the native, List, label and integration source cohorts
+contain 771 new methods (765 async and six nonisolated synchronous methods).
+Their source preservation is not a runtime pass. The original nine gates stay
+open, including real UIA/Narrator and complete lazy-collection behavior.

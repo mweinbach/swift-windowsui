@@ -181,6 +181,15 @@ dispatch retains its own label construction path. Source regressions compare
 static and deferred labels and cover Grid updates, image/frame flags, and
 calendar browse state after eviction through both public List forms.
 
+Static and deferred selectable rows also copy the actual content root's
+accessibility label onto their existing selection owner. Empty labels stay
+empty, and hidden content does not supply a label. Content identifiers,
+grouping, values, traits, controllers, and actions remain on their original
+nodes. This is not decoration traversal: labels behind inset, background, or
+separator panels still need the separate row-decoration work, as do inset and
+separator edge semantics. The root-label change adds no row construction or
+logical UIA metadata search.
+
 Logical UIA identity must survive the interval between an accepted adapter
 exchange and its first prepared viewport. Absence of prepared metadata is not
 proof of container departure. Current logical membership is checked against

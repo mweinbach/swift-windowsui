@@ -10480,6 +10480,12 @@ public struct List: View {
         rowNode.nodeTag = row.nodeTag ?? "selection:\(String(describing: tag.base))"
         guard activity.isCurrent else { return rejectedRetainedViewNode() }
         rowNode.retainedViewIdentity = row.retainedViewIdentity
+        // Name the existing selection owner from the actual content root.
+        // Empty labels stay empty; descendants and control capabilities keep
+        // their original owners instead of becoming row-name fallbacks.
+        if !row.isHidden, !row.isAccessibilityHidden {
+            rowNode.accessibilityLabel = row.accessibilityLabel
+        }
 
         // Mark both selected and unselected rows so platform accessibility
         // providers can expose a complete SelectionItem pattern.

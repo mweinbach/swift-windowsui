@@ -6966,3 +6966,177 @@ is implied by that source proposal.
 No baseline, font, visual threshold, original requirement, or completion gate
 was changed. All nine original gates remain open. Later results must add to
 this checkpoint rather than replace its recorded failures or qualifications.
+
+
+### 2026-08-29: current geometry validation, completed CI findings, and isolated corrections
+
+Root commit `3fb9e55abe65a2d1dd615b7d360374dc384deb25`, tree
+`8bca33938ec9fd7ece8fd3bd2191d38b65caa205`, integrates the seven-path Arc and
+shallow stroke-join change. Arc stores normalized geometry in the live node's
+positive border-inset paint rectangle, rather than applying placement and
+scale twice. Collapsed inner dimensions produce an empty path. The CPU stroker
+keeps the triangle joining adjacent segment bodies even when the additional
+round or miter exterior falls below the existing 0.1-pixel threshold. Paint,
+callback ownership, public `Arc.path(in:)`, promotion policy, and coverage
+tolerances are unchanged. Twelve Arc tests and eight connector tests were added;
+all 472 previous test files and unrelated source were preserved at intake.
+
+Architecture checks passed before and after intake, and strict formatting passed
+for all five changed Swift files. Commit `3fb9e55` follows the goal-only
+`33a9b21`; neither was part of the earlier push to `3fcdf14`. The current source
+inventory has 5,499 XCTest methods, with 5,147 async registrations and 352 direct
+registrations, plus a separate 134-declaration Swift Testing inventory. These
+source counts are not themselves executed-test counts.
+
+Fresh root Quick completed naturally:
+`bfc6c1/session28545 -> e63270/0`, retained PS5 PID 25096. Source preservation
+passed and no operator cleanup was needed. Archive `d2d94b/0` preserves 12 files;
+the validation manifest is
+`artifacts/goal-eighth-root-quick-v1-archive/validation-quick.json`, SHA-256
+`58ffe18f1271a94c74d715bff9dbe3eefd2c0e038fbeb4b2ed7051617a0fd301`.
+Supplement `b8ed22/0` copied the nine compiled outputs and three stock source
+files before another root SwiftPM workload. The separate passive case and
+registration audit remains pending at this checkpoint. Source rematching shows
+that the 20 new methods do not enter Quick's unchanged selection; their focused
+runtime result follows below.
+
+The focused geometry run then completed naturally:
+`0e25f4/session12302 -> ddf8ee/0`, 118.641 seconds, with all 20 retained PS5
+children exiting zero. The runner reports exactly 350 passing cases: 319 XCTest
+and 31 Swift Testing, including all 12 new Arc and eight new connector methods.
+There were no failed, skipped, missing, duplicated, or unrun selected cases in
+its recorded result; source preservation passed and stopReason is null.
+The calls use the original exact non-sharded filters. A separate source-only
+check showed that substituting the generic sharded path would broaden this
+selection to 610 distinct cases in 29 calls, including 18 duplicate occurrences;
+that broader workload was not executed.
+
+Fresh admission `c615e8/0` checked all 800 source files, the index, ten tool/helper
+pins, the 48-member runner packet, and all 84 unused output paths. After actual
+closure, fixed capture `e88231/0` saved 89 stable files, including all 63 raw
+run files and four generated Swift registration files. Source, index, tools,
+and output-presence observations remained unchanged before and after capture.
+All required live build reads are complete; no test PE was read or copied by
+that capture. The capture manifest is
+`swift-windowsui-root-arc350-capture-3fb9-v1-dbc5a4f1ce864b0d8b6567b67e2dbb5a/outcome/CAPTURE.json`
+under the OS temporary directory, SHA-256
+`06cbcc3881e3deaa2b7701cfa7a11445b4bfa8c365736ffd764f8f8fb345dcf7`.
+Independent reconciliation of the copied 5,499 registrations and 350 outcomes
+is still pending. Neither the historical 342-case failure nor the earlier
+owned 350-case pass has been relabeled as this current-root result. This focused
+pass does not establish native SwiftUI Arc API parity, general transforms,
+antialiasing parity, full-image equality, or hardware pacing.
+
+The older local Full-v3 passive audit is now complete on its own `060f5c3c`
+source: `fc790f/0`, 2.546 seconds, with all 14 acceptance checks true. It joins
+all 5,479 generated XCTest identities and wrapper flags, 278 ordered invocation
+scopes, 5,478 passes and one named material skip, 134 Swift Testing passes,
+27 ordered agent steps, and the 277-shard Core journal. No new or legacy parser
+issues remain. Parent acceptance is recorded in
+`artifacts/goal-seventh-root-full-v3-parent-audit-acceptance-v1.json`, SHA-256
+`a48df6c5ffa4d23785633b10b0db3102d243a20d61882066bba5c783599efc48`.
+This is a completed audit of preserved evidence, not a rerun or qualification
+of later Arc source. Native process exits, loaded-image provenance, and
+independent authentication of the supplied session nonce remain outside it.
+
+Hosted Windows CI for the pushed `3fcdf14` has also finished. Run
+[33250300330](https://github.com/mweinbach/swift-windowsui/actions/runs/33250300330),
+attempt 1, failed the gallery gate: 18 of 85 entries passed and 67 failed.
+Twenty failures exceed both unchanged thresholds, and 47 exceed only the
+maximum-channel threshold. Fresh comparison of the retrieved artifact confirms
+the result. All 85 new hosted PNGs are byte-identical to the separately preserved
+C7 hosted PNGs; this establishes persistence, not the cause of the differences.
+The source/decoded-log join observes 5,475 XCTest passes, four skips, zero
+failures, and 134 Swift Testing passes. The four skips are the known material
+residual and three unavailable Segoe UI Variable cases. The Core artifact covers
+5,462 cases; the other 17 Portable outcomes come from the completed job log.
+This must not be reported as the local Full run's single-skip environment.
+
+The hosted pixel differences include text, icons, and a nonglyph donut region.
+The donut's best tested integer shift still leaves differences. Font availability
+and versions differ between the recorded hosted and local environments, but
+the baseline's original font profile and per-glyph loaded font bytes remain
+unreviewed. No blanket font cause, complete observer/wrapper provenance,
+compiled-registration attestation, or D3D11 presentation result is inferred.
+The same-push Portable workflow passed, including the macOS same-source demo
+build. The macOS baseline workflow succeeded as a candidate capture only:
+materials remain inconclusive, the 134,147-identifier API ledger is unreviewed,
+and exact SDK/compiler/Xcode build IDs were not recovered from the inspected log.
+No newer reference was silently substituted. Parent `05cd2e/0` rehashed all
+133 files in the sealed CI packet; its final manifest SHA-256 is
+`1d3a2716d00926c079b7cffcb6300ac1ae4f2f774c147717ab9e8b498b8b35af`.
+
+The isolated material214 attempt recorded as in progress in the previous entry
+has failed: `a7a079/session31979 -> a2fbf6/1`, 432.484 seconds. Copied evidence
+reconciles 198 XCTest passes, one known skip, one failure, and 14 Swift Testing
+cases unrun after the ninth call stopped the run. The failed method is
+`D3D11MaterialDrawingGroupBackdropTests/testReplayedBackdropSourcesRejectCapacityAndRecover`.
+Its partial-prefix comparison obtained match ratio `0.9992897727272727` instead
+of 1 at tolerance 2: three of 4,224 pixels exceeded tolerance. The failed GPU
+pixel coordinates and channel bytes were not captured and remain unknown.
+Later assertions in that method passed, but the complete method remains failed.
+
+Source inspection found that this reference compared 1,024 separate 2x2 quads
+against one 64x64 CPU quad. Their derivative coverage at the boundary differs,
+so that reference is not equivalent to the admitted prefix. A distinct successor
+`7359e4630aec4c63a816c98260f9877cdbfdb58d` changes only that test reference to
+the matching 32x32 grid and independently checks all 16,896 expected BGRA bytes.
+The existing tolerance, exact match ratio, capacity/recovery/resource assertions,
+all production source, and the other 5,485 test bodies are unchanged. Contracts
+and strict formatting passed. Its 214-case runtime selection is still unrun;
+the earlier failure is preserved, not retrospectively accepted.
+
+Other isolated source corrections also remain separate from root validation:
+
+- Calendar/layout175 now compares the optional Boolean with `true`, preserving
+  failure for nil and false. Only eight bytes changed in the previously
+  uncompilable assertion. The private successor preserves all other source,
+  all 175 selected identities, and its 5,472-method source inventory. Contracts
+  and formatting passed; the new 175-case run remains pending.
+- Image cap/stretch/tile fixtures replace two costly type-checking expressions
+  with explicitly typed construction while retaining data, expected pixels,
+  production code, and tolerances. Source census `ee2aec/0` derives 5,507 XCTest
+  methods and 138 Swift Testing declarations for that private source. The four
+  additional Swift Testing declarations are explicit GPUISceneBridge additions;
+  the historical 134-declaration reference remains intact. All 474 source/package
+  pins and the original 71-method selection are preserved. This is source
+  inventory evidence only; corrected test compilation and runtime remain pending.
+- Animated List focus has 14 new tests and a 125-case focused plan. Its private
+  source has 5,493 XCTest methods. Compilation and runtime are unrun; it does
+  not make the public List lazy or complete the separate state/task bridge.
+
+The standalone native scheduling probe's first compiler attempt stopped before
+any C, Swift, or link step: `946878/1`, 1.6675392 seconds, retained PS5 PID 15572,
+natural exit 1 without timeout or intervention. The diagnostic is Visual Studio
+developer-environment initialization failure. Fixed capture `55c36f/0` preserves
+the four emitted evidence files, explicitly records the absent compiler outputs,
+and verifies all 27 inputs and two anchors unchanged. No native probe ran.
+Source diagnosis found that the launcher supplies `VSINSTALLDIR` without the
+terminal separator expected by installed Visual Studio extension scripts.
+This is a source-supported explanation, not a recorded per-extension trace.
+A separate reviewed successor adds that separator and updates the matching
+child guard; probe sources, compiler arguments, and limits are unchanged.
+Its corrected compiler attempt completed naturally:
+`0ff680/session58703 -> b0de89/0`, retained PS5 PID 39948, with no timeout,
+intervention, or capture/cleanup errors. Fixed capture `1b2570/0` verifies all
+three exact compiler/link steps and all four output pins, with all 27 inputs
+and two anchors unchanged. Its capture SHA-256 is
+`766fe9d6b8df7a48b395919a8099390af9184c8dadd13a841dbb7dab8fd3319f`.
+The standalone C/Swift program therefore compiles and links; its native run
+is still unperformed. Even a successful standalone probe would not implement
+the production host's UIA, modal, renderer, input, or shutdown boundaries.
+
+The corrected pure245 control flow has now passed: 245 of 245 fixed synthetic
+fixtures, comprising 30 accepted and 215 expected-rejected cases over 30 selected
+definitions. The retained child and all ten tools exited zero. Completion was
+8.2837628 seconds on its original 60-second clock. The correction subtracts
+integer QPC ticks before division, retaining the original `1e-7` comparison and
+all cutoff/reserve guards. Independent review and parent `05cd2e/0` preserve
+all nine output copies and the 13-member postrun manifest. The mismatch-only
+numeric diagnostic branch was not exercised. The original 244-pass/one-failure
+attempt and its unknown floating value remain unchanged; no denied sealer,
+native performance collector, or product qualification follows from this pass.
+
+No baseline, font, visual threshold, API baseline, original requirement, or
+completion gate changed. All nine original gates remain open. Each later
+integration and result must add its own source and validation evidence.

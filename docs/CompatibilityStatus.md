@@ -143,8 +143,10 @@ and arc radii use their respective renderer scales, so ordinary rectangular
 layout does not scale actual coordinates twice or add the layout origin twice.
 Collapsed inner dimensions retain an empty path rather than falling back to a
 rectangular background. Public `Arc.path(in:)` still uses the supplied rectangle.
-`ArcCoordinateTests` adds independent geometry and pixel oracles for this
-follow-up; these new source tests await compiled/runtime validation.
+`ArcCoordinateTests` covers independent geometry and pixel oracles. All twelve
+tests passed in the focused 350-case run on `3fb9e55`, after a fresh Quick build.
+The run and generated registration files are captured; independent reconciliation
+of those copies is tracked in [goal.md](../goal.md).
 Arc is a repository utility, not a native Arc declaration in the pinned macOS
 SwiftUI/SwiftUICore interfaces. Bordered or arbitrary view transforms and rotated
 legacy-frame parity remain separate from ordinary layout and display scaling.

@@ -2356,8 +2356,9 @@ composite with a **single blend per pixel**. Four things that buys:
   caps, bounds, eight subrows and the promotion policy stay unchanged.
   `PathStrokeJoinConnectivityTests` specifies exact opaque and translucent
   interiors, mirrored and closing joins, collinear/reversal controls,
-  visible join styles and an opaque promoted-route comparison. These
-  focused source regressions do not establish native or full-image parity.
+  visible join styles and an opaque promoted-route comparison. All eight
+  regressions passed in the focused 350-case run on `3fb9e55`. They do not
+  establish native or full-image parity.
 - **Stroke bounds.** A stroke straddles its path, so an emitter sizes
   `bounds` through `StrokeOutlineGeometry.boundsOutset(forElements:…)`
   rather than by half a line width: a square cap reaches √2 half-widths on
@@ -2430,9 +2431,11 @@ composite with a **single blend per pixel**. Four things that buys:
   The scene painter applies placement and display scale once; legacy frame
   path commands stay in logical coordinates. `Arc.path(in:)`, paint handling,
   callback ownership, path promotion, shaders and coverage tolerances are
-  unchanged. `ArcCoordinateTests` adds twelve source regressions with literal
-  geometry and required visible/clear pixel probes; compilation and runtime
-  qualification of this follow-up are still pending.
+  unchanged. `ArcCoordinateTests` supplies twelve regressions with literal
+  geometry and required visible/clear pixel probes. All twelve passed in the
+  focused 350-case run on `3fb9e55`, following a fresh Quick build. The captured
+  evidence and independent reconciliation status are tracked in
+  [goal.md](../goal.md).
   This is the repository's Arc utility, not native Arc API parity. Unbordered
   uniform scale is a control, not a general transform guarantee: scaling a
   paint rectangle before subtracting an unscaled border can change its aspect.

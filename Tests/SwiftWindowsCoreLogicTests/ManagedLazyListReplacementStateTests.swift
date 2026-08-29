@@ -113,7 +113,7 @@ final class ManagedLazyListReplacementStateTests: XCTestCase {
         XCTAssertTrue(current.owner === retained.owner)
         XCTAssertTrue(current.model === retained.model)
         XCTAssertEqual(probe.objectFactoryCalls[1], 1)
-        XCTAssertNil(host.find("replacement.state.0"))
+        XCTAssertNil(host.find("replacement.state.0"), probe.diagnostic(in: host))
     }
 
     func testAcceptedAbsenceThenReinsertionCannotReviveCellsBeforeViewportWork() async throws {
@@ -206,8 +206,22 @@ private final class ManagedListReplacementStateProbe {
     ) throws -> ManagedListReplacementStateCapture {
         let captured = try XCTUnwrap(captures[id], file: file, line: line)
         XCTAssertTrue(
-            host.coordinator.registry.owner(at: captured.owner.identity) === captured.owner, file: file, line: line)
+            host.coordinator.registry.owner(at: captured.owner.identity) === captured.owner,
+            diagnostic(in: host), file: file, line: line)
         return captured
+    }
+
+    func diagnostic(in host: MountedLazyListTestHost) -> String {
+        let adapters = host.lists.compactMap(\.retainedLazyListAdapter).map { adapter in
+            "logicalCurrent=\(adapter.hasCurrentLogicalSnapshot) unresolved=\(adapter.hasUnresolvedWork) "
+                + "logical=\(adapter.logicalRecordCount) mounted=\(adapter.mountedRecordCount) "
+                + "leaves=\(adapter.mountedLeafCount) bindingCurrent=\(String(describing: adapter.managedLogicalDescriptorBinding?.isCurrent))"
+        }
+        let offsets = host.nodes.filter { $0.scrollAxis == .vertical }.map(\.scrollOffset)
+        return "completion=\(host.runtime.lastLazyListWorkCompletion) "
+            + "rounds=\(host.runtime.lastLazyListConsumedRounds) elements=\(host.runtime.lastLazyListConsumedElements) "
+            + "resolves=\(host.runtime.lazyListResolveCount) scrollOffsets=\(offsets) "
+            + "adapters=\(adapters) rowFactories=\(rowFactoryCalls) objectFactories=\(objectFactoryCalls)"
     }
 
     func clear() { captures.removeAll() }

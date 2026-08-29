@@ -8878,3 +8878,86 @@ strict formatting and source review passed; the diagnostic patch has SHA-256
 `8441e358dee14ce74330d5e5178cec6f54ce1ebd126461d7386be7a2deadb59d`.
 All four require execution before drawing a conclusion about the remaining
 Realize failures. No completion gate or work limit changes here.
+
+### Ninth integration: combined List regressions and native service tests, 2026-08-29
+
+- The clean execution commit was `f7d055f614ecee0f4c4a034a580e0a5db4663428`,
+  tree `96b02077b60fde83ac4ef796edb35b2bd55b38cd`. The fixed 88-method run
+  compiled successfully in 346.33 seconds and then reported 70 passes,
+  18 failed methods, zero skips, and 77 XCTest failures (8 unexpected).
+  XCTest took 116.475 seconds; the direct-child wait took 467.610 seconds.
+  Tool closure was `c2f659` / session `45374` -> `f3a807/1`, not a pass.
+- All four control-label identity, eight deferred consumer-label, four
+  candidate-prefetch, four map-storage, four build-admission, four logical-count,
+  nine projection-admission, and three public binding tests passed. Internal
+  replacement state was 2/4, mounted state 5/8, public lifetime 6/7, public
+  accessibility 6/15, native ItemContainer integration 9/10, and the four
+  realization-budget diagnostics 2/4. These are separate method outcomes,
+  not a claim that any original product completion gate has closed.
+- The realization diagnostics distinguish the remaining convergence problem:
+  the default four rounds exhausted after seven elements, while eight rounds
+  exhausted after eight elements. Both left the target as a placeholder and
+  layout unsettled. Sixteen explicitly configured rounds passed. The separate
+  one-element/one-round exhaustion test also passed. Production limits and
+  existing assertions were not increased or weakened to obtain those results.
+- The missing initial prefetch-row assertions now pass, but later replacement,
+  precise reveal, scroll-intent, and inactive-owner cases still fail. In the
+  two new replacement tests, the pre-layout checks that deleted owners are
+  revoked and old bindings refuse writes passed; stale captures after failed
+  rematerialization must not be mislabeled as proven owner resurrection.
+- The unchanged public accessibility class took 50.941 seconds, compared with
+  446.878 seconds in the earlier `9ea5289` run. Its unchanged logical-enumeration
+  method took 3.755 seconds versus 43.380 seconds. This supports the usefulness
+  of removing the forced dictionary copy, but is an uncontrolled debug-test
+  comparison across the other reviewed fixes, not hardware timing acceptance.
+  A bounded source follow-up found no second whole-metadata copy per row on
+  this one-segment path. Mixed projection-segment and many-List-declaration
+  costs remain separate, unqualified workloads.
+- The 88-method raw log is retained at
+  `artifacts/goal-ninth-list-repair-cohort-f7d055f-2640fcc687fb43bc98211d99e0a99b74/raw.log`
+  (1,013,833 bytes; SHA-256
+  `035dfeebb44fe6b84d231e3f989af09e45ac19629d7366940caa11f12bffa01c`).
+  Parent reconciliation `0f9438/0` independently matched all 88 expected starts
+  and terminal IDs, no duplicates/skips, the zero-test Swift Testing footer,
+  and the complete source/index endpoints. The runner was a byte-preserving
+  derivative of the reviewed 900-second runner, changing only its two filter
+  literals (20,118 bytes; SHA-256
+  `d39123e358d26fa8f8f82c7d47a9b6aa8ae7b17aaad86b60a0fe1d6daaab2eb6`).
+- The fixed 402-method serial List run now passes its first three classes:
+  deferred consumer labels 8, deferred List projection 14, and checked keys 19.
+  It stops at all four declared-owner continuation methods, with 102 assertion
+  failures. Thus 45 cases ran: 41 passed, 4 failed, 0 skipped; 357 cases in
+  25 classes remain unrun in this attempt. Tool `3f1763` / session `26102` ->
+  `81a857/1` closed naturally after 57.047 seconds. The failed class log is
+  `artifacts/goal-ninth-list-f7-4312747b8192/c04/raw.log` (33,876 bytes; SHA-256
+  `a6538b2d40a6b2076e5e477c8e130b8cb228653220df03cf057969f4d96e0521`).
+  Parent reconciliation `6045a1/0` matches the exact IDs, source/index endpoints,
+  and producer summary counts/sessions. It is not an independent full journal
+  audit, and earlier passes are not combined with unrun cases into a suite pass.
+- All 39 formerly held dialog/URL service methods passed on this same commit:
+  native dialog ownership 20, startup deferral 5, and URL routing 14. Tool
+  `2bdec0/0` observed natural child and runner zero; wait was 5.187 seconds.
+  Parent reconciliation `4c49ae/0` confirms 39 distinct starts/passes, no skips
+  or failures, the zero-test Swift Testing footer, and unchanged source/index.
+  The raw log is
+  `artifacts/goal-ninth-native-services-f7d055f-cb812b66a7e243d896ca83b6d115f5a4/raw.log`
+  (11,936 bytes; SHA-256
+  `9d3c4ae1087954dfc818a0a7d26c8b7eadec9efa1771b8d6acfbfc90609ba33e`).
+  These use injected command, dialog, and shell services; they prove no actual
+  HWND, common-dialog, ShellExecute, file-write, or native pump flow. The
+  earlier deterministic legacy-endpoint refusal guard remains in effect.
+- Every attempt above closed without timeout or termination and required no
+  operator cleanup. These observations do not prove descendant closure,
+  continuous source immutability, a full-suite pass, visual parity, or a release
+  qualification. No font, baseline, tolerance, or environment policy changed.
+- A follow-up diagnostics-only change adds passive failure messages to the two
+  new replacement cases. It retains all four method IDs and 67 assertion calls;
+  removing only the two messages and helper reconstructs the exact previous
+  source. It adds no layout, provider, callback, or budget action. The patch is
+  2,522 bytes, SHA-256
+  `acf4a9ff50a31cb4ddca0d41ac7c18a27d117b89fcb96e43a9a5b95b6d78c7b0`;
+  source postimage is 11,245 bytes, SHA-256
+  `ecda90fb378698ebf6e4e6e462878e80c4af0f8832c2ae040be51c408c27a586`.
+  Parent application `d6f2ad/0`, strict lint and contracts `303cbd/0` passed.
+  These added messages have not yet been compiled or executed. All nine
+  original completion gates remain open, with the original goal unchanged.

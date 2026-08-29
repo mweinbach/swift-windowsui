@@ -6839,3 +6839,130 @@ native service delivery, macOS conformance, timing targets, or the remaining
 baseline API surface. The grouped push and fresh exact-commit hosted CI result
 are still pending at this checkpoint. All nine original completion gates remain
 open; later evidence must be appended without replacing these historical facts.
+
+
+### 2026-08-29: pushed 3fcdf14, complete Quick reconciliation, and preserved compile failures
+
+The previously pending grouped push completed: `c7e7987..3fcdf14` contains 19
+commits, pushed together by `ad579c/0`. The subsequent checkout was clean and
+synchronized with `origin/main`. The pushed commit is
+`3fcdf14a4ef83ac94e3decc437030cd99402b358`, tree
+`18d151a2f8ffd5f4a40e27de129d1c2a620c924b`. Local Quick and Full still belong to
+`060f5c3c689980c5b2156c12d81a571c094a0d89`, not the later commit. The only
+intervening tracked change is the appended goal ledger; source, tests, package,
+scripts, and reviewed gallery baselines are unchanged.
+
+Fresh hosted runs are associated with that exact pushed commit and attempt 1:
+
+| Workflow | Run | Observed result at this checkpoint |
+| --- | --- | --- |
+| Portable core CI | [33250300359](https://github.com/mweinbach/swift-windowsui/actions/runs/33250300359) | Passed on macOS 15 and Ubuntu 24.04; isolated public products, portable tests, and the same-source macOS demo build passed |
+| SwiftUI baseline candidate capture | [33250300319](https://github.com/mweinbach/swift-windowsui/actions/runs/33250300319) | Job succeeded, but the artifacts remain candidates, not conformance acceptance |
+| Windows CI | [33250300330](https://github.com/mweinbach/swift-windowsui/actions/runs/33250300330) | Architecture checks passed; Full remains in progress; the separate Quick job was skipped |
+
+The successful macOS capture explicitly reports the material candidate as
+inconclusive. Its API ledger remains unreviewed, and the captured/compiled RGB
+candidate does not establish declaration, source, behavior, or release review.
+The SDK export reports 134,147 identifiers and macOS 26.5 target triples. The
+log names Xcode_26.6, host macOS 26.6.1/25G76, and runner image
+20260824.0517.1, but this check did not recover exact SDK, Xcode, or compiler
+build IDs. It does not silently replace the previously pinned reference.
+The separate small RGB synthetic artifact reports 126 cases and 495 assertions
+under PowerShell 7.6.4; it does not execute native Swift Color. The roughly
+300 MB candidate ZIP was not downloaded merely to infer SDK identity.
+Windows gallery artifacts and a fresh hosted/local comparison remain pending.
+
+The new passive Quick-v3 audit ran once and completed naturally:
+`bd404b/0`, 1.1004687 seconds. All 13 explicit evidence checks passed, including
+the complete 5,479 generated XCTest identities and async adapters, the exact
+167 ordered invocation scopes, and all 92 ordered agent steps. The raw case
+results reconcile to 2,650 XCTest passes and the one specific material skip,
+plus nine Swift Testing passes. There are no missing cases, failed cases,
+duplicate/unclosed lifecycle issues, unresolved quoted labels, or legacy
+parser issues in this run. The material method has both its start and skip
+terminal; its reason text was not independently parsed. All 18 newly added
+List methods remain outside Quick's selection and rely on their separate
+focused and Full coverage.
+
+The audit uses the complete 134-declaration Swift Testing source table for
+quoted aliases and keeps 391 relevant raw/index source associations. It does
+not infer macro registration, loaded-image origin, native Swift process exits,
+or descendant closure. The previous failed Quick audit and its 38 quoted-label
+issues are unchanged. An initial parent intake check, `944cbf/1`, incorrectly
+listed `write_failure` among ten unchanged helpers; it stopped before creating
+the capsule or invoking an audit. Read-only diagnosis `bfd92d/0` established
+the correct ten helpers, including `pin_matches`, and the exact reviewed
+metadata-only change to `write_failure`. Corrected intake `6c215d/0` changed no
+candidate source, input, or parser. This intake refusal remains preserved.
+
+The resulting audit is
+`artifacts/goal-seventh-root-quick-v3-audit-v1/audit-result.json`, 14,629,290 bytes,
+SHA-256 `8bcdc0674b6ce38e99030b9f70a5d37cc7da957e5277de394645da5018b06431`.
+Parent check `528ce9/0` rehashed its output manifest and all 37 non-PE inputs;
+the final manifest exists and no failure record exists. The parent closure is
+`artifacts/goal-seventh-root-quick-v3-audit-parent-closure-v1.json`, SHA-256
+`84abe23a30b1c6c99ab6d1bd72714e503e8a9302f5bb08a124bbde08f358ad56`.
+The separate Full case/journal audit remains source preparation, not execution.
+
+Two isolated proposals reached test compilation failures. Neither changes the
+passing root Quick/Full results or qualifies the proposed functionality:
+
+- **Calendar/layout175:** `e6ca45/session68987 -> 6e2cc1/1`, retained PS5 PID
+  33828, stopped during the first partition after 170.063 seconds. The new
+  assertion in `AbsoluteLayoutSizingTests.swift:268` passes `Bool?` directly
+  to `XCTAssertTrue`. There were zero case starts or terminals; all 175 selected
+  methods and the remaining 16 partitions are unrun. This is a compile failure,
+  not a failed assertion. Fixed capture `1c9635/0`, raw capture `42a8d3/0`, and
+  end preservation `e5b223/0` retain 793 source files, the private index, 96
+  named tool files, six raw outputs, and 66 unused output paths. Only three of
+  eight fixed build-text files exist; the four generated Swift files, link
+  list, and test PE are absent. The 5,472-method source expectation is not
+  generated-registration evidence. Independent lean reconciliation `15781a/0`
+  confirms the zero-event/175-unrun result. The 43-payload failure seal is
+  `swift-windowsui-date-picker-calendar-sizing-001f-11orizwq/repo/artifacts/date-picker-calendar175-compile-failure-v1/MANIFEST.json`
+  under the OS temporary directory, SHA-256
+  `d1918948c936502c26ef4f12b8a6b8d44c4caa238f0bf5bcd066cd0389b98a27`.
+  A separate source successor may compare the optional value with `true`,
+  preserving failure for both nil and false; no repaired runtime is claimed.
+
+- **Image cap/stretch/tile test typing:**
+  `171a83/session88144 -> 962a6f/1`, retained PS5 PID 20220, completed after
+  247.75 seconds. Two new fixture expressions exceed Swift's type-checking
+  limit: `ImageSamplingPlanTests.swift:334` and
+  `WinSwiftUIBitmapResizingTests.swift:42`. Each diagnostic appears in 24
+  compiler jobs; those are two source issues, not 48 separate failed tests.
+  No tests, test listing, application/test executable, HLSL compiler, or GPU
+  assertions ran. All 740 guarded inputs and the private index are unchanged;
+  all 19 retained calls closed naturally, with 18 Git exits of zero and the
+  PS5 compile exit of one, without timeout, intervention, or overrun. The prior
+  product-only build and its evidence remain unchanged. The 71-method runtime
+  selection remains unrun. Parent passive capture `fe1696/0` preserves 25
+  files/6,226,681 bytes and again finds only three build metadata files, five
+  missing generated/link files, and no test PE. Its manifest is
+  `codex-image-resizing-impl-69edab8884264c04b3c36c91eea64b45/early-test-typing-v1/passive-capture-v1/CAPTURE.json`
+  under the OS temporary directory, SHA-256
+  `22e817a905b80b1528eea01991100a39906092e3dff5ef7635c8773417fedf78`.
+  Follow-up source work must simplify the two fixture expressions while
+  preserving their data, colors, expected pixels, production code, and tolerances.
+
+The material214 fixture successor has begun one separately bounded attempt,
+`a7a079/session31979`, after fresh source/tool checks and preservation of the
+preexisting generated material PNG. It has no outcome at this checkpoint.
+Other prepared source work includes 14 animated List completion tests, a
+seven-path Arc/CPU connector join with its 12 Arc prerequisites and eight new
+connector tests, and a standalone public-API native scheduling probe. None of
+those preparations constitutes a current-root runtime pass. The probe does not
+implement the proposed host ownership change or resolve UIA, modal, renderer,
+or shutdown requirements.
+
+The pure245 failure also remains failed: its historical projected floating
+value was not logged and is still unknown. Reviewed source now proposes
+subtracting integer QPC ticks before division, retaining the original `1e-7`
+oracle, all cutoff/reserve guards, and exact comparisons. Optional diagnostic
+text records finite numeric values and types on a future mismatch. No corrected
+control run, renewed old clock, native collector, or previously denied sealer
+is implied by that source proposal.
+
+No baseline, font, visual threshold, original requirement, or completion gate
+was changed. All nine original gates remain open. Later results must add to
+this checkpoint rather than replace its recorded failures or qualifications.

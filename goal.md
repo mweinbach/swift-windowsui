@@ -8436,3 +8436,56 @@ test identity, baseline or comparison tolerance changes in this correction.
 The selected native test runner must bind the four changed selected fixtures
 before execution. Fresh compilation and test results are still required;
 all original completion gates remain open.
+
+### Ninth qualification pass: fresh hosted gallery failure and bounded font evidence (2026-08-29)
+
+Hosted Windows run 33270528843, attempt 1, for
+`3d716d15f4c0a5942e610bb2444cb8f96ced5c02` completed with failure.
+Its Full log and retained artifacts report 18 passing and 67 failing gallery
+comparisons. Independent decoding against all 85 immutable baseline blobs from
+that same commit reproduces every reported metric: 20 images fail both limits
+and 47 fail maximum channel difference only. There are no missing images or
+dimension mismatches. Twelve images are exactly equal as decoded RGBA; none
+has identical encoded PNG bytes. The existing greater-than-0.5-percent changed
+pixel limit, noise threshold 8 and maximum-channel limit 64 are unchanged.
+
+The runner reports Segoe UI Variable's three cuts absent and Segoe UI present,
+so the existing default policy projects classic UI without a forced override.
+Segoe Fluent Icons is separately absent and Segoe MDL2 Assets present. Narrow
+V1 diagnostics reference nine MDL2 icon roles for stepper and symbol-palette;
+they do not expose general text glyph ownership or Canvas/quad placement.
+The diagnostic's nonzero, unqualified pixel outcome is retained even though
+its workflow step uses continue-on-error and reports success.
+
+Fresh hosted typography-scale is byte-identical to the already closed local
+classic-UI capture, SHA-256
+`575d6f2b06348fc92eb01280bcce0714155bfba68665a3616798a3e1c26306a7`.
+The hosted donut and that same closed classic treatment have identical ring
+and text pixels; 216 differing pixels remain in the three legend icons, with
+maximum channel difference 237. The donut still fails the unchanged maximum
+rule against the classic image. These passive comparisons support these two
+fixtures only. They do not explain all 67 failures, prove loaded font files,
+reconstruct hosted Canvas geometry or authorize replacement baselines.
+The parent inspected the four relevant retained PNGs at original resolution.
+
+The Core publication is consistent with its own 5,690 unique case identities:
+5,686 pass and four skip across 286 declared completed shards. One is the
+existing material test; three SystemUIFontFaceTests explicitly report that
+Segoe UI Variable is not installed. This differs from the previously recorded
+local Full's one skip. The publication check does not independently join the
+complete source inventory, Portable or Swift Testing, and is not a Full pass.
+
+The separate macOS baseline run 33270528823, attempt 1, also reports failure.
+Its material-provenance step still has stale in-progress metadata, its log
+request returns 404 BlobNotFound and its artifact list is empty. The cause is
+unknown; no current native SDK/material/RGB/API export is available from it.
+No timeout, deadlock, assertion cause or SDK identity is inferred from labels.
+
+All three downloaded ZIPs and the selected members were checked within the
+fixed extraction bounds; artifact code was never executed. The sealed packet
+contains 245 payloads, 33,445,236 bytes, with manifest SHA-256
+`2d4fd9a71f089a1e62d3efbf63b3739768fcfe460b64679a47777fce9404fb5e`.
+The parent verified and retained every payload. No fonts, baseline images,
+tolerances, environment settings or workflows were changed by this diagnosis.
+These are results for the earlier pushed commit, not qualification of the
+new native/List integration. All original completion gates remain open.

@@ -29,11 +29,13 @@ padding around the same 96 by 96 sample:
 | `bitmap-aspect-fit` | Fit the capped, tiled 24 by 16 source into the finite square: a 96 by 64 image centered at sample y = 16, with four-point caps. Its center repeats 5.5 times horizontally and 7 times vertically. |
 
 The aspect-fit example depends on the finite-proposal bitmap layout join.
-The examples and eight `DemoBitmapResourceTests` cases are source additions,
-not proof that Windows or native macOS rendered them correctly. Validate the
-combined source before making that claim. The three entries increase the
-catalog from 144 to 147 (104 base, 16 interaction, 27 light); the reviewed
-85-entry baseline set and its thresholds are unchanged.
+At `138d49b`, all eight `DemoBitmapResourceTests` cases passed within a fresh
+64-method focused run. The three retained CPU gallery renders were inspected:
+the stretch keeps its colored caps, the tile crops partial repeats, and the
+fit has equal 16-point bands around a 96-by-64 image. Native macOS rendering,
+live presentation and a joined Full run remain separate requirements. The
+three entries increase the catalog from 144 to 147 (104 base, 16 interaction,
+27 light); the reviewed 85-entry baseline set and its thresholds are unchanged.
 
 ## Resource staging
 
@@ -67,6 +69,14 @@ Resolve any build-output junction to its real path before supplying it.
 synthetic directories, not a real SwiftPM output. `DemoBitmapResourceTests`
 also authors a copy-and-load check using an explicitly supplied `Bundle`.
 Neither check qualifies the generated accessor in a relocated executable.
+
+The actual generated Windows bundle was also copied at `138d49b` using this
+helper. Its basename was `swift-windowsui_SwiftWindowsDemo.resources`; both
+files (285 bytes total) matched the source and copied SHA256 values. The
+generated accessor was inspected: it prefers the main bundle location and
+then falls back to the original build directory. The retained render and
+resource-copy receipts are linked from `goal.md`. This verifies this build's
+resource staging, not a relocated executable or an absent-build-tree case.
 
 The release smoke must run the staged executable from an unrelated working
 directory on a machine without the build tree, record that the resolved demo

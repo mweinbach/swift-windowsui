@@ -1167,10 +1167,10 @@ The three additional bitmap entries are `bitmap-cap-insets`, `bitmap-tile`,
 and `bitmap-aspect-fit` (128 by 128 canvases). They reuse the same
 `DemoBitmapResizingSample` as the live Gallery and add no reviewed baselines.
 The catalog now has 104 base entries, 16 interaction entries, and 27 derived
-light entries. Their source declaration is not evidence of a successful
-render. In particular, the aspect-fit entry and its geometry test depend on
-the finite-proposal bitmap layout implementation; keep them unqualified until
-that combined source is compiled, tested, and rendered.
+light entries. At `138d49b`, the combined finite-proposal implementation passed
+all 64 selected bitmap, resource, editor and responsive-gallery tests, and
+these three retained CPU PNGs were rendered and inspected. This local result
+does not qualify native macOS rendering, live presentation, or the full gate.
 
 `DemoBitmapResourceTests` adds eight async cases for the real demo module's
 named PNG lookup, decoded pattern pixels, cap/tile geometry and sampling,

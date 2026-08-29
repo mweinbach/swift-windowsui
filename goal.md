@@ -7995,3 +7995,49 @@ its SHA-256 is
 The separate failure reconciliation matches all 64 started/completed IDs to
 the selected source methods. A fresh run of the unchanged 64-case selection
 is required after this fixture correction. All original gates remain open.
+
+### Ninth implementation pass: combined focused tests and retained bitmap review (2026-08-29)
+
+The unchanged six-class selection passed at
+`138d49b684a9c7082432a17cdbb0a200e03bbafb`: 64 XCTest methods, zero failures,
+zero skips and zero Swift Testing methods. All nineteen finite-fit, eight
+resource, five editor-settlement, twelve responsive-gallery, ten resizing and
+ten stretch methods completed, including both existing D3D11 comparison
+methods. The corrected copied-bundle test retains exact URL equality,
+containment and decoded-image equality. The earlier 63-pass/one-failure run
+remains a separate failed result rather than being overwritten.
+
+The fresh run exited naturally with code 0 after 201.657 seconds, without a
+timeout, termination or required operator cleanup. Source and index endpoint
+checks passed. Its raw log is retained in
+`artifacts/goal-ninth-image-editor-138d49b-bc5e0a2e0f684bee90c13ff3caa72d0e`
+and has SHA-256
+`fc8a41d66710cde2496927593c6da8b607cffbecc5828006cedc34ccd8cba991`.
+The separate reconciliation binds every started and completed method to the
+current source. These are focused results, not a joined Full result.
+
+The just-built gallery then rendered `bitmap-cap-insets`, `bitmap-tile` and
+`bitmap-aspect-fit` through the retained snapshot path. All three original
+128-by-128 PNGs were opened and inspected: the colored caps remain visible,
+tiling fills its square with cropped final repeats, and the 96-by-64 fitted
+image is centered between equal 16-point horizontal bands. The catalog is
+still 147 entries and the reviewed baseline set is still 85. No new baseline
+was accepted and no threshold changed.
+
+The gallery executable was 73,847,808 bytes with SHA-256
+`de969b45a8c19fe92641554abe23261c56653698e00215c553628dd07adbc5c6`.
+Its render child exited naturally with code 0. A separate successful child
+used `copy-demo-resources.ps1` on the actual generated
+`swift-windowsui_SwiftWindowsDemo.resources` bundle: both files, 285 bytes in
+total, matched their source and copied hashes. The generated accessor was
+inspected and retained by hash; it prefers the main bundle location but can
+fall back to the original build tree. Neither a relocated executable nor a
+missing-build-tree or clean-machine installation was tested.
+
+The PNGs, resource copy, child exit records and parent visual review are under
+`artifacts/goal-ninth-bitmap-gallery-d2a1cf75653947d4915ffdff05da47ba`.
+The executable, accessor, source resources, tracked source and index were
+unchanged at the recorded endpoints. This retained CPU review and the focused
+GPU cases do not qualify native SwiftUI behavior, legacy frame presentation,
+the forthcoming native/List join, hosted CI or deployment. All nine original
+completion gates remain open.

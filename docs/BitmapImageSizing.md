@@ -168,10 +168,15 @@ sampling, the 4096 phase limit, source bytes, ABI and tolerances did not change.
 The runs and reviewed images are recorded in `goal.md`; native SwiftUI,
 interpolation, legacy-frame placement and SDK conformance remain unqualified.
 
-The nineteen new aspect-fit cases have not yet been compiled or executed on
-this integration branch. The earlier a2 runs did not include them. No baseline
-review flags are promoted. Run focused checks serially with the existing
-architecture and formatting checks:
+At `138d49b`, all nineteen aspect-fit cases passed in a fresh 64-method focused
+run with bitmap resources, editor settlement, responsive gallery behavior and
+both earlier bitmap suites. There were no failures or skips. The three new
+bitmap gallery PNGs were also rendered and inspected; the fitted sample keeps
+its 96-by-64 image centered inside the 96-point square. This is local retained
+CPU evidence, not native SwiftUI or legacy-frame qualification. The earlier
+a2 Full run did not include these new cases, and no baseline review flags are
+promoted. Run focused checks serially with the existing architecture and
+formatting checks:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUIBitmapStretchTests

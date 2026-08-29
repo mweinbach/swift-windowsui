@@ -7273,3 +7273,47 @@ resolve that bookkeeping mismatch. The source receipt is
 
 Compilation, focused pointer/host regressions, and combined validation are still
 required before pushing this source. No existing gate is marked complete.
+
+### 2026-08-29: UI Automation queue recognition and immutable queries
+
+Two independently reviewed source slices are joined on `4fdfa2d`; this is
+implementation progress, not native scheduling qualification. The first comes
+from private `e390a030` (patch SHA-256
+`63033234bbd64a9b052704f8f07b87373eaede1761b330b836b0f68ec3ddd5eb`).
+The second comes from private `e1fd44e8` (patch SHA-256
+`37bef0755f2ea0ef0cf11ef3124a1d784bb55fcab353b22b9ebf72702ad95bae`).
+Both apply as context changes; the captured-pointer implementation remains intact.
+
+- UIA callbacks already executing in the main dispatch queue's target hierarchy
+  can now take the inline route instead of synchronously dispatching to that
+  same queue. One private, immutable process-lifetime owner installs the queue
+  key once. It carries no provider, window, registry, or other UI state. The
+  existing thread shortcut remains, and **both routes retain
+  `MainActor.assumeIsolated`**. Queue recognition does not replace actor checks.
+- Queries now compute through a checked-Sendable `UIAQuerySnapshot` containing
+  copied value elements. The twelve existing query callbacks still obtain a
+  fresh projection at their original call sites; the separate SetValue guard
+  remains the thirteenth projection call. Runtime-ID lookup remains projection
+  free. First-match order, selection ancestry, hit-test depth ties, missing
+  values and C sentinels are preserved. This introduces no shared query cache.
+- Four new async lifetime tests author six queued COM scenarios: main and
+  main-targeted name queries, worker success and revocation, and successful and
+  failed Value actions. Twelve further async tests cover immutable transfer,
+  query ordering and defaults, fresh bridge values, and selection count/fill
+  shrink, growth and empty results. The existing lifetime tests are retained.
+- Parent contracts before and after the joined change, strict lint of all four
+  Swift files, and source comparison passed. The intake receipt is
+  `artifacts/goal-eighth-uia-combined-intake-v1.json`. **Compilation and all
+  sixteen new tests are still unrun at this checkpoint.** A successful test
+  must actually observe main-queue context with `Thread.isMainThread == false`
+  before the newly needed inline branch can be qualified.
+- Actions remain synchronous with their existing results, callback pinning,
+  native/provider lifetime and C ABI. No application entrypoint, HWND owner,
+  message pump, modal behavior, renderer ownership or teardown policy changes.
+  Production task progress, blocked native-to-actor callbacks, Narrator and
+  native presentation still require their separate implementation and evidence.
+
+The local `origin/main` tracking ref was observed at `4fdfa2d` during this
+intake, with an update-by-push reflog entry. This observation is not a fresh
+hosted-CI result or a test result for the pointer or UIA additions. All nine
+original completion gates remain open.

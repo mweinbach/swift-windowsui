@@ -63,6 +63,14 @@ HWND ownership, change the message pump, or service queued MainActor tasks;
 UI Automation, IME caret queries, modal dialogs, rendering, and close teardown
 retain their existing ownership and synchronous result requirements.
 
+UI Automation callbacks preserve synchronous query and action results. A single
+private dispatch-context marker recognizes execution on the main queue or a
+queue targeting it, avoiding a synchronous dispatch back to that same context
+when Foundation reports a different main thread. The existing native entry-thread
+path remains, and both paths still assert `MainActor` isolation before consulting
+the source. This does not move HWND ownership, service queued app tasks, or
+qualify modal/COM reentry and deadlock behavior.
+
 ## Rendering-engine boundary
 
 `RenderBackendFactory` creates renderer-neutral implementations of:

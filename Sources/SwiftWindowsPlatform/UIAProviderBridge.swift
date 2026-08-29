@@ -15,10 +15,11 @@ import WinSDK
 // SwiftWindowsUI dependency.
 //
 // Threading: UIA calls raw providers on its own background threads. Every
-// callback hops to the main thread before touching the tree source, which is
-// main-actor isolated like the rest of the UI stack. Hopping from a UIA
-// worker thread preserves the existing synchronous dispatch contract. The
-// main thread must remain able to service that dispatch; provider lifetime
+// callback enters the main actor before touching the tree source. A callback
+// already in the main dispatch queue's context must not synchronously dispatch
+// back to that queue, even when Thread.isMainThread is false. Other UIA worker
+// callbacks preserve the existing synchronous dispatch contract. The main
+// queue must remain able to service that dispatch; provider lifetime
 // safety does not qualify every COM reentry or Narrator deadlock scenario.
 
 /// A flat, screen-coordinate snapshot of one accessibility element, produced
@@ -31,7 +32,7 @@ public enum UIAToggleState: Int32, Sendable {
     case indeterminate = 2
 }
 
-public struct UIAElementSnapshot {
+public struct UIAElementSnapshot: Sendable {
     public var id: UInt64
     public var parentID: UInt64?
     public var name: String
@@ -221,6 +222,25 @@ private func releaseUIAProviderCallbackContext(_ context: UnsafeMutableRawPointe
     Unmanaged<UIAProviderCallbackContext>.fromOpaque(context).release()
 }
 
+/// One process-lifetime identity, with no window, provider, or other UI state.
+/// The unchecked conformance covers only this immutable owner: static
+/// initialization installs its private key once, and subsequent concurrent
+/// access only uses Dispatch's public, read-only current-context lookup.
+/// The key never escapes or changes, and the scalar value is never replaced.
+private final class UIAMainQueueContext: @unchecked Sendable {
+    static let shared = UIAMainQueueContext()
+
+    private let key = DispatchSpecificKey<UInt8>()
+
+    private init() {
+        DispatchQueue.main.setSpecific(key: key, value: 1)
+    }
+
+    var isCurrent: Bool {
+        DispatchQueue.getSpecific(key: key) == 1
+    }
+}
+
 /// Serves UIA provider objects for one window's accessibility tree.
 ///
 /// The bridge owns the root fragment provider (one per window, handed to UIA
@@ -234,12 +254,10 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
     /// Element token reserved for the fragment root.
     public static let rootElementID: UInt64 = 0
 
-    private static let noElement = UInt64.max
     /// First runtime-id component marking ids as ours (arbitrary constant).
     private static let runtimeIDPrefix: Int32 = 0x5357
     /// OBJID value UIA clients pass as `lParam` in `WM_GETOBJECT`.
     private static let uiaRootObjectID: Int32 = -25
-    private static let defaultClassName = "SwiftWindowsUI.View"
 
     private let source: any UIAElementTreeSource
     private let nativeCalls: UIAProviderNativeCalls
@@ -531,10 +549,18 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
         return onMain { box.withBridge(unavailable: unavailable, work) }
     }
 
-    /// Preserve the existing synchronous main dispatch, but perform the weak
-    /// bridge read and promotion only after entering the main actor.
+    /// Includes queues that target main. This observation does not replace
+    /// the actor assertion performed before admitting a source callback.
+    nonisolated static var isInMainDispatchQueueContext: Bool {
+        UIAMainQueueContext.shared.isCurrent
+    }
+
+    /// Preserve synchronous results and the native entry-thread fast path.
+    /// Main dispatch may execute on a thread Foundation does not call main;
+    /// dispatching synchronously from that context back to main would self-wait.
+    /// Both paths still assert actor isolation before reading the weak bridge.
     nonisolated private static func onMain<Result: Sendable>(_ work: @MainActor () -> Result) -> Result {
-        if Thread.isMainThread {
+        if Thread.isMainThread || isInMainDispatchQueueContext {
             return MainActor.assumeIsolated(work)
         }
         return DispatchQueue.main.sync {
@@ -545,25 +571,7 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
     // MARK: - Tree queries (main actor; C memory stays in the trampolines)
 
     private func navigateForUIA(_ element: UInt64, direction: Int32) -> UInt64 {
-        let list = source.uiaElementSnapshots()
-        guard let current = list.first(where: { $0.id == element }) else { return Self.noElement }
-        switch direction {
-        case Int32(SWU_UIA_NAV_PARENT):
-            return current.parentID ?? Self.noElement
-        case Int32(SWU_UIA_NAV_FIRST_CHILD):
-            return list.first(where: { $0.parentID == element })?.id ?? Self.noElement
-        case Int32(SWU_UIA_NAV_LAST_CHILD):
-            return list.last(where: { $0.parentID == element })?.id ?? Self.noElement
-        case Int32(SWU_UIA_NAV_NEXT_SIBLING), Int32(SWU_UIA_NAV_PREVIOUS_SIBLING):
-            guard let parentID = current.parentID else { return Self.noElement }
-            let siblings = list.filter { $0.parentID == parentID }
-            guard let index = siblings.firstIndex(where: { $0.id == element }) else { return Self.noElement }
-            let target = direction == Int32(SWU_UIA_NAV_NEXT_SIBLING) ? index + 1 : index - 1
-            guard siblings.indices.contains(target) else { return Self.noElement }
-            return siblings[target].id
-        default:
-            return Self.noElement
-        }
+        UIAQuerySnapshot(source.uiaElementSnapshots()).navigate(element, direction: direction)
     }
 
     private func runtimeIDForUIA(_ element: UInt64) -> [Int32] {
@@ -572,60 +580,23 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
     }
 
     private func boundingRectangleForUIA(_ element: UInt64) -> Rect {
-        source.uiaElementSnapshots().first(where: { $0.id == element })?.bounds
-            ?? Rect(x: 0, y: 0, width: 0, height: 0)
+        UIAQuerySnapshot(source.uiaElementSnapshots()).boundingRectangle(element)
     }
 
     private func stringPropertyForUIA(_ element: UInt64, property: Int32) -> String? {
-        guard let snapshot = source.uiaElementSnapshots().first(where: { $0.id == element }) else { return nil }
-        switch property {
-        case Int32(SWU_UIA_STRING_NAME):
-            return snapshot.name
-        case Int32(SWU_UIA_STRING_VALUE):
-            return snapshot.value
-        case Int32(SWU_UIA_STRING_HELP_TEXT):
-            return snapshot.helpText
-        case Int32(SWU_UIA_STRING_AUTOMATION_ID):
-            return snapshot.automationID
-        case Int32(SWU_UIA_STRING_CLASS_NAME):
-            return snapshot.className ?? Self.defaultClassName
-        default:
-            return nil
-        }
+        UIAQuerySnapshot(source.uiaElementSnapshots()).stringProperty(element, property: property)
     }
 
     private func controlTypeForUIA(_ element: UInt64) -> Int32 {
-        source.uiaElementSnapshots().first(where: { $0.id == element })?.controlType
-            ?? Int32(SWU_UIA_CONTROL_TYPE_GROUP)
+        UIAQuerySnapshot(source.uiaElementSnapshots()).controlType(element)
     }
 
     private func boolPropertyForUIA(_ element: UInt64, property: Int32) -> Int32 {
-        guard let snapshot = source.uiaElementSnapshots().first(where: { $0.id == element }) else { return -1 }
-        switch property {
-        case Int32(SWU_UIA_BOOL_IS_ENABLED):
-            return snapshot.isEnabled ? 1 : 0
-        case Int32(SWU_UIA_BOOL_HAS_KEYBOARD_FOCUS):
-            return snapshot.hasKeyboardFocus ? 1 : 0
-        case Int32(SWU_UIA_BOOL_IS_KEYBOARD_FOCUSABLE):
-            return snapshot.isKeyboardFocusable ? 1 : 0
-        case Int32(SWU_UIA_BOOL_IS_OFFSCREEN):
-            guard let isOffscreen = snapshot.isOffscreen else { return -1 }
-            return isOffscreen ? 1 : 0
-        case Int32(SWU_UIA_BOOL_IS_PASSWORD):
-            return snapshot.isPassword ? 1 : 0
-        case Int32(SWU_UIA_BOOL_IS_READ_ONLY):
-            guard snapshot.supportsValue else { return -1 }
-            return snapshot.isReadOnly ? 1 : 0
-        case Int32(SWU_UIA_BOOL_IS_SELECTED):
-            guard let isSelected = snapshot.isSelected else { return -1 }
-            return isSelected ? 1 : 0
-        default:
-            return -1
-        }
+        UIAQuerySnapshot(source.uiaElementSnapshots()).boolProperty(element, property: property)
     }
 
     private func hasInvokeActionForUIA(_ element: UInt64) -> Int32 {
-        source.uiaElementSnapshots().first(where: { $0.id == element })?.hasDefaultAction == true ? 1 : 0
+        UIAQuerySnapshot(source.uiaElementSnapshots()).hasInvokeAction(element)
     }
 
     private func invokeDefaultActionForUIA(_ element: UInt64) {
@@ -633,21 +604,7 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
     }
 
     private func supportsPatternForUIA(_ element: UInt64, pattern: Int32) -> Int32 {
-        guard let snapshot = source.uiaElementSnapshots().first(where: { $0.id == element }) else { return 0 }
-        switch pattern {
-        case Int32(SWU_UIA_PATTERN_VALUE):
-            return snapshot.supportsValue && !snapshot.isPassword ? 1 : 0
-        case Int32(SWU_UIA_PATTERN_TOGGLE):
-            return snapshot.toggleState != nil ? 1 : 0
-        case Int32(SWU_UIA_PATTERN_SELECTION):
-            return snapshot.supportsSelection ? 1 : 0
-        case Int32(SWU_UIA_PATTERN_SELECTION_ITEM):
-            return snapshot.isSelected != nil ? 1 : 0
-        case Int32(SWU_UIA_PATTERN_VIRTUALIZED_ITEM):
-            return snapshot.isVirtualizedPlaceholder ? 1 : 0
-        default:
-            return 0
-        }
+        UIAQuerySnapshot(source.uiaElementSnapshots()).supportsPattern(element, pattern: pattern)
     }
 
     private func setValueForUIA(_ element: UInt64, value: String) -> Int32 {
@@ -658,7 +615,7 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
     }
 
     private func toggleStateForUIA(_ element: UInt64) -> Int32 {
-        source.uiaElementSnapshots().first(where: { $0.id == element })?.toggleState?.rawValue ?? -1
+        UIAQuerySnapshot(source.uiaElementSnapshots()).toggleState(element)
     }
 
     private func toggleForUIA(_ element: UInt64) -> Int32 {
@@ -678,30 +635,11 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
     }
 
     private func selectionContainerForUIA(_ element: UInt64) -> UInt64 {
-        let snapshots = source.uiaElementSnapshots()
-        guard let snapshot = snapshots.first(where: { $0.id == element }), snapshot.isSelected != nil else {
-            return Self.noElement
-        }
-        var parentID = snapshot.parentID
-        while let candidate = parentID, let parent = snapshots.first(where: { $0.id == candidate }) {
-            if parent.supportsSelection { return parent.id }
-            parentID = parent.parentID
-        }
-        return Self.noElement
+        UIAQuerySnapshot(source.uiaElementSnapshots()).selectionContainer(element)
     }
 
     private func selectionForUIA(_ element: UInt64) -> [UInt64]? {
-        let snapshots = source.uiaElementSnapshots()
-        guard snapshots.first(where: { $0.id == element })?.supportsSelection == true else { return nil }
-        return snapshots.filter { snapshot in
-            guard snapshot.isSelected == true else { return false }
-            var parentID = snapshot.parentID
-            while let candidate = parentID, let parent = snapshots.first(where: { $0.id == candidate }) {
-                if parent.supportsSelection { return parent.id == element }
-                parentID = parent.parentID
-            }
-            return false
-        }.map(\.id)
+        UIAQuerySnapshot(source.uiaElementSnapshots()).selection(element)
     }
 
     private func realizeVirtualizedItemForUIA(_ element: UInt64) -> Int32 {
@@ -713,34 +651,10 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
     }
 
     private func elementFromPointForUIA(x: Double, y: Double) -> UInt64 {
-        let list = source.uiaElementSnapshots()
-        var best: UIAElementSnapshot?
-        var bestDepth = -1
-        for snapshot in list {
-            let bounds = snapshot.bounds
-            guard x >= bounds.origin.x, x < bounds.origin.x + bounds.size.width,
-                y >= bounds.origin.y, y < bounds.origin.y + bounds.size.height
-            else { continue }
-            let depth = depthOfElement(snapshot, in: list)
-            if depth > bestDepth {
-                best = snapshot
-                bestDepth = depth
-            }
-        }
-        return best?.id ?? Self.noElement
+        UIAQuerySnapshot(source.uiaElementSnapshots()).elementFromPoint(x: x, y: y)
     }
 
     private func focusedElementForUIA() -> UInt64 {
-        source.uiaElementSnapshots().first(where: { $0.hasKeyboardFocus })?.id ?? Self.noElement
-    }
-
-    private func depthOfElement(_ snapshot: UIAElementSnapshot, in list: [UIAElementSnapshot]) -> Int {
-        var depth = 0
-        var parentID = snapshot.parentID
-        while let current = parentID {
-            depth += 1
-            parentID = list.first(where: { $0.id == current })?.parentID
-        }
-        return depth
+        UIAQuerySnapshot(source.uiaElementSnapshots()).focusedElement()
     }
 }

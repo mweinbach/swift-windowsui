@@ -15,6 +15,7 @@ private enum UIALifetimeHRESULT {
     static let unavailable = Int32(bitPattern: 0x8004_0201)
     static let pointer = Int32(bitPattern: 0x8000_4003)
     static let invalidArgument = Int32(bitPattern: 0x8007_0057)
+    static let invalidOperation = Int32(bitPattern: 0x8013_1509)
     static let noInterface = Int32(bitPattern: 0x8000_4002)
     static let failed = Int32(bitPattern: 0x8000_4005)
 }
@@ -24,6 +25,7 @@ private final class UIALifetimeSourceProbe {
     var calls: [String] = []
     var callbackThreadIDs: [UInt32] = []
     var callbacksOnMainThread: [Bool] = []
+    var callbacksInMainDispatchQueueContext: [Bool] = []
     var sourceReleases = 0
     var writtenValues: [String] = []
     var onSnapshots: (@MainActor () -> Void)?
@@ -33,6 +35,7 @@ private final class UIALifetimeSourceProbe {
         calls.append(name)
         callbackThreadIDs.append(GetCurrentThreadId())
         callbacksOnMainThread.append(Thread.isMainThread)
+        callbacksInMainDispatchQueueContext.append(UIAProviderBridge.isInMainDispatchQueueContext)
     }
 
     func recordMutation(_ name: String) {
@@ -47,6 +50,7 @@ private final class UIALifetimeSourceProbe {
 private final class UIALifetimeSource: UIAElementTreeSource {
     let probe: UIALifetimeSourceProbe
     var snapshots: [UIAElementSnapshot]
+    var setValueResult = true
 
     init(probe: UIALifetimeSourceProbe, rootName: String) {
         self.probe = probe
@@ -100,7 +104,7 @@ private final class UIALifetimeSource: UIAElementTreeSource {
     func uiaSetValue(elementID: UInt64, value: String) -> Bool {
         probe.writtenValues.append(value)
         probe.recordMutation("value:\(elementID)")
-        return true
+        return setValueResult
     }
 
     func uiaToggle(elementID: UInt64) -> Bool {
@@ -980,6 +984,24 @@ final class UIAProviderLifetimeTests: XCTestCase {
     func testFinalEscapedProviderReleaseCanDestroyTheCallbackContextOnAWorker() async throws {
         try await uiaLifetimeExerciseFinalWorkerRelease()
     }
+
+    func testMainQueueQueryPreservesItsSynchronousResult() async throws {
+        try await uiaLifetimeExerciseDispatchQuery(route: .main)
+    }
+
+    func testMainTargetQueueQueryPreservesItsSynchronousResult() async throws {
+        try await uiaLifetimeExerciseDispatchQuery(route: .targetingMain)
+    }
+
+    func testWorkerQueryPreservesSuccessAndRevocationError() async throws {
+        try await uiaLifetimeExerciseDispatchQuery(route: .worker)
+        try await uiaLifetimeExerciseDispatchQuery(route: .worker, revokeDuringQuery: true)
+    }
+
+    func testWorkerValueMutationPreservesItsBooleanResult() async throws {
+        try await uiaLifetimeExerciseDispatchValueMutation(accepted: true)
+        try await uiaLifetimeExerciseDispatchValueMutation(accepted: false)
+    }
 }
 
 private struct UIALifetimeWorkerResult: Sendable {
@@ -1076,4 +1098,164 @@ private func uiaLifetimeExerciseFinalWorkerRelease() async throws {
     XCTAssertEqual(fixture.probe.sourceReleases, 1)
     XCTAssertEqual(fixture.native.disconnectCalls, 0)
     XCTAssertNil(context)
+}
+
+private enum UIALifetimeDispatchRoute: String, Sendable {
+    case main
+    case targetingMain
+    case worker
+}
+
+private enum UIALifetimeDispatchRequest: Sendable {
+    case name
+    case setValue(String)
+}
+
+private struct UIALifetimeDispatchResult: Sendable {
+    let status: Int32
+    let name: String?
+    let isMainThread: Bool
+    let isInMainDispatchQueueContext: Bool
+}
+
+// The actual queue closure is nonisolated. Only a Sendable address carrying an
+// owned COM +1, request, route, and continuation cross into it. In particular,
+// no test actor assumption admits the callback or bypasses the real bridge.
+private func uiaLifetimeCallAndReleaseOnQueue(
+    ownedAddress: UInt, request: UIALifetimeDispatchRequest, route: UIALifetimeDispatchRoute
+) async -> UIALifetimeDispatchResult {
+    await withCheckedContinuation { (continuation: CheckedContinuation<UIALifetimeDispatchResult, Never>) in
+        let queue: DispatchQueue
+        switch route {
+        case .main:
+            queue = .main
+        case .targetingMain:
+            queue = DispatchQueue(label: "SwiftWindowsUI.Tests.UIAMainTarget", target: .main)
+        case .worker:
+            queue = .global(qos: .userInitiated)
+        }
+        queue.async {
+            let isMainThread = Thread.isMainThread
+            let isInMainContext = UIAProviderBridge.isInMainDispatchQueueContext
+            // Report the actual context, although a trapped process may lose
+            // buffered output. Only a true/false pair here exercises the added
+            // non-main-thread branch; no test injects that classification.
+            print(
+                "UIA dispatch route=\(route.rawValue) callerMainContext=\(isInMainContext) "
+                    + "callerMainThread=\(isMainThread)")
+            guard let provider = UnsafeMutableRawPointer(bitPattern: ownedAddress) else {
+                continuation.resume(
+                    returning: UIALifetimeDispatchResult(
+                        status: UIALifetimeHRESULT.pointer, name: nil, isMainThread: isMainThread,
+                        isInMainDispatchQueueContext: isInMainContext))
+                return
+            }
+            let status: Int32
+            let name: String?
+            switch request {
+            case .name:
+                let value = uiaLifetimeReadName(provider)
+                status = value.status
+                name = value.name
+            case .setValue(let value):
+                let units = Array(value.utf16) + [0]
+                status = units.withUnsafeBufferPointer {
+                    SWU_UIAValueProviderSetValueResult(provider, $0.baseAddress, Int32($0.count - 1))
+                }
+                name = nil
+            }
+            // BSTR cleanup above and the owned COM release must both finish
+            // before resuming; otherwise lifetime assertions could race them.
+            SWU_UIAReleaseProvider(provider)
+            continuation.resume(
+                returning: UIALifetimeDispatchResult(
+                    status: status, name: name, isMainThread: isMainThread,
+                    isInMainDispatchQueueContext: isInMainContext))
+        }
+    }
+}
+
+@MainActor
+private func uiaLifetimeExpectDispatchContext(
+    _ result: UIALifetimeDispatchResult, route: UIALifetimeDispatchRoute,
+    probe: UIALifetimeSourceProbe, after callCount: Int = 0
+) {
+    XCTAssertEqual(result.isInMainDispatchQueueContext, route != .worker)
+    if route == .worker { XCTAssertFalse(result.isMainThread) }
+    let callbackContexts = Array(probe.callbacksInMainDispatchQueueContext.dropFirst(callCount))
+    XCTAssertFalse(callbackContexts.isEmpty, "The real source must have been called")
+    XCTAssertTrue(callbackContexts.allSatisfy { $0 })
+    XCTAssertEqual(probe.callbacksInMainDispatchQueueContext.count, probe.calls.count)
+    print(
+        "UIA dispatch route=\(route.rawValue) sourceMainContext=\(callbackContexts) "
+            + "sourceMainThread=\(Array(probe.callbacksOnMainThread.dropFirst(callCount)))")
+    // Do not require the main queue to use Foundation's main thread. Likewise,
+    // passing these tests on that thread does not qualify the new false case.
+}
+
+@MainActor
+private func uiaLifetimeExerciseDispatchQuery(
+    route: UIALifetimeDispatchRoute, revokeDuringQuery: Bool = false
+) async throws {
+    let fixture = UIALifetimeFixture()
+    let root = try fixture.root()
+    weak var context = fixture.bridge?.callbackContextObjectForTesting
+    if revokeDuringQuery {
+        fixture.probe.onSnapshots = { [weak fixture] in fixture?.bridge?.disconnect() }
+    }
+    XCTAssertTrue(fixture.probe.calls.isEmpty)
+    SWU_UIAAddRefProvider(root)
+    let address = UInt(bitPattern: root)
+
+    let result = await uiaLifetimeCallAndReleaseOnQueue(ownedAddress: address, request: .name, route: route)
+
+    XCTAssertEqual(result.status, revokeDuringQuery ? UIALifetimeHRESULT.unavailable : UIALifetimeHRESULT.ok)
+    XCTAssertEqual(result.name, revokeDuringQuery ? nil : "Lifetime root")
+    XCTAssertEqual(fixture.probe.calls, ["snapshots"], "One COM query must admit exactly one source callback")
+    uiaLifetimeExpectDispatchContext(result, route: route, probe: fixture.probe)
+    XCTAssertEqual(fixture.native.disconnectCalls, revokeDuringQuery ? 1 : 0)
+    XCTAssertEqual(fixture.native.returnCalls, 0)
+    XCTAssertEqual(fixture.native.listeningCalls, 0)
+    XCTAssertEqual(fixture.clientReferenceCount, 1)
+    XCTAssertNotNil(context)
+    fixture.dropOwners()
+    fixture.releaseAllClientReferences()
+    XCTAssertNil(context, "The dispatched call must balance its separate owned reference before resuming")
+    XCTAssertEqual(fixture.probe.sourceReleases, 1)
+}
+
+@MainActor
+private func uiaLifetimeExerciseDispatchValueMutation(accepted: Bool) async throws {
+    let fixture = UIALifetimeFixture()
+    let root = try fixture.root()
+    let container = try fixture.firstChild(of: root)
+    let child = try fixture.firstChild(of: container)
+    let value = try fixture.pattern(Int32(SWU_UIA_PATTERN_VALUE), of: child)
+    fixture.source?.setValueResult = accepted
+    fixture.release(root)
+    fixture.release(container)
+    fixture.release(child)
+    weak var context = fixture.bridge?.callbackContextObjectForTesting
+    let previousCalls = fixture.probe.calls.count
+    let text = "Åda 👩🏽‍💻 東京"
+    SWU_UIAAddRefProvider(value)
+    let address = UInt(bitPattern: value)
+
+    let result = await uiaLifetimeCallAndReleaseOnQueue(
+        ownedAddress: address, request: .setValue(text), route: .worker)
+
+    XCTAssertEqual(result.status, accepted ? UIALifetimeHRESULT.ok : UIALifetimeHRESULT.invalidOperation)
+    XCTAssertNil(result.name)
+    // Enabled/read-only queries and Swift admission precede the one mutation.
+    XCTAssertEqual(
+        Array(fixture.probe.calls.dropFirst(previousCalls)), ["snapshots", "snapshots", "snapshots", "value:1"])
+    XCTAssertEqual(fixture.probe.writtenValues, [text], "Record the value delivered even when the source rejects it")
+    uiaLifetimeExpectDispatchContext(result, route: .worker, probe: fixture.probe, after: previousCalls)
+    XCTAssertEqual(fixture.clientReferenceCount, 1)
+    XCTAssertEqual(fixture.native.disconnectCalls, 0)
+    XCTAssertNotNil(context)
+    fixture.dropOwners()
+    fixture.releaseAllClientReferences()
+    XCTAssertNil(context)
+    XCTAssertEqual(fixture.probe.sourceReleases, 1)
 }

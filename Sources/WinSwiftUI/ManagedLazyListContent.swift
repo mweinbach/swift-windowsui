@@ -12,9 +12,8 @@ private final class ManagedLazyListDescriptorReference {
     }
 }
 
-/// Internal deferred data construction used by the managed activity bridge.
-/// Public List initializers deliberately keep their existing eager path until
-/// this primitive and its ownership rules have been qualified separately.
+/// Internal deferred data construction used to exercise the managed activity
+/// bridge without public List projection and chrome.
 @MainActor
 struct ManagedLazyListContent<Data: RandomAccessCollection, ID: Hashable>: View {
     typealias Body = Never
@@ -59,34 +58,57 @@ struct ManagedLazyListContent<Data: RandomAccessCollection, ID: Hashable>: View 
                 let receipt = coordinator.descriptorResolutionReceipt(in: context), receipt.isCurrent
             else { return rejectedRetainedViewNode() }
 
-            let source = RetainedLazyListDataSource<Data.Element, [ViewNode]>()
-            let reference = ManagedLazyListDescriptorReference()
-            let listIdentity = context.retainedViewIdentity.appending(.role(.content))
-            var installedSource = false
-            defer { if !installedSource { source.close() } }
-
             // Acquire the descriptor receipt before collection snapshotting or
             // typed key work. The long-lived factory captures only the source
             // context and native binding, never the facade membership proposal.
+            let reference = ManagedLazyListDescriptorReference()
+            let listIdentity = context.retainedViewIdentity.appending(.role(.content))
+            let buildRows: @MainActor (Data.Element, RetainedViewIdentity) -> [ViewNode] = {
+                [weak runtime] element, prefix in
+                guard let runtime, let binding = reference.binding, binding.isCurrent,
+                    var rowContext = coordinator.contextForEnteredLazyRow(from: context, descriptor: binding),
+                    let attribution = rowContext.viewIdentity.lazyList, attribution.admission.isCurrent
+                else { return [rejectedRetainedViewNode()] }
+                rowContext.viewIdentity.path = prefix
+                let views = ViewBuildContextScope.withCurrent(rowContext) { rowContent(element) }
+                guard attribution.admission.isCurrent else { return [rejectedRetainedViewNode()] }
+                let component = composeStructuralComponent(from: views, context: rowContext)
+                guard attribution.admission.isCurrent else { return [rejectedRetainedViewNode()] }
+                var nodes: [ViewNode] = []
+                ViewBuildContextScope.withCurrent(rowContext) {
+                    component.appendChildNodes(runtime: runtime, to: &nodes)
+                }
+                return attribution.admission.isCurrent ? nodes : [rejectedRetainedViewNode()]
+            }
+
+            // Keep the accepted cohort attached while the successor descriptor
+            // waits for viewport construction. Otherwise an empty replacement
+            // tree retires owned cells for rows whose logical keys still exist.
+            let predecessor = runtime.lazyListPredecessor(for: listIdentity, during: receipt.nativeScope)
+            guard receipt.isCurrent else { return rejectedRetainedViewNode() }
+            let source: RetainedLazyListDataSource<Data.Element, [ViewNode]>
+            if let previous = predecessor?.dataSource(for: Data.Element.self) {
+                guard
+                    let staged = previous.stagedReplacement(
+                        data, id: id, identityRoot: listIdentity,
+                        descriptorBuildScope: receipt.nativeScope, rowContent: buildRows)
+                else { return rejectedRetainedViewNode() }
+                source = staged
+            } else {
+                source = RetainedLazyListDataSource<Data.Element, [ViewNode]>()
+                guard
+                    source.replaceData(
+                        data, id: id, identityRoot: listIdentity,
+                        descriptorBuildScope: receipt.nativeScope, rowContent: buildRows)
+                else {
+                    source.close()
+                    return rejectedRetainedViewNode()
+                }
+            }
+            var installedSource = false
+            defer { if !installedSource { source.close() } }
+
             guard receipt.isCurrent,
-                source.replaceData(
-                    data, id: id, identityRoot: listIdentity, descriptorBuildScope: receipt.nativeScope,
-                    rowContent: { [weak runtime] element, prefix in
-                        guard let runtime, let binding = reference.binding, binding.isCurrent,
-                            var rowContext = coordinator.contextForEnteredLazyRow(from: context, descriptor: binding),
-                            let attribution = rowContext.viewIdentity.lazyList, attribution.admission.isCurrent
-                        else { return [rejectedRetainedViewNode()] }
-                        rowContext.viewIdentity.path = prefix
-                        let views = ViewBuildContextScope.withCurrent(rowContext) { rowContent(element) }
-                        guard attribution.admission.isCurrent else { return [rejectedRetainedViewNode()] }
-                        let component = composeStructuralComponent(from: views, context: rowContext)
-                        guard attribution.admission.isCurrent else { return [rejectedRetainedViewNode()] }
-                        var nodes: [ViewNode] = []
-                        ViewBuildContextScope.withCurrent(rowContext) {
-                            component.appendChildNodes(runtime: runtime, to: &nodes)
-                        }
-                        return attribution.admission.isCurrent ? nodes : [rejectedRetainedViewNode()]
-                    }), receipt.isCurrent,
                 let metadata = source.metadata, receipt.isCurrent,
                 let proposal = coordinator.stageLazyMembership(
                     at: listIdentity, metadata: metadata, context: context, receipt: receipt), receipt.isCurrent
@@ -100,6 +122,12 @@ struct ManagedLazyListContent<Data: RandomAccessCollection, ID: Hashable>: View 
                     maximumProtectedRecords: maximumProtectedRecords),
                 adapter.installManagedLogicalDescriptor(binding), receipt.isCurrent
             else { return rejectedRetainedViewNode() }
+
+            if let predecessor, let continuation = source.predecessorContinuation {
+                guard adapter.stagePredecessor(predecessor, continuation: continuation), receipt.isCurrent else {
+                    return rejectedRetainedViewNode()
+                }
+            }
 
             let lease = coordinator.subtreeLease(
                 owner: owner, contentPrefix: listIdentity, lazyAttribution: context.viewIdentity.lazyList,

@@ -8735,3 +8735,32 @@ source/index endpoints, and no timeout or termination. They are not complete
 cohort passes. Label identity, realization, prefetch behavior and the observed
 large-list construction cost remain assigned investigations; no original
 completion gate is closed.
+
+### Ninth validation pass: retain managed row ownership during replacement (2026-08-29)
+
+The four remaining state-identity failures after initial row admission use the
+internal ManagedLazyListContent primitive. It created a fresh source and empty
+adapter on every descriptor rebuild, unlike public List's existing checked
+predecessor continuation. Reconciliation therefore removed the old physical
+cohort as an accepted replacement. That removal retired owned permissions and
+cells even when their logical keys survived. Viewport eviction uses a separate
+path that preserves cold state, explaining why eviction passed while rebuilds
+reset state and created replacement StateObject instances.
+
+The internal primitive now uses the same checked predecessor, staged typed
+source and adapter continuation as public List. The row-construction callback
+and its checks are unchanged. Source creation and installation failures still
+close the uninstalled source. Logical deletion remains authoritative and revokes
+removed membership before cleanup; transferring a cohort cannot restore a
+deleted row's write permission. No retirement guard or resource limit changes.
+
+Four new async cases cover the descriptor-to-viewport gap, actual synchronous
+State invalidation, deletion, and accepted absence followed by reinsertion.
+They use the real retained host and coordinator, preserve surviving owners and
+objects, and require obsolete bindings to remain unwritable. Existing state
+and other test files are unchanged by this two-file patch. Exact application,
+strict formatting, contracts and independent source review passed. The patch
+has SHA-256 `66b040032d73b65dbdda3bc93d510b68720d779be515dbe74a4dfcfa9126f86b`.
+The separate count repair remains intact. Compilation and execution of the
+combined repairs are still pending, so the previously recorded failures remain
+open evidence until their unchanged assertions pass.

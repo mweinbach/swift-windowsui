@@ -874,6 +874,8 @@ public final class ComponentHost {
         case verticalLazyStack
         case horizontalLazyStack
         case flex
+        case grid
+        case gridRow
     }
 
     /// Produce a cheap comparable key for a layout mode.
@@ -897,6 +899,21 @@ public final class ComponentHost {
             }
         case .flex:
             return .flex
+        case .grid:
+            return .grid
+        case .gridRow:
+            return .gridRow
+        }
+    }
+
+    private static func gridConfigurationChanged(_ target: ViewLayoutMode, _ source: ViewLayoutMode) -> Bool {
+        switch (target, source) {
+        case (.grid(let old), .grid(let new)):
+            return old != new
+        case (.gridRow(let old), .gridRow(let new)):
+            return old != new
+        default:
+            return false
         }
     }
 
@@ -1715,7 +1732,7 @@ public final class ComponentHost {
         }
         let targetLayoutTag = layoutModeTag(target.layoutMode)
         let sourceLayoutTag = layoutModeTag(source.layoutMode)
-        if targetLayoutTag != sourceLayoutTag {
+        if targetLayoutTag != sourceLayoutTag || gridConfigurationChanged(target.layoutMode, source.layoutMode) {
             target.layoutMode = source.layoutMode
         }
         if target.previousPropertyValues != nil || source.previousPropertyValues != nil {

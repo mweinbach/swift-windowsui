@@ -26203,9 +26203,6 @@ extension View {
                 let childNode = child.makeNode(runtime: runtime)
                 let effectiveCount = max(1, count)
                 childNode.gridCellColumns = effectiveCount
-                if childNode.layoutPriority == 0 {
-                    childNode.layoutPriority = Double(effectiveCount)
-                }
                 return childNode
             }
         }

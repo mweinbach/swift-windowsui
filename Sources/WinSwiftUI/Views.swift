@@ -8738,24 +8738,31 @@ public struct Grid: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
+        let context = context.withViewIdentityType(Self.self)
         let verticalSpacing = verticalSpacing
         let horizontalSpacing = horizontalSpacing
         let childContext =
             context
+            .withViewIdentityRole(.content)
             .withStackAxis(.vertical)
             .withEnvironmentValue(\.gridHorizontalSpacing, horizontalSpacing)
         let content = content
 
         return Component { runtime in
-            Controls.stackPanel(
-                stackLayout: .vertical(
-                    spacing: verticalSpacing,
-                    alignment: alignment.horizontal.stackAlignment(layoutDirection: context.layoutDirection)
-                ),
+            var children: [ViewNode] = []
+            children.reserveCapacity(content.count)
+            for view in viewIdentityOccurrences(content) {
+                view.makeComponent(context: childContext).appendChildNodes(runtime: runtime, to: &children)
+            }
+            return Controls.panel(
+                layoutMode: .grid(
+                    RetainedGridLayout(
+                        horizontalSpacing: horizontalSpacing, verticalSpacing: verticalSpacing,
+                        horizontalAlignment: alignment.horizontal.stackAlignment,
+                        verticalAlignment: alignment.vertical.stackAlignment,
+                        isRightToLeft: context.layoutDirection == .rightToLeft)),
                 isHitTestVisible: false,
-                children: viewIdentityOccurrences(content).map {
-                    $0.makeComponent(context: childContext).makeNode(runtime: runtime)
-                }
+                children: children
             )
         }
     }
@@ -8764,10 +8771,10 @@ public struct Grid: View {
 public struct GridRow: View {
     public typealias Body = Never
 
-    private let alignment: VerticalAlignment
+    private let alignment: VerticalAlignment?
     private let content: [AnyView]
 
-    public init(alignment: VerticalAlignment = .center, @ViewBuilder content: () -> [AnyView]) {
+    public init(alignment: VerticalAlignment? = nil, @ViewBuilder content: () -> [AnyView]) {
         self.alignment = alignment
         self.content = content()
     }
@@ -8777,15 +8784,25 @@ public struct GridRow: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        let childContext = context.withStackAxis(.horizontal)
+        let context = context.withViewIdentityType(Self.self)
+        let childContext = context.withViewIdentityRole(.content).withStackAxis(.horizontal)
         let horizontalSpacing = context.gridHorizontalSpacing ?? 0
         return Component { runtime in
-            Controls.stackPanel(
-                stackLayout: .horizontal(spacing: horizontalSpacing, alignment: alignment.stackAlignment),
+            var children: [ViewNode] = []
+            children.reserveCapacity(content.count)
+            for view in viewIdentityOccurrences(content) {
+                view.makeComponent(context: childContext).appendChildNodes(runtime: runtime, to: &children)
+            }
+            let layout: ViewLayoutMode =
+                context.gridHorizontalSpacing == nil
+                ? .stack(.horizontal(spacing: horizontalSpacing, alignment: alignment?.stackAlignment ?? .center))
+                : .gridRow(
+                    RetainedGridRowLayout(
+                        alignment: alignment?.stackAlignment, standaloneSpacing: horizontalSpacing))
+            return Controls.panel(
+                layoutMode: layout,
                 isHitTestVisible: false,
-                children: viewIdentityOccurrences(content).map {
-                    $0.makeComponent(context: childContext).makeNode(runtime: runtime)
-                }
+                children: children
             )
         }
     }

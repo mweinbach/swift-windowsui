@@ -7413,3 +7413,37 @@ only the child-local classic-font override while preserving baseline pixels
 and comparison thresholds. A font cause, runtime noninterference, native
 parity and the hosted gallery gate remain unqualified. All original goal
 requirements and nine open completion gates are unchanged.
+
+### Eighth implementation pass: shared Grid tracks joined to the main checkout
+
+The shared-track Grid implementation is now integrated on top of `ebaa8e2`.
+Grid and GridRow have distinct retained layout modes. Direct rows share column
+measurements, spans consume contiguous logical tracks, and non-row children
+occupy a full-width row. Structural Group and ForEach expansion uses the existing
+ComponentHost and State installation path. Reconciliation preserves mounted
+cell state while updating spacing, direction, and alignment configuration.
+
+Sparse track boundaries avoid allocating an entry for every empty logical
+column in a huge span. Width-dependent remeasurement, flexible and unsized
+demand, standard alignment, RTL ordering, and bounded after-layout settlement
+are implemented. `gridCellColumns` now stores span metadata without changing
+authored layout priority. The two former facade tests for stack mapping and
+span-as-growth-priority intentionally migrate to these real contracts.
+
+This intake adds 22 retained-layout and 14 facade XCTest methods. The previous
+170-method pass belongs to independent commit `73c23ad`; the composed private
+commit `69c321d` and this newer root combination are runtime **UNRUN**. A prior
+pass is not transferred across those joins. Current root contracts and strict
+lint of all seven changed Swift files passed. The ten-path staged delta was
+checked against the complete sealed feature patch, preserving newer List,
+Arc, material, UIA, pointer, and geometry-diagnostic work. The receipt is
+`artifacts/goal-eighth-grid-joined-intake-v1.json`.
+
+[GridLayout.md](docs/GridLayout.md) records the solver's current policies and
+remaining differences: equal span-deficit distribution, preserved but unused
+layout priority in track negotiation, zero default spacing, the standalone
+GridRow HStack fallback, and unresolved merged/custom alignment behavior.
+Nested minimum-size propagation and callback-driven reparenting still need
+characterization. Literal geometry tests do not establish native layout or
+pixel parity. Full generic API compatibility and every original completion
+gate remain open; fresh combined execution and retained rendering are next.

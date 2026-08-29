@@ -5731,7 +5731,7 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
-    func testGridAndGridRowMapToRetainedStackPanels() async {
+    func testGridAndGridRowUseRetainedSharedTrackModes() async {
         await MainActor.run {
             let node = makeNode(
                 Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 9) {
@@ -5746,19 +5746,21 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            guard case .stack(let gridLayout) = node.layoutMode else {
-                return XCTFail("Expected Grid to use retained vertical stack layout")
+            guard case .grid(let gridLayout) = node.layoutMode else {
+                return XCTFail("Expected Grid to use retained shared track layout")
             }
-            guard case .stack(let firstRowLayout) = node.children[0].layoutMode else {
-                return XCTFail("Expected GridRow to use retained horizontal stack layout")
+            guard case .gridRow(let firstRowLayout) = node.children[0].layoutMode else {
+                return XCTFail("Expected the first GridRow to participate in shared tracks")
             }
-            guard case .stack(let secondRowLayout) = node.children[1].layoutMode else {
-                return XCTFail("Expected GridRow to use retained horizontal stack layout")
+            guard case .gridRow(let secondRowLayout) = node.children[1].layoutMode else {
+                return XCTFail("Expected the second GridRow to participate in shared tracks")
             }
 
-            XCTAssertEqual(gridLayout, .vertical(spacing: 9, alignment: .leading))
-            XCTAssertEqual(firstRowLayout, .horizontal(spacing: 12, alignment: .trailing))
-            XCTAssertEqual(secondRowLayout, .horizontal(spacing: 12, alignment: .center))
+            XCTAssertEqual(
+                gridLayout,
+                RetainedGridLayout(horizontalSpacing: 12, verticalSpacing: 9, horizontalAlignment: .leading))
+            XCTAssertEqual(firstRowLayout, RetainedGridRowLayout(alignment: .trailing, standaloneSpacing: 12))
+            XCTAssertEqual(secondRowLayout, RetainedGridRowLayout(standaloneSpacing: 12))
             XCTAssertEqual(allTexts(in: node), ["A1", "A2", "B1", "B2"])
         }
     }
@@ -5781,7 +5783,7 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
-    func testGridCellColumnsMapsToRetainedGrowthPriority() async {
+    func testGridCellColumnsStoresSpanWithoutChangingLayoutPriority() async {
         await MainActor.run {
             let node = makeNode(
                 GridRow {
@@ -5795,9 +5797,12 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            XCTAssertEqual(node.children[0].layoutPriority, 3)
+            XCTAssertEqual(node.children[0].gridCellColumns, 3)
+            XCTAssertEqual(node.children[1].gridCellColumns, 2)
+            XCTAssertEqual(node.children[2].gridCellColumns, 1)
+            XCTAssertEqual(node.children[0].layoutPriority, 0)
             XCTAssertEqual(node.children[1].layoutPriority, 5)
-            XCTAssertEqual(node.children[2].layoutPriority, 1)
+            XCTAssertEqual(node.children[2].layoutPriority, 0)
         }
     }
 

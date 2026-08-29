@@ -1565,6 +1565,100 @@ struct PrepaintGeometry {
     var paintFrame: Rect
     var inverseTransform: Transform2D?
 }
+/// A two-dimensional retained Grid. Unlike a vertical stack of independent
+/// rows, this mode measures one set of column tracks for all of its rows.
+public struct RetainedGridLayout: Equatable, Sendable {
+    public var horizontalSpacing: Double
+    public var verticalSpacing: Double
+    public var horizontalAlignment: StackCrossAlignment
+    public var verticalAlignment: StackCrossAlignment
+    public var isRightToLeft: Bool
+
+    public init(
+        horizontalSpacing: Double = 0,
+        verticalSpacing: Double = 0,
+        horizontalAlignment: StackCrossAlignment = .center,
+        verticalAlignment: StackCrossAlignment = .center,
+        isRightToLeft: Bool = false
+    ) {
+        self.horizontalSpacing = horizontalSpacing
+        self.verticalSpacing = verticalSpacing
+        self.horizontalAlignment = horizontalAlignment
+        self.verticalAlignment = verticalAlignment
+        self.isRightToLeft = isRightToLeft
+    }
+}
+
+/// A physical row boundary whose cells can use a directly containing Grid's
+/// tracks. Outside that boundary it retains the legacy horizontal-stack layout.
+public struct RetainedGridRowLayout: Equatable, Sendable {
+    public var alignment: StackCrossAlignment?
+    public var standaloneSpacing: Double
+
+    public init(alignment: StackCrossAlignment? = nil, standaloneSpacing: Double = 0) {
+        self.alignment = alignment
+        self.standaloneSpacing = standaloneSpacing
+    }
+
+    var standaloneStackLayout: StackLayout {
+        .horizontal(spacing: standaloneSpacing, alignment: alignment ?? .center)
+    }
+}
+
+private struct GridCellInput {
+    var node: ViewNode
+    var firstColumn: Int
+    var endColumn: Int
+    var isMerged: Bool
+}
+
+private struct GridRowInput {
+    var node: ViewNode
+    var isGridRow: Bool
+    var alignment: StackCrossAlignment
+    var cells: [GridCellInput]
+}
+
+/// One run of identical empty/interior columns. Boundaries come only from actual
+/// cells, so a request to span Int.max columns does not allocate Int.max entries.
+private struct GridTrackRun {
+    var firstColumn: Int
+    var endColumn: Int
+    var extent: Double = 0
+    var minimumExtent: Double = 0
+    var isFlexible = false
+    var alignment: StackCrossAlignment
+    var guideBefore: Double = 0
+    var guideAfter: Double = 0
+}
+
+private struct GridCellGeometry {
+    var identity: ObjectIdentifier
+    var frame: Rect
+}
+
+private struct GridRowGeometry {
+    var identity: ObjectIdentifier
+    var frame: Rect
+    var cells: [GridCellGeometry]
+}
+
+/// Installed-node layout data only. This does not retain construction nodes,
+/// application callbacks, or a build context, and is never copied by the host.
+private struct GridLayoutGeometry {
+    var size: Size
+    var fillAxes: LayoutFillAxes
+    var rows: [GridRowGeometry]
+}
+
+private struct GridRowMetrics {
+    var height: Double = 0
+    var minimumHeight: Double = 0
+    var guideBefore: Double = 0
+    var guideAfter: Double = 0
+    var isFlexible = false
+}
+
 public enum ViewLayoutMode: Sendable {
     case absolute
     case stack(StackLayout)
@@ -1586,12 +1680,15 @@ public enum ViewLayoutMode: Sendable {
     /// against.
     case lazyStack(StackLayout)
     case flex(FlexStyle)
+    case grid(RetainedGridLayout)
+    case gridRow(RetainedGridRowLayout)
 
     /// The stack layout children are placed with, for both stack variants.
     public var stackLayout: StackLayout? {
         switch self {
         case .stack(let layout), .lazyStack(let layout): return layout
-        case .absolute, .flex: return nil
+        case .gridRow(let layout): return layout.standaloneStackLayout
+        case .absolute, .flex, .grid: return nil
         }
     }
 
@@ -1989,6 +2086,8 @@ public final class ViewNode {
     public var layoutMode: ViewLayoutMode {
         didSet { invalidateRuntime(.layout) }
     }
+
+    private var resolvedGridGeometry: GridLayoutGeometry?
 
     public var preferredSize: Size? {
         didSet { invalidateRuntime(.layout) }
@@ -5004,6 +5103,12 @@ public final class ViewNode {
 
         case .flex(let flexStyle):
             layoutFlexChildren(flexStyle: flexStyle, descendants: &descendants)
+
+        case .grid(let gridLayout):
+            layoutGridChildren(gridLayout: gridLayout, descendants: &descendants)
+
+        case .gridRow(let rowLayout):
+            layoutGridRowChildren(rowLayout: rowLayout, descendants: &descendants)
         }
 
         for child in descendants.reversed() {
@@ -5160,6 +5265,421 @@ public final class ViewNode {
 
         resolvedContentSize = stackContentSize(
             stackLayout: stackLayout, allocation: allocation, maxCrossExtent: cursor.maxCrossExtent)
+    }
+
+    @inline(never)
+    private func layoutGridChildren(gridLayout: RetainedGridLayout, descendants: inout [ViewNode]) {
+        let geometry = makeGridGeometry(
+            layout: gridLayout,
+            constraints: LayoutConstraints(
+                maxWidth: resolvedFrame.width, maxHeight: resolvedFrame.height),
+            memo: MeasurementMemo(), alignInProposal: true)
+        resolvedGridGeometry = geometry
+        placeGridRows(geometry, descendants: &descendants)
+        resolvedContentSize = Size(
+            width: max(resolvedFrame.width, geometry.size.width),
+            height: max(resolvedFrame.height, geometry.size.height))
+        scrollContainerState?.contentSize = geometry.size
+    }
+
+    /// The single placement boundary for a Grid's physical row nodes. It is
+    /// deliberately separate from measurement so checked child visits can be
+    /// composed here without changing the numerical track solver.
+    private func placeGridRows(_ geometry: GridLayoutGeometry, descendants: inout [ViewNode]) {
+        var rowIndex = 0
+        for child in children {
+            if child.isHidden {
+                child.resolvedFrame = .zero
+                continue
+            }
+            guard rowIndex < geometry.rows.count,
+                geometry.rows[rowIndex].identity == ObjectIdentifier(child)
+            else { continue }
+            child.resolvedFrame = geometry.rows[rowIndex].frame
+            descendants.append(child)
+            rowIndex += 1
+        }
+    }
+
+    @inline(never)
+    private func layoutGridRowChildren(rowLayout: RetainedGridRowLayout, descendants: inout [ViewNode]) {
+        guard let grid = parent, case .grid(let layout) = grid.layoutMode,
+            grid.children.contains(where: { $0 === self })
+        else {
+            layoutStackChildren(stackLayout: rowLayout.standaloneStackLayout, descendants: &descendants)
+            return
+        }
+
+        // A row callback can change a shared sizing input after the Grid began
+        // its pass. Rebuild from installed nodes, never a source-row capture.
+        if grid.resolvedGridGeometry == nil {
+            var rows: [ViewNode] = []
+            grid.layoutGridChildren(gridLayout: layout, descendants: &rows)
+        }
+        guard let geometry = grid.resolvedGridGeometry,
+            let row = geometry.rows.first(where: { $0.identity == ObjectIdentifier(self) })
+        else { return }
+
+        var cellIndex = 0
+        for child in children {
+            if child.isHidden {
+                child.resolvedFrame = .zero
+                continue
+            }
+            guard cellIndex < row.cells.count,
+                row.cells[cellIndex].identity == ObjectIdentifier(child)
+            else { continue }
+            child.resolvedFrame = row.cells[cellIndex].frame
+            descendants.append(child)
+            cellIndex += 1
+        }
+        resolvedContentSize = row.frame.size
+        scrollContainerState?.contentSize = row.frame.size
+    }
+
+    @inline(never)
+    private func measureGrid(layout: RetainedGridLayout, plan: MeasurementPlan, memo: MeasurementMemo) -> Size {
+        let geometry = makeGridGeometry(
+            layout: layout, constraints: plan.childConstraints, memo: memo, alignInProposal: false)
+        inheritedStackFillAxes = LayoutFillAxes(
+            horizontal: explicitWidth == nil && geometry.fillAxes.horizontal,
+            vertical: explicitHeight == nil && geometry.fillAxes.vertical)
+        return finishMeasurement(plan: plan, childSizes: [], memo: memo, gridSize: geometry.size)
+    }
+
+    /// Enumerates only direct rows and explicitly expanded structural children.
+    /// A nested Grid, padding, frame, or other real layout container is one cell.
+    private func gridInputs(layout: RetainedGridLayout) -> (rows: [GridRowInput], columns: Int) {
+        var rows: [GridRowInput] = []
+        var columnCount = 0
+        for child in children where !child.isHidden {
+            if case .gridRow(let rowLayout) = child.layoutMode {
+                var cells: [GridCellInput] = []
+                var cursor = 0
+                for cell in child.children where !cell.isHidden {
+                    // Saturation is defensive behavior for uncharacterized
+                    // overflowing spans; it keeps every physical child finite.
+                    let first = min(cursor, Int.max - 1)
+                    let span = max(1, cell.gridCellColumns)
+                    let end = span > Int.max - first ? Int.max : first + span
+                    cells.append(
+                        GridCellInput(node: cell, firstColumn: first, endColumn: end, isMerged: end - first > 1))
+                    cursor = end
+                }
+                columnCount = max(columnCount, cursor)
+                rows.append(
+                    GridRowInput(
+                        node: child, isGridRow: true, alignment: rowLayout.alignment ?? layout.verticalAlignment,
+                        cells: cells))
+            } else {
+                rows.append(
+                    GridRowInput(
+                        node: child, isGridRow: false, alignment: layout.verticalAlignment,
+                        cells: [GridCellInput(node: child, firstColumn: 0, endColumn: 1, isMerged: true)]))
+                columnCount = max(1, columnCount)
+            }
+        }
+        for index in rows.indices where !rows[index].isGridRow {
+            rows[index].cells[0].endColumn = columnCount
+        }
+        return (rows, columnCount)
+    }
+
+    private func gridTracks(
+        rows: [GridRowInput], columns: Int, layout: RetainedGridLayout
+    ) -> [GridTrackRun] {
+        guard columns > 0 else { return [] }
+        var boundaries: Set<Int> = [0, columns]
+        var columnAlignments: [Int: StackCrossAlignment] = [:]
+        for row in rows {
+            for cell in row.cells {
+                boundaries.insert(cell.firstColumn)
+                boundaries.insert(cell.endColumn)
+                if !cell.isMerged, let alignment = cell.node.gridColumnAlignment,
+                    columnAlignments[cell.firstColumn] == nil
+                {
+                    // Different overrides in one column are undefined by
+                    // SwiftUI. Do not characterize this choice as native order.
+                    columnAlignments[cell.firstColumn] = gridTrackCrossAlignment(alignment)
+                }
+            }
+        }
+        let sorted = boundaries.sorted()
+        return zip(sorted, sorted.dropFirst()).map { first, end in
+            GridTrackRun(
+                firstColumn: first, endColumn: end,
+                alignment: gridHorizontalAlignment(
+                    columnAlignments[first] ?? layout.horizontalAlignment, isRightToLeft: layout.isRightToLeft))
+        }
+    }
+
+    /// Each physical GridRow still consumes a traversal level. No grid-specific
+    /// path may bypass the runtime's recursion/depth guard for its cell subtrees.
+    @inline(never)
+    private func measureGridCells(
+        row: GridRowInput, tracks: [GridTrackRun]?, spacing: Double, height: Double = .infinity,
+        memo: MeasurementMemo
+    ) -> [Size] {
+        if row.isGridRow, !ViewNode.enterTraversal() {
+            return [Size](repeating: .zero, count: row.cells.count)
+        }
+        defer { if row.isGridRow { ViewNode.leaveTraversal() } }
+        return row.cells.map { cell in
+            let width =
+                tracks.map {
+                    gridSpanExtent($0, firstColumn: cell.firstColumn, endColumn: cell.endColumn, spacing: spacing)
+                } ?? .infinity
+            return sanitizedLayoutSize(
+                cell.node.sizeThatFits(in: LayoutConstraints(maxWidth: width, maxHeight: height), memo: memo))
+        }
+    }
+
+    private func gridCellFills(_ node: ViewNode, axis: StackAxis) -> Bool {
+        switch axis {
+        case .horizontal:
+            return node.effectiveFillAxes.horizontal && node.frame.width <= 0
+                && node.fixedSizeAxes?.horizontal != true && !node.gridCellUnsizedAxes.contains(.horizontal)
+        case .vertical:
+            return node.effectiveFillAxes.vertical && node.frame.height <= 0
+                && node.fixedSizeAxes?.vertical != true && !node.gridCellUnsizedAxes.contains(.vertical)
+        }
+    }
+
+    @inline(never)
+    private func gridCellFloors(
+        row: GridRowInput, axis: StackAxis, tracks: [GridTrackRun], spacing: Double,
+        constraints: LayoutConstraints
+    ) -> [Double] {
+        if row.isGridRow, !ViewNode.enterTraversal() {
+            return [Double](repeating: 0, count: row.cells.count)
+        }
+        defer { if row.isGridRow { ViewNode.leaveTraversal() } }
+        return row.cells.map { cell in
+            let proposal = LayoutConstraints(
+                maxWidth: axis == .vertical
+                    ? gridSpanExtent(
+                        tracks, firstColumn: cell.firstColumn, endColumn: cell.endColumn, spacing: spacing)
+                    : constraints.maxWidth,
+                maxHeight: constraints.maxHeight)
+            return sanitizedLayoutExtent(cell.node.stackShrinkFloorMainExtent(along: axis, constraints: proposal))
+        }
+    }
+
+    private func updateGridColumnGuides(
+        rows: [GridRowInput], sizes: [[Size]], tracks: inout [GridTrackRun], establishExtent: Bool
+    ) {
+        for index in tracks.indices {
+            tracks[index].guideBefore = 0
+            tracks[index].guideAfter = 0
+        }
+        for (rowIndex, row) in rows.enumerated() {
+            for (cellIndex, cell) in row.cells.enumerated() where !cell.isMerged && cell.node.gridCellAnchor == nil {
+                guard let index = tracks.firstIndex(where: { $0.firstColumn == cell.firstColumn }) else { continue }
+                let width = sizes[rowIndex][cellIndex].width
+                let guide = gridGuideValue(
+                    for: cell.node, axis: .vertical, alignment: tracks[index].alignment, extent: width)
+                tracks[index].guideBefore = max(tracks[index].guideBefore, guide)
+                tracks[index].guideAfter = max(tracks[index].guideAfter, width - guide)
+            }
+        }
+        if establishExtent {
+            for index in tracks.indices {
+                tracks[index].extent = sanitizedLayoutExtent(tracks[index].guideBefore + tracks[index].guideAfter)
+            }
+        }
+    }
+
+    private func gridRowMetrics(row: GridRowInput, sizes: [Size]) -> GridRowMetrics {
+        var result = GridRowMetrics()
+        for (index, cell) in row.cells.enumerated() {
+            let height = sizes[index].height
+            result.height = max(result.height, height)
+            result.isFlexible = result.isFlexible || gridCellFills(cell.node, axis: .vertical)
+            if !cell.isMerged, cell.node.gridCellAnchor == nil {
+                let guide = gridGuideValue(
+                    for: cell.node, axis: .horizontal, alignment: row.alignment, extent: height)
+                result.guideBefore = max(result.guideBefore, guide)
+                result.guideAfter = max(result.guideAfter, height - guide)
+            }
+        }
+        result.height = sanitizedLayoutExtent(max(result.height, result.guideBefore + result.guideAfter))
+        return result
+    }
+
+    /// Produces fresh geometry without storing any of the temporary strong node
+    /// references. All passes use the same sparse column boundaries and memo.
+    @inline(never)
+    private func makeGridGeometry(
+        layout: RetainedGridLayout, constraints: LayoutConstraints, memo: MeasurementMemo,
+        alignInProposal: Bool
+    ) -> GridLayoutGeometry {
+        let inputs = gridInputs(layout: layout)
+        let rows = inputs.rows
+        let horizontalSpacing = gridSpacing(layout.horizontalSpacing)
+        let verticalSpacing = gridSpacing(layout.verticalSpacing)
+        var tracks = gridTracks(rows: rows, columns: inputs.columns, layout: layout)
+        let naturalSizes = rows.map {
+            measureGridCells(row: $0, tracks: nil, spacing: horizontalSpacing, memo: memo)
+        }
+        updateGridColumnGuides(rows: rows, sizes: naturalSizes, tracks: &tracks, establishExtent: true)
+        var requirements: [(cell: GridCellInput, width: Double)] = []
+        for (rowIndex, row) in rows.enumerated() {
+            for (cellIndex, cell) in row.cells.enumerated() {
+                requirements.append((cell, naturalSizes[rowIndex][cellIndex].width))
+                if gridCellFills(cell.node, axis: .horizontal) {
+                    for index in gridRunIndices(
+                        tracks, firstColumn: cell.firstColumn, endColumn: cell.endColumn)
+                    {
+                        tracks[index].isFlexible = true
+                    }
+                }
+            }
+        }
+        // Singles precede spans. For equal-length underdetermined spans retain
+        // authored order; this is the documented interim numerical policy.
+        requirements = requirements.enumerated().sorted {
+            let left = $0.element.cell.endColumn - $0.element.cell.firstColumn
+            let right = $1.element.cell.endColumn - $1.element.cell.firstColumn
+            return left == right ? $0.offset < $1.offset : left < right
+        }.map(\.element)
+        for requirement in requirements {
+            gridRequireSpanExtent(
+                requirement.width, firstColumn: requirement.cell.firstColumn,
+                endColumn: requirement.cell.endColumn, spacing: horizontalSpacing, tracks: &tracks)
+        }
+        let horizontalGaps = gridSpacingTotal(count: inputs.columns, spacing: horizontalSpacing)
+        let availableWidth = constraints.maxWidth - horizontalGaps
+        var minimumRequirements: [(cell: GridCellInput, width: Double)] = []
+        if availableWidth.isFinite, tracks.reduce(0, { $0 + $1.extent }) > max(0, availableWidth) {
+            for row in rows {
+                let floors = gridCellFloors(
+                    row: row, axis: .horizontal, tracks: tracks, spacing: horizontalSpacing, constraints: constraints)
+                for (index, cell) in row.cells.enumerated() {
+                    minimumRequirements.append((cell, floors[index]))
+                    gridRequireSpanExtent(
+                        floors[index],
+                        firstColumn: cell.firstColumn, endColumn: cell.endColumn,
+                        spacing: horizontalSpacing, tracks: &tracks, minimum: true)
+                }
+            }
+        }
+        let widths = gridAllocateExtents(
+            desired: tracks.map(\.extent), minimum: tracks.map { min($0.extent, $0.minimumExtent) },
+            flexibleWeights: tracks.map { $0.isFlexible ? Double($0.endColumn - $0.firstColumn) : 0 },
+            available: availableWidth)
+        for index in tracks.indices { tracks[index].extent = widths[index] }
+        // A span is an aggregate constraint. Clipping a provisional per-run
+        // minimum to its desired width must not discard part of that hard
+        // aggregate floor. Restore each covered minimum after compression;
+        // this can overflow the proposal, but cannot violate an earlier floor.
+        for requirement in minimumRequirements {
+            gridRequireSpanExtent(
+                requirement.width, firstColumn: requirement.cell.firstColumn,
+                endColumn: requirement.cell.endColumn, spacing: horizontalSpacing, tracks: &tracks)
+        }
+
+        let fittedSizes = rows.map {
+            measureGridCells(row: $0, tracks: tracks, spacing: horizontalSpacing, memo: memo)
+        }
+        updateGridColumnGuides(rows: rows, sizes: fittedSizes, tracks: &tracks, establishExtent: false)
+        var metrics = rows.enumerated().map { gridRowMetrics(row: $0.element, sizes: fittedSizes[$0.offset]) }
+        let verticalGaps = gridSpacingTotal(count: rows.count, spacing: verticalSpacing)
+        let availableHeight = constraints.maxHeight - verticalGaps
+        if availableHeight.isFinite, metrics.reduce(0, { $0 + $1.height }) > max(0, availableHeight) {
+            for index in rows.indices {
+                metrics[index].minimumHeight = min(
+                    metrics[index].height,
+                    gridCellFloors(
+                        row: rows[index], axis: .vertical, tracks: tracks,
+                        spacing: horizontalSpacing, constraints: constraints
+                    ).max() ?? 0)
+            }
+        }
+        let heights = gridAllocateExtents(
+            desired: metrics.map(\.height), minimum: metrics.map(\.minimumHeight),
+            flexibleWeights: metrics.map { $0.isFlexible ? 1 : 0 }, available: availableHeight)
+        let size = sanitizedLayoutSize(
+            Size(
+                width: tracks.reduce(0, { $0 + $1.extent }) + horizontalGaps,
+                height: heights.reduce(0, +) + verticalGaps))
+        let origin = Point(
+            x: alignInProposal
+                ? gridAnchor(
+                    for: gridHorizontalAlignment(layout.horizontalAlignment, isRightToLeft: layout.isRightToLeft))
+                    * (constraints.maxWidth - size.width) : 0,
+            y: alignInProposal ? gridAnchor(for: layout.verticalAlignment) * (constraints.maxHeight - size.height) : 0)
+        var geometry: [GridRowGeometry] = []
+        var cursor = sanitizedLayoutCoordinate(origin.y)
+        for (index, row) in rows.enumerated() {
+            let sizes = measureGridCells(
+                row: row, tracks: tracks, spacing: horizontalSpacing, height: heights[index], memo: memo)
+            let cells = gridCellGeometry(
+                row: row, sizes: sizes, metrics: metrics[index], height: heights[index],
+                tracks: tracks, totalWidth: size.width, layout: layout)
+            let rowFrame = Rect(x: origin.x, y: cursor, width: size.width, height: heights[index])
+            if row.isGridRow {
+                geometry.append(
+                    GridRowGeometry(
+                        identity: ObjectIdentifier(row.node), frame: sanitizedLayoutRect(rowFrame), cells: cells))
+            } else if let cell = cells.first {
+                geometry.append(
+                    GridRowGeometry(
+                        identity: ObjectIdentifier(row.node),
+                        frame: sanitizedLayoutRect(
+                            Rect(
+                                x: rowFrame.minX + cell.frame.minX, y: rowFrame.minY + cell.frame.minY,
+                                width: cell.frame.width, height: cell.frame.height)), cells: []))
+            }
+            cursor = sanitizedLayoutCoordinate(cursor + heights[index] + verticalSpacing)
+        }
+        return GridLayoutGeometry(
+            size: size,
+            fillAxes: LayoutFillAxes(
+                horizontal: tracks.contains(where: \.isFlexible), vertical: metrics.contains(where: \.isFlexible)),
+            rows: geometry)
+    }
+
+    private func gridCellGeometry(
+        row: GridRowInput, sizes: [Size], metrics: GridRowMetrics, height: Double,
+        tracks: [GridTrackRun], totalWidth: Double, layout: RetainedGridLayout
+    ) -> [GridCellGeometry] {
+        let spacing = gridSpacing(layout.horizontalSpacing)
+        return row.cells.enumerated().map { index, cell in
+            let size = sizes[index]
+            let span = gridSpanExtent(
+                tracks, firstColumn: cell.firstColumn, endColumn: cell.endColumn, spacing: spacing)
+            let logicalX = gridTrackOrigin(tracks, firstColumn: cell.firstColumn, spacing: spacing)
+            let columnX = layout.isRightToLeft ? totalWidth - logicalX - span : logicalX
+            let track = tracks.first(where: { $0.firstColumn == cell.firstColumn })
+            let alignment =
+                cell.isMerged
+                ? gridHorizontalAlignment(layout.horizontalAlignment, isRightToLeft: layout.isRightToLeft)
+                : (track?.alignment ?? layout.horizontalAlignment)
+            let anchor =
+                cell.node.gridCellAnchor
+                ?? (cell.isMerged ? Point(x: gridAnchor(for: alignment), y: gridAnchor(for: row.alignment)) : nil)
+            let x: Double
+            let y: Double
+            if let anchor {
+                // Explicit unit coordinates are physical. Exact SwiftUI RTL
+                // anchor mirroring remains a separate native characterization.
+                x = columnX + sanitizedLayoutCoordinate(anchor.x) * (span - size.width)
+                y = sanitizedLayoutCoordinate(anchor.y) * (height - size.height)
+            } else {
+                let guideBefore = track?.guideBefore ?? 0
+                let guideAfter = track?.guideAfter ?? 0
+                x =
+                    columnX + guideBefore + (span - guideBefore - guideAfter) * gridAnchor(for: alignment)
+                    - gridGuideValue(for: cell.node, axis: .vertical, alignment: alignment, extent: size.width)
+                y =
+                    metrics.guideBefore
+                    + (height - metrics.guideBefore - metrics.guideAfter) * gridAnchor(for: row.alignment)
+                    - gridGuideValue(for: cell.node, axis: .horizontal, alignment: row.alignment, extent: size.height)
+            }
+            return GridCellGeometry(
+                identity: ObjectIdentifier(cell.node),
+                frame: sanitizedLayoutRect(Rect(x: x, y: y, width: size.width, height: size.height)))
+        }
     }
 
     /// Places one child of a stack and answers whether it should now be laid
@@ -7336,7 +7856,32 @@ public final class ViewNode {
         var currentNode: ViewNode? = self
         while let node = currentNode {
             node.subtreeDirtyFlags.insert(flags)
+            if !flags.intersection([.layout, .children]).isEmpty {
+                node.invalidateGridGeometry()
+            }
             currentNode = node.parent
+        }
+    }
+
+    private func invalidateGridGeometry() {
+        guard resolvedGridGeometry != nil else { return }
+        // Clear before scheduling. Installing resolved frames does not call
+        // this hook, and a second mutation before recomputation cannot enqueue
+        // another request for the same plan.
+        resolvedGridGeometry = nil
+        guard case .grid = layoutMode, let runtime, runtime.isLayoutInProgress else { return }
+        var current: ViewNode? = self
+        var visited: Set<ObjectIdentifier> = []
+        while let node = current, visited.count < ViewNode.maximumTraversalDepth {
+            guard visited.insert(ObjectIdentifier(node)).inserted, node.runtime === runtime else { return }
+            if node === runtime.root {
+                // No node, source view, context, or callback is captured. The
+                // ordinary bounded after-layout loop performs the next pass.
+                runtime.scheduleAfterLayout(key: "grid-shared-tracks-\(ObjectIdentifier(self))") {}
+                return
+            }
+            guard let parent = node.parent, parent.children.contains(where: { $0 === node }) else { return }
+            current = parent
         }
     }
 
@@ -7456,6 +8001,10 @@ public final class ViewNode {
         var plan = MeasurementPlan()
         if let cached = beginMeasurement(constraints, into: &plan, memo: memo) {
             return cached
+        }
+
+        if case .grid(let layout) = layoutMode {
+            return measureGrid(layout: layout, plan: plan, memo: memo)
         }
 
         var childSizes: [Size] = []
@@ -7580,6 +8129,11 @@ public final class ViewNode {
             plan.childConstraints = stackChildConstraints(
                 for: insetConstraints(contentConstraints, by: stackLayout.padding),
                 axis: stackLayout.axis)
+        case .gridRow(let rowLayout):
+            plan.childConstraints = stackChildConstraints(
+                for: contentConstraints, axis: rowLayout.standaloneStackLayout.axis)
+        case .grid:
+            plan.childConstraints = contentConstraints
         case .flex:
             plan.childConstraints = .unconstrained
         }
@@ -7618,7 +8172,9 @@ public final class ViewNode {
     /// Folds the children's measured sizes into this node's own size, applies
     /// its explicit dimensions, and caches the answer.
     @inline(never)
-    private func finishMeasurement(plan: MeasurementPlan, childSizes: [Size], memo: MeasurementMemo) -> Size {
+    private func finishMeasurement(
+        plan: MeasurementPlan, childSizes: [Size], memo: MeasurementMemo, gridSize: Size? = nil
+    ) -> Size {
         let measuredSize: Size
         switch layoutMode {
         case .absolute:
@@ -7627,6 +8183,10 @@ public final class ViewNode {
             measuredSize = Self.stackMeasuredSize(of: childSizes, stackLayout: stackLayout)
         case .flex(let flexStyle):
             measuredSize = Self.flexMeasuredSize(of: childSizes, flexStyle: flexStyle)
+        case .grid:
+            measuredSize = gridSize ?? .zero
+        case .gridRow(let rowLayout):
+            measuredSize = Self.stackMeasuredSize(of: childSizes, stackLayout: rowLayout.standaloneStackLayout)
         }
 
         let resolvedSize = applyingExplicitDimensions(
@@ -8949,6 +9509,135 @@ private func stackCrossPadding(for layout: StackLayout) -> Double {
         return layout.padding.top + layout.padding.bottom
     }
 }
+private func gridSpacing(_ spacing: Double) -> Double {
+    spacing.isFinite ? sanitizedLayoutCoordinate(spacing) : 0
+}
+
+private func gridSpacingTotal(count: Int, spacing: Double) -> Double {
+    count > 1 ? sanitizedLayoutCoordinate(Double(count - 1) * spacing) : 0
+}
+
+private func gridHorizontalAlignment(
+    _ alignment: StackCrossAlignment, isRightToLeft: Bool
+) -> StackCrossAlignment {
+    guard isRightToLeft else { return alignment }
+    switch alignment {
+    case .leading: return .trailing
+    case .trailing: return .leading
+    default: return alignment
+    }
+}
+
+private func gridAnchor(for alignment: StackCrossAlignment) -> Double {
+    switch alignment {
+    case .leading, .stretch, .customHorizontal, .customVertical: return 0
+    case .center: return 0.5
+    case .trailing: return 1
+    case .firstTextBaseline, .lastTextBaseline: return 0.8
+    }
+}
+
+private func gridTrackCrossAlignment(_ alignment: RetainedHorizontalAlignment) -> StackCrossAlignment {
+    switch alignment {
+    case .leading: return .leading
+    case .center: return .center
+    case .trailing: return .trailing
+    }
+}
+
+@MainActor
+private func gridGuideValue(
+    for node: ViewNode, axis: StackAxis, alignment: StackCrossAlignment, extent: Double
+) -> Double {
+    if let guide = stackCrossAlignmentGuide(for: axis, alignment: alignment),
+        let value = node.alignmentGuides.last(where: { $0.axis == guide.axis && $0.guide == guide.name })?.value,
+        value.isFinite
+    {
+        return sanitizedLayoutCoordinate(value)
+    }
+    return stackCrossReference(for: alignment, contentExtent: extent)
+}
+
+private func gridRunIndices(
+    _ tracks: [GridTrackRun], firstColumn: Int, endColumn: Int
+) -> [Int] {
+    tracks.indices.filter {
+        tracks[$0].firstColumn >= firstColumn && tracks[$0].endColumn <= endColumn
+    }
+}
+
+private func gridSpanExtent(
+    _ tracks: [GridTrackRun], firstColumn: Int, endColumn: Int, spacing: Double
+) -> Double {
+    let extent = tracks.reduce(0.0) { partial, track in
+        guard track.firstColumn >= firstColumn, track.endColumn <= endColumn else { return partial }
+        return partial + track.extent
+    }
+    return sanitizedLayoutExtent(extent + gridSpacingTotal(count: endColumn - firstColumn, spacing: spacing))
+}
+
+private func gridTrackOrigin(_ tracks: [GridTrackRun], firstColumn: Int, spacing: Double) -> Double {
+    sanitizedLayoutCoordinate(
+        tracks.reduce(0.0) { $0 + ($1.endColumn <= firstColumn ? $1.extent : 0) }
+            + Double(firstColumn) * spacing)
+}
+
+/// Equal increments per logical column are a deterministic interim policy for
+/// underdetermined spans, not a claim about SwiftUI's general span solver.
+private func gridRequireSpanExtent(
+    _ requiredExtent: Double, firstColumn: Int, endColumn: Int, spacing: Double,
+    tracks: inout [GridTrackRun], minimum: Bool = false
+) {
+    let indices = gridRunIndices(tracks, firstColumn: firstColumn, endColumn: endColumn)
+    guard !indices.isEmpty, endColumn > firstColumn else { return }
+    let current =
+        indices.reduce(0.0) {
+            $0 + (minimum ? tracks[$1].minimumExtent : tracks[$1].extent)
+        } + gridSpacingTotal(count: endColumn - firstColumn, spacing: spacing)
+    let deficit = sanitizedLayoutExtent(requiredExtent - current)
+    guard deficit > 0 else { return }
+    let count = Double(endColumn - firstColumn)
+    for index in indices {
+        let share = deficit * (Double(tracks[index].endColumn - tracks[index].firstColumn) / count)
+        if minimum {
+            tracks[index].minimumExtent = sanitizedLayoutExtent(tracks[index].minimumExtent + share)
+        } else {
+            tracks[index].extent = sanitizedLayoutExtent(tracks[index].extent + share)
+        }
+    }
+}
+
+/// Fits a finite proposal while retaining the same text/declared-minimum floors
+/// used by the runtime's stacks. Heterogeneous Grid priority negotiation remains
+/// uncharacterized; this proportional-slack policy is intentionally explicit.
+private func gridAllocateExtents(
+    desired: [Double], minimum: [Double], flexibleWeights: [Double], available: Double
+) -> [Double] {
+    guard available.isFinite else { return desired }
+    let available = sanitizedLayoutExtent(available)
+    let desiredTotal = desired.reduce(0, +)
+    var result = desired
+    if desiredTotal > available {
+        let capacity = desired.indices.map { max(0, desired[$0] - minimum[$0]) }
+        let totalCapacity = capacity.reduce(0, +)
+        if totalCapacity > 0 {
+            let reduction = min(desiredTotal - available, totalCapacity)
+            for index in result.indices {
+                result[index] = max(minimum[index], desired[index] - reduction * (capacity[index] / totalCapacity))
+            }
+        }
+    } else if desiredTotal < available {
+        let totalWeight = flexibleWeights.reduce(0, +)
+        if totalWeight > 0 {
+            let extra = available - desiredTotal
+            for index in result.indices {
+                result[index] += extra * (flexibleWeights[index] / totalWeight)
+            }
+        }
+    }
+    return result.map(sanitizedLayoutExtent)
+}
+
 @MainActor
 private func stackCrossOriginUsingAlignmentGuide(
     for child: ViewNode,
@@ -11964,7 +12653,7 @@ public final class RetainedViewRuntime {
                         switch ancestor.layoutMode {
                         case .absolute:
                             if ancestor.absoluteChildFrame != nil { return false }
-                        case .stack, .lazyStack, .flex:
+                        case .stack, .lazyStack, .flex, .grid, .gridRow:
                             return false
                         }
                     }

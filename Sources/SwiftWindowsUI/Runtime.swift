@@ -12927,7 +12927,11 @@ public final class RetainedViewRuntime {
     }
 
     fileprivate func lazyListVisitIsCurrent(_ visit: LazyListLayoutVisit) -> Bool {
-        guard visit.passID == layoutPassID, visit.geometryRevision == layoutSettlementGeometryRevision,
+        lazyListVisitIsCurrent(visit, expectedGeometryRevision: visit.geometryRevision)
+    }
+
+    private func lazyListVisitIsCurrent(_ visit: LazyListLayoutVisit, expectedGeometryRevision: UInt64) -> Bool {
+        guard visit.passID == layoutPassID, expectedGeometryRevision == layoutSettlementGeometryRevision,
             visit.attachment.isCurrent, visit.scrollAttachment?.isCurrent == true,
             let node = visit.node, let adapter = visit.adapter, let scroll = visit.scrollContainer,
             let viewport = visit.viewport, ownsLazyListAttachment(node), ownsLazyListAttachment(scroll),
@@ -18592,9 +18596,16 @@ public final class RetainedViewRuntime {
         let coordinator = retainedBuildCoordinator
         // Pending is explicit. This adapter adds no retry queue or scheduler;
         // the next ordinary build/layout opportunity can retry with fresh proof.
+        // beginBuild's runtime-owned callback retires settlement evidence with
+        // exactly one revision increment before any authored work. Preserve the
+        // original visit's geometry and attachments across only that increment;
+        // an overflow or any additional invalidation must still reject the visit.
+        let buildStartGeometryRevision = visit.geometryRevision.addingReportingOverflow(1)
         guard let sequence = coordinator.beginBuild() else { return false }
         if managedDescriptor != nil {
-            guard lazyListVisitIsCurrent(visit), managedIdentity?.isCurrent == true,
+            guard !buildStartGeometryRevision.overflow,
+                lazyListVisitIsCurrent(visit, expectedGeometryRevision: buildStartGeometryRevision.partialValue),
+                managedIdentity?.isCurrent == true,
                 node.retainedSubtreeBuildLease === lease
             else {
                 coordinator.finishBuild()

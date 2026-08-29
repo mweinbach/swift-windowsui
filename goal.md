@@ -8640,3 +8640,49 @@ The earlier proposal without the explicit public-default assertion remains
 unadopted. This is a deterministic fixture guard, not an OS sandbox or proof
 of native-dialog behavior. The existing asynchronous waits still need bounded
 execution, and this held cohort remains unrun at this checkpoint.
+
+### Ninth validation pass: managed List build admission (2026-08-29)
+
+The diagnostic rerun at `2ce2a2e` executed all ten UIA ItemContainer cases:
+seven passed and the same three runtime-backed cases failed. Every failed
+fixture retained one List and a current managed descriptor, but had no current
+logical snapshot and zero row-factory calls. Neither the first native HRESULT
+diagnostic nor the bridge's native-failure diagnostic reported a failure.
+The runner returned 1 naturally; source/index endpoints were preserved.
+The 12,260-byte log has SHA-256
+`d10885010fecd7d38cb07e581f8539e1decfe70806a6c8c7806e190253d91263`.
+
+A separate unchanged eight-case MountedLazyListStateTests run at that same
+commit also returned 1 naturally. All eight cases failed, with 15 assertion
+failures and no skipped cases. Initial row captures were absent on both layout
+and render routes. Its 7,581-byte log has SHA-256
+`f7b628de25835564aa401e52a2cdfda1a8a5c1027c087159e05550bf7863cc77`.
+Both focused runs have exact once-only XCTest identifiers and explicit
+zero-case Swift Testing observations. These are reproduced failures, not
+completion evidence; the raw logs and reconciliation remain under `artifacts/`.
+
+Source tracing found that managed List admission rejected its own build-start
+invalidation. A layout visit captured revision R; the runtime-owned callback
+inside `beginBuild` retired settlement evidence by incrementing R once. The
+immediate managed-only guard then required the old R, stopping before the
+managed epoch and row preparation. The runtime now accepts only that exact
+checked increment at this one guard. The original pass, viewport, attachment,
+identity, lease, scroll offset and scroll-epoch checks remain. Other callers
+continue to require the original revision. Overflow and any additional
+invalidation still reject admission; the global settlement clock is unchanged.
+
+Four additional async regression cases cover first layout constructing bounded
+visible rows without appearance callbacks, geometry changed and restored during
+the lease getter, an already busy build coordinator, and generation exhaustion
+before any row factory. All 550 existing test paths remain unchanged, including
+the original State/StateObject and UIA assertions. Exact patch replay, strict
+formatting and architecture contracts passed. The two-file source patch has
+SHA-256 `9e5d318b61b1dfa0cd1b4ec2e1d7b5697b1f20ebfdf382b70431e348ea28cfd5`.
+Compilation and execution of this repair remain pending at this checkpoint.
+
+The state run also exposed a distinct pre-layout metadata problem: its first
+case expects the already-declared 32 logical records before asking for layout,
+but the adapter reports zero until preparation. Equivalent public List tests
+require this metadata contract too. The admission repair does not address that
+separate failure, and the existing assertions are retained. No original goal
+gate is closed by either the diagnostic evidence or this source repair.

@@ -819,7 +819,13 @@ package final class RetainedLazyListRuntimeAdapter {
         hasCurrentLogicalSnapshot ? generation : nil
     }
 
-    package var logicalRecordCount: Int { tokens.count }
+    /// Accepted logical metadata is available before the first viewport visit.
+    /// This count neither prepares a physical snapshot nor consults a provider.
+    package var logicalRecordCount: Int {
+        guard let descriptor = managedLogicalDescriptor else { return tokens.count }
+        guard descriptor.isCurrent, descriptor.scope.containsDeclaredDescriptor(descriptor.descriptor) else { return 0 }
+        return descriptor.declaredRecordCount
+    }
     package var contentExtent: Double {
         max(0, (extentIndex?.totalExtent ?? 0) - (inheritedExtentSpacing ?? interLeafSpacing))
     }

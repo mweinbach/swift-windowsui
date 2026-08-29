@@ -532,18 +532,20 @@ package final class RetainedLazyListManagedLogicalDescriptorBinding {
     package let facadeProposal: RetainedLazyListLogicalProposalID
     package let scope: RetainedLazyListLogicalMembershipScope
     package let sourceGeneration: RetainedLazyListGeneration
+    package let declaredRecordCount: Int
     private var wasRevoked = false
 
     package init(
         descriptor: RetainedLazyListLogicalDeclarationID,
         facadeProposal: RetainedLazyListLogicalProposalID,
         scope: RetainedLazyListLogicalMembershipScope,
-        sourceGeneration: RetainedLazyListGeneration
+        metadata: RetainedLazyListMetadata
     ) {
         self.descriptor = descriptor
         self.facadeProposal = facadeProposal
         self.scope = scope
-        self.sourceGeneration = sourceGeneration
+        sourceGeneration = metadata.generation
+        declaredRecordCount = metadata.rows.count
     }
 
     package var isCurrent: Bool {

@@ -937,7 +937,7 @@ private final class LazyTaskGroupHost {
         let descriptorSource = ViewNode()
         let binding = RetainedLazyListManagedLogicalDescriptorBinding(
             descriptor: RetainedLazyListLogicalDeclarationID(), facadeProposal: RetainedLazyListLogicalProposalID(),
-            scope: logical, sourceGeneration: metadata.generation)
+            scope: logical, metadata: metadata)
         let journal = RetainedLazyListAdoptionJournal(descriptorScope: scope, transaction: RetainedBuildTransaction())
         let facet = try XCTUnwrap(journal.registerSourceDescriptor(binding, on: descriptorSource, scope: scope))
         let preparation = try XCTUnwrap(journal.preparation())

@@ -266,8 +266,7 @@ final class LazyListMembershipProposal {
     let id = RetainedLazyListLogicalDeclarationID()
     let facadeProposal = RetainedLazyListLogicalProposalID()
     let listIdentity: RetainedViewIdentity
-    let completeMetadata: [RetainedLazyListRowMetadata]
-    let sourceGeneration: RetainedLazyListGeneration
+    private let metadata: RetainedLazyListMetadata
     let logicalScope: RetainedLazyListLogicalMembershipScope
     let receipt: LazyListDescriptorResolutionReceipt
     weak var parentRow: LazyListLogicalRow?
@@ -283,8 +282,7 @@ final class LazyListMembershipProposal {
         receipt: LazyListDescriptorResolutionReceipt
     ) {
         self.listIdentity = listIdentity
-        completeMetadata = metadata.rows
-        sourceGeneration = metadata.generation
+        self.metadata = metadata
         logicalScope = scope
         self.parentRow = parentRow
         self.retainedRows = retainedRows
@@ -292,10 +290,13 @@ final class LazyListMembershipProposal {
         self.receipt = receipt
     }
 
+    var completeMetadata: [RetainedLazyListRowMetadata] { metadata.rows }
+    var sourceGeneration: RetainedLazyListGeneration { metadata.generation }
+
     var nativeBinding: RetainedLazyListManagedLogicalDescriptorBinding {
         RetainedLazyListManagedLogicalDescriptorBinding(
             descriptor: id, facadeProposal: facadeProposal, scope: logicalScope,
-            sourceGeneration: sourceGeneration)
+            metadata: metadata)
     }
 
     func publishProposedRows(_ rows: ManagedKeyedMap<LazyListQualifiedKey, LazyListLogicalRow>) { proposedRows = rows }

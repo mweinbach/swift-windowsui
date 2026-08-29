@@ -660,6 +660,7 @@ private final class ActivityDescriptorFixture {
     let runtime: RetainedViewRuntime
     let source: RetainedLazyListDataSource<Int, [ViewNode]>
     let generation: RetainedLazyListGeneration
+    private let metadata: RetainedLazyListMetadata
     let logical: RetainedLazyListLogicalMembershipScope
 
     init() throws {
@@ -677,7 +678,9 @@ private final class ActivityDescriptorFixture {
         self.runtime = runtime
         self.source = source
         self.logical = logical
-        generation = try XCTUnwrap(source.metadata).generation
+        let metadata = try XCTUnwrap(source.metadata)
+        self.metadata = metadata
+        generation = metadata.generation
     }
 
     func makePlan(
@@ -705,7 +708,7 @@ private final class ActivityDescriptorFixture {
         let sourceNode = ViewNode()
         let binding = RetainedLazyListManagedLogicalDescriptorBinding(
             descriptor: RetainedLazyListLogicalDeclarationID(), facadeProposal: RetainedLazyListLogicalProposalID(),
-            scope: logical, sourceGeneration: generation)
+            scope: logical, metadata: metadata)
         let adapter = try XCTUnwrap(
             RetainedLazyListRuntimeAdapter(
                 provider: source, estimatedExtent: 20, prefetchExtent: 0,

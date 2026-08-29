@@ -8686,3 +8686,52 @@ but the adapter reports zero until preparation. Equivalent public List tests
 require this metadata contract too. The admission repair does not address that
 separate failure, and the existing assertions are retained. No original goal
 gate is closed by either the diagnostic evidence or this source repair.
+
+### Ninth validation pass: accepted logical counts and subsequent failures (2026-08-29)
+
+The admission repair at `9ea5289` compiled and passed all four new regression
+cases. The unchanged eight state cases then passed three and failed five;
+the unchanged ten UIA ItemContainer cases passed nine and failed one. All
+three original provider-discovery failures were resolved, allowing the tests
+to reach their later assertions. The remaining failures concern the declared
+count, surviving state owners across rebuilds, and later item realization.
+The complete focused result is 22 starts, 16 passes, six failed cases and
+26 assertion failures, with no skips. The runner returned 1 naturally after
+301.672 seconds including compilation. Its 1,309,641-byte log has SHA-256
+`ff052c455db9b64f212e5a1e565a4513fe7dbfc1b305d78bff32a798c74182bc`.
+
+The logical-count repair now carries the already-captured metadata's generation
+and scalar row count in the native managed descriptor binding. The adapter
+exposes that count only while the binding is current and the same descriptor
+remains accepted. Provisional, stale, replaced, revoked or closed managed
+bindings return zero; they cannot borrow old prepared tokens. Unmanaged
+adapters retain their previous token-count behavior. The getter calls no
+provider, builds no rows and grants no physical snapshot, layout, scrolling or
+accessibility authority. The facade retains the same immutable metadata it
+already owned; the native binding does not acquire its keys or row payloads.
+
+Four additional async cases cover that separation, replacement and closure,
+provisional/revoked bindings with a provider-call counter, and key-payload
+release while a native count binding remains retained. Two existing fixture
+helpers pass their original captured metadata into the explicit initializer;
+all 50 test bodies in those files remain unchanged. Exact postimages, strict
+formatting, contracts and source review passed. The six-file patch has SHA-256
+`01418d7a3b362215d37d150dcc1961cec49841f038f9314474271696a623df09`.
+Execution of this count repair remains pending at this checkpoint.
+
+Two further closed runs at `9ea5289` retain additional failures. The new
+exact-class sharded 402-case runner entered its first class, passed seven
+DeferredConsumerLabelTests cases and failed one with 32 assertions; 394 cases
+in the remaining 28 classes were not entered. The 13,375-byte log has SHA-256
+`d546857eaa602d3fd081f109de8f9b93076791eb0471868f7d49208ad53a51b6`.
+The separate public accessibility/projection run executed 24 cases: 15 passed,
+nine failed and none skipped. Its 40 XCTest failures include five unexpected
+unwrap errors; all nine projection-admission cases passed. XCTest execution
+took 447.511 seconds, and the runner returned 1 naturally after 452.453 seconds.
+Its 19,837-byte log has SHA-256
+`12a8fa8aa04872cd4c5ec0d1f97b6edc1e6ff302285312bb4602254be0ee449a`.
+These runs had explicit zero-case Swift Testing observations, preserved
+source/index endpoints, and no timeout or termination. They are not complete
+cohort passes. Label identity, realization, prefetch behavior and the observed
+large-list construction cost remain assigned investigations; no original
+completion gate is closed.

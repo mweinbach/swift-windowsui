@@ -59,14 +59,17 @@ struct ManagedKeyedMap<Key: ManagedKeyedIdentity, Value>: Sequence, ExpressibleB
     }
 
     /// Callers mutate a local snapshot and recheck after this scope releases
-    /// its pins. COW and collision cleanup never rehash an authored key.
+    /// its bucket pins. COW and collision cleanup never rehash an authored key.
     @discardableResult
     @inline(never)
     mutating func setValue(_ value: Value?, for key: Key, isCurrent: () -> Bool) -> Bool {
         guard let hash = hash(key, isCurrent: isCurrent) else { return false }
-        let previous = buckets
-        let entries = previous[hash] ?? []
-        defer { withExtendedLifetime((previous, entries)) {} }
+        // Pin departing keys and values through the final admission check.
+        // Keeping the whole dictionary here would force a full copy on every
+        // write. Other buckets remain owned by this map, and copies held by
+        // callers still receive ordinary dictionary value semantics.
+        let entries = buckets[hash] ?? []
+        defer { withExtendedLifetime(entries) {} }
         var match: Int?
         for index in entries.indices {
             guard let equal = entries[index].key.checkedEquals(key, isCurrent: isCurrent), isCurrent() else {

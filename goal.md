@@ -8795,3 +8795,36 @@ passed. The three-file source patch has SHA-256
 `ab14afd97e8036781f89501a7c67946376fab16864388e2e6589ea6c866fe57f`.
 Runtime results for this repair are pending; it does not qualify complete
 control behavior, appearance or native SwiftUI parity.
+
+### Ninth validation pass: avoid copying the whole checked key map per write (2026-08-29)
+
+The closed public accessibility run exposed expensive large-list construction:
+single 50,000-record fixture cases took approximately 43.380 to 45.086 seconds,
+the two-fixture closure case took 87.221 seconds, and the three-generation
+replacement case took 128.159 seconds. Source tracing found that checked-map
+insertion retained an entire prior dictionary through every write. Swift's
+copy-on-write behavior therefore copied all existing buckets on each insertion
+even when no caller needed a separate map snapshot. Metadata collection and
+scroll-source installation both use this helper.
+
+ManagedKeyedMap now pins only the affected collision bucket through its final
+admission check. Untouched buckets remain owned by the current map; snapshots
+actually held by callers still have normal independent value semantics.
+Departing keys and values stay alive through publication, and their later
+cleanup can still revoke the caller's permission before its required recheck.
+The change does not bypass authored hashing/equality or source-validity checks.
+Deliberately colliding keys still require searches within their bucket; this
+is not a claim that arbitrary application key operations have constant cost.
+
+Four new async tests cover replacement and removal cleanup ordering, deliberate
+collisions, independently retained map copies, and 4,096 distinct-key inserts
+without rehashing stored authored keys. These preservation tests can also pass
+on the old implementation and are not themselves a measured speed result.
+All existing tests are unchanged. The narrow helper patch was composed with
+the separate metadata-count change without replacing that file wholesale.
+Strict formatting, contracts, exact composition and independent source review
+passed. The patch has SHA-256
+`75ecae54caf2d99fdbb3ceec743f0bdf846e86112e5272fb5bff7f76174e39a0`.
+The unchanged large-list cases must still be rerun to measure the combined
+repairs. No fixture size, deadline or acceptance threshold was relaxed, and
+the original hardware performance gate remains open.

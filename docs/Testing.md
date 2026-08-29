@@ -117,11 +117,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   projection-only observation. Supplied object aliases and the standalone
   cache retain their documented behavior; native SwiftUI lifetime comparison
   and App/Scene ownership remain separate qualification work.
-- Sharded `-Filter` target selection uses class-name substring/wildcard
-  matching before it builds XCTest filters. Pass explicit class names joined
-  by `|`; do not assume a regular expression such as `MountedState.*Tests`
-  selects every intended source class. Check the reported targets and case
-  counts, including accidental suffix matches such as `GeometryTests`.
+- Sharded `-Filter` target selection prefers case-insensitive exact class or
+  suite names, so `NativeWindowCoordinatorTests` does not also select
+  `WindowCoordinatorTests`. If no exact name exists, the existing bidirectional
+  substring/wildcard matching remains. Names joined by `|` use that fallback
+  and can still include suffix matches; do not assume a regular expression
+  such as `MountedState.*Tests` selects every intended source class. Check
+  the reported targets and case counts. Omitted, empty, or whitespace-only
+  filters still select all targets; non-sharded regex handling is unchanged.
+  `scripts/test-sharded-target-selection.ps1` checks the production helper
+  through PowerShell AST extraction with synthetic targets only, without
+  executing `test.ps1` or starting SwiftPM.
 - `UndoManagerTests`, `TextInputUndoTests`, `TextInputUndoSessionTests`,
   `TextInputConstructionLifetimeTests`, `TextSelectionIndexSafetyTests`, and
   `SheetContentIdentityTests` and `ItemSheetStateIdentityTests` gate Quick, covering target/replay lifetime,

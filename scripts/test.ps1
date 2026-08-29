@@ -109,6 +109,28 @@ function Get-DiscoveredTestTargets {
     return @($targets.Values | Sort-Object Name)
 }
 
+function Select-ShardedTestTargets {
+    param(
+        [object[]]$Targets,
+        [string]$Filter = ""
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Filter)) {
+        return $Targets
+    }
+
+    # A complete class/suite name must not also select shorter suffix names.
+    # Keep PowerShell's existing case-insensitive equality and wildcard rules.
+    $exact = @($Targets | Where-Object { $_.Name -eq $Filter })
+    if ($exact.Count -gt 0) {
+        return $exact
+    }
+
+    return @($Targets | Where-Object {
+            $_.Name -like "*$Filter*" -or $Filter -like "*$($_.Name)*"
+        })
+}
+
 function Get-ExpandedIdentifierLength {
     param(
         [string]$ClassName,
@@ -432,9 +454,7 @@ $targets = Get-DiscoveredTestTargets -SourceRoot $testSources
 if ($Sharded) {
     $selected = $targets
     if (-not [string]::IsNullOrWhiteSpace($Filter)) {
-        $selected = @($targets | Where-Object {
-                $_.Name -eq $Filter -or $_.Name -like "*$Filter*" -or $Filter -like "*$($_.Name)*"
-            })
+        $selected = @(Select-ShardedTestTargets -Targets $targets -Filter $Filter)
         if ($selected.Count -eq 0) {
             Write-Host "No discovered test targets match -Filter '$Filter'." -ForegroundColor Red
             Write-Host "Known targets: $(($targets | ForEach-Object { $_.Name }) -join ', ')"

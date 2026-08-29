@@ -8224,3 +8224,43 @@ candidate. Compilation and execution, actual native frame rendering and
 fractional filtering remain pending. This source integration does not inherit
 the earlier foundation's CPU gallery or focused-test result. All original
 completion gates remain open.
+
+### Ninth validation pass: native compiler blockers and exact shard selection (2026-08-29)
+
+The first native/List/bitmap compilation at root
+`6b4379024cf48c34b3ebd6fca928dece72c3eaf0` stopped in
+SwiftWindowsPlatform before any test started. The requested ten portable
+NativeWindowOwnerValueTests did not execute. The direct PowerShell child
+exited naturally with code 1 after 30.140 seconds; it did not time out or
+require termination. Tracked-source and index endpoint observations were
+unchanged. Its 8,424-byte combined log has SHA-256
+`2942f9e3086bedb4d107c54652e6b0223ff2d44262e64e6f7213aeff68e34610`.
+This is a compiler failure, not ten failed tests or a runtime qualification.
+
+The diagnostics identify the WinSDK WindowsBool conversion in native file
+recycling, opaque C provider/call pointers crossing Swift Mutex sending
+boundaries, and an EnableMenuItem result imported as Bool where the source
+expected integer flags. Repairs must preserve native error reporting, all
+provider and call retain/release ownership, and release outside the Swift
+mutex. Later modules and the new native/List/bitmap tests remain unqualified;
+the earlier foundation's 64-test pass does not transfer to this integration.
+
+Preparing the bounded Core run also exposed an independent test-runner bug:
+an exact class filter could select a shorter suffix class. Sharded selection
+now first uses case-insensitive exact class/suite names and preserves their
+order and object identity. Only a filter with no exact match uses the existing
+bidirectional substring/wildcard behavior. Empty filters, joined-name fallback,
+non-sharded regular expressions, shard planning, evidence capture, and exit
+handling retain their previous behavior. Joined names can still select suffix
+matches; focused native validation will request one exact class at a time.
+
+The three-file selector patch has SHA-256
+`3d1dbbc44073c42c836903a4135b8ade16fa6d8238302d3508ba9456f4e6470d`.
+All root postimages match the reviewed packet. Thirty pure PowerShell 5
+fixture cases with 94 assertions passed against the actual helper extracted
+through the production script's AST. These fixtures also verify the actual
+sharded call site; they do not execute test.ps1 or SwiftPM. Contracts before
+and after the change and whitespace checks passed. The private negative
+control using the old selector failed as expected on the first collision.
+Compiler repairs and fresh test execution remain pending. All nine original
+completion gates remain open and unchanged.

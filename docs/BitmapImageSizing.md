@@ -105,11 +105,17 @@ tile-phase bound. It also specifies CPU/D3D11 comparisons through the
 existing device-optional harness; a missing D3D11 device is a skip, not a
 backend pass.
 
-This change records implementation and test intent only. These new tests
-have not been compiled or run in the source-only editing session. No fresh
-CPU, D3D11, native SwiftUI, or SDK qualification is claimed, and no baseline
-review flags are promoted. Once execution is authorized, run focused
-checks serially with the existing architecture and formatting checks:
+At `a2cad23`, a fresh serial focused run passed all 20 resizing and stretch
+XCTest methods with no failures or skips, including both D3D11 comparison
+methods. The subsequent complete local Full run also passed. Two fixture
+corrections preceded those runs: invalid caps are compared against the complete
+sibling-only image, and the phase-limit test now uses a real 4097-point viewport
+instead of a 24-point helper that clamped its requested size. Production
+sampling, the 4096 phase limit, source bytes, ABI and tolerances did not change.
+The runs and reviewed images are recorded in `goal.md`; native SwiftUI,
+interpolation, legacy-frame placement and SDK conformance remain unqualified.
+No baseline review flags are promoted. Run focused checks serially with the
+existing architecture and formatting checks:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUIBitmapStretchTests

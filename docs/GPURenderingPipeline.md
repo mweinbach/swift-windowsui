@@ -2810,6 +2810,15 @@ keeps its name and remaining skip, but now requires the admitted plain-group
 arm to satisfy the existing `<20` contrast oracle. Its inline arm and
 content-blur defect arm are unchanged.
 
+The joined local Windows Full run at `a2cad23` subsequently passed all 29
+top-level stages, including the complete CoreLogic shards, portable tests,
+release build and all 85 gallery comparisons. Its closed archive is
+`artifacts/goal-eighth-full-a2cad23-archive-v1`. The existing content-blur case
+still executes its assertions and then skips; this is not a native-reference,
+hardware-performance or complete offscreen-effect qualification. The reviewed
+legacy frame screenshots also retain visible corner and material differences
+from the scene screenshots. See `goal.md` for the exact run and evidence limits.
+
 Content blur still needs a transparent margin to fade the subtree out instead
 of importing a neighbour. Material access through that isolation or an
 independent post-filter pass remains unresolved, as do rotated, odd/fractional

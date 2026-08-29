@@ -7757,3 +7757,105 @@ No production sampler, layout implementation, phase limit, ABI, baseline,
 existing test identity, or original acceptance gate changed. Fixed-frame
 overflow, broader aspect-ratio proposals, and native pixel parity remain
 separate open work. All nine original completion gates remain open.
+
+### Eighth implementation pass: corrected bitmap tests and complete local Full validation (2026-08-29)
+
+The two fixture corrections were committed as
+`a2cad235a57d403bb19c4418df36d8cfb9604184`, tree
+`f1a42a88d36bda6dcc2d1e26696175abf1e43cff`. A fresh serial focused run
+executed all 20 existing bitmap resizing and stretch XCTest methods: 20 passed,
+none failed or skipped. Both GPU comparison methods executed successfully.
+The run exited naturally with 0 after 196.469 seconds, without a timeout,
+termination, or tracked-source/index endpoint changes. Its result is retained
+under `artifacts/goal-eighth-bitmap-a2cad23-b222a5f427e84a5b95152957ba35d87a`;
+it does not retroactively turn the earlier failed Full attempt into a pass.
+
+A new stock `agent-check.ps1 -Full` run on that exact clean commit then passed
+all 29 top-level stages, including all 286 CoreLogic shards, the separate
+portable tests, evidence-completeness checks, debug and release builds,
+retained screenshots, and gallery comparison. It exited naturally with 0 in
+1491.047 seconds without timeout or termination; tracked-source and index
+endpoints remained unchanged. This is a local Windows run, not hosted CI,
+a native-machine smoke test, or qualification of unmerged source candidates.
+The existing `RenderPassAbstractionTests.testMaterialInsideADrawingGroupBlursNothing`
+skip remains an open rendering gap rather than an accepted completion exception.
+
+The closed run is
+`artifacts/goal-eighth-full-a2cad23-21ee25cbf0b14066a9615edc05c8bd50`.
+Before another build, its raw output, source pins, discovery text, all journal
+members and visual outputs were retained in
+`artifacts/goal-eighth-full-a2cad23-archive-v1`. The archive manifest SHA-256 is
+`51baa98e2208e1793e2c5a48c8518a44b2e2b4f792992821f83516693dcae2bd`;
+the supplemental manifest is
+`ef9aa17d3ace44409d30517627118c1ca32a263febf9f3a56aef4a2c47e49707`.
+A separate copied-input audit then reconciled all 5,707 generated XCTest
+identities and adapter flags against source, all 287 invocation scopes and
+all 29 ordered stages: 5,706 XCTest passes, the one named material skip, and
+138 individually identified Swift Testing passes. Every one of its 14 evidence
+checks and all per-scope checks passed. The 5,690 Core journal rows agree with
+the raw events; no expected case was unobserved. The separate metadata process
+exited naturally with 0 in 2.995 seconds; it did not execute a test or binary.
+Its result SHA-256 is
+`e5cc16ff52af3b772d3b7055d66800fd312f51ee2cd0a6a9f6e43488b638d56e`.
+The audited result, source expectations, parser capsule and closure receipts
+are retained in `artifacts/goal-eighth-full-a2cad23-reconciled-v1`, alongside
+the already retained raw Full archive.
+This does not attest loaded binary origins, independent journal session
+identity, descendant-process closure, native behavior, or hardware timing.
+
+All 85 reviewed gallery comparisons passed their unchanged limits: 0.5 percent
+of pixels above channel tolerance 8, and maximum channel delta 64. Of these,
+83 were pixel-exact. `canvas-path-gradient` had 70 pixels above tolerance
+(0.175 percent), maximum delta 20; `state-toggle-hover` had no pixels above
+tolerance and maximum delta 8. The baseline/current pairs were visually
+inspected and left unchanged. The five retained demo screenshots were also
+inspected. The legacy frame images still visibly differ from retained scene
+images in corners and material appearance, including backdrop blur; a passing
+screenshot stage does not establish backend parity. The separate parent review
+is `artifacts/goal-eighth-full-a2cad23-parent-visual-review-v1.json`, SHA-256
+`71cc7da4976b4784db7355466b1cd01e1b3e8e50eec7227739ac6e34f5e2d80c`.
+
+All nine original completion gates remain open. Native owner scheduling and
+shutdown, deferred List construction, broader image proposals and frame
+placement, full template workflows, the pinned API audit, macOS conformance,
+accessibility, hardware timing, and deployment still require their own
+implementation and direct evidence. Their private source reviews are not
+substitutes for compiled or executed integration results.
+
+### Eighth implementation pass: observed font-policy layout sensitivity (2026-08-29)
+
+A separate controlled experiment ran exactly two fresh headless gallery
+processes on the unchanged `a2cad23` build, producing four PNGs for
+`typography-scale` and `canvas-donut`. The only changed child environment value
+was `SWIFT_WINDOWSUI_CLASSIC_UI_FONT`: absent versus `1`. Both children exited
+naturally with 0, without timeout; no fonts, global environment values,
+settings, source files, baselines, or thresholds changed. The closed records
+are under
+`artifacts/goal-eighth-font-policy-a2cad23-e7e5fad3042341538c8a8f5a671cfde4`.
+
+All ten selected text roles actually changed their requested family from the
+appropriate Segoe UI Variable cut to Segoe UI at the same point sizes. Both
+default PNGs matched the existing baseline pixels and were byte-identical to
+the archived normal Full PNGs. Classic typography differed at 2,052 pixels
+above tolerance (2.6719 percent), maximum delta 242; the classic donut differed
+at 2,129 (2.7721 percent), maximum delta 255. Those raw comparisons fail both
+unchanged limits; diagnostic alignment does not replace or relax them.
+
+Stored constrained legend width changed from 69.6 to 67.6, shrinking the outer
+composition and moving its centered origin one pixel right. The Canvas itself
+kept its local 138-by-138 frame. Derived nontext ring bounds and pixels agree
+with that displacement. After diagnostic one-pixel alignment, 218 ring-edge
+pixels still differ, including 26 above tolerance, maximum delta 50. Shared
+solid colors agree. This supports a current font-policy-sensitive layout
+mechanism, not an exact translation or a complete explanation of the residual.
+
+The sidecars contain zero path records because the four paths were promoted;
+that counter is not proof of GPU execution. Captured path geometry, direct
+Canvas-to-primitive ownership, and actual loaded font files remain unavailable.
+The PNGs use the retained CPU reference renderer. The older hosted `3fcdf14a`
+run remains 18 passing and 67 failing comparisons; this later two-fixture
+experiment does not establish that run's font identity or explain all its
+failures. Hosted visual qualification and all original goal gates remain open.
+The passive comparison, geometry review and unchanged-input checks are saved in
+`artifacts/goal-eighth-font-policy-a2cad23-analysis-v1`; they required no
+additional app process or font probe.

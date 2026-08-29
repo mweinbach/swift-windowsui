@@ -21440,6 +21440,9 @@ extension View {
                     isHitTestVisible: false,
                     children: [childNode]
                 )
+                root.fixedPreferredSizeAxes = LayoutFillAxes(
+                    horizontal: (width ?? 0) > 0 && (width?.isFinite ?? false),
+                    vertical: (height ?? 0) > 0 && (height?.isFinite ?? false))
                 root.forwardsStackMainAxisProposal = true
                 return root
             }
@@ -21598,6 +21601,9 @@ extension View {
                     isHitTestVisible: false,
                     children: [childNode]
                 )
+                root.fixedPreferredSizeAxes = LayoutFillAxes(
+                    horizontal: (width ?? 0) > 0 && (width?.isFinite ?? false),
+                    vertical: (height ?? 0) > 0 && (height?.isFinite ?? false))
                 root.forwardsStackMainAxisProposal = true
                 return root
             }

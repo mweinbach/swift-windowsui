@@ -1085,6 +1085,9 @@ public final class ComponentHost {
             if target.preferredSize != source.preferredSize { target.preferredSize = source.preferredSize }
         }
         if target.layoutConstraints != source.layoutConstraints { target.layoutConstraints = source.layoutConstraints }
+        if target.fixedPreferredSizeAxes != source.fixedPreferredSizeAxes {
+            target.fixedPreferredSizeAxes = source.fixedPreferredSizeAxes
+        }
         if target.fixedSizeAxes != source.fixedSizeAxes { target.fixedSizeAxes = source.fixedSizeAxes }
         if target.layoutFillAxes != source.layoutFillAxes { target.layoutFillAxes = source.layoutFillAxes }
         if target.explicitFrameFillAxes != source.explicitFrameFillAxes {

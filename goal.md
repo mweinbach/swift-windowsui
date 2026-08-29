@@ -7447,3 +7447,40 @@ Nested minimum-size propagation and callback-driven reparenting still need
 characterization. Literal geometry tests do not establish native layout or
 pixel parity. Full generic API compatibility and every original completion
 gate remain open; fresh combined execution and retained rendering are next.
+
+### Eighth implementation pass: graphical calendar and shared sizing joined
+
+The graphical DatePicker now builds real retained month navigation and day
+buttons, replacing its decorative calendar hint. Its ordinary mounted State
+keeps each occurrence's browsed month independent through unrelated rebuilds,
+keyed moves, and separate hosts. Accepted selection/calendar/time-zone changes
+recenter it; rejected, hidden, superseded, removed, or closed occurrences cannot
+authorize escaped button actions. Binding callbacks are revalidated before
+writing. Month browsing alone never writes the selected date.
+
+The calendar honors inherited first weekday, calendar, time zone, and locale,
+and handles partial-day ranges, exclusive endpoints, leap and short calendar
+months, and explicit DST matching policies. It retains pointer/Tab/Enter/Space
+button behavior and selected/disabled accessibility metadata. The shared
+absolute-layout correction distinguishes positive finite fixed frame dimensions
+from ideal preferences, so narrow proposals can size the calendar without
+discarding authored fixed dimensions or animated intermediate widths.
+
+The thirteen-path feature intake adds 49 XCTest methods: 35 calendar/control/
+mounted-state cases and 14 generic sizing cases. Only two existing DatePicker
+assertions migrate from the placeholder size and decorative-square count.
+All 175 selected methods passed at private `9f56ad9`, with 17 direct PowerShell
+zero exits, no selected skips/failures, and a reconciled 5,472-method registry.
+That focused result is not a full suite result or a pass for the new root join.
+The parent checked all 146 qualification payload hashes, read the production
+delta and all 49 new tests, and verified the staged thirteen-path change against
+the sealed cohesive patch. Current contracts and strict lint of ten Swift files
+passed. Intake receipts are under `artifacts/goal-eighth-date175-*-intake-v1.json`.
+
+The source is joined after Grid commit `40ec9cf`, preserving its shared tracks
+and all earlier root work. Combined execution and retained screenshots remain
+pending. [GraphicalDatePicker.md](docs/GraphicalDatePicker.md) records current
+Windows selection policies and the still-open graphical clock, grid-arrow
+roving focus, localization of navigation action names, full generic API/style
+surface, native accessibility, and native pixel comparisons. This slice does
+not close any original completion gate or exempt these remaining behaviors.

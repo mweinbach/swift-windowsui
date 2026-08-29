@@ -16457,7 +16457,7 @@ public struct DatePickerComponents: OptionSet, Sendable, Equatable {
     public static let date = DatePickerComponents(rawValue: 1 << 1)
     public static let all: DatePickerComponents = [.date, .hourAndMinute]
 }
-private struct DatePickerRange: Sendable {
+struct DatePickerRange: Sendable {
     var lowerBound: Date?
     var upperBound: Date?
     var includesUpperBound: Bool
@@ -16695,6 +16695,18 @@ public struct DatePicker: View {
             isHitTestVisible: false
         )
 
+        let graphicalContent: Component?
+        if datePickerStyle == .graphical,
+            displayedComponents.contains(.date) || displayedComponents.isEmpty
+        {
+            graphicalContent = makeViewComponent(
+                GraphicalDatePickerContent(
+                    selection: selection, range: range, displayedComponents: displayedComponents),
+                context: context.withViewIdentityRole(.content))
+        } else {
+            graphicalContent = nil
+        }
+
         return Component { runtime in
             let formattedValue = Self.formattedValue(
                 selection.wrappedValue,
@@ -16703,22 +16715,27 @@ public struct DatePicker: View {
                 timeZone: environmentValues.timeZone,
                 locale: environmentValues.locale
             )
-            let valueNode = Text(formattedValue)
-                .monospaced()
-                .lineLimit(1)
-                .makeComponent(
-                    context:
-                        context
-                        .withTextAlignment(.trailing)
-                        .withLineLimit(1)
+            let controlNode: ViewNode
+            if let graphicalContent {
+                controlNode = graphicalContent.makeNode(runtime: runtime)
+            } else {
+                let valueNode = Text(formattedValue)
+                    .monospaced()
+                    .lineLimit(1)
+                    .makeComponent(
+                        context:
+                            context
+                            .withTextAlignment(.trailing)
+                            .withLineLimit(1)
+                    )
+                    .makeNode(runtime: runtime)
+                valueNode.layoutPriority = max(valueNode.layoutPriority, 1)
+                controlNode = Self.retainedValueControl(
+                    for: valueNode,
+                    style: datePickerStyle,
+                    context: context
                 )
-                .makeNode(runtime: runtime)
-            valueNode.layoutPriority = max(valueNode.layoutPriority, 1)
-            let controlNode = Self.retainedValueControl(
-                for: valueNode,
-                style: datePickerStyle,
-                context: context
-            )
+            }
             if case .stepperField = datePickerStyle.kind {
                 Self.configureStepperButtons(
                     on: controlNode,
@@ -16775,6 +16792,7 @@ public struct DatePicker: View {
                 isHitTestVisible: context.isEnabled,
                 children: [labelNode, controlNode]
             )
+            if graphicalContent != nil { node.accessibilityChildBehavior = .contain }
             Self.configureInteraction(
                 on: node,
                 selection: selection,
@@ -16902,45 +16920,21 @@ public struct DatePicker: View {
                 children: [topGuide, valueNode, bottomGuide]
             )
         case .graphical:
-            let headerLine = Controls.panel(
-                preferredSize: Size(width: 1, height: 2),
-                backgroundColor: context.tint.opacity(context.isEnabled ? 0.34 : 0.16),
-                cornerRadius: 1,
-                isHitTestVisible: false
-            )
-            let gridHint = Controls.stackPanel(
-                backgroundColor: context.isEnabled ? palette.tertiaryFill : palette.quinaryFill,
-                cornerRadius: 5,
-                stackLayout: .horizontal(
-                    spacing: 3,
-                    padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4),
-                    alignment: .center
-                ),
-                isHitTestVisible: false,
-                children: (0..<5).map { index in
-                    Controls.panel(
-                        preferredSize: Size(width: 10, height: 10),
-                        backgroundColor: index == 2
-                            ? context.tint.opacity(context.isEnabled ? 0.62 : 0.26)
-                            : context.isEnabled ? palette.systemFill : palette.quaternaryFill,
-                        cornerRadius: 3,
-                        isHitTestVisible: false
-                    )
-                }
-            )
+            // Date components use the mounted calendar above. A time-only
+            // picker keeps its working value and minute adjustments without
+            // pretending that decorative squares implement a graphical clock.
             return Controls.stackPanel(
-                preferredSize: Size(width: context.controlSize.singleLineTextInputSize.width, height: 78),
+                preferredSize: Size(width: context.controlSize.singleLineTextInputSize.width, height: 38),
                 backgroundColor: context.isEnabled ? palette.raisedSurface : palette.controlBackground,
                 borderColor: fieldBorder,
                 borderWidth: 1,
                 cornerRadius: 12,
                 stackLayout: .vertical(
-                    spacing: 7,
                     padding: EdgeInsets(top: 8, leading: 10, bottom: 8, trailing: 10),
                     alignment: .stretch
                 ),
                 isHitTestVisible: context.isEnabled,
-                children: [headerLine, valueNode, gridHint]
+                children: [valueNode]
             )
         }
     }
@@ -17094,7 +17088,7 @@ public struct DatePicker: View {
         return calendar.date(byAdding: component, value: direction, to: date)
     }
 
-    private static func formattedValue(
+    static func formattedValue(
         _ date: Date,
         components: DatePickerComponents,
         calendar: Calendar,

@@ -14847,8 +14847,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(graphicalControl.children.count, 3)
             XCTAssertEqual(graphicalControl.borderWidth, 1)
             XCTAssertEqual(graphicalControl.cornerRadius, 12)
-            XCTAssertEqual(graphicalControl.preferredSize, Size(width: 220, height: 78))
-            XCTAssertEqual(graphicalControl.children[2].children.count, 5)
+            XCTAssertEqual(graphicalControl.preferredSize, Size(width: 280, height: 308))
+            XCTAssertEqual(graphicalControl.children[2].children.count, 7)
             XCTAssertTrue(allTexts(in: graphicalControl).contains("2026-05-10"))
         }
     }

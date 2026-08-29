@@ -2093,6 +2093,22 @@ public final class ViewNode {
         didSet { invalidateRuntime(.layout) }
     }
 
+    /// Axes where a positive finite preference declares a fixed dimension.
+    /// Ordinary preferences remain ideals. This intent is separate from
+    /// `fixedSizeAxes`, which controls the proposal used for measurement.
+    private var fixedPreferredSizeMask: UInt8 = 0
+    public var fixedPreferredSizeAxes: LayoutFillAxes {
+        get {
+            LayoutFillAxes(horizontal: fixedPreferredSizeMask & 1 != 0, vertical: fixedPreferredSizeMask & 2 != 0)
+        }
+        set {
+            let mask: UInt8 = (newValue.horizontal ? 1 : 0) | (newValue.vertical ? 2 : 0)
+            guard mask != fixedPreferredSizeMask else { return }
+            fixedPreferredSizeMask = mask
+            invalidateRuntime(.layout)
+        }
+    }
+
     public var layoutConstraints: LayoutConstraints? {
         didSet { invalidateRuntime(.layout) }
     }
@@ -5207,10 +5223,7 @@ public final class ViewNode {
                 maxHeight: remainingConstraintExtent(resolvedFrame.size.height, offset: child.frame.origin.y)
             )
             let size = child.sizeThatFits(in: childConstraints)
-            let resolvedSize = Size(
-                width: child.explicitWidth ?? size.width,
-                height: child.explicitHeight ?? size.height
-            )
+            let resolvedSize = child.absoluteLayoutSize(from: size)
             child.resolvedFrame = Rect(origin: child.frame.origin, size: resolvedSize)
             descendants.append(child)
         }
@@ -8209,13 +8222,38 @@ public final class ViewNode {
         for child in children where !child.isHidden {
             let childSize = childSizes[index]
             index += 1
-            let resolvedWidth = child.explicitWidth ?? childSize.width
-            let resolvedHeight = child.explicitHeight ?? childSize.height
-            maxChildX = max(maxChildX, child.frame.origin.x + resolvedWidth)
-            maxChildY = max(maxChildY, child.frame.origin.y + resolvedHeight)
+            let resolvedSize = child.absoluteLayoutSize(from: childSize)
+            maxChildX = max(maxChildX, child.frame.origin.x + resolvedSize.width)
+            maxChildY = max(maxChildY, child.frame.origin.y + resolvedSize.height)
         }
 
         return Size(width: maxChildX, height: maxChildY)
+    }
+
+    /// Keep the same size policy when folding an absolute subtree and placing
+    /// its children. Accepted measurements already include local minima and
+    /// fixedSize overflow, so they must not be clamped a second time here.
+    private func absoluteLayoutSize(from measuredSize: Size) -> Size {
+        let fixedAxes = fixedPreferredSizeAxes
+        return Size(
+            width: Self.absoluteLayoutExtent(
+                measured: measuredSize.width, raw: frame.size.width, preferred: preferredSize?.width,
+                isFixed: fixedAxes.horizontal, legacyExplicit: explicitWidth),
+            height: Self.absoluteLayoutExtent(
+                measured: measuredSize.height, raw: frame.size.height, preferred: preferredSize?.height,
+                isFixed: fixedAxes.vertical, legacyExplicit: explicitHeight)
+        )
+    }
+
+    private static func absoluteLayoutExtent(
+        measured: Double, raw: Double, preferred: Double?, isFixed: Bool, legacyExplicit: Double?
+    ) -> Double {
+        if raw == 0, !isFixed, let preferred, preferred > 0, preferred.isFinite {
+            return measured
+        }
+        // Fixed intent reads the current animated preference. Raw-frame and
+        // zero/nonpositive/nonfinite branches keep their legacy precedence.
+        return legacyExplicit ?? measured
     }
 
     /// The arithmetic a measured stack does over its children's sizes. Out of

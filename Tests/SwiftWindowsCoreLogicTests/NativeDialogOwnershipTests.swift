@@ -898,9 +898,29 @@ final class NativeDialogOwnershipTests: XCTestCase {
                     XCTAssertNil(
                         ViewBuildContextScope.current,
                         "The first getter still belongs to the initially injected, inline provider path.")
-                    // Construction stores native-call closures only. The actual
-                    // request must still execute through this test's fake session.
-                    FileDialogManager.provider = Win32FileDialogProvider()
+                    // Keep the real provider's native capability, but refuse
+                    // every legacy endpoint if this request takes the wrong route.
+                    XCTAssertTrue(
+                        Win32FileDialogProvider().supportsNativeOwnerRequests,
+                        "The public default provider must advertise native owner requests.")
+                    FileDialogManager.provider = Win32FileDialogProvider(
+                        supportsNativeOwnerRequests: true,
+                        openDialog: { _ in
+                            XCTFail("Native session must not call the legacy open endpoint.")
+                            return false
+                        },
+                        saveDialog: { _ in
+                            XCTFail("Native session must not call the legacy save endpoint.")
+                            return false
+                        },
+                        extendedError: {
+                            XCTFail("Native session must not query a legacy dialog error.")
+                            return 0x3002
+                        },
+                        activeWindow: {
+                            XCTFail("Native session must not query a legacy active window.")
+                            return nil
+                        })
                 }
             }
             let (host, scope) = try startScopedImporter(driver: driver, state: state)

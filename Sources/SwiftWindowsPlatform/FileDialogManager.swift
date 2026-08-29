@@ -109,12 +109,13 @@ public final class Win32FileDialogProvider: FileDialogOutcomeProvider, NativeOwn
     /// Tests inject only the native invocation and its immediate dependencies;
     /// all configuration, buffer ownership, and result handling stay real.
     init(
+        supportsNativeOwnerRequests: Bool = false,
         openDialog: @escaping @MainActor (inout OPENFILENAMEW) -> Bool,
         saveDialog: @escaping @MainActor (inout OPENFILENAMEW) -> Bool,
         extendedError: @escaping @MainActor () -> DWORD,
         activeWindow: @escaping @MainActor () -> HWND?
     ) {
-        supportsNativeOwnerRequests = false
+        self.supportsNativeOwnerRequests = supportsNativeOwnerRequests
         self.openDialog = openDialog
         self.saveDialog = saveDialog
         self.extendedError = extendedError

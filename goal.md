@@ -8610,3 +8610,33 @@ project snapshots, settle layout or invoke authored callbacks. All ten complete
 test bodies and their assertions remain unchanged. Contracts, strict formatting
 and exact postimage checks passed. This diagnostic addition does not claim a
 product fix; the three provider-discovery failures still require investigation.
+
+### Ninth validation pass: deterministic dialog fixture endpoints (2026-08-29)
+
+Source review of the held dialog cohort found one fixture that installed the
+public default Win32 file-dialog provider from a binding getter. Its intended
+route uses an injected native session, but an incorrect fallback could reach
+real common-dialog endpoints. That instance now retains the concrete Win32
+provider and its native-owner capability while injecting four endpoints that
+fail the test and refuse the operation. Open/save return false, the error
+query returns a nonzero error, and the active-window query returns nil.
+
+The existing internal injected initializer accepts an explicit capability
+argument defaulting to false. All four existing injected callers retain their
+previous behavior, and the public no-argument initializer is unchanged. An
+explicit assertion reads the public default's native-owner capability before
+installing the guarded instance. This preserves the original fixture's
+production-default contract instead of merely forcing true in its replacement.
+Constructing that temporary default object only stores its native closures;
+the assertion does not invoke them.
+
+All 20 method headers and 363 existing XCTest calls remain, with the four
+refusal guards and the one capability assertion added. Getter context,
+session execution, callback order, continuations and cleanup are unchanged.
+The exact two-file patch has SHA-256
+`8e847ce0eb1c1b89d9adaf43e8f8096d2d5e46e858dc8226b535292293285751`.
+Source review, exact postimage checks, strict formatting and contracts passed.
+The earlier proposal without the explicit public-default assertion remains
+unadopted. This is a deterministic fixture guard, not an OS sandbox or proof
+of native-dialog behavior. The existing asynchronous waits still need bounded
+execution, and this held cohort remains unrun at this checkpoint.

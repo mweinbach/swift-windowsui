@@ -7685,3 +7685,29 @@ Cxx conditions, the loaded interface variants, and extension/overlay linkage
 still require review. Structural reconciliation is not API matching, source
 compatibility, native behavior, or release qualification. No original
 requirement or completion gate has been removed or closed by these updates.
+
+### Eighth Full restart: synthetic stage-order expectation corrected
+
+The combined Full attempt on `6e0101c` stopped in the memory-isolation fixture
+after five top-level stages passed. The direct process and runner exited
+naturally with 1 after 23.297 seconds, preserving source and index. No SwiftPM
+or XCTest execution began. The eleven-payload failure capsule is retained in
+`artifacts/goal-eighth-full-6e0101c-tooling-failure-v1`.
+
+The synthetic Quick runner had correctly stopped at its deliberately missing
+memory child. Both newly inserted publication stages were already stubbed and
+had run in the original parent process. The failing assertion still named the
+ledger stage as the immediate predecessor; diagnostics now occupies that
+position. The fixture now expects that actual predecessor and checks that
+ledger, recovery, diagnostics, and memory run in order, with each publication
+stage exactly once. The original failure-stop and child-status assertions are
+retained; production validation behavior is unchanged by this correction.
+
+The corrected root fixture then passed all 345 assertions in a direct Windows
+PowerShell 5 run, exiting naturally with 0 in 8.563 seconds and preserving all
+tracked source and index bytes. Its records are under
+`artifacts/goal-eighth-memory-order-focused-0d37afad6dbf4795a8e99aaa5efd1d4b`.
+Those Quick/Full cases use synthetic stage stubs; they are not real Quick/Full,
+compiler, memory-workload, or rendering passes. Combined Full is restarted
+from its first stage after committing this correction. All original gates
+remain open.

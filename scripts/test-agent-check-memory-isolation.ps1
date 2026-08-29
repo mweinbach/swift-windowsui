@@ -340,6 +340,15 @@ try {
         $before = @($case.calls | Where-Object script -CEQ "test-swiftui-api-audit.ps1")
         $after = @($case.calls | Where-Object script -CEQ "test-swiftui-api-audit-workflow.ps1")
         Assert-MemoryIsolationFixture ($memoryCalls.Count -eq 1 -and $before.Count -eq 1 -and $after.Count -eq 1) "$mode runs the memory stage exactly once in its existing sequence"
+        $publicationRecoveryCalls = @($case.calls | Where-Object script -CEQ "test-swiftui-api-audit-publication-recovery.ps1")
+        $publicationDiagnosticCalls = @($case.calls | Where-Object script -CEQ "test-swiftui-api-audit-publication-diagnostics.ps1")
+        Assert-MemoryIsolationFixture ($publicationRecoveryCalls.Count -eq 1 -and $publicationDiagnosticCalls.Count -eq 1) "$mode runs each publication stage exactly once"
+        [string[]]$orderedCallScripts = @($case.calls | ForEach-Object { $_.script })
+        $memoryCallIndex = [Array]::IndexOf($orderedCallScripts, "test-swiftui-api-audit-memory.ps1")
+        Assert-MemoryIsolationFixture ($memoryCallIndex -ge 3 -and
+            $orderedCallScripts[$memoryCallIndex - 3] -ceq "test-swiftui-api-audit.ps1" -and
+            $orderedCallScripts[$memoryCallIndex - 2] -ceq "test-swiftui-api-audit-publication-recovery.ps1" -and
+            $orderedCallScripts[$memoryCallIndex - 1] -ceq "test-swiftui-api-audit-publication-diagnostics.ps1") "$mode keeps ledger, recovery, diagnostics and memory stages in order"
         $memory = $memoryCalls[0]
         Assert-MemoryIsolationFixture ($memory.pid -ne $case.runnerPid -and $before[0].pid -eq $case.runnerPid -and $after[0].pid -eq $case.runnerPid) "only the memory stage changes process in $mode"
         Assert-MemoryIsolationFixture ($memory.powerShellVersion -ceq $PSVersionTable.PSVersion.ToString() -and $memory.edition -ceq $PSVersionTable.PSEdition -and $memory.architecture -eq [IntPtr]::Size * 8) "$mode preserves engine version, edition and architecture"
@@ -366,7 +375,7 @@ try {
                 Assert-MemoryIsolationFixture ($case.exitCode -ne 0) "$mode rejects a $outcome child"
             }
             $lastCall = $case.calls[$case.calls.Count - 1]
-            $expectedLast = if ($outcome -ceq "missing") { "test-swiftui-api-audit.ps1" } else { "test-swiftui-api-audit-memory.ps1" }
+            $expectedLast = if ($outcome -ceq "missing") { "test-swiftui-api-audit-publication-diagnostics.ps1" } else { "test-swiftui-api-audit-memory.ps1" }
             Assert-MemoryIsolationFixture ($lastCall.script -ceq $expectedLast) "$mode stops immediately after a $outcome child, with no later validation stages"
         }
     }

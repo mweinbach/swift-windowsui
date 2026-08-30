@@ -9324,3 +9324,37 @@ This supplies the image service for the original media-browser requirement;
 it does not itself implement thumbnail grid/list interactions or repair the
 existing AsyncImage and named-image loaders. Those remain separate tracked
 work. No original feature, limit, test assertion, or completion gate was removed.
+
+### Ninth integration: file URL admission and the Foundation constructor boundary
+
+The two failing service tests were investigated with a standalone diagnostic
+that copied the exact old validator and input arrays. After an unsuccessful
+Swift interpreter attempt and a PowerShell argument-binding error, the parent
+compiled it with swiftc and ran it normally. The 35-row successor confirmed
+that `file://localhost:/...` retains its empty-port colon in absoluteString
+while URLComponents reports no port range. Admission now examines retained
+spelling before components, requiring empty authority or literal ASCII
+localhost, rejecting query/fragment delimiters, and checking the Windows raw
+drive prefix. Existing percent decoding, traversal, device, stream, size, and
+cancellation checks remain.
+
+The diagnostic also proved that Windows Foundation converts the literal
+backslash input `file:///C:/bad\name` into the same URL value and public
+spellings as `file:///C:/bad/name`. Equality, data representation, path,
+directory/base fields, and every reported component field matched the ordinary
+control. A URL-taking validator cannot recover discarded constructor text and
+must not blacklist that ordinary path. The old rejection fixture therefore
+changes exactly one input to `%5C`, which retains the prohibited backslash
+through construction for the existing single-decode rejection. Its rejection
+and zero-reader assertions are unchanged; all other old fixtures and assertions
+remain intact. One additive async test covers both constructor equivalence and
+encoded-backslash refusal without opening a file.
+
+The parent diagnostic is retained at
+`artifacts/goal-ninth-file-url-diagnostic-v2-6a55df0.json`, with SHA-256
+`d090539a1979077fc1440b1606d122a1d00cfe875cad938b3467b0867fb37b88`.
+It establishes Foundation behavior, not passing repaired service tests.
+Parent contracts and strict lint passed after the four-path patch; all 23
+service methods plus the new construction case still need execution. This
+clarifies an unobservable input distinction without weakening accepted file
+URL safety, read limits, the original feature requirement, or any goal gate.

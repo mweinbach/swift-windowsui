@@ -82,6 +82,35 @@ spellings. The original URL is retained for actual reading and macOS scoped
 access. Case aliases, hard links, mounts, renamed files, and filesystem identity
 are not canonicalized; matching lexical URLs are the declared duplicate policy.
 
+Admission first checks the URL's retained absolute spelling, before parsing
+components: authority must be empty or literal ASCII `localhost` ignoring case,
+and literal query/fragment delimiters are rejected even when their values are
+empty. Windows also requires the raw `/[A-Za-z]:/` drive prefix before component
+normalization or percent decoding. The existing single decode and traversal,
+separator, device-name, stream, NUL, and trailing-character checks remain.
+Percent-encoded percent signs in literal filenames are not decoded twice.
+This boundary receives a `URL`, not the text passed to its initializer; it
+cannot reconstruct spelling that Foundation has already discarded. It does
+not provide a no-follow open or prove physical filesystem locality.
+
+The root's Windows Foundation diagnostic on `6a55df0` observed an empty-port
+URL retaining `localhost:` in `absoluteString` while `rangeOfPort` was absent.
+The raw authority check rejects that spelling. A separate constructor input,
+`file:///C:/bad\name`, had already become the same URL value as
+`file:///C:/bad/name`, with matching absolute/relative/data/path spellings and
+component fields. The validator cannot distinguish those inputs after this
+normalization, and it does not blacklist the resulting ordinary path.
+
+The existing Windows rejection fixture therefore changes exactly one input
+from a literal backslash to `%5C`, which retains the forbidden character for
+the single decode. Its rejection and zero-reader assertions are unchanged.
+The separate `DemoFileURLConstructionTests` case documents the constructor
+equivalence and the retained encoded-backslash rejection without opening a
+file. The other 84 original feature methods and shared support are unchanged.
+The diagnostic established Foundation behavior, not execution of this repair
+or its new XCTest case; the repaired service suite and new case still require
+the root's serial test workflow.
+
 The model stores an authoritative snapshot before publishing a private change
 signal. The signal is not a request ID. Nested synchronous subscribers therefore
 read the current snapshot without an earlier property publication rolling it

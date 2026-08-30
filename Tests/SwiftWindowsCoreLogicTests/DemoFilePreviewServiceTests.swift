@@ -275,7 +275,7 @@ final class DemoFilePreviewServiceTests: XCTestCase {
                 "//server/share/preview.txt", "/C:/preview.txt:stream", "/C:/CON.txt", "/C:/NUL .txt",
                 "/C:/COM1 .txt", "/C:/LPT9.txt", "/C:/COM¹.txt", "/C:/LPT².txt", "/C:/AUX",
                 "/C:/CONIN$", "/C:/CONOUT$", "/C:/trailing. ", "/C:/name.", "/C:/name ",
-                "/C:/bad|name", "/C:/bad\u{1}name", "/C:/bad\\name",
+                "/C:/bad|name", "/C:/bad\u{1}name", "/C:/bad%5Cname",
                 "/./C:/preview.txt", "/%43:/preview.txt", "/C%3A/preview.txt", "/C:",
             ] {
                 let url = try XCTUnwrap(URL(string: "file://" + path))

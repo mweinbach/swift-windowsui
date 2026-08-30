@@ -95,8 +95,37 @@ public struct DemoFilePreviewService: Sendable {
         let spelling = url.absoluteString
         guard spelling.utf8.count <= maximumFileURLBytes,
             spelling.prefix(7).lowercased() == "file://",
-            url.isFileURL, url.baseURL == nil,
-            let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+            url.isFileURL, url.baseURL == nil
+        else {
+            throw DemoFilePreviewServiceError.invalidFileURL
+        }
+        // Check the spelling URL still retains before component accessors can
+        // normalize a path or lose forbidden authority/parameter presence.
+        // Text already discarded by URL construction cannot be recovered here.
+        let resource = spelling.dropFirst(7)
+        guard !resource.contains("?"), !resource.contains("#"),
+            let pathStart = resource.firstIndex(of: "/")
+        else {
+            throw DemoFilePreviewServiceError.invalidFileURL
+        }
+        let authority = resource[..<pathStart]
+        guard
+            authority.isEmpty
+                || (authority.utf8.allSatisfy({ $0 < 128 }) && authority.lowercased() == "localhost")
+        else {
+            throw DemoFilePreviewServiceError.invalidFileURL
+        }
+        #if os(Windows)
+            // Require the unescaped drive and its slash before parsing or
+            // decoding. A component-normalized path is not original spelling.
+            let prefix = Array(resource[pathStart...].utf8.prefix(4))
+            guard prefix.count == 4, prefix[0] == 47, prefix[2] == 58, prefix[3] == 47,
+                (65...90).contains(prefix[1]) || (97...122).contains(prefix[1])
+            else {
+                throw DemoFilePreviewServiceError.invalidFileURL
+            }
+        #endif
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
             components.percentEncodedUser == nil, components.percentEncodedPassword == nil,
             components.rangeOfPort == nil,
             components.percentEncodedQuery == nil, components.percentEncodedFragment == nil,
@@ -110,16 +139,6 @@ public struct DemoFilePreviewService: Sendable {
             throw DemoFilePreviewServiceError.invalidFileURL
         }
 
-        #if os(Windows)
-            // Foundation recognizes a drive before decoding escaped characters.
-            // An encoded drive or a dot before it would change native meaning.
-            let prefix = Array(components.percentEncodedPath.utf8.prefix(4))
-            guard prefix.count == 4, prefix[0] == 47, prefix[2] == 58, prefix[3] == 47,
-                (65...90).contains(prefix[1]) || (97...122).contains(prefix[1])
-            else {
-                throw DemoFilePreviewServiceError.invalidFileURL
-            }
-        #endif
         var segments: [String] = []
         // Foundation's native path leaves encoded slashes escaped. Reject
         // them above rather than giving a different file the same identity.

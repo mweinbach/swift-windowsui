@@ -1177,6 +1177,12 @@ package final class RetainedLazyListRuntimeAdapter {
         var selectionViewport = viewport
 
         if !snapshotIsCurrent(for: viewport) {
+            let widthSnapshot = cachedSnapshotForManagedWidthChange(
+                viewport, wasIncomplete: wasIncomplete, managed: managed)
+            let remeasuredRecords =
+                widthSnapshot == nil
+                ? [:]
+                : mounted.filter { recordIsCurrent($0.value) && carriedRecordProof(for: $0.value) != nil }
             var previousRequired = transitionRequiredTokens.union(lastRequiredTokens)
             if managed != nil, let anchor, mounted[anchor.token] != nil {
                 previousRequired.insert(anchor.token)
@@ -1187,9 +1193,10 @@ package final class RetainedLazyListRuntimeAdapter {
                 previousRequired.insert(realization.token)
             }
             guard
-                let snapshot = readSnapshot(
-                    expectedAttempt: expectedAttempt, expectedConfiguration: expectedConfiguration,
-                    admission: checkedAdmission),
+                let snapshot = widthSnapshot
+                    ?? readSnapshot(
+                        expectedAttempt: expectedAttempt, expectedConfiguration: expectedConfiguration,
+                        admission: checkedAdmission),
                 operationIsCurrent(
                     expectedAttempt, configuration: expectedConfiguration, admission: checkedAdmission),
                 snapshot.generation.isCurrent
@@ -1215,6 +1222,15 @@ package final class RetainedLazyListRuntimeAdapter {
             lastRequiredTokens = Set(lastRequiredTokens.filter { snapshot.positions[$0] != nil })
             configuration = RetainedLazyListAdapterIdentity()
             expectedConfiguration = configuration
+            // A width-only change invalidates geometry, not an accepted
+            // managed row's declaration. Keep its exact physical activity and
+            // identity witnesses, but discard all old leaf measurements. The
+            // new configuration still revokes every earlier layout proof.
+            for (token, record) in remeasuredRecords {
+                mounted[token] = Record(
+                    request: record.request, nodes: record.nodes, extents: nil,
+                    configuration: configuration, identityProofs: record.identityProofs, activity: record.activity)
+            }
             acceptedSnapshot = false
             // Runtime owns whether this anchor may control scrolling. Select
             // the future anchored window before adopting any row departures;
@@ -2216,6 +2232,22 @@ package final class RetainedLazyListRuntimeAdapter {
 
     private func snapshotIsCurrent(for viewport: Viewport) -> Bool {
         generation?.isCurrent == true && extentIndex?.context == viewport.context
+    }
+
+    private func cachedSnapshotForManagedWidthChange(
+        _ viewport: Viewport, wasIncomplete: Bool, managed: ManagedPreparation?
+    ) -> Snapshot? {
+        // Raw providers may consume the changed context while constructing
+        // rows. Their existing refresh path, and every content/environment or
+        // scale revision, must continue to evaluate the current row window.
+        guard let managed, acceptedSnapshot, !wasIncomplete,
+            let generation, generation.isCurrent, generation == managed.descriptor.sourceGeneration,
+            let previous = extentIndex?.context, previous.width != viewport.context.width,
+            previous.displayScale == viewport.context.displayScale,
+            previous.contentRevision == viewport.context.contentRevision,
+            previous.environmentRevision == viewport.context.environmentRevision
+        else { return nil }
+        return Snapshot(generation: generation, tokens: tokens, positions: positions)
     }
 
     private func operationIsCurrent(

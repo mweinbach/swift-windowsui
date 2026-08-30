@@ -9106,3 +9106,35 @@ Realize failures. No completion gate or work limit changes here.
   log is 2,761,222 bytes with SHA-256
   `68acff03a0d6d362b4d1806902ec801831970c7c2554eb62416cf4daf7df14cd`.
   All prior goal text and the nine original completion gates remain unchanged.
+
+### Ninth integration: preserve accepted managed rows across width changes, 2026-08-29
+
+- A width-only layout change previously refreshed the complete managed List
+  snapshot, invalidating its row configurations and rebuilding the row factories.
+  This explains the unchanged width/count assertions in one of the four failed
+  declared-owner continuation cases; it is separate from the three TabView
+  removal-transition failures.
+- For an accepted, complete managed snapshot with the same current generation,
+  the adapter now retains only records whose original freshness and exact
+  physical attachment proofs remain current. It preserves their nodes, activity,
+  identity witnesses and declaration, but clears their leaf measurements. A new
+  configuration and attempt still revoke all old layout proofs, including when
+  width changes from A to B and back to A.
+- Raw providers and changes to scale, content revision, environment revision,
+  source generation or incomplete snapshots keep the existing refresh path.
+  Provider currentness/prefix callbacks remain checked. Work budgets, mounted
+  caps, transition eligibility and all prior test assertions are unchanged.
+- Five added async tests cover physical row/State retention, a writable escaped
+  binding with exactly one invalidation, stale proof rejection, and the existing
+  rebuild requirements for scale/content/environment changes. The four original
+  declaration tests remain byte-identical. The earlier measurement/layout
+  distinction is preserved by applying the two narrow patches, not replacing
+  the adapter with an older whole-file postimage.
+- Source origin is `b46e88a43a382c3bee511ab3ed51130f2d45cc34` on `f7d055f`.
+  Parent intake `24f41c/0` verified eight passive payloads totaling 20,414 bytes
+  under `artifacts/goal-ninth-list-width-context-intake-v1`. Its manifest SHA-256
+  is `4f27fa153c2e55709ee5e97cd67cca5282f2f726035f88025e25bce6faf0e23a`.
+  Parent application, strict lint and contracts passed (`4e8737/0`). These
+  changes still need compilation and execution on the composed source.
+- This does not qualify TabView retirement or default-budget UIA realization.
+  Their remaining failures and every original completion gate stay open.

@@ -2131,6 +2131,10 @@ final class RetainedLazyListAdoptionJournal {
                             $0.target === actual.target && $0.attachment === actual.attachment
                         }
                     }
+                    && groups.values.allSatisfy { record in
+                        !isDescendant(record.attribution.component, of: handoff.successor.component)
+                            || record.isClosed
+                    }
             })
         else { return false }
         for handoff in pending {
@@ -2924,11 +2928,10 @@ final class RetainedLazyListAdoptionJournal {
         if let existing = rowReplacementHandoffs[key] {
             return existing.previous === previous && existing.successor === successor && !existing.wasFinished
         }
-        guard !rowReplacementHandoffs.values.contains(where: { $0.successor.physical === successor.physical }),
-            groups.values.allSatisfy({ record in
-                !isDescendant(record.attribution.component, of: successor.component)
-                    || record.isClosed
-            })
+        // Implicit dependency and deferred-subtree groups remain open while
+        // source outputs are collected. freezePreparation closes them before
+        // activation; reserving this handoff grants no mutation permission.
+        guard !rowReplacementHandoffs.values.contains(where: { $0.successor.physical === successor.physical })
         else { return false }
         let handoff = RetainedLazyListRowReplacementHandoff(previous: previous, successor: successor)
         guard !handoff.attachments.isEmpty, handoff.attachments.allSatisfy(\.isAttached) else { return false }

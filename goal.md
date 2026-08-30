@@ -9138,3 +9138,50 @@ Realize failures. No completion gate or work limit changes here.
   changes still need compilation and execution on the composed source.
 - This does not qualify TabView retirement or default-budget UIA realization.
   Their remaining failures and every original completion gate stay open.
+
+### Ninth integration: measured failures and managed replacement finalization
+
+At source `6a55df0f617cb44faa70377dea4c490b10a30553`, six naturally closed
+focused runs covered 158 distinct methods from the previously selected 188:
+145 passed, 13 failed, and none skipped. The classes were List25 (17/8),
+MaterialContract15 (15/0), MaterialCPU21 (18/3), RenderPass26 (26/0),
+FileModel48 (48/0), and FileService23 (21/2). The 114 List and 39 material CPU
+assertion messages are not counts of failed tests. The new Measurement8 and
+Width5 classes passed. The unchanged four-round and eight-round realization
+cases, two managed replacement cases, and all four declared-owner continuation
+cases still failed; sixteen-round and one-element/one-round controls passed.
+The individual run directories, raw hashes, exact selected method reconciliation,
+and independently compared source/index endpoints are retained in
+`artifacts/goal-ninth-*-6a55df0-reconciled.json`.
+
+The original combined 188-method attempt completed compilation in 266.89s but
+timed out at its unchanged 900-second limit. A separate FileInteraction14
+attempt built in 0.37s and also timed out. Neither produced observed XCTest
+start or terminal lines, so individual execution and outcomes remain unknown.
+Both controllers recorded exit 124 and closed their direct PowerShell child;
+the parent then verified creation identities and retained process handles,
+terminated only each owned XCTest process, and observed the Swift/PowerShell
+parents exit naturally. Subsequent ancestry checks found no recorded child
+remaining. The FileInteraction attempt includes two noninvasive, nonsuspending
+local stack samples, which observed retained attachment validation; it is not
+a timing qualification. Its abnormal receipt is
+`artifacts/goal-ninth-file14-6a55df0-timeout.json`. GPU16 has not yet been run
+independently, and the original 188-method obligation remains open.
+
+The replacement source repair moves an existing source-group closure check
+from inert handoff reservation to the all-handoffs activation preflight.
+Implicit StateObject dependency groups and deferred-reader groups intentionally
+remain open while they collect descendant outputs; journal preparation closes
+them before physical activation. Requiring closure before preparation rejected
+valid replacements and repeatedly rebuilt survivors without accepting a new
+mounted snapshot. Reservation still grants no mutation or physical lifetime;
+generation, logical membership, attachment, duplicate, and rejection checks
+remain in force. All pending handoffs are checked before any one activates.
+
+Six additive tests cover both mounted replacement paths, inherited source
+outputs, inert reservation, accepted attachment gaps, and stale source,
+membership, or attachment authority. All previously tracked tests and work
+budgets are unchanged. Parent contracts and strict lint passed after the
+three-file patch. Compilation and runtime results for this repair are still
+pending; it does not close the separate realization or transition work.
+The original goal text and all nine completion gates remain unchanged and open.

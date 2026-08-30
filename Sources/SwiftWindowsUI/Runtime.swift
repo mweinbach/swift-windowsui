@@ -2029,6 +2029,94 @@ final class RetainedLazyListAttachmentProof {
     }
 }
 
+/// Structural work shared only within one synchronous native validity query.
+/// Never store this on an owner or carry it across an authored callback, getter,
+/// key comparison, builder, or mutation. Its entries contain no application
+/// payload and grant no attachment, identity, lifetime, or phase permission.
+@MainActor
+struct RetainedLazyListAttachmentQuery {
+    private struct Tree: Hashable {
+        let runtime: ObjectIdentifier
+        let root: ObjectIdentifier
+    }
+
+    private struct Entry: Hashable {
+        let tree: Tree
+        let node: ObjectIdentifier
+    }
+
+    /// A reference avoids copying the already checked sibling set on every
+    /// lookup. Each entry contains native identities, not retained view nodes.
+    private final class CheckedChildren {
+        var identities: Set<ObjectIdentifier> = []
+        var nextIndex = 0
+    }
+
+    private var distancesToRoot: [Entry: Int] = [:]
+    private var checkedChildren: [ObjectIdentifier: CheckedChildren] = [:]
+    private(set) var ancestorVisits = 0
+    private(set) var childLinkVisits = 0
+
+    mutating func isAttached(_ target: ViewNode, in expectedRuntime: RetainedViewRuntime) -> Bool {
+        let tree = Tree(runtime: ObjectIdentifier(expectedRuntime), root: ObjectIdentifier(expectedRuntime.root))
+        let limit = ViewNode.maximumTraversalDepth
+        var current = target
+        var path: [Entry] = []
+        var visited: Set<ObjectIdentifier> = []
+        while path.count < limit {
+            let identity = ObjectIdentifier(current)
+            let entry = Entry(tree: tree, node: identity)
+            if let distance = distancesToRoot[entry] {
+                // Reusing a suffix must not turn an over-depth walk into an
+                // admitted one. Root distance is the original number of links.
+                guard distance < limit - path.count else { return false }
+                record(path, endingAt: distance)
+                return true
+            }
+            guard visited.insert(identity).inserted else { return false }
+            ancestorVisits += 1
+            guard current.runtime === expectedRuntime, !current.isRetiringLazyListAttachment else { return false }
+            if current === expectedRuntime.root {
+                distancesToRoot[entry] = 0
+                record(path, endingAt: 0)
+                return true
+            }
+            guard let parent = current.parent, contains(identity, in: parent) else { return false }
+            path.append(entry)
+            current = parent
+        }
+        return false
+    }
+
+    private mutating func record(_ path: [Entry], endingAt distance: Int) {
+        var nextDistance = distance
+        for entry in path.reversed() {
+            nextDistance += 1
+            distancesToRoot[entry] = nextDistance
+        }
+    }
+
+    private mutating func contains(_ child: ObjectIdentifier, in parent: ViewNode) -> Bool {
+        let parentID = ObjectIdentifier(parent)
+        let checked: CheckedChildren
+        if let existing = checkedChildren[parentID] {
+            checked = existing
+        } else {
+            checked = CheckedChildren()
+            checkedChildren[parentID] = checked
+        }
+        if checked.identities.contains(child) { return true }
+        while checked.nextIndex < parent.children.count {
+            let identity = ObjectIdentifier(parent.children[checked.nextIndex])
+            checked.nextIndex += 1
+            childLinkVisits += 1
+            checked.identities.insert(identity)
+            if identity == child { return true }
+        }
+        return false
+    }
+}
+
 /// A request-owned continuation contains only native proofs and weak actual
 /// attachments. It cannot keep a provider, authored key, view or state alive.
 @MainActor

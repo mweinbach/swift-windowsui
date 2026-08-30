@@ -9390,3 +9390,30 @@ URL safety, read limits, the original feature requirement, or any goal gate.
   evidence. Native import/drop/dialogs, interaction, narrow layouts, DPI,
   macOS pixels, thumbnails and the full media-browser workflow remain separate
   requirements. No baseline, tolerance, font, or original goal gate is changed.
+
+### Ninth integration: reuse native ancestry checks within one descriptor query
+
+The attachment-validation path observed in the FileInteraction timeout now
+shares positive ancestor distances and checked child identities within one
+synchronous descriptor validity query. A later ordinary contribution or
+enclosing scope in that same native call can reuse structural work. Every
+production entry creates a fresh query and discards it before returning; it
+cannot cross an authored hash, getter, builder, observer, or mutation.
+
+Cache keys include exact runtime and root identity. Cached suffixes still
+require prefix depth plus distance to root to remain below the original
+traversal limit. Attachment target IDs, attachment IDs, local identity proofs,
+retirement, lifetimes, phase, and supersession checks are not cached. Entries
+hold native identities and counters, not nodes or application payloads.
+Standalone attachment checks retain their original walk.
+
+Ten additive tests check deterministic structural visit counts, enclosing
+scope reuse, wrong targets, changed identities, detach/move/reinsert, alternate
+runtime, depth limits, retirement before unlinking, and fresh checks after an
+authored hash callback. The independent review traced the selected-row chain
+without finding an authored callout in the shared query. All old tests remain
+unchanged. The parent applied narrow hunks, preserving the separate handoff
+finalization and terminal-checkpoint repairs; strict lint and contracts passed.
+Compilation, test results, and improvement of the 900-second timeout remain
+unverified. This structural optimization is not a latency or UIA performance
+qualification and changes no original work limit or completion requirement.

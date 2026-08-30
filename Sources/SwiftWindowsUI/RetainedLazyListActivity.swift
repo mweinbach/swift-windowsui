@@ -89,12 +89,13 @@ private enum RetainedLazyListDescriptorContainingAdmission {
     case deferred(RetainedLazyListContributionReceipt, RetainedLazyListActualAttachment)
     case ordinaryDeferred(RetainedDescriptorContributionReceipt, RetainedLazyListActualAttachment)
 
-    var canConstruct: Bool {
+    func canConstruct(using query: inout RetainedLazyListAttachmentQuery) -> Bool {
         switch self {
         case .topLevel: true
         case .selectedRow(let attribution): attribution.canConstructNestedDescriptor
-        case .deferred(let contribution, let actual): contribution.isActive && actual.isAttached
-        case .ordinaryDeferred(let contribution, let actual): contribution.isActive && actual.isAttached
+        case .deferred(let contribution, let actual): contribution.isActive && actual.isAttached(using: &query)
+        case .ordinaryDeferred(let contribution, let actual):
+            contribution.isActive(using: &query) && actual.isAttached(using: &query)
         }
     }
 
@@ -180,8 +181,13 @@ package final class RetainedLazyListDescriptorBuildScope {
     }
 
     package var canConstructDescriptors: Bool {
+        var query = RetainedLazyListAttachmentQuery()
+        return canConstructDescriptors(using: &query)
+    }
+
+    func canConstructDescriptors(using query: inout RetainedLazyListAttachmentQuery) -> Bool {
         ownerIsCurrent && state.phase == .constructing && !state.wasSupersededBeforeAdoption
-            && enclosing?.canConstructDescriptors != false && containing.canConstruct
+            && enclosing?.canConstructDescriptors(using: &query) != false && containing.canConstruct(using: &query)
     }
 
     package var canPublishDescriptors: Bool {
@@ -618,9 +624,17 @@ package final class RetainedLazyListActualAttachment {
     }
 
     package var isAttached: Bool {
-        guard let node, let runtime, node.isRetainedLazyListAttached(in: runtime),
-            let storage = node.retainedLazyListActivityStorage
-        else { return false }
+        guard let node, let runtime, node.isRetainedLazyListAttached(in: runtime) else { return false }
+        return matchesCurrentAttachment(on: node)
+    }
+
+    func isAttached(using query: inout RetainedLazyListAttachmentQuery) -> Bool {
+        guard let node, let runtime, query.isAttached(node, in: runtime) else { return false }
+        return matchesCurrentAttachment(on: node)
+    }
+
+    private func matchesCurrentAttachment(on node: ViewNode) -> Bool {
+        guard let storage = node.retainedLazyListActivityStorage else { return false }
         return storage.targetID === target && storage.attachmentID === attachment
             && proof.isCurrent && identity.isCurrent
     }
@@ -3261,8 +3275,13 @@ package final class RetainedDescriptorContributionReceipt {
     }
 
     package var isActive: Bool {
+        var query = RetainedLazyListAttachmentQuery()
+        return isActive(using: &query)
+    }
+
+    func isActive(using query: inout RetainedLazyListAttachmentQuery) -> Bool {
         !wasRevoked && didAccept && hostLifetime?.isOpen == true && ownerLifetime.isCurrent
-            && !actualAttachments.isEmpty && actualAttachments.allSatisfy(\.isAttached)
+            && !actualAttachments.isEmpty && actualAttachments.allSatisfy { $0.isAttached(using: &query) }
     }
 
     @discardableResult

@@ -16,6 +16,16 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
     private var committedDescriptorObservations: [ObjectIdentifier: DescriptorCommittedDependency] = [:]
     private var currentBuild: StateMountBuild?
     private(set) var latestInstallationError: DynamicPropertyInstallationError?
+    private var ownedAsyncImageService: AsyncImageService?
+    private var imageServiceAdmissionsClosed = false
+
+    var asyncImageService: AsyncImageService? {
+        guard !imageServiceAdmissionsClosed, !registry.isClosed else { return nil }
+        if let ownedAsyncImageService { return ownedAsyncImageService }
+        let service = AsyncImageService()
+        ownedAsyncImageService = service
+        return service
+    }
 
     init(
         invalidate: @escaping @MainActor () -> Void,
@@ -754,10 +764,15 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
     }
 
     func close() {
+        imageServiceAdmissionsClosed = true
+        let imageService = ownedAsyncImageService
+        imageService?.closeAdmissions()
         let build = currentBuild
         build?.revokeLazyDescriptorsForOwnerClose()
         presentationActivity.closeAdmissions()
         registry.close()
+        ownedAsyncImageService = nil
+        imageService?.close()
         presentationActivity.releaseClosedPayloads()
         committedObservations.removeAll()
         committedLazyObservations.removeAll()

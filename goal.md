@@ -9591,3 +9591,73 @@ strict formatting of its 18 Swift files, source composition, and independent
 review are source evidence only. Fresh combined compilation, the original
 declared-owner cases, all 106 new cases, retained visual review, native D3D11/UIA,
 and full validation remain required. No original completion gate is closed.
+
+### Ninth batch: owned AsyncImage loading and source image density
+
+The image-loading slice is integrated by narrow context patches from
+`4f765417f4ea358c5d4911fb6a87b7ff3fbe7fae`, tree
+`4699fdc070b6ff4c9ccfb7e34421aa96d517a5a7`, against its recorded `6a55df0`
+base. The complete intake is `artifacts/goal-ninth-async-image-intake-v1`:
+29 payloads / 3,100,838 bytes, manifest SHA256
+`e7c0403f17675e5612e8e30c77f2347d0e058f1c36ba98b3ebab1087f8891920`.
+Its 224,078-byte patch has SHA256
+`5ce6e3578fc2130bf619ad5aabb32656bd43ae1557a4ad6b518f56b201200ba2`.
+It preserves the recent List, material, file, gallery, and removal changes;
+newer shared files were not replaced with private postimages.
+
+AsyncImage phases and request lifetime now use the existing mounted
+StateObject and task machinery, including a stable container for an empty
+placeholder. A per-host service admits at most two active source/decode
+operations and 64 queued owners. Cancellation reaches the owned worker and
+URLSession data task, removes queued owners before I/O, and retains an active
+slot until the actual operation returns. Host shutdown closes admission
+before state teardown and drains cancellation after ownership revocation.
+The previous global URL-to-phase cache and temporary-file decoder route are
+removed. These bounds count source/decode operations, not every Swift Task
+object or the native codec's private scratch memory.
+
+Only accepted source adoption can retarget a loader. Completion checks the
+original invocation, source, and cancellation before publishing, with native
+metadata settled before synchronous phase observers can reenter. Adopted
+A-to-B/nil-to-A changes retire the earlier terminal result even if an
+intermediate task never starts. A continuously matching URL does not restart
+for scale or transaction changes; the latest accepted presentation values
+apply to publication. Cancellation is installed before the initial phase
+callback so a reentrant successor cannot inherit a stale invocation.
+
+Image density is now distinct from bitmap texel dimensions. Retained
+reconciliation copies density, intrinsic point size divides by it, and
+cap-inset and tile placement retain the correct source-texel sampling domain.
+Changing density preserves bitmap bytes and content tokens. The uncapped
+stretch route still admits valid output at extreme finite density without
+requiring representable intrinsic point dimensions.
+
+The synchronous named-image cache retains at most 64 entries / 32 MiB of
+pixel Data. Hits validate an opened file's identity, byte count, creation and
+modification times, and available change time. NTFS stream identity also uses
+the opened final stream's exact UTF-16 spelling. Reads use bounded chunks and
+an overflow byte. A failed refresh cannot return an earlier cached version.
+Filesystem revalidation is an ordinary freshness observation, not atomic
+publication, content attestation, or a no-follow filesystem guarantee.
+
+Both paths use the distinct bounded legacy in-memory WIC decoder already
+integrated and exercised in the 111-case Windows cohort above: 8 MiB encoded
+input, 16 million source pixels, and 64,000,000 tight decoded bytes. Legacy
+installed-format/first-frame, full admitted dimensions, raw orientation/color,
+and straight BGRA behavior remain separate from the strict thumbnail policy.
+The AsyncImage patch does not replace that decoder with the thumbnail service's
+format/normalization/1024-edge rules. Synchronous file and codec operations
+remain cooperative rather than preemptible; caller-retained images, renderer
+resources, and allocator overhead are separate budgets.
+
+The public AsyncImage initializers and phase/error/loader surfaces are retained.
+Four new test classes add 124 async MainActor methods: 25 loading, 17 density,
+54 cache, and 28 lifecycle cases. No pre-existing test file is changed by this
+patch. Exact-source independent review covered actor/lifetime/cancellation,
+file identity, bounded resources, sampling units, and API construction.
+Contracts and strict formatting of the 11 changed Swift files passed in the
+parent checkout. Those are source checks; this combined image/removal source
+still requires compilation and execution of the new and original tests.
+Actual host/HTTP/file behavior, retained rendering, macOS conformance, resource
+qualification, and Full validation remain under the original goal. No baseline,
+tolerance, or original completion gate changed.

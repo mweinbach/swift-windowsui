@@ -6897,6 +6897,7 @@ public struct Image: View {
     private var accessibilityLabel: String?
     private var isAccessibilityHidden: Bool
     private var symbolVariableValue: Double?
+    private var bitmapScale: Double
 
     var imageAccessibilityLabel: String? {
         accessibilityLabel
@@ -6958,6 +6959,11 @@ public struct Image: View {
         self.init(storage: .bitmap(bitmap))
     }
 
+    init(bitmap: BitmapSurface, scale: Double) {
+        self.init(bitmap: bitmap)
+        bitmapScale = AsyncImagePresentation.normalizedScale(scale)
+    }
+
     public init(uiImage: BitmapSurface) {
         self.init(bitmap: uiImage)
     }
@@ -6986,6 +6992,7 @@ public struct Image: View {
         self.accessibilityLabel = nil
         self.isAccessibilityHidden = false
         self.symbolVariableValue = nil
+        self.bitmapScale = 1
     }
 
     public var body: Never {
@@ -7058,7 +7065,8 @@ public struct Image: View {
             let resizesToProposal = isResizable && (contentMode == nil || fitsProposal)
             let preferredSize =
                 resizesToProposal
-                ? nil : resolvedPreferredSize(baseSize: bitmap?.logicalSize, requiresExplicitOptIn: false)
+                ? nil
+                : resolvedPreferredSize(baseSize: bitmap?.logicalSize(scale: bitmapScale), requiresExplicitOptIn: false)
             let image = Component { _ in
                 guard let bitmap else {
                     let node = Controls.panel(preferredSize: preferredSize, isHitTestVisible: false)
@@ -7357,6 +7365,7 @@ public struct Image: View {
         node.symbolVariants = context.symbolVariants.retainedSymbolVariants
         node.imageResizingMode = isResizable ? resizingMode.retainedImageResizingMode : nil
         node.imageCapInsets = isResizable ? capInsets : nil
+        node.imageBitmapScale = bitmapScale
         node.imageRenderingMode = renderingMode?.retainedImageRenderingMode
         node.imageInterpolation = interpolation.retainedImageInterpolation
         node.imageAntialiased = antialiased
@@ -7397,8 +7406,8 @@ extension Image.Interpolation {
     }
 }
 extension BitmapSurface {
-    fileprivate var logicalSize: Size {
-        Size(width: Double(width), height: Double(height))
+    fileprivate func logicalSize(scale: Double) -> Size {
+        Size(width: Double(width) / scale, height: Double(height) / scale)
     }
 }
 public enum AsyncImagePhase {
@@ -7429,74 +7438,19 @@ public struct AsyncImageError: Error {
     private init() {}
 }
 @MainActor
-public final class AsyncImageLoader: ObservableObject {
-    @Published public var phase: AsyncImagePhase = .empty
-    private var isLoading = false
-
-    public func load(url: URL?, scale: Double = 1) {
-        guard let url = url else {
-            phase = .empty
-            isLoading = false
-            return
-        }
-        guard !isLoading else { return }
-        isLoading = true
-        phase = .empty
-        Task.detached { [weak self] in
-            do {
-                let data = try Data(contentsOf: url)
-                await MainActor.run { [weak self] in
-                    guard let self else { return }
-                    defer { self.isLoading = false }
-                    do {
-                        let tempDir = FileManager.default.temporaryDirectory
-                        let tempFile = tempDir.appendingPathComponent(UUID().uuidString + ".tmp")
-                        try data.write(to: tempFile)
-                        if let bitmap = ImageLoader.load(contentsOfFile: tempFile.path) {
-                            let image = Image(bitmap: bitmap)
-                            self.phase = .success(image)
-                        } else {
-                            self.phase = .failure(AsyncImageError.decodingFailed)
-                        }
-                        try? FileManager.default.removeItem(at: tempFile)
-                    } catch {
-                        self.phase = .failure(error)
-                    }
-                }
-            } catch {
-                await MainActor.run { [weak self] in
-                    self?.phase = .failure(error)
-                    self?.isLoading = false
-                }
-            }
-        }
-    }
-}
-@MainActor
-private final class AsyncImageLoaderCache {
-    static let shared = AsyncImageLoaderCache()
-    private var loaders: [URL: AsyncImageLoader] = [:]
-
-    func loader(for url: URL) -> AsyncImageLoader {
-        if let loader = loaders[url] {
-            return loader
-        }
-        let loader = AsyncImageLoader()
-        loaders[url] = loader
-        return loader
-    }
-}
-@MainActor
 public struct AsyncImage: View {
     public typealias Body = Never
 
     private let url: URL?
     private let scale: Double
+    private let transaction: Transaction
+    private let presentationID = UUID()
     private let content: (AsyncImagePhase) -> AnyView
 
     public init(url: URL?, scale: Double = 1) {
         self.url = url
         self.scale = scale
+        self.transaction = Transaction()
         self.content = { phase in
             switch phase {
             case .empty:
@@ -7517,6 +7471,7 @@ public struct AsyncImage: View {
     ) {
         self.url = url
         self.scale = scale
+        self.transaction = Transaction()
         self.content = { phase in
             switch phase {
             case .empty, .failure:
@@ -7535,6 +7490,7 @@ public struct AsyncImage: View {
     ) {
         self.url = url
         self.scale = scale
+        self.transaction = transaction
         self.content = { phase in AnyView(Group { content(phase) }) }
     }
 
@@ -7543,15 +7499,12 @@ public struct AsyncImage: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        let loader: AsyncImageLoader
-        if let url = url {
-            loader = AsyncImageLoaderCache.shared.loader(for: url)
-            loader.load(url: url, scale: scale)
-        } else {
-            loader = AsyncImageLoader()
-        }
-        context.observe(loader)
-        return content(loader.phase).makeComponent(context: context)
+        let service = context.environmentValues.asyncImageService ?? context.stateMountCoordinator?.asyncImageService
+        let presentation = AsyncImagePresentation(
+            id: presentationID, source: AsyncImageSource(url: url, service: service),
+            scale: scale, transaction: transaction)
+        return makeViewComponent(
+            MountedAsyncImage(presentation: presentation, service: service, content: content), context: context)
     }
 }
 extension Text {

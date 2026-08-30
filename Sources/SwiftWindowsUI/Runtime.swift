@@ -3482,6 +3482,12 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    /// Source pixels per logical point. Display DPI is applied later by the
+    /// paint path; it must not change intrinsic size or the number of tiles.
+    public var imageBitmapScale: Double = 1 {
+        didSet { invalidateRuntime([.layout, .paint]) }
+    }
+
     /// The last bitmap sampling resolution. Unsupported inputs skip that
     /// image, keep other paint commands, and remain inspectable by callers.
     public private(set) var imageSamplingFailure: ImageSamplingFailure?
@@ -10255,7 +10261,12 @@ public final class ViewNode {
             return nil
         }
 
-        return Size(width: Double(bitmapSurface.width), height: Double(bitmapSurface.height))
+        let scale = resolvedImageBitmapScale
+        return Size(width: Double(bitmapSurface.width) / scale, height: Double(bitmapSurface.height) / scale)
+    }
+
+    private var resolvedImageBitmapScale: Double {
+        imageBitmapScale.isFinite && imageBitmapScale > 0 ? imageBitmapScale : 1
     }
 
     /// Both paint paths resolve in layout space before display scale or a
@@ -10268,11 +10279,14 @@ public final class ViewNode {
         let localFrame = Rect(origin: .zero, size: resolvedFrame.size)
         let localFillFrame = borderWidth > 0 ? localFrame.inset(by: borderWidth) : localFrame
         let mode: ImageSamplingMode = imageResizingMode == .tile ? .tile : .stretch
+        // The resolver distinguishes source texels from destination points.
+        // Only dimensionless fractions/repeats leave it; density cannot change
+        // placement bounds or require CPU/D3D display-scale special cases.
         switch ImageSamplingPlan.resolve(
             sourceSize: IntSize(width: bitmap.width, height: bitmap.height),
             destinationSize: localFillFrame.size,
             capInsets: imageCapInsets ?? .zero,
-            mode: mode)
+            mode: mode, sourceScale: resolvedImageBitmapScale)
         {
         case .success(let sampling):
             imageSamplingFailure = nil

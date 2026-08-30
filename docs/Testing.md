@@ -451,6 +451,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter Sce
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter D3D11TransparentCompositingTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter D3D11ImageBindingLifetimeTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUIBitmapStretchTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter AsyncImageLoadingTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter AsyncImageLifecycleTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter AsyncImageScaleTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter ImageLoaderCacheTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter Win32PointerMessageRoutingTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter Win32NativeFileDialogSafetyTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter FileDocumentExportTests
@@ -468,6 +472,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter Foc
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUIDynamicTypeRangeTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUIControlUsabilityTests
 ```
+
+The AsyncImage filters require the joined bounded legacy in-memory decoder.
+`AsyncImageLoadingTests` uses controlled suspended workers, small byte budgets,
+and a reserved-domain URLProtocol fixture; it does not contact an external
+server. `AsyncImageLifecycleTests` checks mounted request/configuration ownership,
+and `AsyncImageScaleTests` checks analytic retained geometry and sampling
+descriptors without creating new golden baselines. `ImageLoaderCacheTests`
+injects file identities and readers to check freshness, cache bounds, and handle
+release without invoking WIC. Run these serially, then retain the existing bitmap,
+resource, StateObject, task, transaction, and full validation gates. Authored
+source tests alone do not establish execution or native parity; see
+[the loading limits and evidence boundary](AsyncImageLoading.md).
 
 `ModalAccessibilityActionTests` contains 32 headless async cases for copied
 actions and the live UIA source. The late focus notification and focus-request

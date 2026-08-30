@@ -3130,6 +3130,10 @@ public final class ComponentHost {
                 check.isCurrent
             else { return false }
         }
+        if target.imageBitmapScale != source.imageBitmapScale {
+            guard copyNodeProperty(\.imageBitmapScale, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.imageRenderingMode != source.imageRenderingMode {
             guard copyNodeProperty(\.imageRenderingMode, source: source, target: target, check: check), check.isCurrent
             else { return false }

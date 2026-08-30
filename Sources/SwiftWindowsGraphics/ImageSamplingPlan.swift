@@ -9,6 +9,7 @@ public enum ImageSamplingMode: Equatable, Sendable {
 /// An unsupported plan is diagnosed rather than changed into a different image.
 public enum ImageSamplingFailure: Error, Equatable, Sendable, CustomStringConvertible {
     case invalidSourceSize
+    case invalidSourceScale
     case invalidDestinationSize
     case nonfiniteCapInsets
     case negativeCapInsets
@@ -24,6 +25,8 @@ public enum ImageSamplingFailure: Error, Equatable, Sendable, CustomStringConver
         switch self {
         case .invalidSourceSize:
             return "bitmap sampling requires positive source dimensions within the source-size limit"
+        case .invalidSourceScale:
+            return "bitmap sampling requires finite positive source pixels per logical point"
         case .invalidDestinationSize:
             return "bitmap sampling requires finite positive local destination dimensions"
         case .nonfiniteCapInsets:
@@ -182,7 +185,8 @@ public enum ImageSamplingPlan {
     public static let maximumTilePhase: Float = 4_096
 
     public static func resolve(
-        sourceSize: IntSize, destinationSize: Size, capInsets: EdgeInsets, mode: ImageSamplingMode
+        sourceSize: IntSize, destinationSize: Size, capInsets: EdgeInsets, mode: ImageSamplingMode,
+        sourceScale: Double = 1
     ) -> Result<ImageSamplingDescriptor, ImageSamplingFailure> {
         guard sourceSize.width > 0, sourceSize.height > 0 else { return .failure(.invalidSourceSize) }
         guard destinationSize.width.isFinite, destinationSize.height.isFinite,
@@ -190,32 +194,51 @@ public enum ImageSamplingPlan {
         else { return .failure(.invalidDestinationSize) }
         // Preserve the original default sampler, including its source sizes,
         // UV handling, and existing geometry admission outside this helper.
+        // Its descriptor does not depend on source density; do not multiply
+        // a valid point destination into overflow/underflow just to return it.
         if mode == .stretch && capInsets == .zero { return .success(.legacy) }
+        guard sourceScale.isFinite, sourceScale > 0 else { return .failure(.invalidSourceScale) }
         guard admitsSourceSize(sourceSize) else { return .failure(.invalidSourceSize) }
         let caps = [capInsets.leading, capInsets.top, capInsets.trailing, capInsets.bottom]
         guard caps.allSatisfy(\.isFinite) else { return .failure(.nonfiniteCapInsets) }
         guard caps.allSatisfy({ $0 >= 0 }) else { return .failure(.negativeCapInsets) }
-        guard caps.allSatisfy({ $0 == $0.rounded() }) else { return .failure(.fractionalCapInsets) }
+        let sourceCaps = caps.map { $0 * sourceScale }
+        guard sourceCaps.allSatisfy(\.isFinite),
+            zip(caps, sourceCaps).allSatisfy({ ($0.0 == 0) == ($0.1 == 0) })
+        else { return .failure(.unrepresentableDescriptor) }
+        guard sourceCaps.allSatisfy({ $0 == $0.rounded() }) else { return .failure(.fractionalCapInsets) }
         let width = Double(sourceSize.width)
         let height = Double(sourceSize.height)
-        let centerWidth = width - capInsets.leading - capInsets.trailing
-        let centerHeight = height - capInsets.top - capInsets.bottom
+        let centerWidth = width - sourceCaps[0] - sourceCaps[2]
+        let centerHeight = height - sourceCaps[1] - sourceCaps[3]
         guard centerWidth > 0, centerHeight > 0 else { return .failure(.sourceCenterNotPositive) }
         let targetWidth = destinationSize.width - capInsets.leading - capInsets.trailing
         let targetHeight = destinationSize.height - capInsets.top - capInsets.bottom
         guard targetWidth > 0, targetHeight > 0 else { return .failure(.destinationCenterNotPositive) }
-        if mode == .tile && (targetWidth > Double(maximumTilePhase) || targetHeight > Double(maximumTilePhase)) {
-            return .failure(.phaseLimitExceeded)
+        let repeatX: Float
+        let repeatY: Float
+        if mode == .tile {
+            // Only sampling distances use texels. Placement and destination
+            // cap fractions below continue to use the actual logical points.
+            let targetTexelWidth = targetWidth * sourceScale
+            let targetTexelHeight = targetHeight * sourceScale
+            guard targetTexelWidth <= Double(maximumTilePhase), targetTexelHeight <= Double(maximumTilePhase) else {
+                return .failure(.phaseLimitExceeded)
+            }
+            repeatX = Float(targetTexelWidth / centerWidth)
+            repeatY = Float(targetTexelHeight / centerHeight)
+        } else {
+            repeatX = 1
+            repeatY = 1
         }
         let sampling = ImageSamplingDescriptor(
-            sourceCapLeft: Float(capInsets.leading / width), sourceCapTop: Float(capInsets.top / height),
-            sourceCapRight: Float(capInsets.trailing / width), sourceCapBottom: Float(capInsets.bottom / height),
+            sourceCapLeft: Float(sourceCaps[0] / width), sourceCapTop: Float(sourceCaps[1] / height),
+            sourceCapRight: Float(sourceCaps[2] / width), sourceCapBottom: Float(sourceCaps[3] / height),
             destinationCapLeft: Float(capInsets.leading / destinationSize.width),
             destinationCapTop: Float(capInsets.top / destinationSize.height),
             destinationCapRight: Float(capInsets.trailing / destinationSize.width),
             destinationCapBottom: Float(capInsets.bottom / destinationSize.height),
-            centerRepeatX: mode == .tile ? Float(targetWidth / centerWidth) : 1,
-            centerRepeatY: mode == .tile ? Float(targetHeight / centerHeight) : 1,
+            centerRepeatX: repeatX, centerRepeatY: repeatY,
             samplingKind: mode == .tile ? 2 : 1
         )
         if let failure = sampling.validationFailure(sourceSize: sourceSize) { return .failure(failure) }

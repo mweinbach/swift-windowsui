@@ -9287,3 +9287,40 @@ color/profile qualification, and runtime test outcomes remain pending.
 Absent or unsupported WIC color metadata is assumed sRGB; absent or unsupported
 JPEG orientation metadata means orientation 1. These limits remain documented.
 The original goal and all nine gates remain unchanged and open.
+
+### Ninth integration: browser-owned image workers and bounded thumbnail cache
+
+DemoMediaImageService owns at most two active physical workers, with no
+implicit waiting queue; a further load reports busy. Cancellation, invalidation,
+revision changes, reload, and close revoke publication without freeing a slot
+before the worker returns. File reads use bounded chunks plus one overflow
+probe and balance their owned handle. Construction starts no I/O. A caller
+owns the service lifetime and each load task; there is no global image cache.
+
+The cache retains at most 32 decoded images and 16 MiB of owned pixels. File
+identity includes the admitted lexical URL, caller-owned content revision,
+and requested edge. External edits require reload, invalidation, or a new
+revision. Eviction does not invalidate image values already held by a view.
+Data sources are decoded without entering the file cache. Publication authority
+is committed under a lock, then cache/result work and captured-payload release
+occur after unlocking, with no actor suspension between commit and publication.
+
+The shared value provides an ordinary public Image. The macOS ImageIO adapter
+is confined to the service value, with one explicit immutable CFData raster
+shared by its CGImage provider and counted once in cache ownership. Its actual
+compilation, pixels, color metadata, and resource behavior remain unverified.
+The Foundation metadata/open sequence is not a race-free no-follow open, a
+path sandbox, physical-locality proof, or OS-read preemption.
+
+Twenty-one additive service tests cover actual encoded bytes/files, retry,
+freshness, cache accounting, eviction, independent instances, draining
+cancellation, busy admission, stale completion, and terminal close. Four new
+actor-isolated test declarations were made async before integration to obey
+the repository's documented Windows discovery requirement; their bodies,
+assertions, throws behavior, and all 35 decoder/service method IDs are unchanged.
+Parent strict lint and contracts passed, but execution is still pending.
+
+This supplies the image service for the original media-browser requirement;
+it does not itself implement thumbnail grid/list interactions or repair the
+existing AsyncImage and named-image loaders. Those remain separate tracked
+work. No original feature, limit, test assertion, or completion gate was removed.

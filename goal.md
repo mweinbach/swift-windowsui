@@ -9417,3 +9417,98 @@ finalization and terminal-checkpoint repairs; strict lint and contracts passed.
 Compilation, test results, and improvement of the 900-second timeout remain
 unverified. This structural optimization is not a latency or UIA performance
 qualification and changes no original work limit or completion requirement.
+
+### Ninth batch: closed repair checks and the file preview visual failure
+
+The following three attempts and gallery generation are bound to the unchanged,
+clean `ccff4145767c363010c59210fa77305c4f9301d9`, tree
+`b2a03b9eb070d2cb8c4d4101938fd2e7b23e1429`. Each source/index comparison belongs
+to its own recorded attempt. These are focused checks, not a Full result or
+completion of any original gate.
+
+The repaired 146-case cohort compiled in 347.48 seconds and ended naturally
+with **141 passes, five failed cases, and no skips**. All 146 expected method
+identifiers have exactly one start and terminal result; the 66 assertion
+messages belong to those five failed cases, not 66 distinct cases. The direct
+child returned 1 after 452.938 seconds. The separate Swift Testing footer
+reports zero tests. The independent receipt is
+`artifacts/goal-ninth-repaired146-ccff414-reconciled.json`; the raw log is in
+`artifacts/goal-ninth-repaired146-ccff414-6b9da243a53743639fd07297bfcf6a3c`,
+SHA256 `adcd7e9deb8276d8ff35a7a91360cc1ccda40fedd84fd5d3a23634cb4f781ae5`.
+
+- All 16 D3D11 material cases, 15 material contract cases, and 26 render-pass
+  cases passed. CPU material tests had 23 passes and one failure; all 21
+  original cases, including the three earlier failing oracles, passed.
+- All four replacement-state, eight measurement, five width, six handoff,
+  24 terminal-checkpoint/pending-work, and ten descriptor-query cases passed.
+- The default-four-round UIA replacement still failed, although the other
+  three realization-budget cases passed. The original budget and ordinary
+  element requirement are unchanged.
+- One of the four declared-owner continuation cases passed; the conditional,
+  explicit-identity, and zero-slot inactive cases still failed. Source tracing
+  ties these three failures to the not-yet-integrated managed removal bridge;
+  that diagnosis is not a passing execution result for that bridge.
+
+The remaining CPU material failure was the newly authored
+`testUnsizedContentBlurStillEmitsItsExistingFallback`, which spent 60.419
+seconds in an admitted 4096-square bitmap operation. Source inspection and
+independent review established a fixture error: the root surface clip removes
+the radius outset before the inclusive 16,777,216-pixel admission check.
+4096 squared is exactly that limit, so the observed 67,108,864-byte bitmap was
+correct. The fixture-only repair from private `bf8238a692234cba3d4b6f2d90efc5bf6d7fba94`
+uses a 4097-square clipped surface (16,785,409 pixels), retains every existing
+result assertion and all 24 case IDs, and fails and returns before painting
+if the fixture is accidentally reduced to an admitted size. Production and
+the 21 original material test bodies remain unchanged. The bounded intake is
+`artifacts/goal-ninth-material-fallback-fixture-intake-v1`; its source patch is
+1,286 bytes, SHA256 `55935ceef7361ae3b75dc5bf2ec0ef7fd3e324826ece39e6ad1ed064302dd7e6`.
+The corrected fixture still requires a fresh execution; the closed failure
+above remains recorded as a failure.
+
+The separate file interaction cohort again reached its unchanged 900-second
+deadline after a 0.32-second incremental build. Its buffered log exposes no
+XCTest starts or terminal results, so all 14 individual outcomes remain
+unknown. The controller recorded exit 124 and closed its direct PowerShell
+child with exit 1. Cleanup verified all five recorded creation identities,
+terminated only the exact owned XCTest handle with code 143, and let its
+wrappers close naturally. A subsequent CIM check found none of those processes,
+their children, or the recorded console host. The complete abnormal receipt is
+`artifacts/goal-ninth-file14-ccff414-timeout.json`; the raw log has 227 bytes and
+SHA256 `996bc09f6320559b24086b6f23b3f039cfea5b4d92eb951ffbcd084b17b9341a`.
+One local, noninvasive, nonsuspending debugger sample detached normally while
+the exact test process remained running. Its incomplete unwind and raw stack
+words do not identify an active case or establish a full call chain. This
+instrumented attempt is not timing qualification. Source review identified
+overlapping subtree completion validation as a separate cost issue still
+requiring repair and execution; the successful descriptor-query unit tests
+do not establish that this browser timeout is fixed.
+
+After that process closure, the independent file/media cohort ended naturally
+with **111 passes, no failures, and no skips**: 48 file model, 23 file service,
+one URL-construction, four gallery-preparation, 14 bounded decoder, and 21
+media-service cases. All exact method starts and terminal results reconcile
+in `artifacts/goal-ninth-file-media111-ccff414-reconciled.json`. The raw log is
+in `artifacts/goal-ninth-file-media111-ccff414-ba2e44aed41a42379564cce9a19a945e`,
+SHA256 `8579eafffd7820a5bdd7c2dfde65059f042c5c3ccbdde67f4006c07dde00e7f7`.
+The reviewed focused-runner derivation now separately records 110 async
+methods and the decoder's one nonisolated synchronous method; it preserves
+the same bounded runner, exact total selection, and 900-second deadline.
+Accepting that signature did not skip or convert any test. These results
+qualify this Windows cohort only, not the macOS adapter or complete media UI.
+
+The retained six-entry gallery driver and resource-copy child both returned
+0 with source, executable, generated accessor, and asset endpoints preserved.
+All six PNGs were opened and inspected. The three 128-square bitmap controls
+match every PNG byte of the prior retained control output. The three new
+800-by-480 file preview images show their loaded text, empty-file message, and
+invalid-UTF-8 failure, but their Files pane is blank despite four model records.
+This is an unresolved visual failure, not approved output. Generation success
+does not qualify the workflow. The images are in
+`artifacts/goal-ninth-file-preview-gallery-72170ad7bced4b4e9802caefbdd5103e/renders`;
+the independent comparison and explicit visual findings are in
+`artifacts/goal-ninth-file-preview-gallery-ccff414-review.json`. No gallery
+baseline, tolerance, or acceptance criterion changed. The catalog remains 150
+fixtures with 85 reviewed baselines; those counts describe different sets.
+
+The original 188-method obligation, the new regressions, full validation,
+native and macOS checks, and all nine original completion gates remain open.

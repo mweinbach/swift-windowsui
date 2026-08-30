@@ -3044,6 +3044,14 @@ hard edge, which is a visible approximation; the outset that would soften
 it is exactly what smeared the neighbours, and a hard edge is wrong in a
 way the user can see belongs to the blurred view.
 
+Buffer admission intersects the radius-outset frame with the inherited clip
+before applying the inclusive pixel limit. A full-surface clip can remove the
+entire outward margin: a clipped 4096-square buffer is exactly 16,777,216 pixels
+and is admitted. `MaterialContentBlurTests` uses a 4097-square clipped surface
+to exercise refusal before rasterization, with a failure guard before painting
+if the fixture is accidentally reduced to the admitted side of the boundary.
+The allocation limit and fallback output assertions are unchanged.
+
 The frame path (`RenderCommand`) has no blur primitive and degrades a
 content blur to sharp content, as it already did for materials.
 

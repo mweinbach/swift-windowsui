@@ -741,9 +741,13 @@ final class MaterialContentBlurTests: XCTestCase {
     }
 
     func testUnsizedContentBlurStillEmitsItsExistingFallback() async {
-        // The radius outset exceeds the existing 16,777,216-pixel bitmap
-        // ceiling. This is a scene-only admission test; no large raster runs.
-        let size = IntSize(width: 4096, height: 4096)
+        // The surface clips away the radius outset, so the clipped surface
+        // itself must exceed the 16,777,216-pixel bitmap ceiling; 4096² fits.
+        let size = IntSize(width: 4097, height: 4097)
+        guard Int64(size.width) * Int64(size.height) > 16_777_216 else {
+            XCTFail("The clipped fixture must exceed the bitmap pixel ceiling before painting.")
+            return
+        }
         let blurred = ViewNode(frame: bounds(size), contentBlurRadius: 2)
         let scene = paint(blurred, size: size, clearColor: halfBlue)
         XCTAssertTrue(scene.validate().isEmpty)

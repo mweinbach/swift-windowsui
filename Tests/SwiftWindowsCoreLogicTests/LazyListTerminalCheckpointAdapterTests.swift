@@ -140,7 +140,7 @@ final class LazyListTerminalCheckpointAdapterTests: XCTestCase {
     }
 
     func testUnknownGapCannotBeCertifiedOrMeasuredByTheComparison() async throws {
-        let fixture = try makeFixture(values: [0, 1, 2, 3], estimate: 21, offset: 42, extent: 21, rows: gapRows)
+        let fixture = try makeFixture(values: [0, 1, 2, 3], estimate: 21, offset: 42, extent: 21) { self.gapRows($0) }
         defer { fixture.source.close() }
         let batch = measurements(fixture) { $0.leafIndex == 0 ? 1 : 20 }
         _ = try XCTUnwrap(fixture.adapter.recordMeasurements(batch, viewport: fixture.viewport))
@@ -186,7 +186,7 @@ final class LazyListTerminalCheckpointAdapterTests: XCTestCase {
     }
 
     func testChangedGapHeightIsRefusedEvenWhenItsBoundarySummaryIsEqual() async throws {
-        let fixture = try makeFixture(values: [0, 1], estimate: 21, extent: 42, rows: gapRows)
+        let fixture = try makeFixture(values: [0, 1], estimate: 21, extent: 42) { self.gapRows($0) }
         defer { fixture.source.close() }
         let first = try XCTUnwrap(fixture.placements.first)
         let batch = measurements(fixture) { placement in

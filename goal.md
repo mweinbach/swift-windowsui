@@ -9239,3 +9239,20 @@ contracts passed after applying the three-file patch. These are source repairs;
 the original three failed cases and all 24 material CPU methods still require
 a fresh execution result, and GPU16 remains separately unqualified.
 No baseline, tolerance, budget, or original completion gate changed.
+
+### Ninth integration: preserve test callbacks through Swift actor conversion
+
+The fresh 136-method List/rendering attempt on `4f27e78` closed naturally with
+exit 1 after 133.5 seconds. Compilation rejected two method-reference arguments
+in the new terminal-checkpoint adapter tests when converting them to an
+actor-isolated Sendable callback. Four generic-inference errors followed from
+those two expressions. No XCTest start or terminal was observed, so none of
+the selected tests, including GPU16, gains an execution result from this run.
+Source and index endpoints were independently identical; the closed evidence
+is `artifacts/goal-ninth-repaired136-4f27e78-compiler-failure.json`.
+
+Both call sites now pass explicit actor-context closures invoking the same
+helper with the same integer. No test ID, assertion, fixture value, helper
+behavior, or production code changed. Strict lint and contracts passed; the
+136-method selection remains due for a fresh run. Original goals and limits
+are unchanged.

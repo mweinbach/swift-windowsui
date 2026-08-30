@@ -9185,3 +9185,34 @@ budgets are unchanged. Parent contracts and strict lint passed after the
 three-file patch. Compilation and runtime results for this repair are still
 pending; it does not close the separate realization or transition work.
 The original goal text and all nine completion gates remain unchanged and open.
+
+### Ninth integration: avoid an empty List convergence round using current layout evidence
+
+The retained convergence loop can now stop after an already charged changed
+iteration completes its ordinary layout pass, when a read-only comparison
+proves that every registered List has current accepted measurements and needs
+no additional work. This avoids charging a new round solely to discover that
+the previous pass finished. It does not run another layout, invoke a provider
+or readiness callback, change a limit, refund work, or publish settlement.
+The ordinary query epilogue still performs callback draining, final checks,
+and prepaint work.
+
+The comparison requires the same budget and resolution sequence, an unmutated
+pass, current owner/scroll/leaf attachment proofs, exact viewport and actual
+leaf order, and accepted content extent. It rejects first or missing
+measurements, stale generations, unresolved gaps, changed gap summaries or
+heights, unpublished chrome, incomplete selection, and queued or active
+callback, reader, teardown, anchor, focus, or navigation work. Shared viewport
+arithmetic has a read-only entry that does not stamp the ancestor cache. The
+coordinator exposes only a stored pending-work refusal hint, not a replacement
+for settlement authority.
+
+The six-file patch adds 24 tests: 12 adapter comparisons, seven retained-runtime
+cases, and five coordinator cases. The positive correction test keeps four
+rounds available and expects two consumed, so exhaustion cannot disguise an
+unnecessary third scan. Negative cases retain actual round and geometry
+assertions. The original Measurement8, Width5, realization budgets, generic
+prepare/no-far-row tests, and all previously tracked tests are unchanged.
+Parent contracts and strict lint passed; execution is pending. This change
+alone does not claim successful four-round UI Automation realization or close
+the combined 188-method validation obligation. All original gates remain open.

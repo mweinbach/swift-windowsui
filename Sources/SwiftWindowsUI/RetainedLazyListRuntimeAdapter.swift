@@ -571,6 +571,10 @@ package final class RetainedLazyListRuntimeAdapter {
             }
         }
 
+        func matches(_ summary: GapBoundarySummary, at position: Int) -> Bool {
+            summaries.indices.contains(position) && summaries[position] == summary
+        }
+
         func predecessor(before position: Int) -> GapPredecessor {
             precondition(position >= 0 && position <= summaries.count)
             var lower = leafBase
@@ -1736,6 +1740,87 @@ package final class RetainedLazyListRuntimeAdapter {
         }
         return MeasurementUpdate(
             extentChanged: changed, requiresLayout: requiresLayout, anchorAdjustedOffset: adjustedOffset)
+    }
+
+    /// A pure terminal comparison for Runtime's already completed layout pass.
+    /// It cannot accept first measurements, update selection/gap/chrome caches,
+    /// or call a provider. Runtime separately proves every physical attachment,
+    /// the exact pass and viewport, and the absence of pending callback work.
+    func matchesAcceptedMeasurements(_ measurements: [Measurement], viewport: Viewport) -> Bool {
+        guard hasCurrentLogicalSnapshot, snapshotIsCurrent(for: viewport), !unresolvedWork,
+            !pendingCandidate, !preparationIncomplete, stagedPredecessor == nil, inheritedExtentSpacing == nil,
+            transitionRequiredTokens.isEmpty, transitionAwaitingMeasurements.isEmpty,
+            transitionCapacityDeferred.isEmpty,
+            managedLogicalDescriptor.map({ generation == $0.sourceGeneration }) != false,
+            measurements.count <= maximumMountedLeaves, measurements.count == mountedLeafCount,
+            mounted.count <= maximumMountedRecords, gapBoundaryIndex != nil
+        else { return false }
+        if let logicalRealization {
+            guard logicalRealization.isActive, positions[logicalRealization.token] != nil else { return false }
+        }
+
+        var measured: [RetainedLazyListRowToken: [Double?]] = [:]
+        for measurement in measurements {
+            guard measurement.extent.isFinite, measurement.extent >= 0,
+                let record = mounted[measurement.token], recordIsCurrent(record),
+                record.nodes.indices.contains(measurement.leafIndex),
+                record.nodes[measurement.leafIndex] === measurement.node
+            else { return false }
+            if measured[measurement.token] == nil {
+                measured[measurement.token] = Array(repeating: nil, count: record.nodes.count)
+            }
+            guard measured[measurement.token]?[measurement.leafIndex] == nil else { return false }
+            measured[measurement.token]?[measurement.leafIndex] = measurement.extent
+        }
+
+        // Verify the entire bounded mounted cache before consulting a prefix.
+        // A changed accepted neighbor must not leave an old boundary summary
+        // available to another row merely because its pixel height is equal.
+        for (token, record) in mounted {
+            guard recordIsCurrent(record), let position = positions[token], let extents = record.extents,
+                extents.count == record.nodes.count,
+                let summary = gapSummary(of: record.nodes), gapBoundaryIndex?.matches(summary, at: position) == true,
+                let extent = RetainedLazyListExtent.measured(extents.map { $0 + interLeafSpacing }),
+                extentIndex?.extent(for: token) == extent
+            else { return false }
+            if record.nodes.isEmpty {
+                guard measured[token] == nil else { return false }
+            } else {
+                guard let actual = measured[token], actual.count == extents.count,
+                    zip(actual, extents).allSatisfy({ $0.0 == $0.1 })
+                else { return false }
+            }
+        }
+
+        for (token, record) in mounted {
+            guard let position = positions[token], let extents = record.extents,
+                let ordinal = gapBoundaryIndex?.ordinalBefore(position)
+            else { return false }
+            var predecessor = gapPredecessor(before: position)
+            var declaredNext: GapRowBoundary?
+            var isOdd = ordinal.parity
+            for (index, node) in record.nodes.enumerated() {
+                if let gap = node.retainedLazyListGap {
+                    guard let height = gapExtent(gap, after: predecessor),
+                        extents[index] == (node.isHidden ? 0 : height)
+                    else { return false }
+                    declaredNext = GapRowBoundary(gap)
+                } else {
+                    guard
+                        node.hasCurrentRetainedLazyListRowChrome(
+                            isOdd: isOdd, hasUnknownPrefix: ordinal.hasUnknownPrefix)
+                    else { return false }
+                    isOdd.toggle()
+                    predecessor = .row(declaredNext ?? .ordinary)
+                    declaredNext = nil
+                }
+            }
+        }
+
+        guard let selection = windowSelection(viewport, protecting: protectedTokens),
+            !needsResolution(selection: selection), lastRequiredTokens == selection.requiredTokens
+        else { return false }
+        return true
     }
 
     /// Revoke before an external structural mutation or attachment change.

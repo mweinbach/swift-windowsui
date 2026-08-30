@@ -163,6 +163,14 @@ final class RetainedBuildCoordinator {
         !isBuilding && pendingWork.isEmpty && !isDrainingReloads && retainedCallbacksAreSettled()
     }
 
+    /// A refusal hint for native layout checkpoints, not settlement authority.
+    /// Reading it neither invokes readiness closures nor drains or releases a
+    /// queued callback. The active flags cover the last dequeued callback too.
+    var hasPendingNativeWork: Bool {
+        isBuilding || isDrainingReloads || isProcessingSettlementCallbacks
+            || !pendingWork.isEmpty || !settlementCallbacks.isEmpty
+    }
+
     /// A completion can enqueue another terminal callback after finishBuild.
     /// The runtime announces callback-drain and outer layout/render exits
     /// without changing the order of those callbacks or queued rebuilds.

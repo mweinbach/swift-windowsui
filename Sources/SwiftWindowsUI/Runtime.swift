@@ -4531,6 +4531,18 @@ public final class ViewNode {
         lifecycleHandlers?.retainedLazyListRowChrome?.usesEstimatedParity
     }
 
+    /// Compare an already published declaration without publishing, suppressing
+    /// authored fields, or treating an unknown confidence flag as current.
+    func hasCurrentRetainedLazyListRowChrome(isOdd: Bool, hasUnknownPrefix: Bool) -> Bool {
+        guard let publication = lifecycleHandlers?.retainedLazyListRowChrome else { return true }
+        guard !publication.isPublishing, publication.usesEstimatedParity == hasUnknownPrefix else { return false }
+        if publication.isSuppressed { return true }
+        let color = isOdd ? publication.metadata.alternatingBackground : nil
+        let radius = isOdd ? max(publication.originalCornerRadius, 8) : publication.originalCornerRadius
+        return backgroundColor == publication.expectedBackground && cornerRadius == publication.expectedCornerRadius
+            && publication.expectedBackground == color && publication.expectedCornerRadius == radius
+    }
+
     fileprivate func publishRetainedLazyListRowChrome(isOdd: Bool, hasUnknownPrefix: Bool) {
         guard let publication = lifecycleHandlers?.retainedLazyListRowChrome else { return }
         publication.usesEstimatedParity = hasUnknownPrefix
@@ -7246,14 +7258,41 @@ public final class ViewNode {
         displayScale: Double
     ) -> (RetainedLazyListRuntimeAdapter.Viewport, ViewNode, Double)? {
         var contentOrigin: Point?
+        guard supportsRetainedLazyListViewport,
+            let window = layoutVirtualizationWindow(contentOrigin: &contentOrigin),
+            let scroll = virtualizationScrollAncestor, let contentOrigin
+        else { return nil }
+        return makeLazyListViewport(
+            window: window, scroll: scroll, contentOrigin: contentOrigin, displayScale: displayScale)
+    }
+
+    /// The terminal checkpoint must not stamp a descent path or refresh the
+    /// ancestor cache merely to test the last pass's viewport evidence.
+    fileprivate func readOnlyLazyListViewport(
+        displayScale: Double
+    ) -> (RetainedLazyListRuntimeAdapter.Viewport, ViewNode, Double)? {
+        guard supportsRetainedLazyListViewport, let context = resolvedVirtualizationContext(),
+            context.window.origin.x.isFinite, context.window.origin.y.isFinite
+        else { return nil }
+        return makeLazyListViewport(
+            window: context.window, scroll: context.scroll, contentOrigin: context.contentOrigin,
+            displayScale: displayScale)
+    }
+
+    private var supportsRetainedLazyListViewport: Bool {
         guard !isHidden, !isRetiringLazyListAttachment, scrollAxis == nil,
             case .lazyStack(let stack) = layoutMode, stack.axis == .vertical,
             stack.spacing == retainedLazyListAdapter?.interLeafSpacing,
             stack.padding == .zero, stack.mainAlignment == .start,
-            stack.distribution == .fill, stack.alignment == .leading || stack.alignment == .stretch,
-            let window = layoutVirtualizationWindow(contentOrigin: &contentOrigin),
-            let scroll = virtualizationScrollAncestor,
-            scroll.scrollAxis == .vertical, !scroll.isHidden,
+            stack.distribution == .fill, stack.alignment == .leading || stack.alignment == .stretch
+        else { return false }
+        return true
+    }
+
+    private func makeLazyListViewport(
+        window: Rect, scroll: ViewNode, contentOrigin: Point, displayScale: Double
+    ) -> (RetainedLazyListRuntimeAdapter.Viewport, ViewNode, Double)? {
+        guard scroll.scrollAxis == .vertical, !scroll.isHidden,
             resolvedFrame.width.isFinite, resolvedFrame.width > 0,
             window.height.isFinite, window.height > 0,
             let context = RetainedLazyListMeasurementContext(
@@ -7264,8 +7303,8 @@ public final class ViewNode {
         else { return nil }
         // Preserve the canonical ancestor sum. Subtracting two offsets back
         // out of the window can change its low bits when clamping scrolls.
-        guard let origin = contentOrigin?.y, origin.isFinite else { return nil }
-        return (viewport, scroll, origin)
+        guard contentOrigin.y.isFinite else { return nil }
+        return (viewport, scroll, contentOrigin.y)
     }
 
     @inline(never)
@@ -7780,6 +7819,18 @@ public final class ViewNode {
     }
 
     private func layoutVirtualizationWindow(contentOrigin: inout Point?) -> Rect? {
+        guard let context = resolvedVirtualizationContext() else { return nil }
+        // Preserve the existing publication, including for an invalid window.
+        virtualizationScrollAncestor = context.scroll
+        stampVirtualizationDescentPath(upTo: context.scroll)
+        contentOrigin = context.contentOrigin
+        let window = context.window
+        return window.origin.x.isFinite && window.origin.y.isFinite ? window : nil
+    }
+
+    /// Shared native arithmetic for layout and read-only proof checks. Only
+    /// the layout entry above publishes the resolved ancestor/descent path.
+    private func resolvedVirtualizationContext() -> (window: Rect, scroll: ViewNode, contentOrigin: Point)? {
         guard layoutMode.virtualizesChildren else { return nil }
         var offsetX: Double = 0
         var offsetY: Double = 0
@@ -7787,14 +7838,6 @@ public final class ViewNode {
         var depth = 0
         while let current = node, depth < ViewNode.maximumTraversalDepth {
             if let axis = current.scrollAxis {
-                // Remember which node's offset governs this window, so a
-                // scroll can invalidate layout for virtualized content and
-                // only for virtualized content.
-                virtualizationScrollAncestor = current
-                // And record the path itself, so a later pass that would
-                // early-return at a clean node between here and there
-                // descends far enough to reach this stack instead.
-                stampVirtualizationDescentPath(upTo: current)
                 // The ancestor's visible window lives in ITS content space;
                 // subtracting the accumulated offset restates it in ours.
                 let window = Rect(
@@ -7802,8 +7845,7 @@ public final class ViewNode {
                     y: (axis == .vertical ? current.resolvedScrollOffset : 0) - offsetY,
                     width: current.resolvedFrame.size.width,
                     height: current.resolvedFrame.size.height)
-                contentOrigin = Point(x: offsetX, y: offsetY)
-                return window.origin.x.isFinite && window.origin.y.isFinite ? window : nil
+                return (window, current, Point(x: offsetX, y: offsetY))
             }
             offsetX += current.resolvedFrame.origin.x
             offsetY += current.resolvedFrame.origin.y
@@ -12931,15 +12973,24 @@ public final class RetainedViewRuntime {
     }
 
     private func lazyListVisitIsCurrent(_ visit: LazyListLayoutVisit, expectedGeometryRevision: UInt64) -> Bool {
+        guard lazyListVisitHasCurrentNativeProofs(visit, expectedGeometryRevision: expectedGeometryRevision),
+            let node = visit.node, let viewport = visit.viewport,
+            let current = node.lazyListViewport(displayScale: displayScale), current.0 == viewport,
+            current.1 === visit.scrollContainer, current.2 == visit.contentOriginY
+        else { return false }
+        return true
+    }
+
+    private func lazyListVisitHasCurrentNativeProofs(
+        _ visit: LazyListLayoutVisit, expectedGeometryRevision: UInt64
+    ) -> Bool {
         guard visit.passID == layoutPassID, expectedGeometryRevision == layoutSettlementGeometryRevision,
             visit.attachment.isCurrent, visit.scrollAttachment?.isCurrent == true,
             let node = visit.node, let adapter = visit.adapter, let scroll = visit.scrollContainer,
-            let viewport = visit.viewport, ownsLazyListAttachment(node), ownsLazyListAttachment(scroll),
+            visit.viewport != nil, ownsLazyListAttachment(node), ownsLazyListAttachment(scroll),
             node.retainedLazyListAdapter === adapter, adapter.ownsAttachment(node),
             lazyListRegistrations[ObjectIdentifier(node)]?.adapter === adapter,
-            scroll.scrollOffset == visit.expectedScrollOffset, scroll.scrollSourceEpoch == visit.scrollEpoch,
-            let current = node.lazyListViewport(displayScale: displayScale), current.0 == viewport,
-            current.1 === scroll, current.2 == visit.contentOriginY
+            scroll.scrollOffset == visit.expectedScrollOffset, scroll.scrollSourceEpoch == visit.scrollEpoch
         else { return false }
         return true
     }
@@ -18400,7 +18451,9 @@ public final class RetainedViewRuntime {
     private func convergeResolvedSubtrees() {
         var legacyRounds = 0
         while true {
-            if let budget = lazyListResolutionBudget {
+            let chargedBudget = lazyListResolutionBudget
+            let resolutionSequence = layoutSettlementResolutionSequence
+            if let budget = chargedBudget {
                 guard budget.consumeRound() else { return }
             } else {
                 guard legacyRounds < Self.geometryReaderConvergenceLimit else { return }
@@ -18414,7 +18467,69 @@ public final class RetainedViewRuntime {
             guard changed else { return }
             legacyRounds += 1
             runLayoutPass()
+            if let chargedBudget, chargedBudget === lazyListResolutionBudget,
+                resolutionSequence == layoutSettlementResolutionSequence, hasTerminalLazyListLayoutPass()
+            {
+                return
+            }
         }
+    }
+
+    /// This only avoids an empty *next* iteration after a paid changed round
+    /// completed its normal layout. It performs no callback, cache publication,
+    /// layout, or budget refund, and grants no settlement receipt itself. The
+    /// ordinary query epilogue still owns range checks, callbacks, and prepaint.
+    private func hasTerminalLazyListLayoutPass() -> Bool {
+        guard permitsRetainedActionInvocation, !isLayoutInProgress, lazyListResolutionDepth == 1,
+            !layoutSettlementGenerationsExhausted,
+            lastUnmutatedLayoutPassRevision == layoutSettlementGeometryRevision,
+            !lazyListUnsupportedThisPass, !hasUnresolvedLayoutSettlementReader,
+            pendingLazyListAnchorClamps.isEmpty, !lazyListAnchorNeedsLayout,
+            !lazyListScrollSearchNeedsMoreWork, !isProbingLazyListScrollTarget,
+            retainedBuildCoordinatorStorage?.hasPendingNativeWork != true,
+            longPressReconciliationDepth == 0, !isDrainingReconciliationCallbacks,
+            pendingLongPressCallbacks.isEmpty, pendingRetainedBuildCompletions.isEmpty,
+            !isDeliveringRenderLifecycleCallbacks, renderLifecycleTaskCancellationDepth == 0,
+            retiredPreparedListNavigationRetirements.isEmpty,
+            !isDrainingAfterLayoutActions, pendingAfterLayoutActionKeys.isEmpty, pendingAfterLayoutActions.isEmpty,
+            pendingPreciseScrollAlignments.isEmpty,
+            !isDrainingPresentationFocusRequests, pendingPresentationFocusRequests.isEmpty,
+            scrollObserverRegistry?.isDelivering != true,
+            !isDrainingListNavigationReveal, pendingListNavigationReveal == nil,
+            !pendingLazyListOrder.isEmpty,
+            pendingLazyListOrder.count == pendingLazyListVisits.count,
+            Set(pendingLazyListOrder).count == pendingLazyListOrder.count,
+            pendingLazyListVisits.count == lazyListRegistrations.count,
+            pendingLazyListMeasurements.keys.allSatisfy({ pendingLazyListVisits[$0] != nil })
+        else { return false }
+
+        for key in pendingLazyListOrder {
+            guard let visit = pendingLazyListVisits[key],
+                lazyListVisitHasCurrentNativeProofs(visit, expectedGeometryRevision: visit.geometryRevision),
+                let node = visit.node, let adapter = visit.adapter, let scroll = visit.scrollContainer,
+                let viewport = visit.viewport, node.lastLayoutVisitPassID == visit.passID,
+                scroll.lastLayoutVisitPassID == visit.passID,
+                let current = node.readOnlyLazyListViewport(displayScale: displayScale), current.0 == viewport,
+                current.1 === scroll, current.2 == visit.contentOriginY,
+                node.resolvedContentSize.height == adapter.contentExtent
+            else { return false }
+            let records = pendingLazyListMeasurements[key, default: []]
+            guard records.count == node.children.count else { return false }
+            var measurements: [RetainedLazyListRuntimeAdapter.Measurement] = []
+            for (index, record) in records.enumerated() {
+                guard let leaf = record.node, record.attachment.isCurrent,
+                    leaf === node.children[index], leaf.parent === node, leaf.runtime === self,
+                    leaf.isHidden || leaf.lastLayoutVisitPassID == visit.passID,
+                    leaf.resolvedFrame.height.isFinite, leaf.resolvedFrame.height >= 0
+                else { return false }
+                measurements.append(
+                    RetainedLazyListRuntimeAdapter.Measurement(
+                        token: record.token, leafIndex: record.leafIndex, node: leaf,
+                        extent: leaf.isHidden ? 0 : leaf.resolvedFrame.height))
+            }
+            guard adapter.matchesAcceptedMeasurements(measurements, viewport: viewport) else { return false }
+        }
+        return true
     }
 
     private func runLayoutPass() {

@@ -108,6 +108,50 @@ HRESULT SWU_LoadImageFileToBGRA(
 
 void SWU_FreeImagePixels(void *pixels);
 
+// Bounded, synchronous memory decoding. The caller owns the worker and keeps
+// encoded_bytes alive until return. Success transfers one malloc allocation;
+// release it with SWU_FreeImagePixels. Every failure zeros the entire result.
+enum {
+    SWU_BOUNDED_IMAGE_MAX_ENCODED_BYTES = 8388608,
+    SWU_BOUNDED_IMAGE_MAX_SOURCE_PIXELS = 16000000,
+    SWU_BOUNDED_IMAGE_MAX_DECODED_BYTES = 64000000,
+    SWU_BOUNDED_IMAGE_MAX_DIMENSION = 1024,
+    SWU_BOUNDED_IMAGE_OK = 0,
+    SWU_BOUNDED_IMAGE_INVALID_DATA = 1,
+    SWU_BOUNDED_IMAGE_ENCODED_LIMIT = 2,
+    SWU_BOUNDED_IMAGE_SOURCE_LIMIT = 3,
+    SWU_BOUNDED_IMAGE_OUTPUT_LIMIT = 4,
+    SWU_BOUNDED_IMAGE_UNSUPPORTED_FORMAT = 5,
+    SWU_BOUNDED_IMAGE_MULTIPLE_FRAMES = 6,
+    SWU_BOUNDED_IMAGE_INVALID_ORIENTATION = 7,
+    SWU_BOUNDED_IMAGE_COLOR_FAILED = 8,
+    SWU_BOUNDED_IMAGE_DECODE_FAILED = 9,
+};
+
+typedef struct SWU_BoundedImageResult {
+    void *pixels;
+    int32_t width;
+    int32_t height;
+    int32_t bytes_per_row;
+    int32_t source_width;
+    int32_t source_height;
+} SWU_BoundedImageResult;
+
+int32_t SWU_DecodeBoundedImage(
+    const uint8_t *encoded_bytes,
+    uint32_t encoded_byte_count,
+    uint32_t maximum_pixel_dimension,
+    SWU_BoundedImageResult *result_out
+);
+
+// Separate compatibility policy: first installed-WIC frame, full admitted
+// dimensions, raw orientation/color and straight BGRA. Never a media fallback.
+int32_t SWU_DecodeBoundedImageFirstFrame(
+    const uint8_t *encoded_bytes,
+    uint32_t encoded_byte_count,
+    SWU_BoundedImageResult *result_out
+);
+
 // Optional bitmap-font evidence. These POD records contain no paths, reference
 // keys, COM pointers, or font bytes. Numeric values are part of the V2 ABI.
 enum {

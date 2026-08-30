@@ -9256,3 +9256,34 @@ helper with the same integer. No test ID, assertion, fixture value, helper
 behavior, or production code changed. Strict lint and contracts passed; the
 136-method selection remains due for a fresh run. Original goals and limits
 are unchanged.
+
+### Ninth integration: owned bounded image decoding
+
+The image stack now has an in-memory WIC decoder with an owned renderer-neutral
+bitmap result and an ordinary public Image facade. The media policy accepts
+single-frame PNG, JPEG, and BMP, checks encoded input at 8 MiB and source pixels
+at 16 million, and produces thumbnails with an edge of at most 1024 pixels.
+Checked arithmetic precedes output allocation and narrowing. Reported JPEG
+orientation is applied, reported color profiles are converted to sRGB, and
+premultiplication precedes downsampling so transparent source colors cannot
+bleed into visible edges. Swift copies the native result before freeing it;
+COM objects close before balancing the decoder's apartment initialization.
+
+A separate compatibility entry decodes frame zero of any installed WIC format
+at its full admitted size, retaining raw orientation/color and straight BGRA.
+It has the same input and source limits and a 64-million-byte decoded limit.
+The media policy never silently falls back to this entry. These resource and
+format policies are explicit adaptations, not complete SwiftUI image support.
+Neither synchronous API dispatches work or owns a cache, and cancellation
+cannot interrupt a codec call already running.
+
+Fourteen additive decoder tests contain real PNG/BMP/JPEG pixel oracles,
+transparent-edge and EXIF cases, both policy boundaries, malformed data,
+native output reset, cancellation, and public retained Image composition.
+The corrected 43-byte GIF fixture contains complete clear/pixel/end codes;
+APNG/MPO marker witnesses are not full animated-container conformance tests.
+Parent contracts and strict Swift lint passed. Native compilation, decoding,
+color/profile qualification, and runtime test outcomes remain pending.
+Absent or unsupported WIC color metadata is assumed sRGB; absent or unsupported
+JPEG orientation metadata means orientation 1. These limits remain documented.
+The original goal and all nine gates remain unchanged and open.

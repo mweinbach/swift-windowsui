@@ -1246,7 +1246,7 @@ current scroll geometry remains usable without another layout pass.
 
 `scripts/gallery-compare.ps1` turns the `swift-windowsui-gallery` tool into a visual regression gate for Supported-tier controls.
 
-- The full gallery contains **147** renderable examples; the gate covers a fixed
+- The full gallery registers **150** examples; the gate covers a fixed
   subset of **85** reviewed entries across three tiers. The roster lives at the
   top of `scripts/gallery-compare.ps1`.
   Time-dependent entries (e.g. indeterminate progress) are deliberately
@@ -1255,11 +1255,39 @@ current scroll geometry remains usable without another layout pass.
 The three additional bitmap entries are `bitmap-cap-insets`, `bitmap-tile`,
 and `bitmap-aspect-fit` (128 by 128 canvases). They reuse the same
 `DemoBitmapResizingSample` as the live Gallery and add no reviewed baselines.
-The catalog now has 104 base entries, 16 interaction entries, and 27 derived
+The catalog now has 107 base entries, 16 interaction entries, and 27 derived
 light entries. At `138d49b`, the combined finite-proposal implementation passed
 all 64 selected bitmap, resource, editor and responsive-gallery tests, and
 these three retained CPU PNGs were rendered and inspected. This local result
 does not qualify native macOS rendering, live presentation, or the full gate.
+
+The three file-browser additions are `file-browser-loaded`, `file-browser-empty`,
+and `file-browser-invalid-utf8`, each at 800 by 480, dark appearance and scale 1.
+They render the unchanged shared `DemoFileBrowserTemplate` after public model
+selection/resume and one awaited production read. The injected reader accepts
+only built-in bytes; the production service still enforces its byte limit and
+exact UTF-8 decoder. An unexpected state fails before writing that fixture's PNG.
+The gallery entry point is now async, but preparation runs only for selected
+file-browser fixtures; all previous specs retain their existing synchronous
+snapshot setup. The 85-entry comparison roster and baselines are unchanged.
+
+`DemoFileBrowserGalleryPreparationTests` adds four source-authored async cases
+for the no-read wait and loaded, empty, and invalid sample preparation. These
+are model checks, not pixel or UI interaction checks. This increment has not
+been compiled, tested, or rendered; the new three-fixture render and visual
+review remain separate from the previously recorded bitmap evidence above.
+Use the repository's serial workflow after integrating the source:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter DemoFileBrowserGalleryPreparationTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Product swift-windowsui-gallery
+.build\x86_64-unknown-windows-msvc\debug\swift-windowsui-gallery.exe --entries file-browser-loaded,file-browser-empty,file-browser-invalid-utf8 --output-dir artifacts/file-browser-gallery
+```
+
+Inspect each retained PNG and its selection/content before accepting visual
+evidence. These wide sample fixtures do not qualify actual file I/O, dialogs,
+native interaction, narrow layouts, DPI variants, macOS rendering, or the full
+media-browser goal. See [FileBrowserTemplate.md](FileBrowserTemplate.md#retained-gallery-samples).
 
 `DemoBitmapResourceTests` adds eight async cases for the real demo module's
 named PNG lookup, decoded pattern pixels, cap/tile geometry and sampling,

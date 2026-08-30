@@ -9358,3 +9358,35 @@ Parent contracts and strict lint passed after the four-path patch; all 23
 service methods plus the new construction case still need execution. This
 clarifies an unobservable input distinction without weakening accepted file
 URL safety, read limits, the original feature requirement, or any goal gate.
+
+### Ninth integration: deterministic retained file-preview samples, 2026-08-29
+
+- The retained gallery adds loaded, empty, and invalid-UTF-8 file-preview
+  samples at 800 by 480 in dark appearance at scale 1. Each uses the shared
+  `DemoFileBrowserTemplate` and a fresh production model. Its reader accepts
+  only built-in bytes, while the production preview service performs decoding
+  and its ordinary size/cancellation checks. No fixture opens a user file.
+- A package-only hook captures and awaits the current physical preview task
+  once. It does not start/cancel work, wait for future selections, poll, or
+  preempt an OS read. The gallery entry point is now async; only selected sample
+  fixtures prepare asynchronously. Each checks its exact expected model state
+  before rendering and closes its model on normal or error exit.
+- Four additive semantic tests cover the idle wait and the three decoder
+  outcomes. This gallery patch changes none of the original 85 FilePreview
+  methods or their support; the separately recorded URL repair changes one
+  fixture spelling and adds its own constructor case. The previous 147 fixture
+  definitions, render body, and 85 baseline
+  blobs are preserved. The registered catalog is now 150 entries: 107 base,
+  16 interaction, and 27 light; the reviewed comparison gate remains 85.
+- Source origin is `a700bb01f286c8c17bc03e87413455aa2709a23c` on `ed01e0a`.
+  Parent passive intake `bf5905/0` verified five payloads totaling 76,041 bytes
+  under `artifacts/goal-ninth-file-preview-gallery-intake-v1`. The original
+  3,355-byte provenance file has SHA-256
+  `317bc15dfc4d0b3f77bf73fd6f0669ae4df2c8ef0b5e2dc9b6161acd6c83712d`;
+  the six-path source patch has SHA-256
+  `a8a5f3d59caa8b42526f3f67d84014513ce39462cbfce39f4a0ab5e0e3bee1d0`.
+- These samples require fresh compilation, their four semantic outcomes, and
+  inspection of every actual retained PNG. Source registration is not visual
+  evidence. Native import/drop/dialogs, interaction, narrow layouts, DPI,
+  macOS pixels, thumbnails and the full media-browser workflow remain separate
+  requirements. No baseline, tolerance, font, or original goal gate is changed.

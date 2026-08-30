@@ -203,6 +203,45 @@ or fake image content. Full grid/list media browsing, image decoding and preview
 native drag-out, accessibility/Narrator, and performance qualification remain
 open under the original goal.
 
+## Retained gallery samples
+
+The standalone retained gallery registers three sample previews at 800 by 480,
+dark appearance and scale 1: `file-browser-loaded` selects `Welcome.txt`,
+`file-browser-empty` selects `Empty.txt`, and `file-browser-invalid-utf8` selects
+`Invalid UTF-8.txt`. Each uses the actual `DemoFileBrowserTemplate` and a fresh
+model with all four built-in records. Public selection and resume operations
+start the real preview task; the injected reader returns only built-in bytes
+and rejects every file source without opening it. The production service
+performs its usual cancellation, size, and exact UTF-8 checks.
+
+The gallery's entry point is intentionally async so a selected fixture can
+await its model before the ordinary retained snapshot. The package-only
+`awaitCurrentPreviewRead()` hook captures the current physical task and awaits
+it once. It does not start or cancel work, change lifecycle ownership, wait for
+future selections or pending requests, or preempt an OS read. Ordinary local
+file I/O retains the existing cooperative cancellation limits. Gallery
+preparation uses no sleeps, polling, view-state setters, or renderer-internal
+workarounds; it checks the exact selected sample and completed preview state
+before permitting that PNG. Models are closed on exit, including errors.
+
+Only selected file-browser IDs create these models or run their preparation;
+the live demo's lifecycle and the previous 147 fixture definitions are unchanged.
+The full catalog registers 150 entries, while the reviewed baseline roster
+remains 85. No baseline or tolerance is added or changed by this increment.
+
+`DemoFileBrowserGalleryPreparationTests` authors four semantic cases: awaiting
+an idle model does not resume it, and welcome/empty/invalid samples publish the
+expected production-decoder outcomes. The gallery increment leaves the original
+85 feature cases unchanged; the separate URL admission repair above records its
+one fixture spelling change. This is source-only preparation coverage: the new
+tests have not been compiled or executed, and none of the three fixture PNGs
+has been rendered or reviewed.
+The serial commands are in [Testing.md](Testing.md#gallery-regression-gate).
+These wide samples do not qualify native file import/drop, OS dialogs,
+interactive behavior, narrow layouts, DPI, macOS pixels, or the complete media
+browser. Actual retained rendering remains required before claiming visual
+coverage.
+
 ## Validation scope
 
 `DemoFilePreviewServiceTests` covers real temporary files, exact read limits,

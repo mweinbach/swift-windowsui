@@ -114,6 +114,14 @@ public final class DemoFileBrowserModel: ObservableObject {
     var activeReadTask: Task<Void, Never>? { worker }
     var pendingReadID: String? { pendingRequest?.record.id }
 
+    /// Snapshot preparation can await the real read active at entry without
+    /// starting work or changing lifecycle ownership. This awaits that task
+    /// once; a newer selection or pending read may still be unfinished.
+    package func awaitCurrentPreviewRead() async {
+        let currentRead = worker
+        await currentRead?.value
+    }
+
     private var acceptsNewActions: Bool { !isClosed && viewLifetime?.isFinished != true }
     private var acceptsReadCompletion: Bool { acceptsNewActions && !isSuspended }
 

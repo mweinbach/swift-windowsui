@@ -9,7 +9,7 @@ import WinSwiftUI
 @main
 struct SwiftWindowsUIGalleryTool {
     @MainActor
-    static func main() throws {
+    static func main() async throws {
         // Minimal additive CLI:
         //   --entries <csv>     only render the listed entry ids
         //   --output-dir <path> write PNGs/index somewhere else
@@ -1535,7 +1535,9 @@ struct SwiftWindowsUIGalleryTool {
             // drifts off its control fails the build instead of quietly
             // baselining an idle render.
         ]
-        let darkSpecs = baseSpecs + interactionStateSpecs()
+        let fileBrowserFixtures = fileBrowserGallerySpecs(entryFilter: entryFilter)
+        defer { for model in fileBrowserFixtures.models { model.close() } }
+        let darkSpecs = baseSpecs + fileBrowserFixtures.specs + interactionStateSpecs()
         let gallerySpecs = try darkSpecs + lightAppearanceSpecs(from: darkSpecs)
 
         var entries: [GalleryEntry] = []
@@ -1546,6 +1548,7 @@ struct SwiftWindowsUIGalleryTool {
             if let entryFilter, !entryFilter.contains(spec.id) {
                 continue
             }
+            try await spec.prepare?()
             let fontSession: NativeBitmapFontAttributionSession?
             if fontAttributionOutput != nil, let fixture = NativeBitmapFontFixture(rawValue: spec.id) {
                 fontSession = NativeBitmapFontAttributionSession(
@@ -1901,6 +1904,9 @@ private struct GallerySpec {
     /// Non-nil for the interaction-state tier: the runtime input to deliver
     /// before the scene is captured. `nil` renders the view as built.
     let interaction: GalleryInteraction?
+    /// Selected asynchronous fixtures settle their production model before the
+    /// ordinary retained snapshot. Existing synchronous entries leave this nil.
+    let prepare: (@MainActor () async throws -> Void)?
 
     init(
         id: String,
@@ -1908,7 +1914,8 @@ private struct GallerySpec {
         view: AnyView,
         size: IntSize = IntSize(width: 200, height: 200),
         colorScheme: ColorScheme = .dark,
-        interaction: GalleryInteraction? = nil
+        interaction: GalleryInteraction? = nil,
+        prepare: (@MainActor () async throws -> Void)? = nil
     ) {
         self.id = id
         self.title = title
@@ -1916,7 +1923,60 @@ private struct GallerySpec {
         self.size = size
         self.colorScheme = colorScheme
         self.interaction = interaction
+        self.prepare = prepare
     }
+}
+
+// MARK: - File browser sample previews
+
+@MainActor
+private func fileBrowserGallerySpecs(entryFilter: Set<String>?) -> (
+    specs: [GallerySpec], models: [DemoFileBrowserModel]
+) {
+    let fixtures: [(id: String, title: String, sampleID: String)] = [
+        ("file-browser-loaded", "File Browser · Loaded Sample", "sample:welcome"),
+        ("file-browser-empty", "File Browser · Empty Sample", "sample:empty"),
+        ("file-browser-invalid-utf8", "File Browser · Invalid UTF-8 Sample", "sample:invalid"),
+    ]
+    var specs: [GallerySpec] = []
+    var models: [DemoFileBrowserModel] = []
+    for fixture in fixtures {
+        if let entryFilter, !entryFilter.contains(fixture.id) { continue }
+        // The fixture reader cannot open a file, even if a future fixture
+        // accidentally supplies one. The production service still enforces
+        // cancellation, the byte limit, and exact UTF-8 decoding.
+        let model = DemoFileBrowserModel(
+            service: DemoFilePreviewService { source in
+                guard case .sample(let bytes) = source else {
+                    throw DemoFilePreviewServiceError.invalidFileURL
+                }
+                return bytes
+            })
+        models.append(model)
+        specs.append(
+            GallerySpec(
+                id: fixture.id, title: fixture.title,
+                view: AnyView(DemoFileBrowserTemplate(model: model).frame(width: 800, height: 480)),
+                size: IntSize(width: 800, height: 480),
+                prepare: {
+                    _ = model.select(id: fixture.sampleID)
+                    model.resume()
+                    await model.awaitCurrentPreviewRead()
+                    guard model.selectedID == fixture.sampleID, model.isActive, !model.isReading,
+                        !model.isImporterPresented, model.records == DemoFileBrowserRecord.samples,
+                        case .sample(let bytes) = model.selectedRecord?.source
+                    else { throw GalleryError.fileBrowserPreparationFailed(id: fixture.id) }
+                    if fixture.sampleID == "sample:invalid" {
+                        guard model.preview == .failed(DemoFilePreviewServiceError.invalidUTF8.localizedDescription)
+                        else { throw GalleryError.fileBrowserPreparationFailed(id: fixture.id) }
+                    } else {
+                        guard case .ready(let preview) = model.preview,
+                            preview.byteCount == bytes.count, preview.text.utf8.elementsEqual(bytes)
+                        else { throw GalleryError.fileBrowserPreparationFailed(id: fixture.id) }
+                    }
+                }))
+    }
+    return (specs, models)
 }
 
 // MARK: - Light appearance tier
@@ -1999,7 +2059,8 @@ private func lightAppearanceSpecs(from specs: [GallerySpec]) throws -> [GalleryS
             view: source.view,
             size: source.size,
             colorScheme: .light,
-            interaction: source.interaction
+            interaction: source.interaction,
+            prepare: source.prepare
         )
     }
 }
@@ -2254,6 +2315,7 @@ private struct GalleryBitmapFontAttributionEnvelopeV2: Encodable {
 private enum GalleryError: Error, CustomStringConvertible {
     case interactionHadNoEffect(id: String, state: String)
     case unknownLightTierSource(id: String)
+    case fileBrowserPreparationFailed(id: String)
     case invalidBitmapFontAttribution
     case bitmapFontAttributionOutputUnavailable
     case invalidGeometryDiagnostics
@@ -2273,6 +2335,9 @@ private enum GalleryError: Error, CustomStringConvertible {
             return "Geometry diagnostics require fresh PNG/index outputs and a new separate sidecar directory."
         case .geometryDiagnosticsIncomplete:
             return "Geometry diagnostic evidence is unavailable or incomplete; PNG and index outputs were retained."
+        case .fileBrowserPreparationFailed(let id):
+            return
+                "File browser fixture '\(id)' did not finish its expected built-in sample preview; no PNG was written."
         case .interactionHadNoEffect(let id, let state):
             return """
                 Gallery entry '\(id)' declares the '\(state)' state but renders \
@@ -2336,6 +2401,7 @@ private func galleryCategory(for entry: GalleryEntry) -> GalleryCategory {
 
     let compositionIdentifiers: Set<String> = [
         "controls-panel", "dashboard-metrics", "form-settings", "status-badges", "tinted-controls",
+        "file-browser-loaded", "file-browser-empty", "file-browser-invalid-utf8",
     ]
     if compositionIdentifiers.contains(identifier) {
         return .compositions

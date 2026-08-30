@@ -219,12 +219,16 @@ writes `artifacts/demo-screenshot.png`. Use
 `-AllScreens` for all four, or `-FrameDebug` to force the `RenderFrame` fallback
 path for visual comparison.
 
-The separate retained-runtime visual gallery contains 147 examples, including
+The separate retained-runtime visual gallery registers 150 examples, including
 85 reviewed dark, interaction-state, and light-appearance regression fixtures.
 Three bitmap examples use the shared demo's owned PNG resources for cap
 insets, tiling, and finite aspect fit; they are catalog entries, not newly
 accepted baselines. Resource staging and the remaining relocation checks are
 documented in [`docs/DemoBitmapResources.md`](docs/DemoBitmapResources.md).
+Three file-browser sample entries cover loaded, empty, and invalid UTF-8
+previews through the shared template and production decoder. Their source-only
+registration and pending retained-render checks are documented in
+[`docs/FileBrowserTemplate.md`](docs/FileBrowserTemplate.md#retained-gallery-samples).
 Its generated review portal supports searching and filtering examples, while
 the regression gate can list or compare selected fixture groups:
 

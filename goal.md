@@ -9216,3 +9216,26 @@ prepare/no-far-row tests, and all previously tracked tests are unchanged.
 Parent contracts and strict lint passed; execution is pending. This change
 alone does not claim successful four-round UI Automation realization or close
 the combined 188-method validation obligation. All original gates remain open.
+
+### Ninth integration: correct transparent material and nested content-blur recording
+
+The three observed MaterialCPU21 failures led to two ScenePainter corrections.
+A transparent material still changes the backdrop when its sanitized Float
+blur radius executes; emission now uses the same radius as dependency
+selection instead of rejecting the quad solely because its tint is clear.
+When recording an isolated content-blur source, both finish paths now retain
+the suppression flag. They cannot emit an extra fallback Gaussian inside the
+source before the consuming blur pass, including around deferred children.
+The deferred queue, clip reconstruction, and normal oversized-buffer fallback
+remain unchanged.
+
+Three additive material tests cover the Float execution boundary with an
+independent kernel expectation, suppression through both finish paths, and
+the existing unsized-buffer fallback without allocating a large raster.
+Removing only the additive test block recovers the complete previous
+MaterialContentBlurTests file, including all 21 original methods and assertions.
+Documentation records the corrected pass ownership. Parent strict lint and
+contracts passed after applying the three-file patch. These are source repairs;
+the original three failed cases and all 24 material CPU methods still require
+a fresh execution result, and GPU16 remains separately unqualified.
+No baseline, tolerance, budget, or original completion gate changed.

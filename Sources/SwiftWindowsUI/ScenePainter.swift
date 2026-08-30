@@ -471,6 +471,9 @@ public enum ScenePainter {
         let effectiveBlendMode: BlendMode
         let layerIndex: Int
         let skipCacheUpdates: Bool
+        /// Re-entering an isolated root must suppress the fallback too: its
+        /// content Gaussian belongs to the consuming pass, not this source.
+        let suppressesContentBlurIsolation: Bool
     }
 
     private typealias PaintTraversalWork =
@@ -761,6 +764,7 @@ public enum ScenePainter {
         // `.blur()` is `contentBlurRadius` and is emitted as one pass in
         // `finishPaintNode`, after everything below has painted.
         let blurRadius = node.blurRadius
+        let deviceBlurRadius = materialBlurRadius(for: node, displayScale: displayScale)
         let blurOpaque = node.blurOpaque
         let resolvedHoverEffect = node.resolvedActiveHoverEffect
         let cacheKey = ViewPaintCacheKey(
@@ -1087,7 +1091,7 @@ public enum ScenePainter {
 
             let resolvedBGColor = node.backgroundColor ?? node.backgroundGradient?.startColor
             if let bg = resolvedBGColor,
-                bg.alpha > 0 || hasVisibleGradient(node.backgroundGradient),
+                bg.alpha > 0 || hasVisibleGradient(node.backgroundGradient) || GPUISceneValue.int(deviceBlurRadius) > 0,
                 fillRect.size.width > 0, fillRect.size.height > 0,
                 clipAllowsDrawing(clip: effectiveClip, rect: fillRect),
                 node.backgroundPath == nil
@@ -1105,7 +1109,7 @@ public enum ScenePainter {
                             surfaceSize: surfaceSize,
                             displayScale: displayScale,
                             colorEffects: colorEffects,
-                            blurRadius: Float(blurRadius * displayScale),
+                            blurRadius: deviceBlurRadius,
                             blurOpaque: blurOpaque ? 1 : 0,
                             clipCornerRadius: ownClipCornerRadius(fillRect),
                             blendMode: effectiveBlendMode
@@ -1441,7 +1445,8 @@ public enum ScenePainter {
                                 colorEffects: colorEffects,
                                 effectiveBlendMode: effectiveBlendMode,
                                 layerIndex: layerIndex,
-                                skipCacheUpdates: skipCacheUpdates
+                                skipCacheUpdates: skipCacheUpdates,
+                                suppressesContentBlurIsolation: context.suppressesContentBlurIsolation
                             ),
                             buffer: buffer, children: sortedChildren, childOrigin: childOrigin,
                             subClip: subClip, subInheritedTransform: subInheritedTransform,
@@ -1482,7 +1487,8 @@ public enum ScenePainter {
                                     colorEffects: colorEffects,
                                     effectiveBlendMode: effectiveBlendMode,
                                     layerIndex: layerIndex,
-                                    skipCacheUpdates: skipCacheUpdates
+                                    skipCacheUpdates: skipCacheUpdates,
+                                    suppressesContentBlurIsolation: context.suppressesContentBlurIsolation
                                 )
                             )
                         )
@@ -2108,7 +2114,9 @@ public enum ScenePainter {
     ) {
         let node = state.node
         let radius = node.contentBlurRadius
-        guard radius > 0, state.paintFrame.size.width > 0, state.paintFrame.size.height > 0 else { return }
+        guard !state.suppressesContentBlurIsolation,
+            radius > 0, state.paintFrame.size.width > 0, state.paintFrame.size.height > 0
+        else { return }
 
         let bounds = state.paintFrame
         guard clipAllowsDrawing(clip: state.effectiveClip, rect: bounds) else { return }
@@ -2536,6 +2544,13 @@ public enum ScenePainter {
         return true
     }
 
+    /// Use the same sanitized Float for emission and dependency selection. A
+    /// transparent material still changes the backdrop when this radius runs.
+    private static func materialBlurRadius(for node: ViewNode, displayScale: Double) -> Float {
+        GPUISceneValue.clamped(
+            Float(node.blurRadius * displayScale), lower: 0, upper: GPUISceneLimits.maxBlurRadius)
+    }
+
     /// Independent color/Canvas captures do not make their enclosing window a
     /// backdrop. This scan only selects direct material dependencies; recording
     /// still owns their ordering, opacity, clipping and nested pass boundaries.
@@ -2545,8 +2560,7 @@ public enum ScenePainter {
             guard !node.isHidden, node.opacity > 0 else { continue }
             if node !== root, node.paintsInDeferredPhase { continue }
             if node !== root, !node.colorEffects.isEmpty { continue }
-            let radius = GPUISceneValue.clamped(
-                Float(node.blurRadius * displayScale), lower: 0, upper: GPUISceneLimits.maxBlurRadius)
+            let radius = materialBlurRadius(for: node, displayScale: displayScale)
             if GPUISceneValue.int(radius) > 0 { return true }
             pending.append(contentsOf: node.children)
         }

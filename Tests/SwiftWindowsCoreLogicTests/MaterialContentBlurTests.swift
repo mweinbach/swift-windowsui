@@ -677,6 +677,83 @@ final class MaterialContentBlurTests: XCTestCase {
         }
     }
 
+    func testTransparentMaterialUsesTheEmittedFloatRadiusAtTheExecutionBoundary() async {
+        let size = IntSize(width: 32, height: 32)
+        let cases: [(radius: Double, expectedRadius: Float?)] = [
+            (Double(Float(1).nextDown), nil),
+            (0.99999999, 1),
+        ]
+        for fixture in cases {
+            let stripes = (0..<8).map {
+                ViewNode(frame: Rect(x: Double($0) * 4, y: 0, width: 2, height: 32), backgroundColor: .white)
+            }
+            let material = ViewNode(frame: bounds(size), backgroundColor: .clear, blurRadius: fixture.radius)
+            let root = ViewNode(frame: bounds(size), children: stripes + [material])
+            let scene = paint(root, size: size, clearColor: .black)
+            let materialQuads = scene.layers.flatMap(\.quads).filter { $0.blurRadius > 0 }
+            XCTAssertEqual(materialQuads.map(\.blurRadius), fixture.expectedRadius.map { [$0] } ?? [])
+            XCTAssertTrue(materialQuads.allSatisfy { $0.startA == 0 && $0.endA == 0 })
+            XCTAssertTrue(scene.imageResources.isEmpty)
+            XCTAssertTrue(scene.imageRenderPasses.isEmpty)
+
+            // A radius that remains below one in Float executes no material.
+            // The rounded-up Float executes the radius-1/sigma-.5 kernel even
+            // though its authored Double and tint alpha are both below one.
+            let gain = fixture.expectedRadius == nil ? 1 : 1 / (1 + 2 * exp(-2.0))
+            let pixels = raster(scene, size: size)
+            for (x, sign) in [(12, 1.0), (14, -1.0)] {
+                let value = (1 + sign * gain) / 2
+                assertPremultiplied(pixels, x: x, y: 16, red: value, green: value, blue: value, alpha: 1)
+            }
+        }
+    }
+
+    func testSuppressedContentBlurRootDoesNotAddFallbackInEitherPaintFinishPath() async throws {
+        let size = IntSize(width: 32, height: 32)
+        for usesCompositingGroup in [false, true] {
+            let material = ViewNode(frame: bounds(size), backgroundColor: quarterRed, blurRadius: 1)
+            let blurred = ViewNode(frame: bounds(size), contentBlurRadius: 2, children: [material])
+            blurred.isCompositingGroup = usesCompositingGroup
+            let scene = paint(blurred, size: size, clearColor: halfBlue)
+            XCTAssertTrue(scene.validate().isEmpty)
+            XCTAssertEqual(scene.imageRenderPasses.count, 1)
+            XCTAssertTrue(scene.layers.flatMap(\.quads).isEmpty)
+            let contentPass = try XCTUnwrap(scene.imageRenderPasses.first)
+            XCTAssertEqual(contentPass.input, .isolatedBackdrop)
+            XCTAssertEqual(contentPass.contentBlurRadius, 2)
+
+            let materialScene: GPUIScene
+            if usesCompositingGroup {
+                XCTAssertTrue(contentPass.scene.layers.flatMap(\.quads).isEmpty)
+                XCTAssertEqual(contentPass.scene.imageRenderPasses.count, 1)
+                let groupPass = try XCTUnwrap(contentPass.scene.imageRenderPasses.first)
+                XCTAssertEqual(groupPass.input, .isolatedBackdrop)
+                XCTAssertEqual(groupPass.contentBlurRadius, 0)
+                materialScene = groupPass.scene
+            } else {
+                XCTAssertTrue(contentPass.scene.imageRenderPasses.isEmpty)
+                materialScene = contentPass.scene
+            }
+            XCTAssertEqual(materialScene.layers.flatMap(\.quads).map(\.blurRadius), [1])
+            XCTAssertTrue(materialScene.imageRenderPasses.isEmpty)
+            XCTAssertNil(blurred.cachedCompositingGroupBitmap)
+        }
+    }
+
+    func testUnsizedContentBlurStillEmitsItsExistingFallback() async {
+        // The radius outset exceeds the existing 16,777,216-pixel bitmap
+        // ceiling. This is a scene-only admission test; no large raster runs.
+        let size = IntSize(width: 4096, height: 4096)
+        let blurred = ViewNode(frame: bounds(size), contentBlurRadius: 2)
+        let scene = paint(blurred, size: size, clearColor: halfBlue)
+        XCTAssertTrue(scene.validate().isEmpty)
+        XCTAssertTrue(scene.imageResources.isEmpty)
+        XCTAssertTrue(scene.imageRenderPasses.isEmpty)
+        XCTAssertEqual(scene.layers.flatMap(\.quads).map(\.blurRadius), [2])
+        XCTAssertNil(blurred.cachedCompositingGroupBitmap)
+        XCTAssertFalse(blurred.lastPaintedViaContentBlurIsolation)
+    }
+
     private func deferredSubtree(
         _ node: ViewNode, parentOrigin: Point = .zero, inheritedColorEffects: [RetainedColorEffect] = []
     ) -> DeferredDrawState {

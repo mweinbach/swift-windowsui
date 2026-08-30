@@ -2910,6 +2910,14 @@ The frame's atlas snapshot and each child's image namespace retain their
 existing owners. GPU unwinding restores parent targets, bindings, dimensions,
 frame uniforms and blend state on success and failure.
 
+Re-entering a content-blur root suppresses both isolation creation and the
+inline fallback quad, including the compositing-group finish path. Otherwise
+the recorded source would apply a second Gaussian before the consuming pass,
+at a different point relative to deferred children. A transparent material
+tint still emits its backdrop quad when the sanitized Float radius has a
+positive integer execution radius; the same value drives dependency selection.
+An independent capture whose buffer cannot be sized retains its existing fallback.
+
 `MaterialContentBlurContractTests`, `MaterialContentBlurTests` and
 `D3D11MaterialContentBlurTests` contain source regression oracles for mapping,
 accounting, alpha, halos, nested/deferred sources, order, replay, resize,

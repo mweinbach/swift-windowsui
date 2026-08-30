@@ -38,7 +38,7 @@ final class D3D11MaterialContentBlurTests: XCTestCase {
         XCTAssertEqual(pass.contentBlurRadius, 3)
         XCTAssertTrue(scene.imageResources.isEmpty)
         XCTAssertTrue(pass.scene.imageResources.isEmpty)
-        XCTAssertNil(group.cachedContentBlurBitmap)
+        XCTAssertNil(group.cachedCompositingGroupBitmap)
         XCTAssertEqual(scene.layers.flatMap(\.quads).count, 25, "Wallpaper remains outside the isolation")
         let actual = try render(scene, using: renderer)
         let reference = assertBlurParity(actual, scene: scene, size: size)

@@ -9083,3 +9083,26 @@ Realize failures. No completion gate or work limit changes here.
   need a separately checked continuation design. Fractional-spacing/large-prefix
   cases and complete original goal qualification remain open. All prior goal
   text and all nine completion gates are preserved.
+
+### Ninth integration: repair two test compiler witnesses, 2026-08-29
+
+- The first combined material/FilePreview/List attempt on `ed01e0a` failed
+  during compilation. The direct child exited naturally with code 1 after
+  135.937 seconds (`a8165b/session21690 -> 7b7a16/1`). None of its 179 planned
+  XCTest methods started, and Swift Testing did not start. This is not a test
+  result or a successful build.
+- The two distinct compiler errors were test references: a removed bitmap-cache
+  member and the runtime's fileprivate attachment property. The material test
+  now checks the actual `cachedCompositingGroupBitmap` cache. The List test uses
+  the existing callback-free `accessibilityTarget(for:)` attachment query while
+  retaining its direct-parent identity assertion. That query checks every
+  ancestor's exact runtime and physical child membership through the root.
+- These are the only two expression corrections. All 24 affected test methods
+  and all 190 XCTest assertion calls remain. No production API, expectation,
+  tolerance, budget, skip, or test selection changed. Strict lint and contracts
+  passed (`e882d2/0`); the corrected tests still need a fresh execution.
+- The closed failure, exact old/new test hashes, and source/index preservation
+  are recorded in `artifacts/goal-ninth-ed01-compiler-corrections.json`. Its raw
+  log is 2,761,222 bytes with SHA-256
+  `68acff03a0d6d362b4d1806902ec801831970c7c2554eb62416cf4daf7df14cd`.
+  All prior goal text and the nine original completion gates remain unchanged.

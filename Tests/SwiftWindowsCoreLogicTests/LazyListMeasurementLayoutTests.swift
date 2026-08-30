@@ -99,7 +99,8 @@ final class LazyListMeasurementLayoutTests: XCTestCase {
         XCTAssertEqual(probe.factories, [0, 1])
         XCTAssertEqual(list.children.map { $0.resolvedFrame.minY }, [0, 5, 20, 25])
         XCTAssertEqual(list.children.map { $0.resolvedFrame.height }, [5, 15, 5, 15])
-        XCTAssertTrue(list.children.allSatisfy { $0.parent === list && $0.runtime === host.runtime })
+        XCTAssertTrue(
+            list.children.allSatisfy { $0.parent === list && host.runtime.accessibilityTarget(for: $0) != nil })
         XCTAssertEqual(adapter.contentExtent, 20_000)
         XCTAssertEqual(list.resolvedContentSize.height, 20_000)
         XCTAssertFalse(adapter.hasUnresolvedWork)

@@ -1534,10 +1534,12 @@ public enum ScenePainter {
                 fillRect.size.width > 0, fillRect.size.height > 0,
                 clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
             {
+                let alpha = node.lazyListCanvasPaintAlpha
                 traversal.append(
                     .paint { @MainActor scene, _, usedNativeGlyphs, usedPixelGlyphs, _, _ in
                         var canvasContext = CanvasGraphicsContext()
                         canvasDraw(&canvasContext, quadFillRect.size.scaled(by: 1 / placement.scale))
+                        alpha?.record(canvasContext.operations)
                         appendCanvasOperations(
                             canvasContext.operationsScaled(by: placement.scale),
                             into: &scene,

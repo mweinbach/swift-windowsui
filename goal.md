@@ -9512,3 +9512,82 @@ fixtures with 85 reviewed baselines; those counts describe different sets.
 
 The original 188-method obligation, the new regressions, full validation,
 native and macOS checks, and all nine original completion gates remain open.
+
+### Ninth batch: managed List departure without retained executable activity
+
+The managed removal bridge is integrated from the independently reviewed
+`9a06fa70ba90f70af7a90bd5974a4137d3881e42`, tree
+`3dd535d5a43dddb24127cda5a05662b2c19078cd`, composed over exact `ccff414`.
+`artifacts/goal-ninth-managed-removal-ccff-intake-v1` is an alternative context
+join of the original removal106 packet, not a second implementation layered
+over it. Its manifest SHA256 is
+`6ef150327f0a26d987a7ea2ea7ce398b4620cdb2763ca767a9cf972c54760ef8`;
+all 42 payloads and 4,434,653 bytes were independently checked at intake.
+The source patch is 131,165 bytes, SHA256
+`9f67162c54748410186179b4518f99ddfad0dc2f3d836145a55ce2c91fae2513`.
+The tests and documentation patches are byte-identical to the original sealed
+packet. Reversing that packet from the private composed tree recovers exact
+ccff; no conflict workaround or whole-file replacement was used.
+
+This addresses the previously unconditional rejection of a structurally
+departing, nonidentity-transition root inside an accepted managed List.
+Ordinary removal retains its existing lifecycle rules through a shared
+transition resolver. Raw providers retain their existing refusal and cannot
+borrow transport authority from a managed ancestor. The bridge neither clears
+TabView transitions nor retires all logical State on a descriptor replacement.
+The three failing cold/inactive declared-owner cases need this bridge before
+their original declaration-retirement behavior can proceed; their original
+assertions and the separate default-four-round UIA requirement remain intact.
+
+Normal retained painting records the exact attachment, identity, pose, paint
+ranges, and admitted deferred draws before departure. Original native
+observations precede Canvas callbacks; an old callback cannot certify a new
+attachment or callback assignment. Frozen scenes own their bitmap and glyph
+bytes and follow `GPUIScene.presentationOrder()`. Capturing or replaying the
+departure never calls the old Canvas, application builder, layout closure,
+State owner, task, or cleanup callback. A never-painted attachment has no
+outgoing pixels, but still follows the same transaction eligibility rule.
+
+The accepted retirement drain revokes physical, task, input, focus, and UIA
+authority and completes cleanup before publishing the visual tail. Logical
+State still follows the accepted declaration: an inactive, still-declared Tab
+page preserves State; removing its exact identity retires that generation.
+Viewport eviction does not create a removal tail. All authored removal
+modifiers and clock reads are guarded by the original departing and incoming
+native witnesses, including a check after temporary callback payloads unwind.
+
+The tail owns renderer values and native animation values only. It can project
+supported inherited opacity at the original primitive boundaries rather than
+fading overlapping children as one accidental group. Explicit child effects
+keep their separate boundaries; dependent material output keeps its backdrop
+domain. Original authored alpha is checked before saturation, including Canvas
+operation alpha during the ordinary draw. Existing unrelated root timelines
+keep their easing phase; fresh removal properties start from the last painted
+pose. Completion and shutdown release visual resources without replaying
+application cleanup. The normal GPU scene path submits image render passes;
+only the explicitly documented legacy frame fallback can rasterize a complete
+already-issued frame while a visual tail exists.
+
+The capture limits are 65,536 primitive records, 1,024 spans, 262,144 inspected
+entries, and 64 MiB of retained storage. One normal paint records at most 256
+transition roots sharing a frozen snapshot. A runtime keeps at most 32 tails
+and 128 MiB of their storage. The live render graph reserves capacity first;
+older tails finish when remaining pass/pixel or retention capacity is exhausted.
+Executable retirement has already completed at that point. These are concrete
+resource policies, not measured hardware performance qualification.
+
+Changing scale/rotation, moving clipped or dependent-backdrop output, changing
+a dependent source's target size/DPI, unfinished descendant animations, and
+root effects without sufficient opacity provenance remain implementation gaps.
+Fractional translation of frozen pixels is not native glyph/hairline parity.
+Those gaps still require work under the original goal; refusing them does not
+satisfy their completion requirements.
+
+The 20-path source change adds 106 async tests in eight new files and preserves
+all 576 existing test files from its ccff base. The parent separately retains
+the explicitly documented allocation-fixture correction above. Registry,
+Activity, adapter, and TabView source are unchanged by this bridge. Contracts,
+strict formatting of its 18 Swift files, source composition, and independent
+review are source evidence only. Fresh combined compilation, the original
+declared-owner cases, all 106 new cases, retained visual review, native D3D11/UIA,
+and full validation remain required. No original completion gate is closed.

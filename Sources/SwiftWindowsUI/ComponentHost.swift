@@ -1119,6 +1119,32 @@ public final class ComponentHost {
             children: parent.children, completion: isComplete ? completion : nil)
     }
 
+    /// The actual retirement scope already owns matching. Preserve its parent
+    /// child table while removal modifiers and the animation clock can reenter.
+    @MainActor
+    static func makeRemovalTransitionCheck(
+        admission: RetainedLazyListAdoptionAdmission?, target: ViewNode, parent: ViewNode,
+        sourceParent: ViewNode? = nil, proposedChildren: [ViewNode],
+        lazyJournal: RetainedLazyListAdoptionJournal?
+    ) -> NodeReconcileAdmission? {
+        let snapshot = ReconcileChildrenSnapshot(
+            parent: parent, oldChildren: parent.children, sourceParent: sourceParent,
+            newNodes: sourceParent?.children ?? [], ancestor: nil)
+        // Proposed children can include both retained matches and detached
+        // construction roots. Keep their entire native subtrees current across
+        // every removal callout, without making them departing roots. This
+        // private snapshot never begins transfers or weakens its order checks.
+        var proposedIdentities: Set<ObjectIdentifier> = []
+        for node in proposedChildren {
+            guard proposedIdentities.insert(ObjectIdentifier(node)).inserted,
+                snapshot.recordPreparedSubtree(of: node)
+            else { return nil }
+        }
+        let check = NodeReconcileAdmission(
+            admission, source: sourceParent, target: target, childrenSnapshot: snapshot, lazyJournal: lazyJournal)
+        return check.isCurrent ? check : nil
+    }
+
     /// The token is concrete and performs only native generation/lifetime
     /// reads. Per-node witnesses reject detach/reattach even when a callback
     /// restores the same parent and runtime before returning.

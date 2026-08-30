@@ -1960,6 +1960,8 @@ private final class ViewNodeLifecycleHandlers {
     var lazyListViewIdentity: RetainedLazyListAttachmentIdentity?
     var lazyListScrollIntentIdentity: RetainedLazyListAttachmentIdentity?
     var lazyListRetirementIdentity: RetainedLazyListAttachmentIdentity?
+    var lazyListPresentedPaint: RetainedLazyListPresentedPaint?
+    var lazyListCanvasPaintAlpha: RetainedLazyListCanvasPaintAlpha?
 }
 
 /// Native identity only. Old proofs keep this allocation distinct without
@@ -2734,6 +2736,7 @@ public final class ViewNode {
     }
 
     public var canvasDraw: ((inout CanvasGraphicsContext, Size) -> Void)? {
+        willSet { lifecycleHandlers?.lazyListCanvasPaintAlpha = nil }
         didSet { invalidateRuntime(.paint) }
     }
 
@@ -3166,6 +3169,7 @@ public final class ViewNode {
     }
 
     public var transition: RetainedTransition {
+        willSet { removalTransitionConfigurationID = RetainedRemovalTransitionConfigurationID() }
         didSet { invalidateRuntime(.paint) }
     }
 
@@ -4099,7 +4103,11 @@ public final class ViewNode {
     /// carries no `currentAnimationTransaction`, so without this the knob
     /// reached its end position in a single frame and the 20px of travel was
     /// never drawn.
-    public var implicitReconcileAnimation: AnimationTransaction?
+    public var implicitReconcileAnimation: AnimationTransaction? {
+        willSet { removalTransitionConfigurationID = RetainedRemovalTransitionConfigurationID() }
+    }
+
+    internal private(set) var removalTransitionConfigurationID = RetainedRemovalTransitionConfigurationID()
 
     private var animationModifierStorage: RetainedAnimationModifierStorage?
 
@@ -4109,6 +4117,7 @@ public final class ViewNode {
     public var reconcileAnimationModifiers: [RetainedAnimationModifier] {
         get { animationModifierStorage?.modifiers ?? [] }
         set {
+            removalTransitionConfigurationID = RetainedRemovalTransitionConfigurationID()
             guard !newValue.isEmpty || animationModifierStorage != nil else { return }
             if animationModifierStorage == nil {
                 animationModifierStorage = RetainedAnimationModifierStorage()
@@ -4786,8 +4795,32 @@ public final class ViewNode {
         // Their reserved insertion IDs must survive until that first write.
         if runtime != nil { retainedLazyListActivityStorage?.revokeAttachment() }
         lifecycleHandlers?.completedLazyTaskAppearance = nil
+        hasPaintedCurrentAttachment = false
         lifecycleHandlers?.lazyListAttachmentIdentity = nil
+        lifecycleHandlers?.lazyListPresentedPaint = nil
+        lifecycleHandlers?.lazyListCanvasPaintAlpha = nil
         lifecycleHandlers?.retainedLazyListAdapter?.revokePendingCandidate()
+    }
+
+    var retainedLazyListPresentedPaint: RetainedLazyListPresentedPaint? {
+        get { lifecycleHandlers?.lazyListPresentedPaint }
+        set {
+            if lifecycleHandlers == nil, newValue != nil { lifecycleHandlers = ViewNodeLifecycleHandlers() }
+            lifecycleHandlers?.lazyListPresentedPaint = newValue
+        }
+    }
+
+    var lazyListCanvasPaintAlpha: RetainedLazyListCanvasPaintAlpha? {
+        lifecycleHandlers?.lazyListCanvasPaintAlpha
+    }
+
+    func captureLazyListCanvasPaintAlpha() -> RetainedLazyListCanvasPaintAlpha? {
+        guard canvasDraw != nil else { return nil }
+        if lifecycleHandlers == nil { lifecycleHandlers = ViewNodeLifecycleHandlers() }
+        if lifecycleHandlers?.lazyListCanvasPaintAlpha == nil {
+            lifecycleHandlers?.lazyListCanvasPaintAlpha = RetainedLazyListCanvasPaintAlpha()
+        }
+        return lifecycleHandlers?.lazyListCanvasPaintAlpha
     }
 
     func childrenForLazyListReconciliation(from source: ViewNode) -> [ViewNode] {
@@ -9414,7 +9447,9 @@ public final class ViewNode {
             baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect)
         {
             var context = CanvasGraphicsContext()
+            let alpha = lazyListCanvasPaintAlpha
             canvasDraw(&context, fillRect.size.scaled(by: 1 / canvasCoordinateScale))
+            alpha?.record(context.operations)
             context.appendCommands(
                 into: &commands,
                 // Draw in logical Canvas coordinates, then apply the inherited
@@ -9665,7 +9700,10 @@ public final class ViewNode {
 
     func markSubtreeRendered() {
         subtreeDirtyFlags = []
+        hasPaintedCurrentAttachment = true
     }
+
+    private(set) var hasPaintedCurrentAttachment = false
 
     /// Clears the deferred-layout mark and, if it was set, the cached layout
     /// key with it, so the caller's `layoutSubtree` cannot take its
@@ -11331,127 +11369,9 @@ public final class ViewNode {
 
     @discardableResult
     func applyRemovalTransition() -> Bool {
-        let removal = transition.removal
-        guard removal.kind != .identity else { return false }
-
-        var fullTransaction =
-            currentTransaction
-            ?? currentAnimationTransaction.map {
-                Transaction(animation: Animation(duration: $0.duration, easing: $0.easing))
-            }
-        let modifiers = reconcileAnimationModifiers
-        for modifier in modifiers.reversed() {
-            var transaction = fullTransaction ?? Transaction()
-            if modifier.apply(to: &transaction, previous: modifier) {
-                fullTransaction = transaction
-            }
-        }
-        if let fullTransaction,
-            fullTransaction.disablesAnimations || fullTransaction.animation == nil
-        {
-            return false
-        }
-
-        let tx: (duration: Double, easing: AnimationEasing)? =
-            fullTransaction?.animation.map { ($0.duration, $0.easing) }
-            ?? currentAnimationTransaction ?? implicitReconcileAnimation.map { ($0.duration, $0.easing) }
-        let duration = tx?.duration ?? 0.35
-        let easing = tx?.easing ?? .easeInOut
-        guard duration > 0 else { return false }
-        let now = animationClockNow
-
-        applySingleRemovalTransition(removal, duration: duration, easing: easing, now: now)
-        return !animationStates.isEmpty
+        RetainedRemovalTransitionResolver.applyOrdinary(node: self)
     }
 
-    private func applySingleRemovalTransition(
-        _ transition: RetainedTransition, duration: Double, easing: AnimationEasing, now: Double
-    ) {
-        switch transition.kind {
-        case .identity:
-            break
-        case .opacity:
-            let startOpacity = opacity
-            animationStates[.opacity] = AnimationState(
-                startValue: startOpacity, endValue: 0,
-                startTime: now, duration: duration, easing: easing
-            )
-        case .scale(let scaleX, let scaleY, _, _):
-            let startScaleX = transform.scaleX
-            let startScaleY = transform.scaleY
-            animationStates[.transformScaleX] = AnimationState(
-                startValue: startScaleX, endValue: scaleX,
-                startTime: now, duration: duration, easing: easing
-            )
-            animationStates[.transformScaleY] = AnimationState(
-                startValue: startScaleY, endValue: scaleY,
-                startTime: now, duration: duration, easing: easing
-            )
-        case .offset(let x, let y):
-            let startTX = transform.translationX
-            let startTY = transform.translationY
-            animationStates[.transformTranslationX] = AnimationState(
-                startValue: startTX, endValue: x,
-                startTime: now, duration: duration, easing: easing
-            )
-            animationStates[.transformTranslationY] = AnimationState(
-                startValue: startTY, endValue: y,
-                startTime: now, duration: duration, easing: easing
-            )
-        case .move(let edge):
-            let offsetX: Double
-            let offsetY: Double
-            switch edge {
-            case .leading:
-                offsetX = -resolvedFrame.size.width
-                offsetY = 0
-            case .trailing:
-                offsetX = resolvedFrame.size.width
-                offsetY = 0
-            case .top:
-                offsetX = 0
-                offsetY = -resolvedFrame.size.height
-            case .bottom:
-                offsetX = 0
-                offsetY = resolvedFrame.size.height
-            }
-            let startTX = transform.translationX
-            let startTY = transform.translationY
-            animationStates[.transformTranslationX] = AnimationState(
-                startValue: startTX, endValue: offsetX,
-                startTime: now, duration: duration, easing: easing
-            )
-            animationStates[.transformTranslationY] = AnimationState(
-                startValue: startTY, endValue: offsetY,
-                startTime: now, duration: duration, easing: easing
-            )
-        case .slide:
-            let startTX = transform.translationX
-            animationStates[.transformTranslationX] = AnimationState(
-                startValue: startTX, endValue: resolvedFrame.size.width,
-                startTime: now, duration: duration, easing: easing
-            )
-        case .push:
-            let startTX = transform.translationX
-            let startScaleX = transform.scaleX
-            animationStates[.transformTranslationX] = AnimationState(
-                startValue: startTX, endValue: resolvedFrame.size.width * 0.5,
-                startTime: now, duration: duration, easing: easing
-            )
-            animationStates[.transformScaleX] = AnimationState(
-                startValue: startScaleX, endValue: 0.85,
-                startTime: now, duration: duration, easing: easing
-            )
-        case .combined(let first, let second):
-            applySingleRemovalTransition(first, duration: duration, easing: easing, now: now)
-            applySingleRemovalTransition(second, duration: duration, easing: easing, now: now)
-        case .asymmetric:
-            // Defensive: removal property already flattens asymmetric.
-            break
-        case .modifier:
-            break
-        }
-    }
 }
 private func insetConstraints(_ constraints: LayoutConstraints, by padding: EdgeInsets) -> LayoutConstraints {
     LayoutConstraints(
@@ -12452,7 +12372,7 @@ public final class RetainedViewRuntime {
     /// timer stopped there the next phase would never start.
     public var hasActiveAnimations: Bool {
         !colorAnimations.isEmpty || buttonRepeatState != nil || longPressAttempt != nil || !scrollMomenta.isEmpty
-            || !scrollPresentedTweens.isEmpty || !transitionOverlays.isEmpty
+            || !scrollPresentedTweens.isEmpty || !transitionOverlays.isEmpty || !retiredLazyListPaints.isEmpty
             || !scrollIndicatorReveals.isEmpty
             || !deferredRebuilds.isEmpty
             || hasBlinkingCaret
@@ -13676,6 +13596,242 @@ public final class RetainedViewRuntime {
     /// out via their removal transition. Rendered after the main tree each frame.
     public internal(set) var transitionOverlays: [ViewNode] = []
 
+    /// Managed List departures have already finished all executable cleanup.
+    /// Their bounded visual tails own renderer values only, unlike ordinary
+    /// transitionOverlays, whose existing lifecycle timing stays unchanged.
+    static let maximumRetiredLazyListPaintCount = 32
+    static let maximumRetiredLazyListPaintBytes = 128 * 1_024 * 1_024
+    private var retiredLazyListPaints: [RetainedLazyListRemovalPaint] = []
+    var retiredLazyListPaintCount: Int { retiredLazyListPaints.count }
+    private(set) var retiredLazyListPaintBudgetCompletions = 0
+
+    fileprivate func acceptRetiredLazyListPaint(_ paints: [RetainedLazyListRemovalPaint]) {
+        guard permitsRetainedActionInvocation else { return }
+        var bytes = retiredLazyListPaints.reduce(0) { $0 + $1.source.resourceBytes }
+        for paint in paints {
+            let incomingBytes = paint.source.resourceBytes
+            guard incomingBytes <= Self.maximumRetiredLazyListPaintBytes else { continue }
+            // Cleanup is already complete, so finishing the oldest visual at
+            // this explicit resource bound cannot retain or replay callbacks.
+            while !retiredLazyListPaints.isEmpty,
+                retiredLazyListPaints.count >= Self.maximumRetiredLazyListPaintCount
+                    || bytes > Self.maximumRetiredLazyListPaintBytes - incomingBytes
+            {
+                bytes -= retiredLazyListPaints.removeFirst().source.resourceBytes
+                retiredLazyListPaintBudgetCompletions += 1
+            }
+            retiredLazyListPaints.append(paint)
+            bytes += incomingBytes
+        }
+        if !paints.isEmpty { invalidate(.paint) }
+    }
+
+    private func advanceRetiredLazyListPaint(to timestamp: Double) -> Bool {
+        guard !retiredLazyListPaints.isEmpty else { return false }
+        for index in retiredLazyListPaints.indices { retiredLazyListPaints[index].advance(to: timestamp) }
+        retiredLazyListPaints.removeAll(where: \.isComplete)
+        // The final paint drops image-pass resources from the submitted scene
+        // as well as from this runtime. There are no deferred cleanup callbacks.
+        invalidate(.paint)
+        return true
+    }
+
+    private func appendingRetiredLazyListPaint(to scene: GPUIScene, displayScale: Double) -> GPUIScene {
+        guard !retiredLazyListPaints.isEmpty else { return scene }
+        guard let size = Self.retiredPaintSurfaceSize(root.frame.size, scale: displayScale) else {
+            retiredLazyListPaintBudgetCompletions += retiredLazyListPaints.count
+            retiredLazyListPaints.removeAll()
+            return scene
+        }
+        // The live scene has priority. Newer departures keep the remaining
+        // render-pass budget; an older visual finishes instead of submitting
+        // an invalid graph or reappearing later when capacity becomes free.
+        let selected = RetainedLazyListRemovalPaint.fittingSceneBudget(
+            retiredLazyListPaints,
+            liveCost: RetainedLazyListPaintSource.executionCost(scene: scene, surfaceSize: size),
+            surfaceSize: size, displayScale: displayScale)
+        retiredLazyListPaintBudgetCompletions += retiredLazyListPaints.count - selected.count
+        retiredLazyListPaints = selected
+        var result = scene
+        for paint in retiredLazyListPaints { paint.append(to: &result, targetSize: size, displayScale: displayScale) }
+        result.finish()
+        return result
+    }
+
+    private func shippableFrame(_ frame: RenderFrame) -> RenderFrame {
+        guard !retiredLazyListPaints.isEmpty else { return frame }
+        guard let size = Self.retiredPaintSurfaceSize(root.frame.size, scale: 1) else {
+            retiredLazyListPaintBudgetCompletions += retiredLazyListPaints.count
+            retiredLazyListPaints.removeAll()
+            return frame
+        }
+        guard RetainedLazyListPaintSnapshot.permitsFrameSceneLowering(frame) else {
+            retiredLazyListPaintBudgetCompletions += retiredLazyListPaints.count
+            retiredLazyListPaints.removeAll()
+            return frame
+        }
+        // The legacy command vocabulary has no image-render-pass operation.
+        // Its existing CPU scene bridge consumes these immutable commands and
+        // frozen sources only; the normal GPU scene path never rasterizes here.
+        let scene = GPUIScene(from: frame, surfaceSize: root.frame.size)
+        let result = appendingRetiredLazyListPaint(to: scene, displayScale: 1)
+        let bitmap = GPUIRawSceneRasterizer.rasterize(result, size: size)
+        return RenderFrame(
+            clearColor: frame.clearColor,
+            commands: [.drawBitmap(DrawBitmapCommand(rect: Rect(origin: .zero, size: root.frame.size), bitmap: bitmap))]
+        )
+    }
+
+    private static func retiredPaintSurfaceSize(_ size: Size, scale: Double) -> IntSize? {
+        let width = (size.width * scale).rounded(.up)
+        let height = (size.height * scale).rounded(.up)
+        guard width.isFinite, height.isFinite, width > 0, height > 0,
+            width <= Double(GPUISceneLimits.maxSurfaceDimension),
+            height <= Double(GPUISceneLimits.maxSurfaceDimension), width * height <= 16_777_216
+        else { return nil }
+        return IntSize(width: Int32(width), height: Int32(height))
+    }
+
+    private struct LazyListPaintCapture {
+        let observation: RetainedLazyListPaintObservation
+        let mutationRevision: UInt64
+        let lifecycleRevision: UInt64
+    }
+
+    private func beginLazyListPaintCapture() -> LazyListPaintCapture? {
+        guard permitsRetainedActionInvocation,
+            lazyListRegistrations.values.contains(where: { $0.adapter?.managedLogicalDescriptorBinding != nil }),
+            let observation = RetainedLazyListPaintObservation(root: root)
+        else { return nil }
+        return LazyListPaintCapture(
+            observation: observation, mutationRevision: presentationMutationRevision,
+            lifecycleRevision: renderLifecycleRevision)
+    }
+
+    /// The original native witnesses and pose predate all painters. A Canvas
+    /// callback cannot detach/reinsert a node, mutate its paint, and then have
+    /// old pixels certified by a newly minted attachment proof.
+    private func rememberLazyListPaint(
+        content: RetainedLazyListPaintSnapshot.Content, identity: PaintSnapshotIdentity,
+        deferredDraws: [DeferredDrawState], isScene: Bool, capture: LazyListPaintCapture?
+    ) {
+        guard permitsRetainedActionInvocation, let capture else { return }
+        let validAttempt =
+            capture.observation.isCurrent
+            && capture.mutationRevision == presentationMutationRevision
+            && capture.lifecycleRevision == renderLifecycleRevision
+        let scale = isScene ? max(displayScale, 1) : 1
+        let size = Self.retiredPaintSurfaceSize(root.frame.size, scale: scale)
+        var snapshot: RetainedLazyListPaintSnapshot?
+        var freezeFailed = false
+        var work: [(ViewNode, Bool, Bool, Bool, Int)] = [(root, false, false, true, 0)]
+        var visited = Set<ObjectIdentifier>()
+        var retainedRootCount = 0
+        while let (node, inheritedManaged, inheritedHidden, inheritedUnitOpacity, depth) = work.popLast() {
+            guard depth < ViewNode.maximumTraversalDepth,
+                visited.insert(ObjectIdentifier(node)).inserted, node.runtime === self
+            else { continue }
+            let managed: Bool
+            if let adapter = node.retainedLazyListAdapter {
+                managed = adapter.managedLogicalDescriptorBinding != nil
+            } else {
+                managed = inheritedManaged
+            }
+            let hidden = inheritedHidden || node.isHidden
+            let observed = capture.observation.entry(for: node)
+            let unitOpacity = inheritedUnitOpacity && observed.map { (0...1).contains($0.initialOpacity) } == true
+            if managed, let entry = observed {
+                var remembered = RetainedLazyListPresentedPaint(
+                    attachment: entry.attachment, identity: entry.identity,
+                    snapshot: nil, ranges: [], pose: nil, isUnavailable: true)
+                let nodeIdentity = isScene ? node.cachedSceneSnapshotIdentity : node.cachedFrameSnapshotIdentity
+                let primaryRange = isScene ? node.cachedScenePaintRange : node.cachedFrameCommandRange
+                let key = isScene ? node.cachedSceneKey : node.cachedFrameKey
+                if validAttempt, hidden {
+                    remembered = RetainedLazyListPresentedPaint(
+                        attachment: entry.attachment, identity: entry.identity,
+                        snapshot: nil, ranges: [], pose: nil, isUnavailable: false)
+                } else if validAttempt, nodeIdentity == identity, let primaryRange,
+                    let nodes = ViewNode.lazyListNodes(in: [node])
+                {
+                    let ids = Set(nodes.map(ObjectIdentifier.init))
+                    var ranges = [primaryRange]
+                    for deferred in deferredDraws {
+                        let owner: ViewNode?
+                        switch deferred.payload {
+                        case .subtree(let payload): owner = payload.node
+                        case .scrollIndicator(let payload): owner = payload.node
+                        }
+                        guard let owner, ids.contains(ObjectIdentifier(owner)),
+                            (isScene ? deferred.cachedSceneSnapshotIdentity : deferred.cachedFrameSnapshotIdentity)
+                                == identity,
+                            let range = isScene ? deferred.cachedScenePaintRange : deferred.cachedFrameCommandRange
+                        else { continue }
+                        ranges.append(range)
+                    }
+                    ranges = RetainedLazyListPaintSnapshot.mergedRanges(ranges)
+                    // A container may draw only deferred descendants. Decide
+                    // emptiness after including that admitted paint footprint.
+                    if ranges.isEmpty {
+                        remembered = RetainedLazyListPresentedPaint(
+                            attachment: entry.attachment, identity: entry.identity,
+                            snapshot: nil, ranges: [], pose: nil, isUnavailable: false)
+                    } else if node.transition.removal.kind != .identity, retainedRootCount < 256,
+                        let key, let size
+                    {
+                        retainedRootCount += 1
+                        if snapshot == nil, !freezeFailed {
+                            let frozen: RetainedLazyListPaintSnapshot.Content?
+                            switch content {
+                            case .scene(let scene):
+                                frozen = RetainedLazyListPaintSource.freezingResources(in: scene).map {
+                                    .scene($0)
+                                }
+                            case .frame(let frame):
+                                frozen = RetainedLazyListPaintSource.freezingResources(in: frame).map {
+                                    .frame($0)
+                                }
+                            }
+                            if let frozen {
+                                snapshot = RetainedLazyListPaintSnapshot(
+                                    content: frozen, identity: identity, surfaceSize: size, displayScale: scale)
+                            } else {
+                                freezeFailed = true
+                            }
+                        }
+                        if let snapshot {
+                            remembered = RetainedLazyListPresentedPaint(
+                                attachment: entry.attachment, identity: entry.identity,
+                                snapshot: snapshot, ranges: ranges,
+                                pose: RetainedLazyListPaintPose(
+                                    opacity: entry.initialOpacity, transform: entry.initialTransform,
+                                    pivot: Point(
+                                        x: key.bounds.midX - entry.initialTransform.translationX,
+                                        y: key.bounds.midY - entry.initialTransform.translationY),
+                                    clip: (isScene ? node.parent?.cachedSceneKey : node.parent?.cachedFrameKey)?
+                                        .contentMask,
+                                    displayScale: scale,
+                                    rootOpacityIsInPrimitives: key.contentBlurRadius == 0 && key.colorEffects.isEmpty
+                                        && unitOpacity
+                                        && nodes.allSatisfy {
+                                            capture.observation.entry(for: $0).map {
+                                                (0...1).contains($0.initialOpacity)
+                                                    && $0.permitsInheritedOpacityProjection
+                                            }
+                                                == true
+                                        }),
+                                isUnavailable: false)
+                        }
+                    }
+                }
+                node.retainedLazyListPresentedPaint = remembered
+            } else {
+                node.retainedLazyListPresentedPaint = nil
+            }
+            for child in node.children.reversed() { work.append((child, managed, hidden, unitOpacity, depth + 1)) }
+        }
+    }
+
     /// Captured frame and node references for matched geometry effect processing.
     struct MatchedGeometryOldNode {
         let node: ViewNode
@@ -13727,7 +13883,7 @@ public final class RetainedViewRuntime {
             sceneGeometryDiagnosticRequest = nil
         }
         if scrollObserverRegistry?.isDelivering == true, let cachedFrame {
-            return cachedFrame
+            return shippableFrame(cachedFrame)
         }
         if let cachedFrame, !isDirty {
             lastFrameReplayCount = 0
@@ -13737,7 +13893,7 @@ public final class RetainedViewRuntime {
             lastDeferredOverlayReplayCount = 0
             lastDeferredDrawFrameReplayCount = 0
             lastDeferredDrawSceneReplayCount = 0
-            return cachedFrame
+            return shippableFrame(cachedFrame)
         }
 
         // Gap/Fix: Frame pacing enforcement — if minimumFrameInterval is set,
@@ -13752,7 +13908,7 @@ public final class RetainedViewRuntime {
                 lastDeferredOverlayReplayCount = 0
                 lastDeferredDrawFrameReplayCount = 0
                 lastDeferredDrawSceneReplayCount = 0
-                return cachedFrame
+                return shippableFrame(cachedFrame)
             }
         }
 
@@ -13762,6 +13918,7 @@ public final class RetainedViewRuntime {
         applyMatchedGeometryAnimations()
         deliverRenderLifecycleCallbacks(ownsRenderPass: ownsRenderPass)
 
+        let paintCapture = beginLazyListPaintCapture()
         let previousFrame = cachedFrameSnapshot
         let snapshotIdentity = PaintSnapshotIdentity()
         var commands: [RenderCommand] = []
@@ -13800,6 +13957,9 @@ public final class RetainedViewRuntime {
         }
 
         let frame = RenderFrame(clearColor: clearColor, commands: commands)
+        rememberLazyListPaint(
+            content: .frame(frame), identity: snapshotIdentity,
+            deferredDraws: prepaintState.deferredDraws, isScene: false, capture: paintCapture)
         lastFrameReplayCount = replayCount
         lastDeferredDrawFrameReplayCount = deferredDrawReplayCount
         lastDeferredDrawSceneReplayCount = 0
@@ -13810,7 +13970,7 @@ public final class RetainedViewRuntime {
         if timestamp > 0 {
             lastRenderTime = timestamp
         }
-        return frame
+        return shippableFrame(frame)
     }
 
     /// Render the current view tree as a GPUIScene for batch rendering.
@@ -13894,6 +14054,7 @@ public final class RetainedViewRuntime {
         discardSceneWithStaleAtlas()
         let layoutEndedAt = collectsPhaseTimings ? PlatformClock.now() : 0
 
+        let paintCapture = beginLazyListPaintCapture()
         let previousScene = cachedSceneSnapshot
         var replayCount = 0
         var deferredDrawReplayCount = 0
@@ -13911,6 +14072,9 @@ public final class RetainedViewRuntime {
             overlays: transitionOverlays
         )
         let scene = paintedSnapshot.scene
+        rememberLazyListPaint(
+            content: .scene(scene), identity: paintedSnapshot.identity, deferredDraws: deferredDraws,
+            isScene: true, capture: paintCapture)
         if let geometryRequest {
             if geometryRequest.result == nil {
                 geometryRequest.finish(captureSceneGeometryDiagnostic())
@@ -13947,7 +14111,7 @@ public final class RetainedViewRuntime {
         if timestamp > 0 {
             lastRenderTime = timestamp
         }
-        return scene
+        return appendingRetiredLazyListPaint(to: scene, displayScale: max(displayScale, 1))
     }
 
     private func discardSceneWithStaleAtlas() {
@@ -13969,7 +14133,7 @@ public final class RetainedViewRuntime {
     private func shippable(_ scene: GPUIScene) -> GPUIScene {
         var shipped = scene
         ScenePainter.attachCachedGlyphAtlases(to: &shipped)
-        return shipped
+        return appendingRetiredLazyListPaint(to: shipped, displayScale: max(displayScale, 1))
     }
 
     public func pointerMoved(to point: Point) {
@@ -16826,6 +16990,7 @@ public final class RetainedViewRuntime {
         let didStartScrollIndicatorTween = tickScrollIndicatorReveals(at: timestamp)
         let didBlinkCaret = tickCaretBlink(at: timestamp)
         let didAdvancePropertyAnimations = tickPropertyAnimations(node: root, at: timestamp)
+        let didAdvanceRetiredLazyListPaint = advanceRetiredLazyListPaint(to: timestamp)
 
         var didAdvanceOverlayAnimations = false
         var completedOverlays: [ViewNode] = []
@@ -16855,6 +17020,7 @@ public final class RetainedViewRuntime {
             return didRunDeferredRebuild || didAdvanceLongPress || didAdvanceButtonRepeat || didAdvanceScrollMomenta
                 || didAdvanceScrollPresentedTweens || didStartScrollIndicatorTween || didBlinkCaret
                 || didAdvancePropertyAnimations || didAdvanceOverlayAnimations || !completedOverlays.isEmpty
+                || didAdvanceRetiredLazyListPaint
         }
 
         var didUpdateAnyAnimation = false
@@ -16888,7 +17054,7 @@ public final class RetainedViewRuntime {
         return didUpdateAnyAnimation || didRunDeferredRebuild || didAdvanceLongPress || didAdvanceButtonRepeat
             || didAdvanceScrollMomenta || didAdvanceScrollPresentedTweens || didStartScrollIndicatorTween
             || didBlinkCaret || didAdvancePropertyAnimations || didAdvanceOverlayAnimations
-            || !completedOverlays.isEmpty
+            || !completedOverlays.isEmpty || didAdvanceRetiredLazyListPaint
     }
 
     // MARK: - Scroll Momentum
@@ -17552,6 +17718,9 @@ public final class RetainedViewRuntime {
     public func stopRenderLifecycleCallbacks() {
         lazyListLogicalHostLifetime.revoke()
         permitsRenderLifecycleCallbacks = false
+        retiredLazyListPaints.removeAll()
+        cachedSceneSnapshot = nil
+        cachedFrameSnapshot = nil
         lazyListAccessibilityPreparation?.isActive = false
         lazyListAccessibilityPreparation = nil
         if let pendingListNavigationReveal { cancelListNavigationReveal(pendingListNavigationReveal) }
@@ -17567,6 +17736,7 @@ public final class RetainedViewRuntime {
             guard visited.insert(ObjectIdentifier(node)).inserted else { continue }
             nodes.append(contentsOf: node.children)
             node.listNavigationOwner?.revoke()
+            node.retainedLazyListPresentedPaint = nil
         }
         // Also retire a slot already removed from an ordinary queue for
         // delivery, or whose stale scope no longer appears in the live tree.
@@ -20513,10 +20683,12 @@ extension ViewNode {
             case .structural: reason = admission?.removalReason(for: root) ?? .structural
             }
             if case .structural = reason, root.runtime != nil, root.transition.removal.kind != .identity {
-                // A structural overlay defers disappearance until animation
-                // completion. This dormant slice has no captured-overlay
-                // completion/close bridge, so it must not change that timing.
-                return false
+                // Only the managed accepted-write journal owns the immediate
+                // logical/physical cleanup bridge. Raw providers keep their
+                // original pre-mutation rejection contract.
+                guard lazyJournal?.isOrdinaryAdoption == false, root.hasManagedLazyListPaintAncestry else {
+                    return false
+                }
             }
         }
         let identifiers = Set(nodes.map(ObjectIdentifier.init))
@@ -20528,6 +20700,92 @@ extension ViewNode {
             guard runtime.canRetireLazyListInteractionOwners(in: identifiers) else { return false }
         }
         return admission?.isCurrent != false && lazyJournal?.canContinueAdoption != false
+    }
+
+    /// Adoption journals may also contain ordinary siblings. The nearest
+    /// actual List adapter defines this node's physical scope; a nested raw
+    /// provider cannot borrow a managed ancestor's removal transport.
+    private var hasManagedLazyListPaintAncestry: Bool {
+        let originalRuntime = runtime
+        var cursor: ViewNode? = self
+        var visited = Set<ObjectIdentifier>()
+        while let node = cursor, visited.count < ViewNode.maximumTraversalDepth {
+            guard visited.insert(ObjectIdentifier(node)).inserted, node.runtime === originalRuntime else {
+                return false
+            }
+            if let adapter = node.retainedLazyListAdapter { return adapter.managedLogicalDescriptorBinding != nil }
+            guard let parent = node.parent, parent.children.contains(where: { $0 === node }) else { return false }
+            cursor = parent
+        }
+        return false
+    }
+
+    /// Runs once inside the actual ancestor transaction scope. Preparation
+    /// freezes already-presented renderer values and resolves guarded removal
+    /// modifiers before the structural departure batch. The later retirement drain
+    /// consumes only these values and cannot call an old painter or clock.
+    private func prepareLazyListRemovalPaint(
+        roots: [ViewNode], admission: RetainedLazyListAdoptionAdmission?,
+        removalReason: RetainedChildRemovalReason, lazyJournal: RetainedLazyListAdoptionJournal?,
+        sourceParent: ViewNode?, proposedChildren: [ViewNode]
+    ) -> [RetainedLazyListRemovalPaint]? {
+        let transitioning = roots.filter { root in
+            let reason: RetainedChildRemovalReason
+            switch removalReason {
+            case .virtualization: reason = .virtualization
+            case .structural: reason = admission?.removalReason(for: root) ?? .structural
+            }
+            if case .virtualization = reason { return false }
+            return root.runtime != nil && root.transition.removal.kind != .identity
+        }
+        guard !transitioning.isEmpty else { return [] }
+        guard lazyJournal?.isOrdinaryAdoption == false, transitioning.allSatisfy(\.hasManagedLazyListPaintAncestry),
+            let nativeCheck = ComponentHost.makeRemovalTransitionCheck(
+                admission: admission, target: self, parent: self,
+                sourceParent: sourceParent, proposedChildren: proposedChildren, lazyJournal: lazyJournal),
+            let check = RetainedRemovalTransitionAdmission(
+                nativeCheck: nativeCheck,
+                departingRoots: roots)
+        else { return nil }
+        var paints: [RetainedLazyListRemovalPaint] = []
+        for root in transitioning {
+            guard check.isCurrent else { return nil }
+            switch RetainedRemovalTransitionResolver.resolve(node: root, admission: check) {
+            case .rejected:
+                return nil
+            case .disabled:
+                continue
+            case .animated(let animation):
+                // No normal paint has ever published this exact attachment.
+                // Eligibility was still resolved by the same transaction rule
+                // as ordinary removal; there simply are no outgoing pixels.
+                if !root.hasPaintedCurrentAttachment { continue }
+                guard let presented = root.retainedLazyListPresentedPaint else { return nil }
+                guard presented.isCurrent, !presented.isUnavailable else { return nil }
+                guard let snapshot = presented.snapshot else { continue }
+                switch snapshot.capture(presented.ranges) {
+                case .empty:
+                    continue
+                case .unsupported:
+                    return nil
+                case .captured(let source):
+                    // Ordinary overlays keep advancing their descendants. A
+                    // single root source cannot reproduce separate timelines,
+                    // including a delayed constant-value snap.
+                    guard let nodes = Self.lazyListNodes(in: [root]),
+                        nodes.dropFirst().allSatisfy({ node in
+                            node.animationStates.values.allSatisfy { $0.isComplete(at: animation.resolvedAt) }
+                        }), check.isCurrent
+                    else { return nil }
+                    guard let pose = presented.pose,
+                        source.resourceBytes <= RetainedViewRuntime.maximumRetiredLazyListPaintBytes,
+                        let paint = RetainedLazyListRemovalPaint(source: source, pose: pose, animation: animation)
+                    else { return nil }
+                    paints.append(paint)
+                }
+            }
+        }
+        return check.isCurrent ? paints : nil
     }
 
     /// A bounded-depth physical-tree walk, not a walk of logical model IDs.
@@ -20686,6 +20944,16 @@ extension ViewNode {
             Self.sameLazyListChildren(oldChildren, children)
         else { return nil }
 
+        guard
+            let removalPaint = prepareLazyListRemovalPaint(
+                roots: departing, admission: admission, removalReason: removalReason, lazyJournal: lazyJournal,
+                sourceParent: sourceParent, proposedChildren: nextChildren),
+            admission?.isCurrent != false, parentAttachment.isCurrent && parentIdentity.isCurrent,
+            lazyJournal?.canContinueAdoption != false,
+            incoming.values.allSatisfy({ $0.allSatisfy(\.isCurrent) }),
+            retainedEntries.allSatisfy(\.isCurrent), Self.sameLazyListChildren(oldChildren, children)
+        else { return nil }
+
         var expectedChildren = survivingChildren
         // An intermediate survivor list is not the source parent's declared
         // children table. Publish its marker only at the exact final table.
@@ -20701,7 +20969,7 @@ extension ViewNode {
                 departing, nodes: departingNodes, survivingChildren: expectedChildren, admission: admission,
                 removalReason: removalReason, lazyJournal: lazyJournal,
                 deferringOwnedDeparture: sourceParent != nil && !publishesFinalSurvivors,
-                sourceParent: publishesFinalSurvivors ? sourceParent : nil)
+                sourceParent: publishesFinalSurvivors ? sourceParent : nil, removalPaint: removalPaint)
         } else if !Self.sameLazyListChildren(expectedChildren, children) {
             guard lazyJournal?.markMutationStarted() != false else { return nil }
             admission?.markMutationStarted()
@@ -20814,7 +21082,7 @@ extension ViewNode {
         admission: RetainedLazyListAdoptionAdmission?, removalReason: RetainedChildRemovalReason,
         lazyJournal: RetainedLazyListAdoptionJournal?,
         deferringOwnedDeparture: Bool,
-        sourceParent: ViewNode?
+        sourceParent: ViewNode?, removalPaint: [RetainedLazyListRemovalPaint]
     ) -> [ObjectIdentifier: RetainedLazyListDepartureCause] {
         let interactionRuntime = runtime
         let groupTaskCleanup = Self.claimLazyGroupTaskDepartures(in: roots)
@@ -20878,7 +21146,10 @@ extension ViewNode {
             // Long-press terminal callbacks use the existing reconciliation
             // queue. Their captured cleanup must run before reattachment is
             // possible; no additional scheduler is introduced here.
-            interactionRuntime.afterRetainedCallbacks { gate.finish() }
+            interactionRuntime.afterRetainedCallbacks { [weak interactionRuntime] in
+                gate.finish()
+                interactionRuntime?.acceptRetiredLazyListPaint(removalPaint)
+            }
         } else {
             gate.finish()
         }

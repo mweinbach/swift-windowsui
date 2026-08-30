@@ -110,10 +110,11 @@ its logical provider; remaining leaves use ordinary provider identities.
 - Tree OutlineGroup data initializers still need their own deferred hierarchy
   semantics. Dynamic collections hidden inside opaque row bodies or Section
   containers are not flattened into this public flat-record projection.
-- Nonidentity structural row-removal transitions remain rejected before
-  mutation. Supporting them requires passive removal replay with the original
-  placement and effects, described below; silently dropping the transition is
-  not acceptable.
+- Managed nonidentity structural removal now has a bounded source bridge for
+  passive paint replay. Unsupported placement/effect transport remains
+  refused, raw-provider behavior is unchanged, and the bridge still needs
+  combined execution and native qualification. Full removal-transition parity
+  remains required; see [ManagedListRemovalPaint.md](ManagedListRemovalPaint.md).
 - The native pending-focus source now consumes `requiresRevealBeforeFocus`,
   including budget exhaustion after an accepted reveal. The separate frozen
   animated List cohort and its receipt/capture regressions still require a
@@ -151,17 +152,15 @@ from a new zero origin and fresh clip, and can execute a Canvas draw closure
 again while replaying the overlay. A lazy row cannot safely keep that route
 alive after its state, observations, tasks and action ownership have retired.
 
-The follow-on implementation must capture the outgoing row's original absolute
-placement, scroll presentation, transforms, opacity, and effective ancestor
-clip while the accepted attachment is still valid. It must capture passive
-renderer-neutral paint/effect data, retire the outgoing activity before any
-callback, and replay the captured data without running view builders, Canvas
-closures, actions, tasks or observers. Animation may transform that passive
-snapshot but cannot recover authority to the old row. Interrupted or rejected
-capture must leave the existing refusal in place, not fall back to a live
-detached subtree. Tests need scrolled, clipped, transformed, translucent and
-Canvas rows, cancellation/reentry during retirement, and eventual release of
-the overlay resources.
+The managed bridge now records the outgoing attachment's last completed
+normal paint, copies its renderer resources, and retains native animation
+values after executable retirement. It does not repaint the old node or keep
+its callback payloads. Its supported transport, explicit restrictions, bounds,
+and source-only verification status are described in
+[ManagedListRemovalPaint.md](ManagedListRemovalPaint.md). Clipped motion,
+scale/rotation, effect provenance, interrupted descendant animation, and full
+native parity remain required under the original goal. Unsupported capture
+does not fall back to a live detached subtree.
 
 ## Context join with the current retained controls
 

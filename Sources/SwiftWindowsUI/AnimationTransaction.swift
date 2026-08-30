@@ -62,8 +62,16 @@ public struct RetainedAnimationModifier {
     func apply(
         to transaction: inout Transaction, previous: RetainedAnimationModifier?,
         admission: RetainedLazyListAdoptionAdmission? = nil,
-        nativeCheck: ComponentHost.NodeReconcileAdmission? = nil
+        nativeCheck: ComponentHost.NodeReconcileAdmission? = nil,
+        removalAdmission: RetainedRemovalTransitionAdmission? = nil
     ) -> Bool {
+        if let removalAdmission {
+            guard removalAdmission.isCurrent else { return false }
+            let shouldTransform = triggerChanged(from: previous)
+            guard removalAdmission.isCurrent, shouldTransform else { return false }
+            transform(&transaction)
+            return removalAdmission.isCurrent
+        }
         if let nativeCheck, nativeCheck.lazyJournal?.isOrdinaryAdoption == false {
             guard nativeCheck.isCurrent, admission?.isCurrent != false else { return false }
             // The existing helper releases comparison temporaries before the

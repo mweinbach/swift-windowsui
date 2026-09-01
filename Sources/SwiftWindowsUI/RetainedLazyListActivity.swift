@@ -4846,12 +4846,83 @@ extension RetainedOwnedComponentDeclarationOrigin {
 }
 
 @MainActor
-fileprivate struct RetainedOwnedComponentSource {
+struct RetainedOwnedComponentSource {
     weak var node: ViewNode?
     let payload: RetainedLazyListSourcePayloadID
     let facets: [RetainedLazyListSourceFacetID]
     let components: [RetainedOwnedComponentDeclarationOrigin]
     let deferredRoot: RetainedLazyListComponentID?
+}
+
+/// Native source metadata in first-encounter order, never a publication permit.
+/// Counts describe this membership work, not all preparation or ownership work.
+@MainActor
+struct RetainedOwnedComponentSourceRoster {
+    let payloads: [RetainedLazyListSourcePayloadID]
+    let facets: [RetainedLazyListSourceFacetID]
+    let sourceVisits: Int
+    let payloadMembershipChecks: Int
+    let facetMembershipChecks: Int
+}
+
+/// One freeze-local index into its original immutable source array. It contains
+/// only tagged native component identities and integer source positions; no
+/// node, permission, currentness result, or authored identity is indexed.
+@MainActor
+struct RetainedOwnedComponentSourceIndex {
+    private let sourceIndices: [RetainedOwnedComponentKey: [Int]]
+    let componentVisits: Int
+    let sourceMembershipCount: Int
+
+    init(sources: [RetainedOwnedComponentSource]) {
+        var sourceIndices: [RetainedOwnedComponentKey: [Int]] = [:]
+        var componentVisits = 0
+        var sourceMembershipCount = 0
+        for (position, source) in sources.enumerated() {
+            var seen: Set<RetainedOwnedComponentKey> = []
+            for component in source.components {
+                componentVisits += 1
+                let key = component.key
+                // The original contains predicate matched a source only once,
+                // even when its ancestry contained a repeated component key.
+                guard seen.insert(key).inserted else { continue }
+                sourceIndices[key, default: []].append(position)
+                sourceMembershipCount += 1
+            }
+        }
+        self.sourceIndices = sourceIndices
+        self.componentVisits = componentVisits
+        self.sourceMembershipCount = sourceMembershipCount
+    }
+
+    func roster(
+        for component: RetainedOwnedComponentDeclarationOrigin, in sources: [RetainedOwnedComponentSource]
+    ) -> RetainedOwnedComponentSourceRoster {
+        roster(for: component.key, in: sources)
+    }
+
+    fileprivate func roster(
+        for key: RetainedOwnedComponentKey, in sources: [RetainedOwnedComponentSource]
+    ) -> RetainedOwnedComponentSourceRoster {
+        let matching = sourceIndices[key] ?? []
+        var payloads: [RetainedLazyListSourcePayloadID] = []
+        var facets: [RetainedLazyListSourceFacetID] = []
+        var seenPayloads: Set<ObjectIdentifier> = []
+        var seenFacets: Set<ObjectIdentifier> = []
+        var facetMembershipChecks = 0
+        for position in matching {
+            let source = sources[position]
+            if seenPayloads.insert(ObjectIdentifier(source.payload)).inserted { payloads.append(source.payload) }
+            // A repeated payload can still introduce distinct required facets.
+            for facet in source.facets {
+                facetMembershipChecks += 1
+                if seenFacets.insert(ObjectIdentifier(facet)).inserted { facets.append(facet) }
+            }
+        }
+        return RetainedOwnedComponentSourceRoster(
+            payloads: payloads, facets: facets, sourceVisits: matching.count,
+            payloadMembershipChecks: matching.count, facetMembershipChecks: facetMembershipChecks)
+    }
 }
 
 private struct RetainedOwnedPhysicalFacetKey: Hashable {
@@ -5109,15 +5180,18 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         self.sources = sources
         self.componentParents = componentParents
         prepareRegionSources(excluding: rejected)
+        var sourceIndex: RetainedOwnedComponentSourceIndex?
         var result: [RetainedOwnedComponentDeclarationPlan] = []
         for (key, values) in registrations where !rejected.contains(key) {
-            let matching = sources.filter { $0.components.contains(where: { $0.key == key }) }
-            var payloads: [RetainedLazyListSourcePayloadID] = []
-            var facets: [RetainedLazyListSourceFacetID] = []
-            for source in matching {
-                if !payloads.contains(where: { $0 === source.payload }) { payloads.append(source.payload) }
-                for facet in source.facets where !facets.contains(where: { $0 === facet }) { facets.append(facet) }
+            let index: RetainedOwnedComponentSourceIndex
+            if let existing = sourceIndex {
+                index = existing
+            } else {
+                // Empty or wholly rejected registrations need no source index.
+                index = RetainedOwnedComponentSourceIndex(sources: sources)
+                sourceIndex = index
             }
+            let sourceRoster = index.roster(for: key, in: sources)
             for registration in values {
                 let previous = registration.previous
                 let retained = registration.receipt.slots.filter { slot in
@@ -5137,7 +5211,8 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
                     let plan = RetainedOwnedComponentDeclarationPlan(
                         origin: registration.origin, receipt: registration.receipt,
                         retained: retained, introduced: introduced, departed: departed,
-                        sourcePayloads: payloads, sourceFacets: facets, declarationOnly: registration.declarationOnly,
+                        sourcePayloads: sourceRoster.payloads, sourceFacets: sourceRoster.facets,
+                        declarationOnly: registration.declarationOnly,
                         isDeferredConstruction: registration.isDeferredConstruction,
                         structuralRegions: structuralRegions(for: registration))
                 else { continue }

@@ -108,6 +108,26 @@ quadratic work. Subtree capture and the rest of reconciliation still cost work.
 overlapping, independent, and externally held snapshots. These source bounds
 do not establish end-to-end latency or hardware qualification.
 
+Owned declaration preparation indexes source positions by every recorded native
+component ancestor for the duration of one freeze. Repeated ancestor entries
+still match a source only once. Lazy and ordinary descriptor component identities
+remain separate. Per-component payload and facet arrays retain their original
+first-encounter order; native identity sets replace repeated linear membership
+scans. A repeated payload can contribute additional required facets, and a
+source whose weak node has expired still contributes its recorded metadata.
+The index grants no currentness, attachment, slot, or publication permission.
+All existing rejection, region, slot-continuation, retirement, and plan checks
+remain in their original order, including plans with no matching source.
+
+Building the index visits each recorded ancestry entry once. A roster visits
+each matched source and each of its recorded facets once, with expected constant
+time for native hash membership; it does not scan a growing result array for
+each candidate. `RetainedOwnedComponentFreezeTests` compares exact payload and
+facet sequences with the original algorithm and counts this structural work.
+These counts exclude slot and region processing, hash-table implementation
+details, and the rest of preparation. They do not establish measured latency,
+resolution of an interaction-test timeout, or a change to any workload budget.
+
 The following qualification work remains open in this source checkpoint:
 
 - The new checked-bucket, collision, nested-identity, and cleanup regressions

@@ -9970,3 +9970,51 @@ revocation at exact framework versus opaque callback boundaries. Source review,
 parent contracts, and strict formatting passed. Compilation and serial
 execution remain required. The separate UIA reader/phase changes are not part
 of this commit, and no accessibility or original completion gate is closed.
+
+### Ninth batch: native source indexing during owned declaration freezing
+
+The File Browser timeout sample led to a second independent cost in ownership
+preparation. For each registered component, freezing scanned all sources and
+their ancestry, then repeatedly searched growing payload/facet arrays by
+identity. Common ancestors and nested owners repeated this work without
+adding a new ownership check.
+
+One freeze-local index now maps each tagged native component identity to its
+original source positions. Repeated ancestry entries count a source once;
+ordinary and lazy component identities stay distinct. Per-component native
+identity sets replace the growing result-array searches while the retained
+payload/facet arrays preserve exact first-encounter order. Duplicate payloads
+can still add distinct required facets, and expired weak source nodes do not
+erase their recorded metadata. Empty or entirely rejected registrations do
+not build the index.
+
+The index contains native identity keys and integer positions, not nodes,
+application identities, callbacks, cached currentness, or publication permits.
+It is built from the same immutable source parameter used for roster reads.
+Region preparation still precedes it; registration order, rejected keys,
+source-free plans, slot continuation, plan construction, and every later
+ownership/publication check remain unchanged. It does not persist on the
+ledger or grant permission after a callback.
+
+Private production commit `11631790ebefe63968dc499e10f56879be4b7c35` and the
+test-only count refinement `29932139a5692b76e15737f1052152fa38d0a621` have
+combined tree `d92ee4c41db208e5557a87d573e574605344b36e`. Their 36,070-byte
+patch has SHA256
+`db2f854d7f4204d5de64bde9111c83fc7aec0011809726453836641c693095c2`.
+The packet is retained in `artifacts/goal-ninth-owned-freeze-intake-v1`.
+All 591 prior test files remain unchanged by this patch. Eight new methods in
+`RetainedOwnedComponentFreezeTests` compare exact ordered results with the
+original independent algorithm, count both old identity comparisons and new
+membership attempts, cover weak expiry/nonretention, and prepare ordinary and
+lazy owned declarations. Preparation fixtures do not claim actual adoption.
+
+Index construction visits every recorded ancestry association once. Each
+roster visits its matched sources and facets once, with expected native hash
+membership cost. Nested ownership still has a triangular output footprint;
+slot/region processing, hash implementation work, and other reconciliation
+costs remain. These are structural bounds, not measured latency, memory, or
+proof that the interaction timeout is resolved. Independent source review,
+parent contracts, and strict formatting passed. Compilation, all eight new
+methods, unchanged ownership regressions, and the original 14 interaction
+methods still require execution with unchanged limits. All nine gates remain
+open.

@@ -11656,3 +11656,47 @@ names, 64-command workload, ordinal-31 query, 16/32 bounds, idle interval, trace
 caps, fixture/watchdog deadlines, and 55+5 outer budget are unchanged. No forced
 backlog, scheduler hold, workload increase, or retry to search for a fairness
 pass is authorized. The two independent fairness predicates remain unqualified.
+
+
+### 2026-09-01 root validation: combined source does not yet compile
+
+The first fresh combined-source attempt at `229122b535d5e6e6b8b1d79a27128a775a55cfa3`,
+tree `65b140f375f36e8fc6183cfba175a8a3cd9d1586`, failed during compilation.
+All 166 selected Button/Table methods are NOT RUN, not failed XCTest methods and
+not passes. The source-only integration checks above did not establish compilation.
+All nine original completion gates remain open and unchanged.
+
+The original planned ordinary152 selection first stopped before launch at
+`d8fbcc`: the unchanged derivation helper requires one XCTestCase per file, while
+the accepted-membership file intentionally contains two classes (nine and eight
+methods). Its new spec is preserved unchanged. No SwiftPM command or test ran
+from that failed derivation. A separate strict inventory extension is being
+reviewed; it must retain all original 132 identifiers and all 20 appended methods,
+validate every declaration, and preserve the 900-second execution bound.
+
+The existing helper successfully derived Button110 plus Table56 at `6be088/0`: eleven
+classes, 166 unique async methods, and 21,363 identifier characters. The 19,992-byte
+runner differs from its fixed donor only in the two class-filter literals, SHA-256
+`22742b1407e221ba14b74770f88249779ce38affd8b280327dc9f1b011d3d027`.
+Run `artifacts/button-table166-229122b-8836b1aeb8ac451fb3269cde3441d867` launched
+with `914dfd`/session 54864 and closed naturally with `6a8fa6/1`: actual child 1,
+runner 1, PID 21344, 39.469 seconds, no timeout or termination attempt. Source and
+index endpoints match. The 19,468-byte raw log has SHA-256
+`28eff95e1371f59dc551ff2f19d6393429f07583a8cd578ba811c2fb4b65dea4`.
+
+There are exactly sixteen unique source diagnostics: one non-Sendable Button
+action conversion at RetainedButtonActionOwner.swift:78; thirteen main-actor
+isolation diagnostics in the new Runtime geometry snapshot at 13874-13889; and
+two references to nonexistent PrepaintInteractionState.visibleFrame at 24651.
+There is no completed build, started XCTest method, or successful test terminal.
+Root is preparing narrow production fixes without changing assertions, actor
+safety, UIA permissions, or construction/turn budgets.
+
+Independent reconciliation and post-closure CIM passed in `f9198a/0`, retained as
+`artifacts/goal-ninth-button-table166-229122b-compile-failure-reconciled-v2.json`
+and `artifacts/goal-ninth-button-table166-229122b-post-closure-v1.json`. CIM found
+no matching process or separate formatter; this is a point-in-time observation,
+not continuous descendant attestation. The earlier `ad680c` reconciliation call
+misused a single-valued substring option as three repeated options and stopped
+before writing a receipt; the successful successor preserves and lists all
+sixteen original diagnostics. No old execution artifact was rewritten.

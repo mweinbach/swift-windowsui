@@ -474,7 +474,7 @@ final class KeyframePlaybackTests: XCTestCase {
             let half = useSpring ? 20 - 17.5 * exp(-0.5) : 13.75
             XCTAssertEqual(try host.sample(), half, accuracy: 0.000_001)
             host.tick(1.5)
-            let terminal = useSpring ? 20 - 20 * exp(-1) : 20
+            let terminal: Double = useSpring ? 20 - 20 * exp(-1) : 20
             XCTAssertEqual(try host.sample(), terminal, accuracy: 0.000_001)
             XCTAssertEqual(probe.factoryInputs, [0, 5])
             XCTAssertFalse(host.runtime.hasActiveAnimations)

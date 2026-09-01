@@ -666,7 +666,9 @@ final class MountedKeyframeAnimatorTests: XCTestCase {
             MoveKeyframe(2.0)
             LinearKeyframe(10.0, duration: 1)
         }
-        let node = animator.makeComponent(context: ViewBuildContext()).makeNode(runtime: runtime)
+        let context = ViewBuildContext(
+            canvasSizeProvider: { Size(width: 100, height: 100) }, invalidateHandler: {})
+        let node = animator.makeComponent(context: context).makeNode(runtime: runtime)
         runtime.root.addChild(node)
 
         XCTAssertEqual(node.children.first?.transform.translationX, 2)

@@ -10412,3 +10412,30 @@ using the animator's existing generic parameter. No behavior, callback, test, or
 acceptance condition changed. Strict formatting and ContractsOnly passed
 (`159c38`, exit 0); recompilation and both planned focused cohorts remain pending.
 All nine original completion gates remain open.
+
+### Keyframe test fixture compilation repair after the third integrated 165-method attempt (2026-09-01)
+
+The unchanged 165-method roster was attempted at `62a76fa72941d09143f9d99bde35d1519ecf9afc`.
+The retained controller and its direct PowerShell child both returned 1 naturally after
+124.797 seconds; there was no timeout. Compilation reached the new test sources,
+then reported two distinct diagnostics: the unmanaged keyframe fixture omitted
+`ViewBuildContext`'s required canvas and invalidation closures, and the independent
+spring terminal oracle left `exp(-1)` ambiguous between numeric overloads.
+The 3,242,701-byte combined log has SHA-256
+`d8bc741bd76f41e1ac0efffdb519419e5ac9acdd1d92c62425e2e1444a7a39a7`.
+No XCTest method start was observed, so this attempt qualifies none of the 165
+methods. Tracked source and index endpoint observations were unchanged; a fresh
+post-exit process census found the direct child, its still-parented descendants,
+and Swift build/test processes absent.
+
+The repair changes only these two new test fixtures: it supplies a 100 by 100
+canvas and an empty invalidation closure without adding a managed state owner,
+and explicitly declares the existing terminal expression as `Double`. The
+closed-form expression, every assertion, and every test identifier are unchanged.
+An exact inverse replacement check accounts for both complete source deltas.
+The detailed receipt is `artifacts/goal-ninth-new165-62a76fa-compile-failure.json`;
+`artifacts/goal-ninth-new165-62a76fa-post-closure.json` records the process census.
+A fresh compile and the same 165-method roster are still required, followed by
+the unchanged 150-method removal/effect roster. This is compilation repair, not
+functional, native-host, visual, performance, or macOS qualification. All nine
+original completion gates remain open and unchanged.

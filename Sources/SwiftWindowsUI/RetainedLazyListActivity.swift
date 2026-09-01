@@ -1600,6 +1600,15 @@ private struct RetainedLazyListPendingInsertedNode {
     let nativeFacets: [RetainedLazyListSourceFacet]
 }
 
+/// Cleanup for one original ordinary departure. It owns native metadata only;
+/// the snapshot's storage and every actual attachment keep their weak links.
+@MainActor
+struct RetainedOrdinaryOwnedDeparture {
+    fileprivate let attempt: RetainedLazyListAttemptID
+    fileprivate let node: ObjectIdentifier
+    fileprivate let snapshot: RetainedOwnedPhysicalDepartureSnapshot
+}
+
 /// Native accepted-write ledger. Its sealed disposition has no source node,
 /// callback, factory, facade owner or executable task payload.
 @MainActor
@@ -2865,6 +2874,59 @@ final class RetainedLazyListAdoptionJournal {
                 pendingOwnedDepartures[key, default: []].append(snapshot)
             }
         }
+        return recordNonOwnedPhysicalDeparture(of: node, cause: cause)
+    }
+
+    /// The ordinary setter removes old physical output before it publishes
+    /// incoming output. Only exact selected normal plans can bridge that gap;
+    /// unrelated owners and dropped slots still retire at this boundary.
+    func recordOrdinaryPhysicalDeparture(
+        of node: ViewNode, cause: RetainedLazyListDepartureCause
+    ) -> RetainedOrdinaryOwnedDeparture? {
+        guard isOrdinaryAdoption else {
+            _ = recordPhysicalDeparture(of: node, cause: cause)
+            return nil
+        }
+        _ = recordLogicalDescriptorDeparture(of: node, cause: cause)
+        var ticket: RetainedOrdinaryOwnedDeparture?
+        if let ledger = ownedLedger, let original = ledger.capturePhysicalDeparture(of: node, cause: cause) {
+            let key = ObjectIdentifier(node)
+            let alreadyPending =
+                pendingOwnedDepartures[key]?.contains {
+                    $0.targetID === original.targetID && $0.attachmentID === original.attachmentID && !$0.wasConsumed
+                } == true
+            if !alreadyPending {
+                if canContinueAdoption, let partition = ledger.partitionOrdinaryDeparture(original) {
+                    partition.pending.suspendOwnedWrites()
+                    pendingOwnedDepartures[key, default: []].append(partition.pending)
+                    ticket = RetainedOrdinaryOwnedDeparture(attempt: attempt, node: key, snapshot: partition.pending)
+                    ledger.recordPhysicalDeparture(partition.immediate)
+                } else {
+                    ledger.recordPhysicalDeparture(original)
+                }
+            }
+        }
+        _ = recordNonOwnedPhysicalDeparture(of: node, cause: cause)
+        return ticket
+    }
+
+    func finishOrdinaryOwnedDeparture(_ ticket: RetainedOrdinaryOwnedDeparture) {
+        guard ticket.attempt === attempt, !ticket.snapshot.wasConsumed,
+            pendingOwnedDepartures[ticket.node]?.contains(where: { $0 === ticket.snapshot }) == true
+        else { return }
+        if ownedLedger?.awaitsReplacementDeclaration(ticket.snapshot) == true { return }
+        ownedLedger?.recordPhysicalDeparture(ticket.snapshot)
+        // Read only the native queue after consumption: another original
+        // operation's ticket must not be removed by this operation's cleanup.
+        if let current = pendingOwnedDepartures[ticket.node] {
+            let remaining = current.filter { $0 !== ticket.snapshot || !$0.wasConsumed }
+            pendingOwnedDepartures[ticket.node] = remaining.isEmpty ? nil : remaining
+        }
+    }
+
+    private func recordNonOwnedPhysicalDeparture(
+        of node: ViewNode, cause: RetainedLazyListDepartureCause
+    ) -> RetainedLazyListAcceptedDeparture? {
         _ = ordinaryLedger?.recordPhysicalDeparture(of: node)
         guard let storage = node.retainedLazyListActivityStorage, let actual = actualAttachment(for: node) else {
             return nil
@@ -5055,6 +5117,70 @@ private struct RetainedOwnedDeferredRegionBuild {
     let expectedRevision: UInt64?
 }
 
+/// Partitioned retirement still removes the original physical maps once.
+/// Later consumption must not erase metadata published on the same storage.
+@MainActor
+final class RetainedOwnedPhysicalDepartureRemoval {
+    private weak var originalStorage: RetainedLazyListNodeActivityStorage?
+    private let targetID: RetainedLazyListTargetID
+    private let attachmentID: RetainedLazyListAttachmentID
+    private var wasClaimed = false
+    private var didClearOriginalMaps = false
+
+    init(
+        storage: RetainedLazyListNodeActivityStorage?, targetID: RetainedLazyListTargetID,
+        attachmentID: RetainedLazyListAttachmentID
+    ) {
+        originalStorage = storage
+        self.targetID = targetID
+        self.attachmentID = attachmentID
+    }
+
+    func removeOriginalMapsOnce() {
+        guard !wasClaimed else { return }
+        wasClaimed = true
+        guard let storage = originalStorage, storage.targetID === targetID, storage.attachmentID === attachmentID else {
+            return
+        }
+        Self.removePhysicalMaps(from: storage)
+        // This is evidence of a completed native clear, not a permission cache.
+        // A refused clear never establishes absence and cannot be retried.
+        didClearOriginalMaps =
+            storage.targetID === targetID && storage.attachmentID === attachmentID
+            && storage.ownedPayloadPermissions.isEmpty && storage.ownedStructuralPermissions.isEmpty
+            && storage.ownedEmptyStructuralPermissions.isEmpty && storage.ownedEmptyStructuralNamespaces.isEmpty
+            && storage.ownedDeclaredStructuralPermissions.isEmpty && storage.ownedDeclaredStructuralNamespaces.isEmpty
+            && storage.ownedPayloadComponents.isEmpty && storage.ownedStructuralComponents.isEmpty
+            && storage.ownedEmptyStructuralComponents.isEmpty && storage.ownedEmptyRowRevisions.isEmpty
+            && storage.ownedDeclaredStructuralComponents.isEmpty && storage.ownedDeferredRegions.isEmpty
+            && storage.ownedRegionStructuralPermissions.isEmpty && storage.ownedRegionStructuralComponents.isEmpty
+    }
+
+    var successfullyClearedOriginalStorage: RetainedLazyListNodeActivityStorage? {
+        guard didClearOriginalMaps, let storage = originalStorage,
+            storage.targetID === targetID, storage.attachmentID === attachmentID
+        else { return nil }
+        return storage
+    }
+
+    fileprivate static func removePhysicalMaps(from storage: RetainedLazyListNodeActivityStorage) {
+        storage.ownedPayloadPermissions.removeAll()
+        storage.ownedStructuralPermissions.removeAll()
+        storage.ownedEmptyStructuralPermissions.removeAll()
+        storage.ownedEmptyStructuralNamespaces.removeAll()
+        storage.ownedDeclaredStructuralPermissions.removeAll()
+        storage.ownedDeclaredStructuralNamespaces.removeAll()
+        storage.ownedPayloadComponents.removeAll()
+        storage.ownedStructuralComponents.removeAll()
+        storage.ownedEmptyStructuralComponents.removeAll()
+        storage.ownedEmptyRowRevisions.removeAll()
+        storage.ownedDeclaredStructuralComponents.removeAll()
+        storage.ownedDeferredRegions.removeAll()
+        storage.ownedRegionStructuralPermissions.removeAll()
+        storage.ownedRegionStructuralComponents.removeAll()
+    }
+}
+
 @MainActor
 fileprivate final class RetainedOwnedPhysicalDepartureSnapshot {
     weak var storage: RetainedLazyListNodeActivityStorage?
@@ -5070,6 +5196,8 @@ fileprivate final class RetainedOwnedPhysicalDepartureSnapshot {
     let regionSlots: [ObjectIdentifier: [RetainedOwnedSlotPermission]]
     let regionComponents: [ObjectIdentifier: [RetainedOwnedComponentPresence]]
     var wasConsumed = false
+    private var sharedRemoval: RetainedOwnedPhysicalDepartureRemoval?
+    private var isPendingPartition = false
 
     var permissions: [RetainedOwnedSlotPermission] {
         payloads.values.flatMap { $0 } + structural + emptyStructural + regionSlots.values.flatMap { $0 }
@@ -5096,6 +5224,66 @@ fileprivate final class RetainedOwnedPhysicalDepartureSnapshot {
         regions = storage.ownedDeferredRegions
         regionSlots = storage.ownedRegionStructuralPermissions
         regionComponents = storage.ownedRegionStructuralComponents
+    }
+
+    private init(
+        original: RetainedOwnedPhysicalDepartureSnapshot, permissions: Set<ObjectIdentifier>,
+        components: Set<ObjectIdentifier>, keepingMembers: Bool, removal: RetainedOwnedPhysicalDepartureRemoval
+    ) {
+        storage = original.storage
+        targetID = original.targetID
+        attachmentID = original.attachmentID
+        cause = original.cause
+        sharedRemoval = removal
+        isPendingPartition = keepingMembers
+        payloads = original.payloads.mapValues {
+            $0.filter { permissions.contains(ObjectIdentifier($0)) == keepingMembers }
+        }
+        structural = original.structural.filter { permissions.contains(ObjectIdentifier($0)) == keepingMembers }
+        emptyStructural = original.emptyStructural.filter {
+            permissions.contains(ObjectIdentifier($0)) == keepingMembers
+        }
+        componentPayloads = original.componentPayloads.mapValues {
+            $0.filter { components.contains(ObjectIdentifier($0)) == keepingMembers }
+        }
+        componentStructural = original.componentStructural.filter {
+            components.contains(ObjectIdentifier($0)) == keepingMembers
+        }
+        // The ordinary partition admits only snapshots without region records.
+        regions = [:]
+        regionSlots = [:]
+        regionComponents = [:]
+    }
+
+    func partition(
+        permissions: Set<ObjectIdentifier>, components: Set<ObjectIdentifier>
+    ) -> (immediate: RetainedOwnedPhysicalDepartureSnapshot, pending: RetainedOwnedPhysicalDepartureSnapshot)? {
+        guard !wasConsumed, regions.isEmpty, regionSlots.isEmpty, regionComponents.isEmpty,
+            !permissions.isEmpty || !components.isEmpty
+        else { return nil }
+        let removal = RetainedOwnedPhysicalDepartureRemoval(
+            storage: storage, targetID: targetID, attachmentID: attachmentID)
+        let immediate = RetainedOwnedPhysicalDepartureSnapshot(
+            original: self, permissions: permissions, components: components, keepingMembers: false, removal: removal)
+        let pending = RetainedOwnedPhysicalDepartureSnapshot(
+            original: self, permissions: permissions, components: components, keepingMembers: true, removal: removal)
+        // Transfer this one capture, without recapturing either physical maps
+        // or authored payloads when the second cohort eventually retires.
+        wasConsumed = true
+        return (immediate, pending)
+    }
+
+    func removePhysicalMaps() {
+        if let sharedRemoval {
+            sharedRemoval.removeOriginalMapsOnce()
+        } else if let storage, storage.targetID === targetID, storage.attachmentID === attachmentID {
+            RetainedOwnedPhysicalDepartureRemoval.removePhysicalMaps(from: storage)
+        }
+    }
+
+    var laterPublicationStorage: RetainedLazyListNodeActivityStorage? {
+        guard isPendingPartition else { return nil }
+        return sharedRemoval?.successfullyClearedOriginalStorage
     }
 
     func suspendOwnedWrites() {
@@ -6242,6 +6430,46 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         return RetainedOwnedPhysicalDepartureSnapshot(storage: storage, cause: cause)
     }
 
+    func partitionOrdinaryDeparture(
+        _ snapshot: RetainedOwnedPhysicalDepartureSnapshot
+    ) -> (immediate: RetainedOwnedPhysicalDepartureSnapshot, pending: RetainedOwnedPhysicalDepartureSnapshot)? {
+        guard snapshot.cause != .viewportEviction, !snapshot.wasConsumed,
+            snapshot.regions.isEmpty, snapshot.regionSlots.isEmpty, snapshot.regionComponents.isEmpty
+        else { return nil }
+        let permissions = Set(snapshot.permissions.map { ObjectIdentifier($0) })
+        let components = Set(snapshot.components.map { ObjectIdentifier($0) })
+        var continuingPermissions: Set<ObjectIdentifier> = []
+        var continuingComponents: Set<ObjectIdentifier> = []
+        func hasOtherActual(
+            _ facets: [RetainedOwnedPhysicalFacetKey: RetainedLazyListActualAttachment]
+        ) -> Bool {
+            facets.contains { key, actual in
+                actual.isAttached
+                    && (key.target != ObjectIdentifier(snapshot.targetID)
+                        || key.attachment != ObjectIdentifier(snapshot.attachmentID))
+            }
+        }
+        for plan in frozenPlans ?? [] where selectedPlans.contains(ObjectIdentifier(plan)) {
+            guard !plan.declarationOnly, !plan.sourcePayloads.isEmpty,
+                !plan.receipt.owner.wasRevoked, plan.receipt.nativeLifetime.permitsDeclaredWrite
+            else { continue }
+            let presence = plan.receipt.componentPresence
+            if components.contains(ObjectIdentifier(presence)),
+                !hasOtherActual(presence.payloadFacets), !hasOtherActual(presence.structuralFacets)
+            {
+                continuingComponents.insert(ObjectIdentifier(presence))
+            }
+            for permission in plan.receipt.slotPermissions where permissions.contains(ObjectIdentifier(permission)) {
+                if !permission.wasRevoked, !hasOtherActual(permission.payloadFacets),
+                    !hasOtherActual(permission.structuralFacets)
+                {
+                    continuingPermissions.insert(ObjectIdentifier(permission))
+                }
+            }
+        }
+        return snapshot.partition(permissions: continuingPermissions, components: continuingComponents)
+    }
+
     func awaitsReplacementDeclaration(_ snapshot: RetainedOwnedPhysicalDepartureSnapshot) -> Bool {
         guard snapshot.cause != .viewportEviction, !snapshot.wasConsumed else { return false }
         let permissions = Set(snapshot.permissions.map { ObjectIdentifier($0) })
@@ -6282,30 +6510,23 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         snapshot.wasConsumed = true
         defer { snapshot.finishOwnedWriteSuspension() }
         let cause = snapshot.cause
-        if let storage = snapshot.storage, storage.targetID === snapshot.targetID,
-            storage.attachmentID === snapshot.attachmentID
-        {
-            storage.ownedPayloadPermissions.removeAll()
-            storage.ownedStructuralPermissions.removeAll()
-            storage.ownedEmptyStructuralPermissions.removeAll()
-            storage.ownedEmptyStructuralNamespaces.removeAll()
-            storage.ownedDeclaredStructuralPermissions.removeAll()
-            storage.ownedDeclaredStructuralNamespaces.removeAll()
-            storage.ownedPayloadComponents.removeAll()
-            storage.ownedStructuralComponents.removeAll()
-            storage.ownedEmptyStructuralComponents.removeAll()
-            storage.ownedEmptyRowRevisions.removeAll()
-            storage.ownedDeclaredStructuralComponents.removeAll()
-            storage.ownedDeferredRegions.removeAll()
-            storage.ownedRegionStructuralPermissions.removeAll()
-            storage.ownedRegionStructuralComponents.removeAll()
-        }
+        snapshot.removePhysicalMaps()
+        // Only a pending partition whose shared clear actually succeeded may
+        // preserve a matching local member. All such tables were empty at that
+        // boundary, so this membership proves a later native publication even
+        // when it reused the same permission, presence, or empty anchor object.
+        // Recheck the original weak storage/IDs per member, after any preceding
+        // retirement query's weak loads and releases; do not cache that match.
         for (field, permissions) in snapshot.payloads {
             let key = RetainedOwnedPhysicalFacetKey(
                 target: ObjectIdentifier(snapshot.targetID), attachment: ObjectIdentifier(snapshot.attachmentID),
                 field: field)
             for permission in permissions {
-                permission.payloadFacets.removeValue(forKey: key)
+                if snapshot.laterPublicationStorage?.ownedPayloadPermissions[field]?.contains(where: {
+                    $0 === permission
+                }) != true {
+                    permission.payloadFacets.removeValue(forKey: key)
+                }
                 retireIfUnreferenced(permission, preservingCold: cause == .viewportEviction)
             }
         }
@@ -6313,7 +6534,11 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
             target: ObjectIdentifier(snapshot.targetID), attachment: ObjectIdentifier(snapshot.attachmentID),
             field: nil)
         for permission in snapshot.structural + snapshot.emptyStructural {
-            permission.structuralFacets.removeValue(forKey: key)
+            if let laterPublicationStorage = snapshot.laterPublicationStorage {
+                removeStructuralReference(permission, storage: laterPublicationStorage, key: key)
+            } else {
+                permission.structuralFacets.removeValue(forKey: key)
+            }
             retireIfUnreferenced(permission, preservingCold: cause == .viewportEviction)
         }
         for (field, presences) in snapshot.componentPayloads {
@@ -6321,12 +6546,20 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
                 target: ObjectIdentifier(snapshot.targetID), attachment: ObjectIdentifier(snapshot.attachmentID),
                 field: field)
             for presence in presences {
-                presence.payloadFacets.removeValue(forKey: key)
+                if snapshot.laterPublicationStorage?.ownedPayloadComponents[field]?.contains(where: {
+                    $0 === presence
+                }) != true {
+                    presence.payloadFacets.removeValue(forKey: key)
+                }
                 retireIfUnreferenced(presence, preservingCold: cause == .viewportEviction)
             }
         }
         for presence in snapshot.componentStructural {
-            presence.structuralFacets.removeValue(forKey: key)
+            if let laterPublicationStorage = snapshot.laterPublicationStorage {
+                removeComponentStructuralReference(presence, storage: laterPublicationStorage, key: key)
+            } else {
+                presence.structuralFacets.removeValue(forKey: key)
+            }
             retireIfUnreferenced(presence, preservingCold: cause == .viewportEviction)
         }
         for (identifier, region) in snapshot.regions {

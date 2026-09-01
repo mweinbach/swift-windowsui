@@ -11184,3 +11184,54 @@ ID has been rewritten and no classification change is yet qualified. The
 backlog/fairness failure is being investigated separately. Original owned
 fixtures, Core/List cohorts, full visual/release validation and product gates
 remain required despite the narrower shutdown progress.
+
+
+### 2026-09-01: ordinary owned handoffs retain only their accepted successor facets
+
+All nine original completion gates remain open. The reviewed ordinary handoff
+series and its facet-republication correction are now integrated as one source
+unit. The original `614d0d4` series alone remains superseded for integration;
+the accepted combination is the sealed `b1a5c9a` packet, whose 70,218-byte patch
+has SHA256 `aa7b2209904878e516baa5fdd4ad111733866ae3da10ead00e07dd1c35192fa8`.
+This repair targets the three surviving mounted-keyframe regressions from the
+fresh 166-method run; source review does not establish that they now pass.
+
+An ordinary replacement captures the original physical departure once, suspends
+only continuing owned members, retires departing members before their callbacks,
+and drains its original pending ticket at completion or abandonment. Continuing
+members cannot write while their original declaration is suspended. Declaration
+only, zero-source, region, and unrelated-attempt cases retain their established
+retirement paths. Pending physical departures still drain before pending declared
+marker retirements in both journal seal and abandonment.
+
+The correction handles a later accepted publication of the same permission or
+component on the original node. A native one-shot performs the original fourteen
+physical-map removals in their original order and acknowledges success only when
+the original storage, target, and attachment still match and all maps are empty.
+Only a pending partition with that proven successful clear can preserve a later
+facet. Each original member is checked again after preceding retirement callouts;
+payload fields and structural membership must match their own later publication.
+An expired or replaced storage, a changed attachment, a refused clear, an absent
+publication, or a different member cannot acquire this exception. The one-shot
+retains no physical node, authored payload, or replacement storage, and creates
+no write permission. The existing retirement calls and region tail remain intact.
+
+The source change touches RetainedLazyListActivity and Runtime and adds two new
+test files: fifteen ordinary-handoff methods and eleven facet-republication
+methods. All 616 existing test files are byte-identical to the preceding root
+commit. Package.swift is unchanged. The complete root diff matches the sealed
+patch except for Git blob IDs and hunk starting offsets; every context, added,
+and deleted line and every hunk count is preserved. Reverse application checks
+also passed. The root proof is
+`artifacts/goal-ninth-ordinary-b1a5c9a-root-proof-v1.json`; the staged source tree
+before this append is `d4e129191a980bb55c8af0abfcc8d3cc3b85d408`.
+
+Pre-edit contracts passed. Strict formatting of all four changed Swift files and
+post-edit contracts passed at `29fae1/0`. Root review verified the physical-before-
+declared drain order separately (`02cc8a/0`). The proof helper completed before an
+unrelated search in its command returned no match; its retained receipt and
+full staged diff contain the successful comparison. No compiler or XCTest was
+run for this source change yet. The original keyframe, Tab, removal, and empty-row
+assertions remain required, alongside all twenty-six new methods. This does not
+qualify the unresolved File14 run, broad Core/List cohorts, native fairness,
+visual parity, performance, or any release gate.

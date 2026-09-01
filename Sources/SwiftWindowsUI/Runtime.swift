@@ -6211,6 +6211,7 @@ public final class ViewNode {
 
         let interactionRuntime = runtime
         var groupTaskCleanup: [RetainedLazyListAcceptedTaskCleanup] = []
+        var ownedDepartures: [RetainedOrdinaryOwnedDeparture] = []
         interactionRuntime?.beginLongPressReconciliation()
         var sourceRuntimes: [RetainedViewRuntime] = []
         for child in nextChildren {
@@ -6222,6 +6223,7 @@ public final class ViewNode {
             }
         }
         defer {
+            for departure in ownedDepartures { lazyJournal?.finishOrdinaryOwnedDeparture(departure) }
             for sourceRuntime in sourceRuntimes { sourceRuntime.endLongPressReconciliation() }
             interactionRuntime?.endLongPressReconciliation()
             for cleanup in groupTaskCleanup { cleanup.finish() }
@@ -6233,7 +6235,9 @@ public final class ViewNode {
         if let lazyJournal {
             for cleanup in groupTaskCleanup { lazyJournal.claimTaskCleanup(cleanup) }
             for node in Self.lazyListNodes(in: departing) ?? [] {
-                _ = lazyJournal.recordPhysicalDeparture(of: node, cause: .acceptedReplacement)
+                if let departure = lazyJournal.recordOrdinaryPhysicalDeparture(of: node, cause: .acceptedReplacement) {
+                    ownedDepartures.append(departure)
+                }
             }
             for node in Self.lazyListNodes(in: nextChildren.filter { $0.parent !== self }) ?? [] {
                 _ = lazyJournal.prepareInsertedNode(from: node)

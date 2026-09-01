@@ -11265,3 +11265,56 @@ patch and all 618 preceding test files remain unchanged. The root proof is
 of the single new Swift file and contracts passed (`2c0a8d/0`). No production
 source, Package.swift, old fixture, timeout, or predicate changed. The new method
 has not executed yet and provides no compatibility or release qualification.
+
+
+### 2026-09-01: keyframe regressions pass; empty membership loss and three new handoff failures remain
+
+All nine original completion gates remain open. The fresh fixed 132-method run
+on `ea725523c6c04aceb6790a5fd9ecfff17fd0a2aa`, tree
+`bfbfdab03156c5d28fe1fe7c53ea026dad557918`, started every selected method:
+127 passed, five failed, and none skipped. All twenty-two mounted-keyframe
+methods passed, including the three failures from the preceding 166-method run.
+Playback fifteen, timeline twenty-five, original ordinary completion nine,
+declared-marker eleven, Tab three, and removal-transition nine also all passed.
+The new ordinary-handoff file passed fourteen of fifteen methods and the new
+facet-republication file passed nine of eleven. These new failures still need
+resolution before the handoff repair can be considered fully validated.
+
+The three newly exposed failures are the later-declared-marker fixture's missing
+owned receipt, the exact-republished-field test's retained permission/component,
+and the closing-departure test's missing dismantle callback. The original
+accepted-zero-root insertion and its separate diagnostic both still fail because
+the physical descendant is absent. Existing assertions, budgets, and tests were
+not changed to obtain this result.
+
+The diagnostic now supplies an observed boundary: before reload the accepted
+empty row has one mounted record, zero leaves, a declared logical membership,
+and an active attached physical receipt. Immediately after reload the same
+logical receipt is no longer declared, while its physical receipt and original
+actual attachment remain active. The replacement layout never calls another
+factory or body and never samples the insertion clock. The adapter remains
+unresolved with no current accepted snapshot. This confirms that logical
+membership is lost before replacement construction, consistent with the native
+completed-row membership missing from the facade's accepted disposition. The
+separate proposed membership repair was not applied during this observation.
+
+The retained run is
+`artifacts/goal-ninth-ordinary132-ea72552-ba2f48e0557e4083bd223fa419880e19`.
+Launch `dac4f8/session4545` closed at `e24b3c/1`; child 38404 and runner
+exited naturally with 1/1 after 385.375 seconds, with no timeout or termination.
+The log is 3,431,265 bytes, SHA256
+`54d65e6dcc5b7c7af09a391ee83d99993476a0423115f1ba87609aebf1defab4`.
+Independent reconciliation and the post-closure process census passed
+(`47e5ad/0`): source/index endpoints match, all 132 starts and terminals reconcile,
+and the retained child and relevant build/test processes were absent. One
+separate zero-test Swift Testing footer is not counted as additional coverage.
+The diagnostic observations are retained in the same raw log (`9eb9b2/0`).
+
+The native fairness diagnosis also remains an unqualified result. Its actor
+ingress never consumed a full 32-record turn; native mailbox backlog and all
+64 successful probe deliveries do not establish actor fairness. A proposed
+initial scheduler hold was rejected because the existing fixture explicitly
+forbids forcing backlog through scheduling changes. No hold, delay, larger
+workload, predicate relaxation, or repeat attempt was introduced. The original
+native 24/27 failed result remains unchanged. Full Core/List, native, visual,
+performance, shared-platform, and release evidence remain required.

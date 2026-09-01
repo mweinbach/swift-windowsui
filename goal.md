@@ -10847,3 +10847,58 @@ contracts passed (`262cba/0`). The root proof
 byte-identical patch, fourteen new methods, unchanged prior tests, and cleanup
 order. Compilation, execution of the original failing Tab regression and new
 controls, the full removal cohort, and broader release checks remain pending.
+
+
+### 2026-09-01: retain the failed compilation evidence and correct one new fixture
+
+All nine original completion gates remain open. The first combined-source
+execution attempt at `9bd22bddf7e874afcf788706a6b15d0413e4451c` selected the
+original 165 methods plus the new default-budget insertion-boundary method.
+It did not reach XCTest: compilation failed on two inaccessible `fileprivate`
+revision reads in the new ManagedLazyListEmptyRowWindowTests fixture. The
+prepared separate 122-method repair/anchor batch was not launched because
+it would have encountered the same compilation failure.
+
+The original failed run remains
+`artifacts/goal-ninth-new166-9bd22bd-844de6606e38455a8a3d879b2e45d2a5`.
+Its retained child PID was 41476, launch `dd8c61/session86819`, final closure
+`64e5c6/1`, with natural child/runner exit 1/1 after 119.281 seconds. There
+was no timeout or process termination. Raw output is 3,356,763 bytes, SHA256
+`e4546f0ec345a1c6722845598fd220f617ac1b132bf9f14e3e0d960a32451d6a`.
+The independent reconciliation (`b01b3b/0`) verifies identical source/index
+endpoints, exactly those two unique compiler errors, and zero started XCTest
+cases. The subsequent census (`68ee5f/0`) found the retained PID, its listed
+children, and Swift test/build processes absent. That is not a continuous
+proof of every descendant's lifetime. No selected test is relabeled a pass
+or assertion failure; all 166 were not run because compilation failed.
+
+The reviewed corrective packet `29389ee4419f5fb209952f3fdc17ce4930f1f4da`
+changes only that new fixture. It declares the already-existing zero content
+and environment revision tags and uses the existing package setter, whose
+equality guard returns before invalidation, allocation, or pending-candidate
+revocation. The original first layout still precedes this setup. The same
+zero tags now form the six cached viewport queries, avoiding inaccessible
+storage reads without broadening production access or changing cache matching.
+The complete current source writer census contains only the default-zero
+storage and its existing source-copy setter. This fixture performs no revision
+update, so the added setter is a no-op rather than a settling pass.
+
+The original five methods, 52 assertion lines, six manual viewport queries,
+and four first-method layouts remain unchanged. The other four method bodies
+are byte-identical. The root proof
+`artifacts/goal-ninth-empty-window-29389ee-root-proof-v1.json` verifies that
+removing the four setup lines and restoring the two argument expressions
+recreates the entire preceding test source. The exact source patch is
+`artifacts/goal-ninth-empty-window-29389ee-intake-v1/SOURCE.patch`
+(1,814 bytes; SHA256
+`423ef0d837b381943f7b8fb8e2ca92777b961dc41885ca545bab4a1a802fbb48`).
+Root strict formatting and contracts passed (`eac543/0`). Fresh compilation
+and both serial execution batches are still required.
+
+A separate proposed ordinary ownership handoff remains unintegrated: source
+review identified that delayed old cleanup can remove a later accepted
+publication of the same permission/component at the same native facet. The
+counterexample is currently established at the native API level, not as an
+executed public callback reproduction. Its original sealed source packet is
+retained; a corrective successor and additional regressions are being reviewed.
+This does not excuse the remaining keyframe failures or close a goal gate.

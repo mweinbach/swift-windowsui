@@ -15,6 +15,10 @@ final class ManagedLazyListEmptyRowWindowTests: XCTestCase {
         defer { host.close() }
         XCTAssertNotNil(host.layout())
         let list = try host.list()
+        let contentRevision: UInt64 = 0
+        let environmentRevision: UInt64 = 0
+        // Keep the host's default tags explicit for the cached viewport queries.
+        list.setRetainedLazyListMeasurementRevisions(content: contentRevision, environment: environmentRevision)
         let adapter = try XCTUnwrap(list.retainedLazyListAdapter)
         let activity = try XCTUnwrap(adapter.materializedRowActivities.first)
         XCTAssertEqual(adapter.mountedRecordCount, 1)
@@ -30,8 +34,8 @@ final class ManagedLazyListEmptyRowWindowTests: XCTestCase {
             let context = try XCTUnwrap(
                 RetainedLazyListMeasurementContext(
                     width: list.resolvedFrame.width, displayScale: 1,
-                    contentRevision: list.lazyListContentRevision,
-                    environmentRevision: list.lazyListEnvironmentRevision))
+                    contentRevision: contentRevision,
+                    environmentRevision: environmentRevision))
             let viewport = try XCTUnwrap(
                 RetainedLazyListRuntimeAdapter.Viewport(context: context, offset: offset, extent: extent))
             let plan = adapter.layoutPlan(viewport: viewport)

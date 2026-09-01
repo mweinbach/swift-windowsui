@@ -171,6 +171,13 @@ final class RetainedButtonInsertionCompositionTests: XCTestCase {
         try host.assertCommittedDescriptor(file: file, line: line)
         XCTAssertEqual(clockReads, 0, file: file, line: line)
 
+        // Observe one refused attempt; separate default-budget tests cover retries.
+        if change != .unchanged {
+            XCTAssertTrue(
+                host.runtime.configureLazyListResolutionBudget(elementLimit: 128, roundLimit: 1), file: file,
+                line: line)
+        }
+
         probe.rows = [1, 2]
         withAnimation(.linear(duration: 2)) { host.reload() }
         XCTAssertTrue(probe.factoryCalls.isEmpty, "Descriptor acceptance must not build rows", file: file, line: line)

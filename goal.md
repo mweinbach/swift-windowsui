@@ -11371,3 +11371,33 @@ also remain under review, independently of this Button integration.
 
 This source step does not establish a Button test pass, a File14 recovery,
 Table/UIA qualification, native fairness, visual parity, or release completion.
+
+
+### 2026-09-01: preserve the original Button insertion attempt in the fixture checks
+
+All nine original completion gates remain open. The separately reviewed Button
+fixture amendment now follows the unchanged adapted production series. Seven
+setup lines in the existing insertion composition file defer the two negative
+clock interventions until the initial descriptor exists. Their original
+assertions and explicit 128-element/one-round bounds remain unchanged. The
+ordinary positive case keeps the default four-round budget.
+
+A separate two-method retry class captures the actual native attempt and
+descriptor identities before the first successor copy. It checks that the
+original refusal consumes its stale proof and leaves the old action inert,
+while any successor uses its own source attempt. These checks do not claim
+eventual descriptor commitment or a successfully executable fresh action.
+All 108 earlier Button method IDs and assertions are preserved; the complete
+Button selection now contains 110 methods. None has executed on this root yet.
+
+The exact patch is 15,989 bytes, SHA256
+`f1e76f634a84f147749895fb0fbae64c8950a6b16ffe3f17428284c6a9c9466d`.
+Root comparison confirms complete staged-diff equality, one deliberately
+modified existing fixture, one new test file, and byte preservation of the
+other 624 existing test files. No production source, Package.swift, timeout,
+or test assertion changed. The proof is
+`artifacts/goal-ninth-button-ae49000-root-proof-v1.json`, with staged tree
+`f5df0fbdd3a63d64e08182466b58d81f8515e9d2` before this append. Strict formatting
+of both changed Swift files and contracts passed (`0376f7/0`). Compilation,
+all 110 Button methods, the original UIA budget cases, and broader validation
+remain pending; source review and fixture correction are not test passes.

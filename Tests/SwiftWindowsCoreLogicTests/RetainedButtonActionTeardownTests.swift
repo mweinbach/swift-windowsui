@@ -255,7 +255,7 @@ final class RetainedButtonActionTeardownTests: XCTestCase {
                 for handler in events.handlers { handler() }
             }
             button.onDisappear = { events.disappearances.append(task.name) }
-            events.handlers.append(try XCTUnwrap(button.onActivate))
+            events.handlers.append { @MainActor [handler = try XCTUnwrap(button.onActivate)] in handler() }
             buttons.append(button)
         }
         _ = runtime.renderScene()
@@ -302,7 +302,7 @@ final class RetainedButtonActionTeardownTests: XCTestCase {
                 events.tablesAtRelease.append(runtime.root.children.map(ObjectIdentifier.init))
                 for handler in events.handlers { handler() }
             }
-            events.handlers.append(try XCTUnwrap(button.onActivate))
+            events.handlers.append { @MainActor [handler = try XCTUnwrap(button.onActivate)] in handler() }
             button.onDisappear = { events.disappearances.append("single") }
             _ = runtime.renderScene()
             XCTAssertTrue(button.hasAppeared)

@@ -12031,3 +12031,31 @@ matching process or formatter. There were zero XCTest starts or terminals:
 all 152 selected methods remain NOT RUN for this attempt. The separately
 prepared Button/Table166, UIA122, public-budget19 and native94 runners were
 not executed. All nine original goal gates remain open.
+
+
+### 2026-09-01 make Button fixture captures explicit without changing teardown
+
+Two nested construction calls now spell self.button explicitly, preserving
+their existing outer self captures and their original execution positions.
+Two teardown fixtures store explicit main-actor forwarding closures. Each
+capture initializer reads and unwraps the original onActivate callback at the
+original append statement; its body later calls that saved callback once.
+The wrapper does not reread the Button, capture the Button or event table,
+add a task or actor hop, or extend the callback into a new test-scope local.
+
+The exact `8584f080` patch is 2,853 bytes, SHA256
+`940e3d49ea755911e5282725263f627b4d070a375838d9bd6f25693dce52362b`.
+It contains four single-line substitutions across two test files. All 46
+Construction and seven Teardown methods, XCTest expressions, callback order,
+render/removal operations and cleanup statements remain in place. Complete
+file reconstruction and inverse checks, independent source review, root
+strict formatting, contracts and the staged-diff proof cover this source
+correction. The other 639 existing test files, production code and Package.swift
+are unchanged by the patch. The retained packet and root proof are
+`artifacts/goal-ninth-button-fixtures858-intake-v1` and
+`artifacts/goal-ninth-button-fixtures858-root-proof-v1.json`.
+
+These source checks do not establish compiler acceptance or passing tests.
+The preceding ordinary152 attempt still has zero executed cases; the separate
+Table/UIA corrections and fresh combined test execution remain necessary.
+No original completion gate is closed by this fixture repair.

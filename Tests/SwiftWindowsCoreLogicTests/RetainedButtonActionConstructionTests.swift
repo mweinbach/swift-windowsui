@@ -16,7 +16,7 @@ final class RetainedButtonActionConstructionTests: XCTestCase {
         host.setComponents { [self] in
             [
                 Component { constructionRuntime in
-                    let node = button(in: constructionRuntime) { calls += 1 }
+                    let node = self.button(in: constructionRuntime) { calls += 1 }
                     built = node
                     node.onActivate?()
                     return node
@@ -700,7 +700,7 @@ final class RetainedButtonActionConstructionTests: XCTestCase {
                 let node = ViewNode()
                 let payload = ButtonConstructionReleaseProbe {
                     releases += 1
-                    let late = button(in: runtime) { calls += 1 }
+                    let late = self.button(in: runtime) { calls += 1 }
                     escaped = late
                     late.onActivate?()
                 }

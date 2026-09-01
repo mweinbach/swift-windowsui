@@ -11700,3 +11700,38 @@ not continuous descendant attestation. The earlier `ad680c` reconciliation call
 misused a single-valued substring option as three repeated options and stopped
 before writing a receipt; the successful successor preserves and lists all
 sixteen original diagnostics. No old execution artifact was rewritten.
+
+
+### 2026-09-01 root integration 93: sealed overlay probe input planning
+
+The four-file Stage B intake slice is composed after the recorded combined-build
+failure at `2e623e8bdd019975dcbcf58789c08a57eb401d1d`. It is tooling groundwork,
+not a repair to that Swift compilation and not Apple SDK or API conformance
+evidence. All nine original completion gates remain open and unchanged.
+
+The input reader reuses the strict capture/census readers and joins complete
+Stage A discovery records to the original definition occurrences, aliases,
+ordered overlay names, module contexts, and source seals. The public path
+rejects synthetic/incomplete input. Explicit plans bind their source hashes,
+native profile, both original macOS 26.5 targets, language mode, and bounded
+selected definition pairs; they cannot inject source/search-path arguments.
+Unselected or unresolved occurrences remain explicit rather than becoming API
+absence or a scope exception. All nine original audit streams remain required.
+
+The sealed private source patch from `941c4485e51ffbb80612a42b8fa3724da5106a50`
+is 144,358 bytes, SHA-256
+`1c538afb33b66af04985bf2d1ececc9028d082f0cfa623fcbdd658f77ac4a381`.
+Root `ab00b3/0` passed pre/post contracts under PowerShell 7 and proved the
+complete staged diff byte-identical. Proof
+`artifacts/goal-ninth-stageb1-941c-root-proof-v1.json` binds staged source tree
+`aa868b156c6368340349d129910c898d4a235b40`; all 641 existing Tests files and
+Package.swift are unchanged. No Swift file changed. The 72-case/427-assertion
+synthetic intake selection has not run on root yet; its private result is not
+presented as a fresh root result.
+
+After the collection slice, root will run each of the four complete synthetic
+suites in a separate PowerShell 7 process with a fresh output root and no case
+filter. Existing managed streaming support may compile C# in-process through
+Add-Type; these tests do not launch an external compiler, SwiftPM, native Apple
+collector, or SDK workload. They cannot close SDK identity review, full overlay
+coverage, declaration review, or behavioral conformance.

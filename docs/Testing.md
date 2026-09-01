@@ -1351,6 +1351,24 @@ standalone/render oracles are unchanged. Run the new class serially with
 `RetainedLazyListActivityTests` after integration. These checks do not qualify
 keyboard navigation after rebuilt deferred-controller transport or native UIA.
 
+The separate `DeferredListNavigationTransportTests` cases exercise a fresh
+keyboard action through a newly adopted deferred controller, including padded
+GeometryReader resolution, retained and released construction candidates,
+managed rebuild continuation followed by a new action, ordinary weak runtime
+expiry, and foreign or terminal attachment changes. They distinguish the next
+action from the existing pre-rebuild prepared-action continuation. The companion
+`RetainedLazyListNavigationContainerTests` cases check native first-publication
+rules without rendering or constructing rows: provisional same-owner claims,
+foreign claim/release, permanent accepted release, adapter and identity ABA,
+explicit close, and expired original runtimes. Raw adapters still retain their
+existing claim behavior even when the original navigation binding is revoked.
+
+These two new classes are source-only until root executes them serially after
+integration. The prior fourteen navigation-lifetime cases, original thirteen
+standalone/render cases, and all other existing test sources remain unchanged.
+Run both new classes with the existing List/navigation suites above; no compiler,
+runtime, native UIA, or visual result is implied by writing or reviewing them.
+
 `DemoBitmapResourceTests` adds eight async cases for the real demo module's
 named PNG lookup, decoded pattern pixels, cap/tile geometry and sampling,
 finite aspect fit, accessibility labels, search terms, and an explicitly

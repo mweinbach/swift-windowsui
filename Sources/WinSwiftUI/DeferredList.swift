@@ -129,7 +129,8 @@ func makeDeferredListComponent(
             let adapter = RetainedLazyListRuntimeAdapter(
                 provider: source, estimatedExtent: estimate, prefetchExtent: prefetch,
                 maximumMountedRecords: maximumRecords, maximumMountedLeaves: maximumLeaves,
-                maximumProtectedRecords: 16)
+                maximumProtectedRecords: 16),
+            let navigationContainer = adapter.installNavigationContainer(in: runtime)
         else { return rejectedRetainedViewNode() }
 
         let lease: any RetainedSubtreeBuildLease
@@ -187,7 +188,8 @@ func makeDeferredListComponent(
                 mainAlignment: alignment.map { stackMainAlignment(from: $0.y) } ?? .start),
             isHitTestVisible: false, children: [list])
         scroll.accessibilityChildBehavior = .contain
-        navigation.installDeferredNavigation(in: list, prefersImplicitSelectionTag: prefersImplicitSelectionTag)
+        navigation.installDeferredNavigation(
+            in: navigationContainer, prefersImplicitSelectionTag: prefersImplicitSelectionTag)
         List.configureScrolling(
             scroll, context: context, navigationState: navigation, includesUnrealizedRows: !records.isEmpty)
         guard receipt?.isCurrent != false, projection.isCurrent else { return rejectedRetainedViewNode() }

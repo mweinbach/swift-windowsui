@@ -10284,3 +10284,36 @@ compiled cost, and active case of the buffered File14 workload remain unknown.
 Its previous 900.016-second timeout and unknown individual outcomes remain
 failures to obtain evidence; neither the timeout nor workload has been relaxed.
 All nine original completion gates remain open.
+
+### Fresh deferred List keyboard controllers use the accepted retained container (2026-09-01)
+
+The separately documented deferred-controller transport defect is now repaired
+in root source. GeometryReader or component adoption could move the incoming
+adapter and row declarations onto a retained List while the new keyboard
+controller still held its discarded construction node weakly. Finishing an old
+prepared selection action did not demonstrate that the next action could work.
+
+Each fresh adapter now installs a native navigation container binding. It
+captures only its first actual attachment to the original runtime at accepted
+claim publication; a provisional claim can finish that first capture once
+membership exists. An accepted release is terminal. Getters never capture,
+retarget, search for another owner, or invoke a provider. Existing declaration,
+selection, focus, identity, lease, and close checks still apply. Already realized
+direct-data rows keep their navigation path after ordinary weak runtime expiry;
+explicit close, foreign attachment, departure, identity ABA, and adapter or
+lease replacement still reject the old controller. No factory pass was added.
+
+Root parent `4883b8f6471a292ca248f3ceb9cd1b7089ecc5ac` integrates the reviewed
+private `b1d661c10b2ae0e990f592a6049c550db9e13608` packet. The source audit in
+`artifacts/goal-ninth-deferred-navigation-transport-root-integration-proof-v1.json`
+confirms exact added and removed packet content across five production files,
+two new test files, and two documentation files. Existing tests and Package.swift
+are unchanged. Strict formatting for seven Swift files and ContractsOnly passed
+at root (`1eb864`, exit 0).
+
+The seventeen new async tests include the actual padded GeometryReader rebuild
+with both held and released construction candidates, a fresh runtime keyboard
+event after adoption, a managed prepared action followed by a separate new
+action, original claim publication, release, and lifetime refusal cases. They
+have not yet compiled or executed on root. No new keyboard, UIA, visual, or
+release qualification is claimed. All nine original completion gates remain open.

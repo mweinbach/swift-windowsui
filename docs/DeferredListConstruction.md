@@ -111,6 +111,29 @@ owners keep their existing path, and standalone build permission still requires
 a live runtime. These navigation changes have source checks only until the new
 `StandaloneListNavigationLifetimeTests` and existing regression suites execute.
 
+Deferred keyboard controllers carry a separate native container binding owned
+by their fresh adapter. A GeometryReader or component rebuild can discard the
+construction List while retaining its previous physical target; copying the
+adapter and row declarations alone does not update a weak construction-node
+reference. The binding records its first actual target only at successful native
+claim publication in the original runtime. A repeated claim can finish an
+earlier provisional claim once membership is real, but cannot refresh an old
+proof. Foreign or provisional claims grant no container, and release of an
+accepted attachment permanently revokes that binding. Its getter checks the
+fixed native proof, installed adapter and standalone lease without looking up a
+new owner, invoking a provider, or rebuilding rows.
+
+Each fresh declaration has its own container binding. An old action that already
+wrote selection still finishes through its original prepared physical receipt;
+it does not acquire the new declaration's container. New actions use the adopted
+controller and its accepted target. Already realized direct-data rows retain
+their physical keyboard path after plain runtime expiry, while explicit close,
+departure, and identity or adapter replacement remain terminal. Before actual
+materialization a deferred public List has no selectable rows; existing eager
+returned-tree construction actions are unchanged. Source-only transport and
+native publication tests are listed in [Testing.md](Testing.md); execution
+qualification still belongs to the integrated root run.
+
 Direct data initializers preserve element-ID selection precedence. Builder rows
 preserve their explicit `.tag` values. Keyboard movement realizes a real target,
 protects the prepared source and target through the accepted action, and uses

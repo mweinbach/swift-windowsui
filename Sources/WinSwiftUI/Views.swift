@@ -9662,7 +9662,9 @@ final class ListKeyboardNavigationState {
         self.runtime = runtime
     }
 
-    func installDeferredNavigation(in container: ViewNode, prefersImplicitSelectionTag: Bool) {
+    func installDeferredNavigation(
+        in container: RetainedLazyListNavigationContainer, prefersImplicitSelectionTag: Bool
+    ) {
         guard let runtime else { return }
         deferredNavigation = DeferredListKeyboardNavigation(
             runtime: runtime, container: container, scope: scope,

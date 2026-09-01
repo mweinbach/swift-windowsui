@@ -65,20 +65,23 @@ final class DeferredListKeyboardNavigation {
     }
 
     private weak var runtime: RetainedViewRuntime?
-    private weak var container: ViewNode?
+    private let containerBinding: RetainedLazyListNavigationContainer
     private let scope: RetainedListNavigationOwner
     private let prefersImplicitSelectionTag: Bool
     private var request: Request?
 
     init(
-        runtime: RetainedViewRuntime, container: ViewNode, scope: RetainedListNavigationOwner,
+        runtime: RetainedViewRuntime, container: RetainedLazyListNavigationContainer,
+        scope: RetainedListNavigationOwner,
         prefersImplicitSelectionTag: Bool
     ) {
         self.runtime = runtime
-        self.container = container
+        containerBinding = container
         self.scope = scope
         self.prefersImplicitSelectionTag = prefersImplicitSelectionTag
     }
+
+    private var container: ViewNode? { containerBinding.node }
 
     func moveSelection(
         _ mode: ListSelectionMode, from sourceOwner: RetainedListNavigationOwner,

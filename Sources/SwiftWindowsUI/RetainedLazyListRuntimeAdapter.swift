@@ -659,6 +659,7 @@ package final class RetainedLazyListRuntimeAdapter {
     private var stagedPredecessor: StagedPredecessor?
     private weak var attachmentOwner: ViewNode?
     private var standaloneBuildLease: RetainedLazyListStandaloneBuildLease?
+    private var navigationContainer: RetainedLazyListNavigationContainer?
     private var isPreparing = false
     private var isReleasing = false
     private var pendingCandidate = false
@@ -1030,13 +1031,18 @@ package final class RetainedLazyListRuntimeAdapter {
     /// Runtime still checks its own live attachment and lease before adoption.
     package func claimAttachment(to node: ViewNode) -> Bool {
         guard !isReleasing else { return false }
-        if let attachmentOwner { return attachmentOwner === node }
+        if let attachmentOwner {
+            guard attachmentOwner === node else { return false }
+            navigationContainer?.didClaimAttachment(to: node)
+            return true
+        }
         revokePendingCandidate()
         attachmentOwner = node
         if let standaloneBuildLease, !standaloneBuildLease.acceptFirstAttachment(to: node) {
             attachmentOwner = nil
             return false
         }
+        navigationContainer?.didClaimAttachment(to: node)
         return true
     }
 
@@ -1049,6 +1055,17 @@ package final class RetainedLazyListRuntimeAdapter {
     /// A concrete native read for already realized navigation only. It does
     /// not invoke the installed protocol lease or grant factory permission.
     var permitsStandaloneNavigation: Bool { standaloneBuildLease?.hasCurrentNavigationAttachment != false }
+
+    /// Only a fresh declaration can install its keyboard container binding.
+    /// Accepted native claims publish its actual node without facade callbacks.
+    package func installNavigationContainer(in runtime: RetainedViewRuntime) -> RetainedLazyListNavigationContainer? {
+        guard navigationContainer == nil, attachmentOwner == nil, generation == nil, mounted.isEmpty,
+            !isPreparing, !isReleasing, !pendingCandidate
+        else { return nil }
+        let container = RetainedLazyListNavigationContainer(runtime: runtime, adapter: self)
+        navigationContainer = container
+        return container
+    }
 
     /// Ordinary direct View construction has no managed descriptor owner.
     /// Its native lease is armed only by the first actual Runtime attachment,
@@ -1074,6 +1091,7 @@ package final class RetainedLazyListRuntimeAdapter {
     @discardableResult
     package func releaseAttachment(from node: ViewNode) -> Bool {
         guard attachmentOwner === node else { return false }
+        navigationContainer?.revokeAttachment(from: node)
         standaloneBuildLease?.revoke()
         revokePendingCandidate()
         attachmentOwner = nil

@@ -1298,14 +1298,20 @@ List lease bound to a discarded GeometryReader construction node.
 `StandaloneLazyListSnapshotTests` adds ten cases for first-scene glyph paint
 through padded public GeometryReader/List construction, accepted source-to-target
 copy, equivalent assignments, discarded and foreign candidates, and permanent
-refusal after attachment, adapter, lease, or identity revocation. The native
-standalone attachment repair and these new cases have source checks only.
+refusal after attachment, adapter, lease, or identity revocation.
 `DemoFileBrowserRenderTests` adds three cases that prepare the same production
 sample states and require every file name to emit visible glyphs in the first
 retained scene, within its actual clip and canvas. These cases do not take a
-later scene or retry until a blank render disappears. Compilation, execution,
-and renewed inspection of all three gallery PNGs remain required. Use the
-repository's serial workflow after integrating the source:
+later scene or retry until a blank render disappears. At `02edb4c`, all three
+template cases and nine of the ten standalone cases passed. The remaining
+standalone case accepted its first valid adapter and lease after a foreign
+runtime attempt, but its first scene still had no rows. Source inspection found
+that the foreign render left an outer frame wrapper cached and clean, allowing
+layout to prune the List before a fresh visit. Newly accepted adapter attachment
+now dirties the List's layout path without rearming a lease or changing budgets.
+That follow-up has source checks only; the original 13 test oracles are unchanged
+and must run again. Scene assertions do not replace renewed rendering and visual
+inspection of all three gallery PNGs. Use the serial workflow after integration:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter DemoFileBrowserGalleryPreparationTests

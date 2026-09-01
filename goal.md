@@ -9890,3 +9890,29 @@ formatting passed for both changed Swift files. Compilation and execution of
 this correction and the unchanged layout regressions remain required. The
 failed standalone case, two insertion cases, File Browser timeout, renewed
 gallery inspection, full validation, and all nine original gates remain open.
+
+### Ninth batch: first accepted List attachment invalidates cached layout
+
+The remaining standalone failure in the 187-method run accepted the correct
+adapter and lease after a foreign runtime attempt, but the first scene still
+contained no rows. The foreign render had cleared dirty flags on the outer
+frame wrappers. The later accepted attachment dirtied the root but not that
+cached wrapper path, so layout pruned the List before preparing its viewport.
+
+Registration now records whether this adapter already owns the attachment.
+Only a successful new claim marks the List and its ancestors dirty for layout.
+Rejected claims and repeated registration keep their previous behavior.
+The normal layout pass still supplies geometry and build authority; the change
+does not rearm a lease, add a provider pass, relax ownership, or change a budget.
+
+`artifacts/goal-ninth-standalone-cached-layout-intake-v1` retains private commit
+`4003bf990f0816b18f8fc293fb9161dacdd7eba2`, tree
+`30f629604611832deddc6a2bed566298a232cd59`. The 4,520-byte source patch has
+SHA256 `60d7f7815d8f31efac9ee3a6d6f523bd3a6badd958aadf9e488856b9762f03c2`.
+It changes one runtime registration site and two documentation files. All
+591 existing test files, including the original 13 standalone/first-scene
+render cases, are unchanged by this patch. Parent contracts and strict
+formatting passed for the runtime file. Execution and all six retained gallery
+renders remain required; the prior 12 passing scene cases are not evidence
+that this new correction has run. Standalone navigation lifetime and insertion
+animation repairs remain separate work. No original completion gate changed.

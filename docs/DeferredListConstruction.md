@@ -80,6 +80,13 @@ target, and a replacement protocol lease cannot reopen the opted-in adapter.
 Managed ownership and raw adapters without this standalone opt-in keep their
 existing paths. This does not add mounted State continuity to direct snapshots.
 
+A newly accepted adapter attachment marks the List and its ancestors dirty for
+layout. A rejected foreign runtime can have painted the same empty subtree and
+left its outer frame wrappers cached and clean; that cache cannot suppress the
+first real layout visit in the expected runtime. Failed claims and repeated
+registration of an existing attachment do not add this invalidation. The normal
+layout pass still supplies all geometry and build authority.
+
 ## Navigation, scrolling and accessibility
 
 Direct data initializers preserve element-ID selection precedence. Builder rows

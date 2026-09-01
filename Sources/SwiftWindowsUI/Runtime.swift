@@ -12961,7 +12961,16 @@ public final class RetainedViewRuntime {
             !node.isRetiringLazyListAttachment, ownsLazyListAttachment(node)
         else { return }
         lazyListRegistrations[ObjectIdentifier(node)] = LazyListRegistration(node: node, adapter: adapter)
-        if !adapter.claimAttachment(to: node) { lazyListUnsupportedThisPass = true }
+        let alreadyOwnedAttachment = adapter.ownsAttachment(node)
+        if !adapter.claimAttachment(to: node) {
+            lazyListUnsupportedThisPass = true
+        } else if !alreadyOwnedAttachment {
+            // An earlier runtime may have painted this subtree without owning
+            // the adapter. Reach its pending rows through clean cached wrappers
+            // on this first accepted attachment. Repeated registration must not
+            // invalidate an attachment whose layout is already current.
+            node.markDirty(.layout)
+        }
         if lazyListResolutionDepth > 0 { ensureLazyListResolutionBudget() }
     }
 

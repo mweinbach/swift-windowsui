@@ -1105,6 +1105,13 @@ public final class ComponentHost {
             completion = RetainedLazyListAdoptionCompletion(of: target)
             return true
         }
+        let completionSources: RetainedReconciliationSourceNodes?
+        if admission == nil, lazyJournal?.isOrdinaryAdoption == true {
+            guard let sources = RetainedReconciliationSourceNodes(roots: [source]) else { return false }
+            completionSources = sources
+        } else {
+            completionSources = nil
+        }
         let preservesChildren = preservesLazyListChildren(source: source, target: target)
         let newNodes = target.childrenForLazyListReconciliation(from: source)
         let oldChildren = target.children
@@ -1156,7 +1163,7 @@ public final class ComponentHost {
             return reconcilePreparedChildren(
                 of: target, oldChildren: oldChildren, newNodes: newNodes, plan: plan, admission: admission,
                 preservesChildren: preservesChildren, sourceParent: source,
-                taskAdoption: taskAdoption, lazyJournal: lazyJournal)
+                taskAdoption: taskAdoption, lazyJournal: lazyJournal, completionSources: completionSources)
         }
         guard completed, check.isCurrent else { return false }
         check.recordCompletedNode(from: source, to: target)
@@ -1652,6 +1659,13 @@ public final class ComponentHost {
             admission, target: parent, lazyJournal: lazyJournal, taskAdoption: taskAdoption)
         guard check.isCurrent, admission?.permitsMutation(of: parent) != false else { return false }
         if lazyJournal != nil, ViewNode.containsRejectedRetainedSource(in: newNodes) { return false }
+        let completionSources: RetainedReconciliationSourceNodes?
+        if admission == nil, lazyJournal?.isOrdinaryAdoption == true {
+            guard let sources = RetainedReconciliationSourceNodes(roots: newNodes) else { return false }
+            completionSources = sources
+        } else {
+            completionSources = nil
+        }
         let plan: PreparedChildrenPlan?
         if admission != nil || lazyJournal?.isOrdinaryAdoption == false {
             guard
@@ -1685,7 +1699,7 @@ public final class ComponentHost {
         guard
             reconcilePreparedChildren(
                 of: parent, oldChildren: oldChildren, newNodes: newNodes, plan: plan, admission: admission,
-                taskAdoption: taskAdoption, lazyJournal: lazyJournal),
+                taskAdoption: taskAdoption, lazyJournal: lazyJournal, completionSources: completionSources),
             check.isCurrent
         else { return false }
         if admission != nil || lazyJournal?.isOrdinaryAdoption == false {
@@ -1919,7 +1933,8 @@ public final class ComponentHost {
         admission: RetainedLazyListAdoptionAdmission? = nil, preservesChildren: Bool = false,
         sourceParent: ViewNode? = nil,
         taskAdoption: RetainedTaskAdoptionContext? = nil,
-        lazyJournal: RetainedLazyListAdoptionJournal? = nil
+        lazyJournal: RetainedLazyListAdoptionJournal? = nil,
+        completionSources: RetainedReconciliationSourceNodes?
     ) -> Bool {
         let check = NodeReconcileAdmission(
             admission, target: parent, childrenSnapshot: plan?.childrenSnapshot,
@@ -1995,7 +2010,7 @@ public final class ComponentHost {
                     of: oldNode, oldChildren: previousChildren, newNodes: proposedChildren,
                     plan: childPlan, admission: admission,
                     preservesChildren: preservesChildren, sourceParent: newNode,
-                    taskAdoption: taskAdoption, lazyJournal: lazyJournal)
+                    taskAdoption: taskAdoption, lazyJournal: lazyJournal, completionSources: completionSources)
             }
             guard completed, check.isCurrent, nodeCheck.isCurrent else { return false }
             nodeCheck.recordCompletedNode(from: newNode, to: oldNode)
@@ -2007,7 +2022,7 @@ public final class ComponentHost {
         guard plan?.childrenSnapshot?.beginTransfers() != false else { return false }
         let result = parent.setChildren(
             nextChildren, admission: admission, lazyJournal: lazyJournal, taskAdoption: taskAdoption,
-            sourceParent: sourceParent)
+            sourceParent: sourceParent, completionSources: completionSources)
         guard result.completed, check.isCurrent else { return false }
         if let admission {
             guard let completion = result.completion, admission.recordCompletion(completion) else { return false }

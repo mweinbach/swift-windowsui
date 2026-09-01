@@ -10584,3 +10584,41 @@ COM routing, visual parity, full-suite validation, frame pacing, resource bounds
 macOS, hosted CI, deployment, or any release gate. No original workload, timeout,
 cleanup obligation, or completion criterion was reduced. All nine original
 completion gates remain open and unchanged.
+
+### Ordinary reconciliation keeps original source completion through reordering (2026-09-01)
+
+Root source now contains the narrow repair from private commit
+`abfa80ff68a33528ecc32541210f4e98eb925d81`. A retained target had already completed
+against its fresh candidate, but a later changed-child-list walk completed that
+same target against itself. The target did not carry the candidate's source
+stamps, so that second completion could revoke the newly accepted descriptor
+and stop a surviving keyframe run. This mechanism differs from the remaining
+old-footprint/new-footprint retirement gap during physical root replacement.
+
+ComponentHost now captures the original prepared source forest once at the
+outer adoption or reconciliation boundary, before authored matching and property
+callbacks. Descendants share that immutable weak membership record. The ordinary
+setter uses it only to filter its later self-completion replay; candidate-to-target
+completion and the entire accepted insertion/arrival walk stay in their original
+positions. Direct/raw setters retain their existing default behavior, including
+explicit same-object sources. Checked List adoption is unchanged.
+
+Membership holds native object identifiers and weak original nodes, and requires
+the surviving original referent to match. It grants no attachment or publication
+permission and cannot retarget after callbacks or address reuse. The existing
+bounded traversal rejects malformed source forests before mutation. This adds
+one O(N) native traversal and weak dictionary per outer operation; those costs,
+physical storage, and end-to-end performance remain unmeasured. The historical
+File14 timeout is not considered resolved.
+
+The exact three-file postimages were checked against the sealed packet on parent
+`6063d2dbfa8dd66709ae76a9fa21bbc808af13f5`; all 605 preexisting test files are
+unchanged. Nine separate tests cover real-journal reorder and mixed insertion,
+direct and reconciled same-object sources, direct adoption, callback replacement,
+weak payload release, stale attachment separation, and malformed forests.
+The root proof is
+`artifacts/goal-ninth-ordinary-source-completion-root-proof-v1.json`.
+Strict formatting for three Swift files and ContractsOnly passed (`5a20a1`,
+session 56581, terminal `b885f7`, exit 0). Compilation and the unchanged 62
+keyframe tests plus these nine new tests still remain required. No other mounted
+keyframe failure, native failure, or original completion gate is marked resolved.

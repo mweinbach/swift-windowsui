@@ -6181,7 +6181,8 @@ public final class ViewNode {
     /// expressed.
     private func setChildrenUnchecked(
         _ nextChildren: [ViewNode], lazyJournal: RetainedLazyListAdoptionJournal? = nil,
-        taskAdoption: RetainedTaskAdoptionContext? = nil, sourceParent: ViewNode? = nil
+        taskAdoption: RetainedTaskAdoptionContext? = nil, sourceParent: ViewNode? = nil,
+        completionSources: RetainedReconciliationSourceNodes? = nil
     ) {
         guard !isRetiringLazyListAttachment else { return }
         // A rebuild reconciles every node in the window, and for the
@@ -6291,8 +6292,13 @@ public final class ViewNode {
                 for group in lazyJournal.takeAcceptedDescriptorTaskGroups() {
                     taskAdoption?.associateDescriptorAccepted(group, journal: lazyJournal)
                 }
-                for group in lazyJournal.recordCompletedNode(from: node, to: node) {
-                    taskAdoption?.associateLazyAccepted(group, journal: lazyJournal)
+                // Matched targets already completed against their original
+                // candidate. They are not their own source: replaying them
+                // would interpret absent source stamps as removed activity.
+                if completionSources?.contains(node) != false {
+                    for group in lazyJournal.recordCompletedNode(from: node, to: node) {
+                        taskAdoption?.associateLazyAccepted(group, journal: lazyJournal)
+                    }
                 }
                 for group in lazyJournal.takeAcceptedDescriptorTaskGroups() {
                     taskAdoption?.associateDescriptorAccepted(group, journal: lazyJournal)
@@ -11850,6 +11856,23 @@ private func clampedExtent(_ extent: Double, min minimum: Double, max maximum: D
 @MainActor
 private struct WeakViewNodeRef {
     weak var node: ViewNode?
+}
+
+/// Original construction membership for ordinary reconciliation's completion
+/// replay. This carries no attachment or publication permission. Weak referents
+/// neither prolong authored payloads nor let address reuse name a new source.
+@MainActor
+struct RetainedReconciliationSourceNodes {
+    private let nodes: [ObjectIdentifier: WeakViewNodeRef]
+
+    init?(roots: [ViewNode]) {
+        guard let sources = ViewNode.lazyListNodes(in: roots) else { return nil }
+        nodes = Dictionary(uniqueKeysWithValues: sources.map { (ObjectIdentifier($0), WeakViewNodeRef(node: $0)) })
+    }
+
+    func contains(_ node: ViewNode) -> Bool {
+        nodes[ObjectIdentifier(node)]?.node === node
+    }
 }
 /// One invalidation raised while a render pass was open, replayed onto the
 /// node's subtree flags once the pass has finished clearing them.
@@ -21038,7 +21061,8 @@ extension ViewNode {
         removalReason: RetainedChildRemovalReason = .structural,
         lazyJournal: RetainedLazyListAdoptionJournal? = nil,
         taskAdoption: RetainedTaskAdoptionContext? = nil,
-        sourceParent: ViewNode? = nil
+        sourceParent: ViewNode? = nil,
+        completionSources: RetainedReconciliationSourceNodes? = nil
     ) -> RetainedLazyListAdoptionResult {
         guard !isRetiringLazyListAttachment,
             lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false
@@ -21048,7 +21072,8 @@ extension ViewNode {
         if admission == nil, lazyJournal?.isOrdinaryAdoption != false {
             let changed = !isChildListUnchanged(nextChildren)
             setChildrenUnchecked(
-                nextChildren, lazyJournal: lazyJournal, taskAdoption: taskAdoption, sourceParent: sourceParent)
+                nextChildren, lazyJournal: lazyJournal, taskAdoption: taskAdoption, sourceParent: sourceParent,
+                completionSources: completionSources)
             return RetainedLazyListAdoptionResult(
                 completed: isChildListUnchanged(nextChildren), didMutate: changed, children: children)
         }

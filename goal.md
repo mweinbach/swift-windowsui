@@ -10694,3 +10694,54 @@ and the class now has eleven methods. The proof is
 ContractsOnly passed (`352053`, exit 0). The corrected fixtures and new default
 policy regression still require execution; the earlier failures remain recorded.
 No original goal criterion was changed or marked complete.
+
+
+### 2026-09-01: preserve accepted empty rows and distinguish List lease provenance
+
+The original goal and all nine original unchecked gates remain unchanged. This
+entry records two narrow source repairs for the failed insertion-event methods
+at `26390ef`; no compiler, XCTest, rendering, or performance pass is claimed.
+
+The reviewed `f863275e4ac1d35fbaf4f406153cc57a9a25d17c` packet is now applied
+as eight Swift files: five production files and three new test files containing
+eleven methods. The root packet is
+`artifacts/goal-ninth-empty-nested-f863275-intake-v1/payload/SOURCE.patch`
+(28,381 bytes; SHA256
+`7da157bfaa6807d4328555540acc2c021665551bd044c263234fed2d734b4597`).
+Its original nonstandard manifest was retained unchanged in a separate passive
+wrapper; the fixed intake helper and its validation rules were not weakened.
+
+An already accepted managed row with zero physical descendants now remains
+eligible in the bounded mounted window when its original carried-record proof,
+identity, source configuration, generation, position, and zero prefix extent
+still match the viewport. Selection considers only the existing mounted table,
+after positive/protected rows and before optional prefetch. It does not scan
+zero-height indices, invoke a provider, reconstruct a cold row, enlarge the
+window, or change the default four-round budget. The extra native sorting work
+is bounded by mounted capacity; its actual time and allocation cost is unmeasured.
+This permits a later accepted update to insert the first descendant of that
+same still-mounted empty row.
+
+List subtree leases now declare the native `.lazyList` contribution purpose.
+Both managed and deferred List constructors use it; the attributed lease API
+continues to default to GeometryReader for existing callers. A List therefore
+no longer falsely declares a deferred reader region with no reader source.
+Actual GeometryReader missing/duplicate-source rejection, reader anchors,
+owned registration, group cleanup, and checked publication remain unchanged.
+No Runtime.swift or ComponentHost.swift changes are part of this packet.
+
+New source regressions comprise five `ManagedLazyListEmptyRowWindowTests`,
+two `NestedLazyListLeaseProvenanceTests`, and four
+`RetainedDeferredLeaseSourceTests`. They cover half-open viewport boundaries,
+positive-row capacity and prefetch priority, cold/deleted empty records, public
+nested List state, a real nested reader, and missing/duplicate/single-reader
+admission with zero owned slots. Every pre-existing test file is unchanged.
+The original two failed `ManagedLazyListInsertionEventTests` remain in the
+required execution cohort; these eleven tests do not replace them.
+
+Pre-edit architecture contracts passed (`e12336/0`). Root strict formatting on
+all eight changed Swift files and post-edit contracts passed (`c5621b/0`).
+`artifacts/goal-ninth-empty-nested-f863275-root-proof-v1.json` verifies the
+reviewed patch body/hunks, all original test blobs, and the eleven-method roster.
+Compilation, the original failing tests, the combined focused cohorts, broader
+List validation, and release-quality visual checks are still pending.

@@ -27,6 +27,8 @@ private final class RetainedLazyListLogicalRosterRevision: Sendable {}
 package enum RetainedLazyListContributionKind: Equatable, Sendable {
     case structure, ownedState, observation, preferenceObservation, scopedTask
     case objectDependency, deferredSubtree, presentation, alert
+    // A list lease owns its descriptor, not a GeometryReader child region.
+    case lazyList
 }
 
 package enum RetainedLazyListConstructionState: Equatable, Sendable {

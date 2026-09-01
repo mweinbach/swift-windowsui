@@ -146,7 +146,7 @@ func makeDeferredListComponent(
             reference.binding = binding
             let capturedLease = coordinator.subtreeLease(
                 owner: owner, contentPrefix: listIdentity, lazyAttribution: context.viewIdentity.lazyList,
-                descriptorAttribution: context.viewIdentity.descriptorComponent)
+                descriptorAttribution: context.viewIdentity.descriptorComponent, purpose: .lazyList)
             guard receipt.isCurrent else { return rejectedRetainedViewNode() }
             lease = capturedLease
         } else {

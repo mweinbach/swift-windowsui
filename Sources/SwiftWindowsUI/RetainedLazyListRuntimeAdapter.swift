@@ -2643,6 +2643,28 @@ package final class RetainedLazyListRuntimeAdapter {
                 position = next.position
             }
         }
+        // A managed row may have accepted an empty physical incarnation at
+        // this container. Its coordinate interval cannot select it, but that
+        // exact current-viewport cohort still proves a later descendant is an
+        // insertion rather than cold materialization. Inspect only the bounded
+        // mounted table; never scan or construct a run of zero-extent metadata.
+        if selected.count < maximumMountedRecords {
+            let viewportEnd = viewport.offset + viewport.extent
+            for record in mounted.values.sorted(by: { $0.request.sourceIndex < $1.request.sourceIndex }) {
+                guard selected.count < maximumMountedRecords else { break }
+                guard record.nodes.isEmpty, record.extents?.isEmpty == true,
+                    !selected.contains(record.request.token), recordIsCurrent(record),
+                    let start = extentIndex?.prefixOffset(before: record.request.sourceIndex),
+                    let end = extentIndex?.prefixOffset(before: record.request.sourceIndex + 1),
+                    start.isFinite, end.isFinite, start == end,
+                    start >= viewport.offset,
+                    viewport.extent == 0 ? start == viewport.offset : start < viewportEnd,
+                    carriedRecordProof(for: record) != nil
+                else { continue }
+                selected.insert(record.request.token)
+                priority.append(record.request.token)
+            }
+        }
         let required = selected
         guard prefetchExtent > 0, !expanded.isEmpty, selected.count < maximumMountedRecords else {
             return WindowSelection(tokens: priority, requiredTokens: required, exceedsRecordLimit: false)

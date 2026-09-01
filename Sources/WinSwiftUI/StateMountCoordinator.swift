@@ -577,15 +577,27 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
             coordinator: self, owner: owner, contentPrefix: contentPrefix, activityAnchor: anchor)
     }
 
+    enum SubtreeLeasePurpose {
+        case geometryReader, lazyList
+
+        var contributionKind: RetainedLazyListContributionKind {
+            switch self {
+            case .geometryReader: return .deferredSubtree
+            case .lazyList: return .lazyList
+            }
+        }
+    }
+
     func subtreeLease(
         owner: StateMountOwner, contentPrefix: RetainedViewIdentity, lazyAttribution: LazyListViewAttribution?,
-        descriptorAttribution: RetainedDescriptorComponentAttribution? = nil
+        descriptorAttribution: RetainedDescriptorComponentAttribution? = nil,
+        purpose: SubtreeLeasePurpose = .geometryReader
     ) -> any RetainedSubtreeBuildLease {
         guard let attribution = lazyAttribution else {
             guard let descriptorAttribution else { return subtreeLease(owner: owner, contentPrefix: contentPrefix) }
             let anchor: PresentationActivityAnchor
             if let build = currentBuild, build.admitsDescriptor(descriptorAttribution),
-                let group = descriptorAttribution.registerGroup(kind: .deferredSubtree),
+                let group = descriptorAttribution.registerGroup(kind: purpose.contributionKind),
                 build.admitsDescriptor(descriptorAttribution)
             {
                 anchor = build.activity.stageAnchor(
@@ -600,7 +612,8 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
         }
         let anchor: PresentationActivityAnchor
         if let build = currentBuild, build.canConstructLazy, attribution.admission.isCurrent,
-            let group = attribution.native.registerGroup(kind: .deferredSubtree), attribution.admission.isCurrent
+            let group = attribution.native.registerGroup(kind: purpose.contributionKind),
+            attribution.admission.isCurrent
         {
             anchor = build.activity.stageAnchor(
                 owner: owner, contentPrefix: contentPrefix, attribution: attribution, group: group)

@@ -10361,3 +10361,31 @@ exit 0). Twenty-one new async tests cover event semantics and callback boundarie
 They and the unchanged removal tests still require compilation and execution on
 the combined root source. No factory budget, cleanup obligation, timeout,
 workload, or original completion criterion was reduced; all nine gates remain open.
+
+### First combined compile found insertion recipe actor isolation (2026-09-01)
+
+The first fresh 165-method cohort on root `7f178d81a34cd058d4c2847da78b8ee1a3121778`
+stopped during compilation. It exited naturally with child/controller codes 1/1
+after 40.25 seconds (`deec2a`, session 29124, terminal `3f9fd8`); it did not time
+out. Four distinct diagnostics, repeated during module emission and compilation,
+identified the private nested insertion Recipe initializer reading main-actor
+ViewNode transition, opacity, transform, and implicit animation from a
+nonisolated context. No XCTest start was observed, so none of the 165 intended
+test outcomes is qualified by this run.
+
+The original 15,696-byte log is preserved under
+`artifacts/goal-ninth-new165-7f178d8-3bab96a6bb8745ad8ec995c0da1bfe7c/` with SHA256
+`1fc732ce28e74c7136d064115137eb7015fc659aeba845e146c2dcda2af3f3b0`.
+Tracked source and index endpoint checks passed. A separate process observation
+confirmed that direct child 16124, its remaining children, and Swift processes
+were absent (`534c31`, exit 0). The compile-failure receipt is
+`artifacts/goal-ninth-new165-7f178d8-compile-failure.json`.
+
+The repair adds only `@MainActor` to the private Recipe structure. Its callers
+already execute on the main actor; no dispatch, weakened isolation, transaction
+recapture, test change, or extra runtime work was introduced. Strict formatting
+and ContractsOnly passed (`8ea9ac`, exit 0). A fresh compile and the same 165
+methods remain required. The separate unchanged 150-method removal/blur cohort
+also remains pending at this source. These two serial cohorts retain all 315
+planned methods while each stays below the fixed Windows command-length bound;
+their 900-second per-run limits are unchanged. All nine original gates remain open.

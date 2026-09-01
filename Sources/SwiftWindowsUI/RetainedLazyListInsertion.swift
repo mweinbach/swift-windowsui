@@ -120,6 +120,7 @@ final class RetainedLazyListInsertionPlan {
         }
     }
 
+    @MainActor
     private struct Recipe {
         let transition: RetainedTransition
         let opacity: Double

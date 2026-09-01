@@ -543,7 +543,7 @@ private struct TableErasureRow<ID: Hashable>: Identifiable {
     let probe: TableErasureProbe
 
     var id: ID {
-        MainActor.assumeIsolated { probe.record("row.id.\(name)") }
+        MainActor.assumeIsolated { [probe, name] in probe.record("row.id.\(name)") }
         return identity
     }
 }
@@ -553,22 +553,22 @@ private struct TableErasureCollection<ID: Hashable>: RandomAccessCollection {
     let probe: TableErasureProbe
 
     var startIndex: Int {
-        MainActor.assumeIsolated { probe.record("collection.start") }
+        MainActor.assumeIsolated { [probe] in probe.record("collection.start") }
         return rows.startIndex
     }
 
     var endIndex: Int {
-        MainActor.assumeIsolated { probe.record("collection.end") }
+        MainActor.assumeIsolated { [probe] in probe.record("collection.end") }
         return rows.endIndex
     }
 
     subscript(index: Int) -> TableErasureRow<ID> {
-        MainActor.assumeIsolated { probe.record("collection.read.\(index)") }
+        MainActor.assumeIsolated { [probe] in probe.record("collection.read.\(index)") }
         return rows[index]
     }
 
     func index(after index: Int) -> Int {
-        MainActor.assumeIsolated { probe.record("collection.advance.\(index)") }
+        MainActor.assumeIsolated { [probe] in probe.record("collection.advance.\(index)") }
         return index + 1
     }
 

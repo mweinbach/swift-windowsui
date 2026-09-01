@@ -12133,3 +12133,49 @@ This completes the planned six-file fixture repair in source. It does not
 convert the previous failed compilation into passing tests. Fresh combined
 compilation and the ordinary, Button/Table, UIA and original Core/List
 qualification remain required. All nine original completion gates stay open.
+
+
+### Continuation: preserve the six fixture captures exposed by the next compilation
+
+The same ordinary 152-case selection was attempted at
+`084356c15f3cd30177efb06abcfa402a03b633dd`, tree
+`0e1f6a08d273c115248916fc19ef308f02e8accc`. The direct child closed naturally
+with child/runner exits 1/1 after 89.281 seconds. Compilation reported six
+unique actor-capture errors across seven diagnostic headers: five in the
+generic Table erasure helper and one in the UIA continuation cancellation
+helper. The earlier 25 compiler diagnostics were absent. No XCTest case
+started or finished; all 152 selected cases remain unrun at that revision.
+This is compiler progress, not passing test evidence.
+
+The retained raw log is 2,423,581 bytes, SHA-256
+`f21b1425e2f8c665cad89c03f9d2fb5563c1c2452473264abf33aece7b13543f`, under
+`artifacts/ordinary152-084356c-8e326b44ba6b41cc91b75a9f8e8b75b9`.
+`goal-ninth-ordinary152-084356c-compile-failure-reconciled-v1.json` records
+the diagnostics, zero case outcomes, natural closure and unchanged source/index
+endpoints. The separate post-closure census found no matching process or
+formatter. That census is a point-in-time observation, not continuous proof
+of descendant lifetime.
+
+The follow-up source repair consists of six changed lines in two test files.
+Table's synchronous actor closures capture the existing actor-isolated probe
+and, where needed, its String label; they no longer capture the generic row or
+collection. Generic IDs remain Hashable without a new Sendable constraint.
+Recorded events, return values and their order remain identical. The UIA
+cancellation closure retains its outer weak capture and adds an explicit inner
+weak capture. Its existing actor precondition and immediate cancel, onCancel,
+release, clear-before-resume sequence are unchanged. Neither repair adds a
+task, actor hop, unsafe conformance, asynchronous cleanup or persistent owner.
+
+Independent source review found no blocker. Exact whole-file forward/inverse
+checks preserve the 52 ordered methods and 474 XCTest call sites in these two
+files; the other 639 test files, production, Package.swift and all original
+budgets remain unchanged. Strict formatting and contracts passed. The combined
+canonical patch is 2,617 bytes, SHA-256
+`66f9757f46ea4c337fb483d84095cdbb3846d02d7fdd1f680b93f2a4f30febbf`;
+`artifacts/goal-ninth-capture-fixtures084-root-proof-v1.json` records its exact
+staged source tree. The sealed UIA source packet is retained in
+`artifacts/goal-ninth-uia-cancel-b622-intake-v1`.
+
+Compiler acceptance and runtime behavior of these captures still require the
+next serial run. This entry changes no completion criterion: all nine original
+gates remain open, and the other prepared focused cohorts remain unrun.

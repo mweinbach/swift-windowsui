@@ -1577,7 +1577,7 @@ private final class UIAContinuationReaderTaskProbe {
         } onCancel: { [weak self] in
             // Only the synchronous MainActor runtime cancellation paths in
             // this fixture own this running task's cancellation handle.
-            MainActor.assumeIsolated { self?.cancel() }
+            MainActor.assumeIsolated { [weak self] in self?.cancel() }
         }
     }
 

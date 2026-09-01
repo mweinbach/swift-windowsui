@@ -75,7 +75,11 @@ final class RetainedButtonActionOwner {
     private var deferredPayloadReleases = 0
 
     init(action: (() -> Void)?, node: ViewNode, runtime: RetainedViewRuntime) {
-        payload = Payload(action: action)
+        if let action {
+            payload = Payload(action: { @MainActor [action] in action() })
+        } else {
+            payload = Payload(action: nil)
+        }
         self.node = node
         constructionRuntime = runtime
         constructionLifetime = runtime.lazyListLogicalHostLifetime

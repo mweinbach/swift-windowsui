@@ -11819,3 +11819,35 @@ Report SHA-256 values, in suite order, are
 and `0cc48cc26ec137520f77b4e295b123b5c2fd7b867ed0faeb6dcd25d27a79cb90`.
 Actual SDK identity, overlay/declaration completeness, behavior conformance,
 macOS execution, and release qualification remain separate unfinished work.
+
+
+### 2026-09-01 Button callback isolation compile correction
+
+The combined Button/Table166 attempt recorded above stopped at compilation;
+none of its 166 selected XCTest methods executed. Its Button diagnostic came
+from passing the existing optional, plain callback directly into the new
+main-actor payload closure. The reviewed `bc480060` correction now wraps a
+non-nil callback in an explicitly `@MainActor` forwarding closure. A nil
+callback still produces the same payload object with a nil action.
+
+The forwarding closure captures only the original action. This change adds no
+task, actor hop, unsafe isolation assertion, initialization callback, or strong
+node/runtime capture. The public Button and control callback signatures remain
+unchanged. Payload identity, completion, retirement, and lifetime logic are
+unchanged. A non-nil action gains one forwarding closure; its cost has not been
+measured.
+
+Root validation before this ledger append:
+
+- Source parent `1e895d7d0c2aa2ef6e93ecbad550edc20a73bf8b`;
+  staged source tree `1e9b19174ae728cb848b6ec045cbf3ddaec427b2`.
+- The complete staged diff equals the sealed 880-byte source patch, SHA256
+  `31efa0de193903cb1c4df1d14b3cafb225231372d30df1c2e3d44b73afc9c5b0`.
+- Pre/post architecture checks and strict formatting of the one Swift file
+  passed. All 641 existing test files, including the seven Button classes and
+  all 110 Button methods, remain byte-identical. Package.swift is unchanged.
+- Proof: `artifacts/goal-ninth-button-sendability-bc480-root-proof-v1.json`.
+
+These are source and formatting checks, not a successful compiler or XCTest
+result. The separate Runtime compile correction and fresh preserved cohorts
+remain required. No original completion gate is closed by this change.

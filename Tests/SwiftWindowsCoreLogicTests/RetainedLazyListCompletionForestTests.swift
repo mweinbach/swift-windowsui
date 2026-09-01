@@ -650,7 +650,7 @@ private final class CompletionForestWeakProbe {
 private final class CompletionForestPayload {
     let probe: CompletionForestWeakProbe
     init(probe: CompletionForestWeakProbe) { self.probe = probe }
-    deinit { MainActor.assumeIsolated { probe.payloadDeinits += 1 } }
+    deinit { MainActor.assumeIsolated { [probe] in probe.payloadDeinits += 1 } }
 }
 
 @MainActor

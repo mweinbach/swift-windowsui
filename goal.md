@@ -9801,3 +9801,26 @@ and unchanged surrounding attachment callers. Compilation, the 13 cases,
 existing managed/raw regressions, and renewed inspection of the gallery PNGs
 remain required. The separate File Browser interaction timeouts are not
 claimed resolved. No baseline or original completion gate changed.
+
+### Ninth batch: completion fixture actor capture correction
+
+The combined 187-case image/List run at
+`0912dcb024ebcd9432d8dbbe9b541f6049d3345a` compiled the production changes
+but stopped in the new completion-forest test fixture. Its non-Sendable
+payload deinitializer implicitly captured `self` in `MainActor.assumeIsolated`.
+An explicit `[probe]` capture now transfers only the MainActor probe, retaining
+the same synchronous deinitialization counter and all 15 test assertions and
+method identifiers. This is a test-source correction, not a behavior change.
+
+The retained run is
+`artifacts/goal-ninth-image-list187-0912dcb-318e69b0bcff496ba85a040bf1997fa8`.
+The child and controller exited naturally with code 1, with no timeout or
+termination and unchanged tracked source/index endpoints. Child wait took
+275.907 seconds. The 2,969,216-byte log has SHA256
+`7905a76667300510a6faae093ba59b07d395ab924a764ff2acf4f6f520f135a7`.
+The repeated diagnostics identify this single remaining compiler error;
+there are no observed test starts or terminal test outcomes. Contracts and
+strict formatting passed for the corrected file. The same 159 image cases
+plus 28 completion/standalone/render cases still require execution, followed
+by the prepared removal/blur cohort and original File Browser interaction
+regressions. No original goal requirement is reduced or marked complete.

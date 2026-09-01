@@ -9661,3 +9661,26 @@ still requires compilation and execution of the new and original tests.
 Actual host/HTTP/file behavior, retained rendering, macOS conformance, resource
 qualification, and Full validation remain under the original goal. No baseline,
 tolerance, or original completion gate changed.
+
+### Ninth batch: removal path compilation correction
+
+The first combined image/removal run at
+`648ddb20db28abac808ef02d47097120f03ba441` stopped during compilation.
+`RetainedLazyListPaintSource.isClipped` omitted the required `toLayer`
+argument when placing a path in its temporary, single-layer bounds scene.
+The call now explicitly selects layer zero, consistent with the temporary
+scene used for the other primitive families. No public API, resource limit,
+draw-order rule, or test expectation changed.
+
+The retained run is
+`artifacts/goal-ninth-async159-648ddb2-d5df8caa54704064a6d11c86fe02b122`.
+Its controller recorded natural exit 1, no timeout or termination, and unchanged
+tracked source and index endpoints. The 4,484-byte raw log has SHA256
+`7bfd6d24ebf250524167f976263e27ffb1188b7d68222f2068445a16caf48bef`.
+There are no observed test starts or results, so none of the 159 selected
+methods passed or failed as tests. A subsequent process inspection found no
+remaining build/test executable in this checkout and no recorded direct child
+or immediate descendant. The same cohort must be rerun after this correction.
+Architecture checks passed before and after the edit, and strict formatting
+passed for the one changed Swift file. The change still needs compilation and
+execution. All original completion gates remain open.

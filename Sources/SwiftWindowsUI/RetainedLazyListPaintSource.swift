@@ -557,7 +557,7 @@ struct RetainedLazyListPaintSource: Sendable {
                 radius = value.clipCornerRadius
                 value.clipBounds = nil
                 value.clipCornerRadius = 0
-                unmasked.addPath(value)
+                unmasked.addPath(value, toLayer: 0)
             }
             guard let mask else { return false }
             guard radius <= 0, let bounds = unmasked.paintedBounds else { return true }

@@ -487,8 +487,12 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
             // the budget or transfer the request to a same-key reinsertion.
             return runtime.withLazyListResolutionBudget {
                 guard
-                    let item = runtime.prepareLazyListAccessibilityTarget(
-                        token: identity.token, in: identity.container.witness, during: mutation),
+                    let request = runtime.prepareLazyListUIARequest(
+                        token: identity.token, in: identity.container.witness, during: mutation)
+                else { return false }
+                defer { runtime.finishLazyListUIARequest(request) }
+                let item = request.item
+                guard
                     let currentIdentity = logicalIdentitiesByID[elementID],
                     currentIdentity.container === identity.container, currentIdentity.token == identity.token,
                     runtime.isLazyListAccessibilityItemCurrent(item)
@@ -496,18 +500,20 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
                 cacheLogicalItem(
                     elementID, target: item,
                     node: projectedLogicalIDs.contains(elementID) ? nodesByID[elementID]?.node : nil)
-                guard let roots = runtime.realizeLazyListAccessibilityItem(item, during: mutation),
+                guard let roots = runtime.resolveLazyListUIARequest(request),
                     runtime.isAccessibilityMutationCurrent(mutation),
                     let projection = AccessibilityProjection.project(root: runtime.root),
                     let node = Self.firstProjectedNode(in: roots, elements: projection.flattened()),
                     let target = runtime.accessibilityTarget(for: node),
                     runtime.isAccessibilityTargetCurrent(target, during: mutation),
-                    runtime.isLazyListAccessibilityItemCurrent(item)
+                    runtime.isLazyListAccessibilityItemCurrent(item),
+                    runtime.isResolvedLazyListUIARequestCurrent(request)
                 else { return false }
                 bindLogicalItem(elementID, to: node)
                 return runtime.realizedLazyListAccessibilityNodes(for: item) != nil
                     && uiaLogicalItemState(elementID: elementID) == .ordinary
                     && runtime.isAccessibilityTargetCurrent(target, during: mutation)
+                    && runtime.isResolvedLazyListUIARequestCurrent(request)
             }
         }
         guard elementID < Self.logicalIDBoundary else { return false }

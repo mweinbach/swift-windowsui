@@ -168,6 +168,13 @@ and accepted same-membership adapter replacement, but not departure or
 removal/reinsertion. Physical action receipts still expire on their original
 attachment. One multi-output record uses its first actual projected leaf for
 its logical provider; remaining leaves use ordinary provider identities.
+Deferred reader construction during that typed request preserves its original
+native authority; [ListUIAReaderConstruction.md](ListUIAReaderConstruction.md)
+describes the callback boundaries, cleanup rules, tests, and validation limits.
+The separate [unused provider phase](ListUIAUnusedProviderPhase.md) preserves
+one original paid iteration across complete initial query cleanup when its
+native ownership and callback-absence proofs permit it. Its shared budget and
+ordinary probe retirement requirements remain unchanged.
 
 ## Remaining work under the original goal
 

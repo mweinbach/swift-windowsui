@@ -11486,3 +11486,53 @@ SwiftUI sortOrder/comparator API, multi-column sorting, table virtualization,
 macOS behavior, visual parity, template completion, or native accessibility
 qualification. Default list budgets and the original Row300 test are unchanged
 and still require execution after the pending accessibility composition.
+
+
+### 2026-09-01 root integration 88: original UIA continuations after Table
+
+The reviewed accessibility continuation patch is now composed on root after Table
+commit `9f3ff4a90e49ed54844e014801c6904ad16ecf6d`, preserving the accepted empty-row
+membership repair. This is source integration only. All nine original completion
+gates remain open; the earlier failed PublicLazyListAccessibility and native
+Row300 results are not converted into passes by this change.
+
+The immutable input is the UIA-only private `754ba966` to `b920cb98` composition,
+not replacement snapshots of root files. Intake `ec7586/0` verified all 99 payloads
+(12,668,115 bytes), manifest SHA-256
+`cfd331e43d145d33496f27dd78da21bc3107b2bd426969adcc7593732d38005d`,
+and seal SHA-256 `4414e048e2060be41c4f3503a8936ae72389ed6731cec11581ee9c633f058357`.
+The incoming 680,852-byte patch has SHA-256
+`5be38d5c01e14607e106e5678483260b74be8ef1810da7a65acb9cbca0171e78`.
+Its previously approved seven literal unions retain the original ordinary
+completion source membership alongside the separate original UIA authority.
+The independent review, read in full at `2591fe/0`, found no bounded composition
+blocker and verified 39 phase/query/counter/cleanup bodies against the incoming
+source. These are preservation comparisons, not runtime results.
+
+The UIA path carries its original construction/query continuation through bounded
+provider preparation, target construction, reconciliation, scroll geometry, and
+publication. An unused provider phase is consumed or drained using its original
+authority; the patch does not turn ordinary source membership into UIA permission.
+Insertion-origin capture uses the original bounded native predecessor cohort.
+The ten added insertion cases are separate from the prior 112 cases; their
+explicit-sixteen positive fixture is not evidence for the default-four budget.
+
+Root pre-edit contracts passed in `bd5aa6`; strict formatting of all fourteen
+changed Swift files and post-edit contracts completed with `c1ba4d/0`. Root proof
+`b338d2/0`, `artifacts/goal-ninth-uia-aftertable-b920-root-proof-v1.json`, binds
+staged source tree `7c835b4ec236cea3558b8f7a624fe576e556d78f`. The complete root diff
+differs from the sealed patch only in Git blob IDs and hunk starting offsets;
+every context, added, and deleted line and every hunk count is unchanged. The
+reverse patch check passes. The actual staged patch is 680,852 bytes, SHA-256
+`766ddeafadd5a7bb2b6fed4567efd20f5b82a2b662179f58b6e9ce97a244c704`.
+All 633 existing Tests files remain exact, including Button110, Table56, and the
+20 membership regressions. The seven new test files contain 122 methods with
+class counts 30, 40, 10, 3, 22, 13, and 4. None has yet run on this root source.
+Package.swift is unchanged.
+
+Fresh combined-source validation must still exercise the original default-four,
+explicit-eight/sixteen, exhausted 1x1, generic no-far-row300, and native Row300
+contracts. The fixed Core320 and List402 selections remain required, not replaced
+by this new cohort. PublicLazyListAccessibility uses its existing legacy bridge;
+passing it would not by itself qualify the separate owned native actor hop.
+No native, visual, macOS, full-suite, or release claim is made by this integration.

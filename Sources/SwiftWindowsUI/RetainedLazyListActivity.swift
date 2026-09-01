@@ -1619,6 +1619,7 @@ struct RetainedOrdinaryOwnedDeparture {
 @MainActor
 final class RetainedLazyListAdoptionJournal {
     let attempt: RetainedLazyListAttemptID
+    let uiaContinuationAuthority: RetainedLazyListUIAContinuationAuthority?
     private let origin: RetainedLazyListJournalOrigin
     private let transaction: RetainedBuildTransaction
     private var boundDescriptorScope: RetainedLazyListDescriptorBuildScope?
@@ -1663,8 +1664,12 @@ final class RetainedLazyListAdoptionJournal {
     fileprivate var ownedLedger: RetainedOwnedComponentConstructionLedger? { boundDescriptorScope?.ownedLedger }
     var descriptorBuildAttempt: RetainedLazyListAttemptID? { boundDescriptorScope?.attempt }
 
-    init(descriptorScope: RetainedLazyListDescriptorBuildScope, transaction: RetainedBuildTransaction) {
+    init(
+        descriptorScope: RetainedLazyListDescriptorBuildScope, transaction: RetainedBuildTransaction,
+        uiaContinuationAuthority: RetainedLazyListUIAContinuationAuthority? = nil
+    ) {
         attempt = descriptorScope.attempt
+        self.uiaContinuationAuthority = uiaContinuationAuthority
         origin = .descriptorBuild(descriptorScope)
         boundDescriptorScope = descriptorScope
         self.transaction = transaction
@@ -1672,12 +1677,15 @@ final class RetainedLazyListAdoptionJournal {
 
     init(admission: RetainedLazyListAdoptionAdmission, transaction: RetainedBuildTransaction) {
         attempt = RetainedLazyListAttemptID()
+        uiaContinuationAuthority = nil
         origin = .selectedRows(admission)
         self.transaction = transaction
     }
 
     var canContinueConstruction: Bool {
-        guard phase == .constructing, !wasRevoked, boundDescriptorScope?.canConstructDescriptors != false else {
+        guard phase == .constructing, !wasRevoked, uiaContinuationAuthority?.isCurrent != false,
+            boundDescriptorScope?.canConstructDescriptors != false
+        else {
             return false
         }
         switch origin {
@@ -1688,6 +1696,7 @@ final class RetainedLazyListAdoptionJournal {
 
     var canContinueAdoption: Bool {
         guard !wasRevoked, phase == .prepared || phase == .adopting,
+            uiaContinuationAuthority?.isCurrent != false,
             boundDescriptorScope?.canPublishDescriptors != false
         else { return false }
         switch origin {
@@ -2155,6 +2164,7 @@ final class RetainedLazyListAdoptionJournal {
     /// Records metadata beside the existing ordinary epoch boundary. It does
     /// not change the legacy facade publication or its matching-time policy.
     func beginOrdinaryAdoption() -> Bool {
+        guard uiaContinuationAuthority?.isCurrent != false else { return false }
         isOrdinaryAdoption = true
         guard !hasDescriptorWork, phase == .constructing, !wasRevoked else { return false }
         let preparation = freezePreparation()

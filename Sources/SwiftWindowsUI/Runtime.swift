@@ -1,7 +1,8 @@
 import Foundation
+
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
-import SwiftWindowsLayout
 
 // Gap/Fix: Granular dirty tracking — OptionSet replaces single isDirty boolean.
 
@@ -15,6 +16,310 @@ import SwiftWindowsLayout
 
 /// Snapshot of property values used by the animation system to track previous
 /// state so it can interpolate between old and new values.
+import SwiftWindowsLayout
+
+/// Exhaustion permanently disables optional selection replay rather than
+/// allowing an old scope stamp to match a later runtime state.
+
+/// A selected native dialog cannot regain ownership after its presenter leaves,
+/// even when the same raw node is inserted again before the modal call returns.
+
+/// Configuration for one retained long-press recognizer. Its pending attempt
+/// belongs to the runtime, so replacing a view's callbacks does not restart
+/// the duration or move the gesture's original logical position.
+
+/// Paint can omit a subtree that prepaint still visits, for example under
+/// zero opacity. Paint ranges therefore belong to their own output snapshot,
+/// independently of the snapshot containing interaction and focus records.
+
+/// One node's interaction footprint, flattened by prepaint. Two spaces meet
+/// here and each field says which one it is in:
+///
+/// - `clip` is `.painted` — the region the painter actually draws this node's
+///   content into. A pointer is tested against it in screen space, with no
+///   inverse mapping, which is what makes the interactive region *be* the
+///   visible region under a transform.
+/// - `frame` is untransformed layout space, so the pointer is inverse-mapped
+///   into it by `inverseTransform` (the accumulated inverse of this node's own
+///   transform and every ancestor's). That is the exact rotated footprint, not
+///   its axis-aligned approximation.
+
+/// What a stack has decided before it places its first child: the sizes its
+/// children asked for, the sizes they were granted, and where the run starts.
+
+/// One child's place in a stack: its frame, how far the cursor advances past
+/// it, and how much of the cross axis it claimed.
+
+/// What a node decided about its own measurement before it measured a single
+/// child: the constraints it resolved, the key it will cache under, the size
+/// its own content wants, and the proposal its children get.
+///
+/// It exists so the measure recursion — the last recursive traversal in the
+/// runtime — carries one small value per level instead of a mode's worth of
+/// locals.
+
+/// Placement admission travels with the size under the same measurement key.
+/// An ideal probe must not leave a finite-fit flag on a different cached size.
+
+/// A single synchronous measurement can propose several widths to a subtree.
+/// Dirty nodes cannot use their previous frame's cache yet, so retain these
+/// answers only for this walk to avoid repeating an entire nested row for
+/// every proposal. The memo owns no nodes and is discarded when the walk ends.
+
+/// How far along the track a stack has placed, and the widest child so far.
+/// Carried as one value because the placement loop is the frame the layout
+/// recursion descends from, and it is kept deliberately narrow.
+
+/// `appendPrepaintState`'s share of `ScenePainter.paintNode`'s transform
+/// algebra, computed once per node and out of line.
+
+/// A two-dimensional retained Grid. Unlike a vertical stack of independent
+/// rows, this mode measures one set of column tracks for all of its rows.
+
+/// A physical row boundary whose cells can use a directly containing Grid's
+/// tracks. Outside that boundary it retains the legacy horizontal-stack layout.
+
+/// One run of identical empty/interior columns. Boundaries come only from actual
+/// cells, so a request to span Int.max columns does not allocate Int.max entries.
+
+/// Installed-node layout data only. This does not retain construction nodes,
+/// application callbacks, or a build context, and is never copied by the host.
+
+/// A one-child modifier that proposes a coupled size for finite aspect fit.
+/// Nil preserves the child's current ideal ratio, not its last placed size.
+
+/// Axes on which a node takes the whole extent its parent proposes
+/// instead of its intrinsic measurement.
+///
+/// This is the runtime's model of SwiftUI's *greedy* views — `Color`,
+/// `ScrollView`, `List`, `Form`, `Spacer` along its stack's axis,
+/// `Divider` across its cross axis, and anything given
+/// `.frame(maxWidth: .infinity)`. A greedy axis is
+/// meaningful only against a finite proposal: measured with an
+/// unconstrained axis (an intrinsic query, or the main axis of the
+/// enclosing stack) the node still reports its content size, so a
+/// greedy child never inflates an intrinsic measurement to infinity.
+/// Along a stack's main axis the fill is applied as growth out of the
+/// stack's leftover extent (`growMainSizes`), which is what keeps
+/// `VStack { Text; ScrollView }` from over-subscribing the track.
+///
+/// Greed also travels: a stack holding a greedy child along its *own*
+/// axis is greedy along that axis, so `HStack { Text; Spacer }` is as
+/// wide as its proposal rather than as wide as its text. That inherited
+/// half lives in `ViewNode.inheritedStackFillAxes`, is derived once per
+/// measurement, and stops at any ancestor that pins its own extent along
+/// the same axis — `ViewNode.effectiveFillAxes` is the sum the layout
+/// actually reads.
+
+/// Per-corner rounding for a node's background/border, in points and
+/// absolute screen corners (the retained runtime has no layout-direction
+/// concept, so these are left/right rather than leading/trailing).
+/// A `nil` `ViewNode.cornerRadii` keeps the historic uniform
+/// `cornerRadius` behaviour. Rendered end-to-end by ScenePainter →
+/// QuadPrimitive → both render backends; consumers that only understand
+/// uniform rounding (shadow, outline, clip, dashed borders) fall back
+/// to `maxRadius`.
+
+/// Optional interaction callbacks used only by controls that actually handle
+/// pointer, keyboard, or focus events. Keeping these out of `ViewNode`'s
+/// inline storage means ordinary labels, layout wrappers, and list rows do not
+/// carry sixteen empty closure slots each.
+
+/// Drag, drop, and dynamic-list editing are another independently optional
+/// capability: installing a button's activation handler must not also
+/// allocate space for sixteen unrelated drag/drop callbacks.
+
+/// Scalar style for the framework's separator gap before one actual List row.
+/// A zero thickness means the style has spacing but no separator. The gap
+/// contains no row View, callback, provider, or ownership authority.
+
+/// Framework chrome for an eligible row whose authored background is empty.
+/// The native prefix index supplies alternating parity only after actual row
+/// output is accepted; an unvisited prefix remains an explicit estimate.
+
+/// Layout/lifecycle observers and GeometryReader rebuilding are deliberately
+/// separate from control input: most retained nodes use none of these, while
+/// observable list rows can install one without paying for pointer handlers.
+
+/// Native identity only. Old proofs keep this allocation distinct without
+/// keeping a node, provider, callback, or runtime alive.
+
+/// A pure witness for the identity field, separate from attachment. Equality
+/// of authored keys is checked explicitly; any later assignment, including an
+/// equal-value ABA, invalidates this proof before old key payloads can unwind.
+
+/// Structural work shared only within one synchronous native validity query.
+/// Never store this on an owner or carry it across an authored callback, getter,
+/// key comparison, builder, or mutation. Its entries contain no application
+/// payload and grant no attachment, identity, lifetime, or phase permission.
+
+/// A request-owned continuation contains only native proofs and weak actual
+/// attachments. It cannot keep a provider, authored key, view or state alive.
+
+/// One admitted retained operation. This reads only owned identity and scalar
+/// state, including the source's native generation proof; it invokes no lease,
+/// provider, application getter, focus operation, or accessibility operation.
+
+/// Chart compatibility modifiers are rare on retained nodes, but their
+/// twenty-four optional strings used to occupy every single node. One lazy
+/// allocation keeps the existing modifier API and reconciliation semantics
+/// without making ordinary text/layout nodes pay the Charts storage tax.
+
+/// Equal increments per logical column are a deterministic interim policy for
+/// underdetermined spans, not a claim about SwiftUI's general span solver.
+
+/// Fits a finite proposal while retaining the same text/declared-minimum floors
+/// used by the runtime's stacks. Heterogeneous Grid priority negotiation remains
+/// uncharacterized; this proportional-slack policy is intentionally explicit.
+
+/// Clamps a resolved layout coordinate to the finite range the scene contract
+/// accepts. Layout arithmetic reaches non-finite values from ordinary app code
+/// — `.frame(maxWidth: .infinity)` landing in `preferredSize`, or a division by
+/// an extent that collapsed to zero during first layout — and every downstream
+/// `Int(_: Float)` conversion traps on those. A Swift trap is the one failure
+/// class the host's renderer fallback cannot degrade, so the clamp happens
+/// here, at the layer boundary. Finite in-range values pass through unchanged.
+
+/// Extents additionally floor at zero: a negative or NaN extent describes no
+/// area, and `Rect.intersected` treats it as an empty region either way.
+
+/// Weak box so the runtime can hold a set of nodes without keeping them
+/// alive. Used by the animating-node registry, where a strong reference
+/// would turn a dropped mid-animation node into a permanently spinning
+/// animation timer.
+
+/// One invalidation raised while a render pass was open, replayed onto the
+/// node's subtree flags once the pass has finished clearing them.
+
+/// Kept alive by receipts, without retaining the runtime or application data.
+/// An address alone could identify a different runtime after deallocation.
+
+/// Evidence from one completed, bounded retained layout resolution. Only the
+/// runtime that produced it can validate it; it is not permission to run layout
+/// or a guarantee about callbacks that have not yet executed.
+
+/// A host must not turn either failure case into a synchronous retry loop.
+/// `unsettled` needs an ordinary layout or active callback/build to finish.
+/// `unavailable` means the completed resolution did not establish the proof,
+/// or its checked generations are exhausted. Exhaustion is permanent.
+
+/// A facade's accepted removal can restore focus only while its private
+/// receipt remains current. Nodes stay weak, and the owner is a lightweight
+/// registration token rather than the window or runtime.
+
+/// These identities never retain nodes, callbacks, bindings, or application
+/// payloads. An admitted operation keeps the old identity alive until it ends.
+
+/// A single synchronous UIA mutation. The runtime owns admission so different
+/// adapters for the same runtime cannot reenter one another.
+
+/// The exact physical attachment admitted before a layout query. No retained
+/// owner is pinned by the witness; detach/reparent and reattach cannot revive it.
+
+/// One already accepted List reveal. The runtime owns this finite native
+/// record, not a selection binding, row factory, or public controller. Its
+/// endpoints and attachment paths remain weak, and its receipt points back
+/// weakly so terminal cancellation has no actor-deinit or reference cycle.
+
+/// An on-demand logical List item, not an offscreen ViewNode or an authority
+/// to run row actions. The token owns only native identity markers; every
+/// runtime, adapter, and container reference is weak. A replaced adapter or
+/// physical attachment invalidates an escaped action item instead of retargeting
+/// it. A native membership marker can separately keep UIA identity metadata
+/// across an accepted source continuation; it grants no action authority.
+
+/// One synchronous UIA preparation. Only native anchor corrections may advance
+/// its scroll intent; every source, attachment, and input proof stays original.
+
+/// A synchronous reader operation retains only native proofs of its original
+/// UIA preparation. Weak expiry is a rejection, never an ordinary fallback.
+/// The same object travels through transient adoption checks and is not part
+/// of any accepted row, State owner, task declaration, or completion witness.
+
+/// The original synchronous UIA request survives its initial ordinary query,
+/// target construction, owned scroll, and final platform projection. It holds
+/// only native proofs; containers, adapters, and actual row nodes remain weak.
+
+/// Captured from the actual paid target pass, before the ordinary query
+/// epilogue. Equal later geometry cannot recreate this one-use witness.
+
+/// All effects are reserved before the first setter write. This cannot adopt
+/// a later input intent or excuse an extra callback-driven counter increment.
+
+/// Ready roots are actual retained output. An after-layout caller may use
+/// their current pass geometry for programmatic scrolling; focus and UIA must
+/// still obtain their separate completed settlement/attachment authority.
+
+/// The focus authority never reuses an admitted intent after exhaustion.
+/// Kept separate from callback delivery so its boundary is deterministic.
+
+/// Fixed bounds for the opt-in, two-fixture gallery diagnostic.
+
+/// Stored values from one painted scene, not a layout-settlement or font-face receipt.
+
+/// The state-dependent chrome of one control, as a value the runtime resolves.
+///
+/// Every colour is optional so a control can opt into only the part it owns: a
+/// push button carries the whole fill/border/shadow ramp, a text field and a
+/// slider carry a focus ring and nothing else. `nil` means "leave that
+/// property alone", which is what keeps a field's bezel from being repainted
+/// by a hover the platform does not give it.
+///
+/// Phase precedence is pressed > focused > hovered > idle, matching the order
+/// the control builders resolved by hand before the runtime took it over.
+
+/// The frame path's keyboard focus ring: an annulus around `paintFrame`,
+/// drawn as the same `BorderSegments` walk the scene path uses.
+///
+/// Out of line because `appendCommands` is the deepest frame in the paint
+/// traversal and this needs a segment array; inlined, every level of a deep
+/// tree would carry it whether or not the node has a focus ring.
+
+/// The one place a focus ring's geometry is decided, shared by the 2pt focus
+/// effect and the wider chrome outline, and by both the frame and scene paths.
+///
+/// A ring is an annulus, and `BorderSegments.solidSegments` is the walk the
+/// container border already uses when it must paint after its children — edges
+/// plus per-corner arcs, covering the band and nothing inside it.
+
+/// Culling test for a whole *subtree*, as opposed to a single primitive.
+///
+/// Degenerate footprints are the difference. `Rect.intersected` reports "no
+/// overlap" for every zero-width or zero-height rect wherever it sits, but a
+/// zero-extent node is a legal parent: macOS SwiftUI does not clip at a frame
+/// boundary, so `.frame(height: 0)` without `.clipped()` overflows and its
+/// children still paint (see `docs/GPURenderingPipeline.md` §2b). Culling such
+/// a node on `intersected` alone erases the subtree; not culling it at all —
+/// which is what gating the cull on a paintable extent did — leaves a
+/// collapsed row parked far outside the clip traversing its whole subtree
+/// every frame.
+///
+/// So: a degenerate footprint is culled only when it is strictly outside the
+/// clip, a non-degenerate one keeps the exact overlap test primitives use
+/// (`baseClipAllowsDrawing`), and an empty clip culls everything beneath it —
+/// no pixel under it can survive.
+
+/// A mounted source transfer has already claimed an old removal when the
+/// destination's Button admission may expire. These original native entries
+/// keep that cleanup separate from permission to insert. They never acquire
+/// a replacement child, controller, or physical attachment after a callback.
+
+/// Slot writes, including an away-and-back hover, supersede an older cleanup
+/// continuation without relying on wrapping generation counters.
+
+/// The runtime's original interaction slots and targets, captured before the
+/// source's first departure callback. No authored payload is stored here.
+
+/// A concrete source-cleanup receipt, not a callback that can acquire fresh
+/// authority. Inner interaction helpers must recheck it after authored exits
+/// and clocks before their trailing node or runtime writes.
+
+/// The current parent membership and every subtree accepted before a later
+/// controller callback. This is native data, not an arbitrary validator.
+
+/// This contains only native identity/weak references. The delayed completion
+/// must not retain captured callbacks or opaque history after it clears gates.
+
 public struct DirtyFlags: OptionSet, Sendable {
     public let rawValue: UInt8
 
@@ -31,14 +336,10 @@ public struct DirtyFlags: OptionSet, Sendable {
 
     public static let all: DirtyFlags = [.layout, .paint, .children]
 }
-
-/// Exhaustion permanently disables optional selection replay rather than
-/// allowing an old scope stamp to match a later runtime state.
 func advanceTextInputReplayScopeRevision(_ revision: inout UInt64?) {
     guard let current = revision else { return }
     revision = current == UInt64.max ? nil : current + 1
 }
-
 public enum RetainedColorRenderingMode: Sendable, Equatable, Hashable {
     case nonLinear
     case linear
@@ -210,9 +511,6 @@ enum RetainedFileDialogKind: UInt8, CaseIterable {
     case importerMulti = 4
     case mover = 8
 }
-
-/// A selected native dialog cannot regain ownership after its presenter leaves,
-/// even when the same raw node is inserted again before the modal call returns.
 @MainActor
 final class RetainedFileDialogPresenterLease {
     let kind: RetainedFileDialogKind
@@ -226,7 +524,6 @@ final class RetainedFileDialogPresenterLease {
         isValid = false
     }
 }
-
 public struct RetainedFileExporterConfiguration {
     package var invocationScope: (any RetainedFileDialogInvocationScope)? = nil
     public var isPresented: Binding<Bool>
@@ -1231,10 +1528,6 @@ private struct ButtonRepeatState {
     var nextActivationTime: Double?
     var didRepeat: Bool
 }
-
-/// Configuration for one retained long-press recognizer. Its pending attempt
-/// belongs to the runtime, so replacing a view's callbacks does not restart
-/// the duration or move the gesture's original logical position.
 @MainActor
 public struct RetainedLongPressGesture {
     public typealias Cleanup = @MainActor () -> Void
@@ -1268,7 +1561,6 @@ public struct RetainedLongPressGesture {
             && maximumDistance.isFinite && maximumDistance >= 0
     }
 }
-
 @MainActor
 private final class LongPressAttempt {
     weak var node: ViewNode?
@@ -1289,7 +1581,6 @@ private final class LongPressAttempt {
         self.configuration = configuration
     }
 }
-
 @MainActor
 struct DeferredSubtreeState {
     var priority: Int
@@ -1396,9 +1687,6 @@ final class PrepaintSnapshotIdentity: Sendable, Equatable {
         lhs === rhs
     }
 }
-/// Paint can omit a subtree that prepaint still visits, for example under
-/// zero opacity. Paint ranges therefore belong to their own output snapshot,
-/// independently of the snapshot containing interaction and focus records.
 final class PaintSnapshotIdentity: Sendable, Equatable {
     static func == (lhs: PaintSnapshotIdentity, rhs: PaintSnapshotIdentity) -> Bool {
         lhs === rhs
@@ -1420,17 +1708,6 @@ struct PrepaintDispatchState {
     var node: ViewNode
     var parentIndex: Int?
 }
-/// One node's interaction footprint, flattened by prepaint. Two spaces meet
-/// here and each field says which one it is in:
-///
-/// - `clip` is `.painted` — the region the painter actually draws this node's
-///   content into. A pointer is tested against it in screen space, with no
-///   inverse mapping, which is what makes the interactive region *be* the
-///   visible region under a transform.
-/// - `frame` is untransformed layout space, so the pointer is inverse-mapped
-///   into it by `inverseTransform` (the accumulated inverse of this node's own
-///   transform and every ancestor's). That is the exact rotated footprint, not
-///   its axis-aligned approximation.
 @MainActor
 struct PrepaintInteractionState {
     var dispatchIndex: Int
@@ -1487,9 +1764,6 @@ struct RuntimePrepaintState {
         )
     }
 }
-
-/// What a stack has decided before it places its first child: the sizes its
-/// children asked for, the sizes they were granted, and where the run starts.
 @MainActor
 struct StackAllocation {
     var contentRect: Rect
@@ -1501,22 +1775,11 @@ struct StackAllocation {
     var mainCursorStart: Double
     var allowsOverflowAlongMainAxis: Bool
 }
-
-/// One child's place in a stack: its frame, how far the cursor advances past
-/// it, and how much of the cross axis it claimed.
 struct StackChildPlacement {
     var frame: Rect
     var mainAdvance: Double
     var crossExtent: Double
 }
-
-/// What a node decided about its own measurement before it measured a single
-/// child: the constraints it resolved, the key it will cache under, the size
-/// its own content wants, and the proposal its children get.
-///
-/// It exists so the measure recursion — the last recursive traversal in the
-/// runtime — carries one small value per level instead of a mode's worth of
-/// locals.
 struct MeasurementPlan {
     var effectiveConstraints = LayoutConstraints()
     var cacheKey = ViewMeasureCacheKey(constraints: LayoutConstraints(), displayScale: 1)
@@ -1526,24 +1789,15 @@ struct MeasurementPlan {
     /// children cannot share one constraint.
     var measuresChildrenIndividually = false
 }
-
-/// Placement admission travels with the size under the same measurement key.
-/// An ideal probe must not leave a finite-fit flag on a different cached size.
 private struct ViewMeasurementResult {
     var size: Size
     var fittedAspect: RetainedAspectFitLayout?
     var inheritedFillAxes: LayoutFillAxes
 }
-
 private struct ViewMeasurementCacheEntry {
     var key: ViewMeasureCacheKey
     var result: ViewMeasurementResult
 }
-
-/// A single synchronous measurement can propose several widths to a subtree.
-/// Dirty nodes cannot use their previous frame's cache yet, so retain these
-/// answers only for this walk to avoid repeating an entire nested row for
-/// every proposal. The memo owns no nodes and is discarded when the walk ends.
 @MainActor
 private final class MeasurementMemo {
     struct Key: Hashable {
@@ -1564,26 +1818,17 @@ private final class MeasurementMemo {
 
     var results: [Key: ViewMeasurementResult] = [:]
 }
-
-/// How far along the track a stack has placed, and the widest child so far.
-/// Carried as one value because the placement loop is the frame the layout
-/// recursion descends from, and it is kept deliberately narrow.
 struct StackPlacementCursor {
     var mainCursor: Double
     var visibleIndex: Int = 0
     var maxCrossExtent: Double = 0
 }
-
-/// `appendPrepaintState`'s share of `ScenePainter.paintNode`'s transform
-/// algebra, computed once per node and out of line.
 struct PrepaintGeometry {
     var centeredTransform: Transform2D
     var effectiveTransform: Transform2D
     var paintFrame: Rect
     var inverseTransform: Transform2D?
 }
-/// A two-dimensional retained Grid. Unlike a vertical stack of independent
-/// rows, this mode measures one set of column tracks for all of its rows.
 public struct RetainedGridLayout: Equatable, Sendable {
     public var horizontalSpacing: Double
     public var verticalSpacing: Double
@@ -1605,9 +1850,6 @@ public struct RetainedGridLayout: Equatable, Sendable {
         self.isRightToLeft = isRightToLeft
     }
 }
-
-/// A physical row boundary whose cells can use a directly containing Grid's
-/// tracks. Outside that boundary it retains the legacy horizontal-stack layout.
 public struct RetainedGridRowLayout: Equatable, Sendable {
     public var alignment: StackCrossAlignment?
     public var standaloneSpacing: Double
@@ -1621,23 +1863,18 @@ public struct RetainedGridRowLayout: Equatable, Sendable {
         .horizontal(spacing: standaloneSpacing, alignment: alignment ?? .center)
     }
 }
-
 private struct GridCellInput {
     var node: ViewNode
     var firstColumn: Int
     var endColumn: Int
     var isMerged: Bool
 }
-
 private struct GridRowInput {
     var node: ViewNode
     var isGridRow: Bool
     var alignment: StackCrossAlignment
     var cells: [GridCellInput]
 }
-
-/// One run of identical empty/interior columns. Boundaries come only from actual
-/// cells, so a request to span Int.max columns does not allocate Int.max entries.
 private struct GridTrackRun {
     var firstColumn: Int
     var endColumn: Int
@@ -1648,26 +1885,20 @@ private struct GridTrackRun {
     var guideBefore: Double = 0
     var guideAfter: Double = 0
 }
-
 private struct GridCellGeometry {
     var identity: ObjectIdentifier
     var frame: Rect
 }
-
 private struct GridRowGeometry {
     var identity: ObjectIdentifier
     var frame: Rect
     var cells: [GridCellGeometry]
 }
-
-/// Installed-node layout data only. This does not retain construction nodes,
-/// application callbacks, or a build context, and is never copied by the host.
 private struct GridLayoutGeometry {
     var size: Size
     var fillAxes: LayoutFillAxes
     var rows: [GridRowGeometry]
 }
-
 private struct GridRowMetrics {
     var height: Double = 0
     var minimumHeight: Double = 0
@@ -1675,9 +1906,6 @@ private struct GridRowMetrics {
     var guideAfter: Double = 0
     var isFlexible = false
 }
-
-/// A one-child modifier that proposes a coupled size for finite aspect fit.
-/// Nil preserves the child's current ideal ratio, not its last placed size.
 package struct RetainedAspectFitLayout: Equatable, Sendable {
     package var aspectRatio: Double?
 
@@ -1685,7 +1913,6 @@ package struct RetainedAspectFitLayout: Equatable, Sendable {
         self.aspectRatio = aspectRatio
     }
 }
-
 public enum ViewLayoutMode: Sendable {
     case absolute
     case stack(StackLayout)
@@ -1738,28 +1965,6 @@ public struct FixedSizeAxes: Equatable, Sendable {
         self.vertical = vertical
     }
 }
-/// Axes on which a node takes the whole extent its parent proposes
-/// instead of its intrinsic measurement.
-///
-/// This is the runtime's model of SwiftUI's *greedy* views — `Color`,
-/// `ScrollView`, `List`, `Form`, `Spacer` along its stack's axis,
-/// `Divider` across its cross axis, and anything given
-/// `.frame(maxWidth: .infinity)`. A greedy axis is
-/// meaningful only against a finite proposal: measured with an
-/// unconstrained axis (an intrinsic query, or the main axis of the
-/// enclosing stack) the node still reports its content size, so a
-/// greedy child never inflates an intrinsic measurement to infinity.
-/// Along a stack's main axis the fill is applied as growth out of the
-/// stack's leftover extent (`growMainSizes`), which is what keeps
-/// `VStack { Text; ScrollView }` from over-subscribing the track.
-///
-/// Greed also travels: a stack holding a greedy child along its *own*
-/// axis is greedy along that axis, so `HStack { Text; Spacer }` is as
-/// wide as its proposal rather than as wide as its text. That inherited
-/// half lives in `ViewNode.inheritedStackFillAxes`, is derived once per
-/// measurement, and stops at any ancestor that pins its own extent along
-/// the same axis — `ViewNode.effectiveFillAxes` is the sum the layout
-/// actually reads.
 public struct LayoutFillAxes: Equatable, Sendable {
     public var horizontal: Bool
     public var vertical: Bool
@@ -1775,14 +1980,6 @@ public struct LayoutFillAxes: Equatable, Sendable {
 
     public var isEmpty: Bool { !horizontal && !vertical }
 }
-/// Per-corner rounding for a node's background/border, in points and
-/// absolute screen corners (the retained runtime has no layout-direction
-/// concept, so these are left/right rather than leading/trailing).
-/// A `nil` `ViewNode.cornerRadii` keeps the historic uniform
-/// `cornerRadius` behaviour. Rendered end-to-end by ScenePainter →
-/// QuadPrimitive → both render backends; consumers that only understand
-/// uniform rounding (shadow, outline, clip, dashed borders) fall back
-/// to `maxRadius`.
 public struct RetainedCornerRadii: Equatable, Sendable {
     public var topLeft: Double
     public var topRight: Double
@@ -1822,11 +2019,6 @@ public struct RetainedCornerRadii: Equatable, Sendable {
         )
     }
 }
-
-/// Optional interaction callbacks used only by controls that actually handle
-/// pointer, keyboard, or focus events. Keeping these out of `ViewNode`'s
-/// inline storage means ordinary labels, layout wrappers, and list rows do not
-/// carry sixteen empty closure slots each.
 @MainActor
 private final class ViewNodeInteractionHandlers {
     var pointerEnter: (() -> Void)?
@@ -1851,10 +2043,6 @@ private final class ViewNodeInteractionHandlers {
     var repeatActivate: (() -> Void)?
     var longPressGesture: RetainedLongPressGesture?
 }
-
-/// Drag, drop, and dynamic-list editing are another independently optional
-/// capability: installing a button's activation handler must not also
-/// allocate space for sixteen unrelated drag/drop callbacks.
 @MainActor
 private final class ViewNodeDropHandlers {
     var deleteRows: ((IndexSet) -> Void)?
@@ -1874,10 +2062,6 @@ private final class ViewNodeDropHandlers {
     var dragChange: ((Point, Point) -> Void)?
     var dragEnd: ((Point, Point) -> Void)?
 }
-
-/// Scalar style for the framework's separator gap before one actual List row.
-/// A zero thickness means the style has spacing but no separator. The gap
-/// contains no row View, callback, provider, or ownership authority.
 package struct RetainedLazyListGap: Equatable, Sendable {
     package let spacing: Double
     package let separatorThickness: Double
@@ -1899,10 +2083,6 @@ package struct RetainedLazyListGap: Equatable, Sendable {
         self.nextRowIsGrouped = nextRowIsGrouped
     }
 }
-
-/// Framework chrome for an eligible row whose authored background is empty.
-/// The native prefix index supplies alternating parity only after actual row
-/// output is accepted; an unvisited prefix remains an explicit estimate.
 package struct RetainedLazyListRowChrome: Equatable, Sendable {
     package let alternatingBackground: Color
 
@@ -1910,7 +2090,6 @@ package struct RetainedLazyListRowChrome: Equatable, Sendable {
         self.alternatingBackground = alternatingBackground
     }
 }
-
 @MainActor
 private final class RetainedLazyListRowChromePublication {
     let metadata: RetainedLazyListRowChrome
@@ -1933,10 +2112,6 @@ private final class RetainedLazyListRowChromePublication {
         if !isPublishing { isSuppressed = true }
     }
 }
-
-/// Layout/lifecycle observers and GeometryReader rebuilding are deliberately
-/// separate from control input: most retained nodes use none of these, while
-/// observable list rows can install one without paying for pointer handlers.
 @MainActor
 private final class ViewNodeLifecycleHandlers {
     var layout: ((Rect) -> Void)?
@@ -1949,6 +2124,7 @@ private final class ViewNodeLifecycleHandlers {
     var sizeChange: ((Rect) -> Void)?
     var geometryReaderBuild: ((RetainedViewRuntime, Size) -> [ViewNode])?
     var retainedSubtreeBuildLease: (any RetainedSubtreeBuildLease)?
+    var geometryReaderConstructionIdentity: RetainedLazyListAttachmentIdentity?
     var retainedTasks: RetainedTaskNodeState?
     var retainedLazyListActivity: RetainedLazyListNodeActivityStorage?
     var completedLazyTaskAppearance: RetainedLazyListActualAttachment?
@@ -1965,11 +2141,7 @@ private final class ViewNodeLifecycleHandlers {
     var lazyListPresentedPaint: RetainedLazyListPresentedPaint?
     var lazyListCanvasPaintAlpha: RetainedLazyListCanvasPaintAlpha?
 }
-
-/// Native identity only. Old proofs keep this allocation distinct without
-/// keeping a node, provider, callback, or runtime alive.
 fileprivate final class RetainedLazyListAttachmentIdentity {}
-
 @MainActor
 fileprivate struct RetainedLazyListLocalLayoutProof {
     weak var node: ViewNode?
@@ -1980,10 +2152,6 @@ fileprivate struct RetainedLazyListLocalLayoutProof {
         node?.lazyListLayoutIdentity === identity && attachment.isCurrent
     }
 }
-
-/// A pure witness for the identity field, separate from attachment. Equality
-/// of authored keys is checked explicitly; any later assignment, including an
-/// equal-value ABA, invalidates this proof before old key payloads can unwind.
 @MainActor
 final class RetainedLazyListViewIdentityProof {
     private weak var node: ViewNode?
@@ -2003,7 +2171,6 @@ final class RetainedLazyListViewIdentityProof {
         return node === otherNode
     }
 }
-
 @MainActor
 final class RetainedLazyListAttachmentProof {
     private weak var node: ViewNode?
@@ -2067,11 +2234,6 @@ final class RetainedLazyListAttachmentProof {
         return true
     }
 }
-
-/// Structural work shared only within one synchronous native validity query.
-/// Never store this on an owner or carry it across an authored callback, getter,
-/// key comparison, builder, or mutation. Its entries contain no application
-/// payload and grant no attachment, identity, lifetime, or phase permission.
 @MainActor
 struct RetainedLazyListAttachmentQuery {
     private struct Tree: Hashable {
@@ -2155,9 +2317,6 @@ struct RetainedLazyListAttachmentQuery {
         return false
     }
 }
-
-/// A request-owned continuation contains only native proofs and weak actual
-/// attachments. It cannot keep a provider, authored key, view or state alive.
 @MainActor
 package final class RetainedLazyListScrollSearchCursor {
     fileprivate weak var runtime: RetainedViewRuntime?
@@ -2221,7 +2380,6 @@ package final class RetainedLazyListScrollSearchCursor {
         lastExaminedToken = token
     }
 }
-
 @MainActor
 package enum RetainedLazyListScrollSearchResult {
     case found(RetainedLazyListRowToken)
@@ -2230,10 +2388,6 @@ package enum RetainedLazyListScrollSearchResult {
     case obsolete
     case deferred
 }
-
-/// One admitted retained operation. This reads only owned identity and scalar
-/// state, including the source's native generation proof; it invokes no lease,
-/// provider, application getter, focus operation, or accessibility operation.
 @MainActor
 final class RetainedLazyListAdoptionAdmission {
     private weak var container: ViewNode?
@@ -2247,6 +2401,8 @@ final class RetainedLazyListAdoptionAdmission {
     private let layoutProofs: [RetainedLazyListLocalLayoutProof]
     private let expectedDisplayScale: Double
     private let expectedLayoutPassID: UInt64
+    private weak var uiaPreparation: RetainedLazyListAccessibilityPreparation?
+    private let requiresUIAPreparation: Bool
     private var completedSubtrees: [RetainedLazyListAdoptionCompletion] = []
     private var wasRevoked = false
     private var isFinishingCandidate = false
@@ -2268,6 +2424,9 @@ final class RetainedLazyListAdoptionAdmission {
         self.sequence = sequence
         self.expectedDisplayScale = runtime.displayScale
         self.expectedLayoutPassID = runtime.layoutPassID
+        let preparation = runtime.lazyListUIAConstructionPreparation
+        self.uiaPreparation = preparation
+        self.requiresUIAPreparation = preparation != nil
         var proofs: [RetainedLazyListLocalLayoutProof] = []
         var ancestor: ViewNode? = container
         while let node = ancestor, proofs.count < ViewNode.maximumTraversalDepth {
@@ -2291,6 +2450,8 @@ final class RetainedLazyListAdoptionAdmission {
         let candidateCurrent = isFinishingCandidate ? candidate?.isOperationCurrent : candidate?.isCurrent
         guard !wasRevoked, candidateCurrent != false, attachment.isCurrent,
             let container, let runtime, let adapter, let lease,
+            !requiresUIAPreparation
+                || uiaPreparation.map({ runtime.isLazyListUIAConstructionCurrent($0) }) == true,
             runtime.permitsRetainedActionInvocation,
             runtime.layoutPassID == expectedLayoutPassID,
             runtime.displayScale == expectedDisplayScale, layoutProofs.allSatisfy({ $0.isCurrent }),
@@ -2439,16 +2600,10 @@ final class RetainedLazyListAdoptionAdmission {
         candidate?.virtualizedDepartureRoots.contains(ObjectIdentifier(root)) == true ? .virtualization : .structural
     }
 }
-
 enum RetainedChildRemovalReason {
     case structural
     case virtualization
 }
-
-/// Chart compatibility modifiers are rare on retained nodes, but their
-/// twenty-four optional strings used to occupy every single node. One lazy
-/// allocation keeps the existing modifier API and reconciliation semantics
-/// without making ordinary text/layout nodes pay the Charts storage tax.
 @MainActor
 private final class ViewNodeChartMetadata {
     var xAxis: String?
@@ -2476,7 +2631,6 @@ private final class ViewNodeChartMetadata {
     var scrollPositionX: String?
     var scrollPositionY: String?
 }
-
 @MainActor
 public final class ViewNode {
     private var interactionHandlers: ViewNodeInteractionHandlers?
@@ -4243,21 +4397,24 @@ public final class ViewNode {
 
     @discardableResult
     func retainInsertionTransaction(
-        _ transaction: Transaction?, admission: RetainedLazyListAdoptionAdmission?
+        _ transaction: Transaction?, admission: RetainedLazyListAdoptionAdmission?,
+        uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil
     ) -> Bool {
-        guard admission?.isCurrent != false else { return false }
-        replaceInsertionTransactionPayload(transaction, admission: admission)
-        return admission?.isCurrent != false
+        guard admission?.isCurrent != false, uiaAuthority?.isCurrent != false else { return false }
+        replaceInsertionTransactionPayload(transaction, admission: admission, uiaAuthority: uiaAuthority)
+        return admission?.isCurrent != false && uiaAuthority?.isCurrent != false
     }
 
     private func replaceInsertionTransactionPayload(
-        _ transaction: Transaction?, admission: RetainedLazyListAdoptionAdmission?
+        _ transaction: Transaction?, admission: RetainedLazyListAdoptionAdmission?,
+        uiaAuthority: RetainedLazyListUIAContinuationAuthority?
     ) {
         let previous = animationModifierStorage?.insertionTransaction
         if transition.kind != .identity, !didPlayInsertionTransition,
             transaction != nil || animationModifierStorage != nil
         {
             admission?.markMutationStarted()
+            uiaAuthority?.markMutationStarted()
             retainInsertionTransaction(transaction)
         }
         withExtendedLifetime(previous) {}
@@ -4352,34 +4509,65 @@ public final class ViewNode {
     func reconcileTextInputController(
         from source: ViewNode, admission: RetainedLazyListAdoptionAdmission? = nil,
         lazyJournal: RetainedLazyListAdoptionJournal? = nil,
-        taskAdoption: RetainedTaskAdoptionContext? = nil
+        taskAdoption: RetainedTaskAdoptionContext? = nil,
+        uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil
     ) -> Bool {
-        guard admission?.isCurrent != false else { return false }
+        if let uiaAuthority, let journalAuthority = lazyJournal?.uiaContinuationAuthority,
+            uiaAuthority !== journalAuthority
+        {
+            return false
+        }
+        let uiaAuthority = uiaAuthority ?? lazyJournal?.uiaContinuationAuthority
+        guard admission?.isCurrent != false, uiaAuthority?.isCurrent != false else { return false }
+        let expectedController = uiaAuthority == nil ? nil : source.textInputController.map(ObjectIdentifier.init)
+        func controllerFieldsAreCurrent(_ completed: Bool) -> Bool {
+            guard uiaAuthority != nil else { return true }
+            let current =
+                source.textInputController.map(ObjectIdentifier.init) == expectedController
+                && (!completed || textInputController.map(ObjectIdentifier.init) == expectedController)
+            if !current { uiaAuthority?.revoke() }
+            return current
+        }
         if let lazyJournal {
-            let checked = admission != nil || !lazyJournal.isOrdinaryAdoption
+            let checked = admission != nil || uiaAuthority != nil || !lazyJournal.isOrdinaryAdoption
             let targetAttachment = checked ? captureLazyListAttachmentProof() : nil
             let targetIdentity = checked ? captureLazyListIdentityProof() : nil
             let sourceAttachment = checked ? source.captureLazyListAttachmentProof() : nil
             let sourceIdentity = checked ? source.captureLazyListIdentityProof() : nil
             let completed = reconcileJournalTextInputController(
-                from: source, admission: admission, journal: lazyJournal, taskAdoption: taskAdoption)
-            return completed && admission?.isCurrent != false
-                && (lazyJournal.isOrdinaryAdoption || lazyJournal.canContinueAdoption)
+                from: source, admission: admission, journal: lazyJournal, taskAdoption: taskAdoption,
+                uiaAuthority: uiaAuthority)
+            let nativeCurrent =
+                controllerFieldsAreCurrent(completed)
                 && targetAttachment?.isCurrent != false && targetIdentity?.isCurrent != false
                 && sourceAttachment?.isCurrent != false && sourceIdentity?.isCurrent != false
+            if !nativeCurrent { uiaAuthority?.revoke() }
+            return completed && nativeCurrent && admission?.isCurrent != false && uiaAuthority?.isCurrent != false
+                && (lazyJournal.isOrdinaryAdoption || lazyJournal.canContinueAdoption)
         }
-        let completed = reconcileTextInputControllerPayload(from: source, admission: admission)
+        let targetAttachment = uiaAuthority == nil ? nil : captureLazyListAttachmentProof()
+        let targetIdentity = uiaAuthority == nil ? nil : captureLazyListIdentityProof()
+        let sourceAttachment = uiaAuthority == nil ? nil : source.captureLazyListAttachmentProof()
+        let sourceIdentity = uiaAuthority == nil ? nil : source.captureLazyListIdentityProof()
+        let completed = reconcileTextInputControllerPayload(
+            from: source, admission: admission, uiaAuthority: uiaAuthority)
         // Controller payload destruction happens before this final primitive
         // check, outside the stored handler's exclusive write access.
-        return completed && admission?.isCurrent != false
+        let nativeCurrent =
+            controllerFieldsAreCurrent(completed)
+            && targetAttachment?.isCurrent != false && targetIdentity?.isCurrent != false
+            && sourceAttachment?.isCurrent != false && sourceIdentity?.isCurrent != false
+        if !nativeCurrent { uiaAuthority?.revoke() }
+        return completed && nativeCurrent && admission?.isCurrent != false && uiaAuthority?.isCurrent != false
     }
 
     private func reconcileTextInputControllerPayload(
-        from source: ViewNode, admission: RetainedLazyListAdoptionAdmission?
+        from source: ViewNode, admission: RetainedLazyListAdoptionAdmission?,
+        uiaAuthority: RetainedLazyListUIAContinuationAuthority?
     ) -> Bool {
         let previous = textInputController
         let incoming = source.textInputController
-        guard let admission else {
+        if admission == nil, uiaAuthority == nil {
             if let incoming {
                 textInputController = incoming
                 incoming.reconcile(from: previous, onto: self)
@@ -4390,21 +4578,46 @@ public final class ViewNode {
             return true
         }
         let attachment = captureLazyListAttachmentProof()
-        guard admission.isCurrent, attachment.isCurrent else { return false }
+        let identity = uiaAuthority == nil ? nil : captureLazyListIdentityProof()
+        let sourceAttachment = uiaAuthority == nil ? nil : source.captureLazyListAttachmentProof()
+        let sourceIdentity = uiaAuthority == nil ? nil : source.captureLazyListIdentityProof()
+        func isCurrent() -> Bool {
+            let nativeCurrent =
+                attachment.isCurrent
+                && identity?.isCurrent != false && sourceAttachment?.isCurrent != false
+                && sourceIdentity?.isCurrent != false
+                && (uiaAuthority == nil || source.textInputController === incoming)
+            if !nativeCurrent { uiaAuthority?.revoke() }
+            return nativeCurrent && admission?.isCurrent != false && uiaAuthority?.isCurrent != false
+        }
+        func controllerIsCurrent(_ expected: (any RetainedTextInputController)?) -> Bool {
+            let current = textInputController === expected
+            if !current { uiaAuthority?.revoke() }
+            return current
+        }
+        guard isCurrent() else { return false }
         if let incoming {
-            admission.markMutationStarted()
-            textInputController = incoming
-            guard admission.isCurrent, attachment.isCurrent, textInputController === incoming else { return false }
+            admission?.markMutationStarted()
+            uiaAuthority?.markMutationStarted()
+            if uiaAuthority != nil {
+                setInteractionHandler(incoming, at: \.textInputController)
+                guard isCurrent(), controllerIsCurrent(incoming) else { return false }
+                if runtime != nil, !isRetiringLazyListAttachment { incoming.attach(to: self) }
+            } else {
+                textInputController = incoming
+            }
+            guard isCurrent(), controllerIsCurrent(incoming) else { return false }
             incoming.reconcile(from: previous, onto: self)
-            guard admission.isCurrent, attachment.isCurrent, textInputController === incoming else { return false }
+            guard isCurrent(), controllerIsCurrent(incoming) else { return false }
         } else if let previous {
-            admission.markMutationStarted()
+            admission?.markMutationStarted()
+            uiaAuthority?.markMutationStarted()
             previous.detach(from: self)
-            guard admission.isCurrent, attachment.isCurrent, textInputController === previous else { return false }
+            guard isCurrent(), controllerIsCurrent(previous) else { return false }
             textInputController = nil
         }
         withExtendedLifetime(previous) {}
-        return admission.isCurrent && attachment.isCurrent
+        return isCurrent()
     }
 
     /// Publish the actual controller field before attach/reconcile can release
@@ -4412,21 +4625,29 @@ public final class ViewNode {
     /// retain their existing setter and lifecycle order.
     private func reconcileJournalTextInputController(
         from source: ViewNode, admission: RetainedLazyListAdoptionAdmission?,
-        journal: RetainedLazyListAdoptionJournal, taskAdoption: RetainedTaskAdoptionContext?
+        journal: RetainedLazyListAdoptionJournal, taskAdoption: RetainedTaskAdoptionContext?,
+        uiaAuthority: RetainedLazyListUIAContinuationAuthority?
     ) -> Bool {
         let previous = textInputController
         let incoming = source.textInputController
-        let checked = admission != nil || !journal.isOrdinaryAdoption
+        let checked = admission != nil || uiaAuthority != nil || !journal.isOrdinaryAdoption
         let targetAttachment = checked ? captureLazyListAttachmentProof() : nil
         let targetIdentity = checked ? captureLazyListIdentityProof() : nil
         let sourceAttachment = checked ? source.captureLazyListAttachmentProof() : nil
         let sourceIdentity = checked ? source.captureLazyListIdentityProof() : nil
         func isCurrent() -> Bool {
-            admission?.isCurrent != false
-                && (journal.isOrdinaryAdoption || journal.canContinueAdoption)
-                && targetAttachment?.isCurrent != false && targetIdentity?.isCurrent != false
+            let nativeCurrent =
+                targetAttachment?.isCurrent != false && targetIdentity?.isCurrent != false
                 && sourceAttachment?.isCurrent != false && sourceIdentity?.isCurrent != false
                 && (!checked || source.textInputController === incoming)
+            if !nativeCurrent { uiaAuthority?.revoke() }
+            return nativeCurrent && admission?.isCurrent != false && uiaAuthority?.isCurrent != false
+                && (journal.isOrdinaryAdoption || journal.canContinueAdoption)
+        }
+        func controllerIsCurrent(_ expected: (any RetainedTextInputController)?) -> Bool {
+            let current = textInputController === expected
+            if !current { uiaAuthority?.revoke() }
+            return current
         }
         guard isCurrent() else { return false }
         if incoming == nil, previous == nil { return true }
@@ -4434,21 +4655,23 @@ public final class ViewNode {
         guard journal.isOrdinaryAdoption || prepared else { return false }
         let started = journal.markMutationStarted()
         guard journal.isOrdinaryAdoption || started else { return false }
+        guard isCurrent() else { return false }
         admission?.markMutationStarted()
+        uiaAuthority?.markMutationStarted()
         if let incoming {
             // The public setter immediately calls attach. Keep the same native
             // write and callback order, with acceptance between those steps.
             setInteractionHandler(incoming, at: \.textInputController)
             recordAcceptedLazyProperty(
                 from: source, keyPath: \ViewNode.textInputController, journal: journal, taskAdoption: taskAdoption)
-            guard isCurrent(), textInputController === incoming else { return false }
+            guard isCurrent(), controllerIsCurrent(incoming) else { return false }
             if runtime != nil, !isRetiringLazyListAttachment { incoming.attach(to: self) }
-            guard isCurrent(), textInputController === incoming else { return false }
+            guard isCurrent(), controllerIsCurrent(incoming) else { return false }
             incoming.reconcile(from: previous, onto: self)
-            guard isCurrent(), textInputController === incoming else { return false }
+            guard isCurrent(), controllerIsCurrent(incoming) else { return false }
         } else if let previous {
             previous.detach(from: self)
-            guard isCurrent(), textInputController === previous else { return false }
+            guard isCurrent(), controllerIsCurrent(previous) else { return false }
             setInteractionHandler(nil, at: \.textInputController)
             recordAcceptedLazyProperty(
                 from: source, keyPath: \ViewNode.textInputController, journal: journal, taskAdoption: taskAdoption)
@@ -4732,7 +4955,10 @@ public final class ViewNode {
     /// runtime adopts it onto this node instead of nesting it underneath.
     public var geometryReaderBuild: ((RetainedViewRuntime, Size) -> [ViewNode])? {
         get { lifecycleHandlers?.geometryReaderBuild }
-        set { setLifecycleHandler(newValue, at: \.geometryReaderBuild) }
+        set {
+            lifecycleHandlers?.geometryReaderConstructionIdentity = nil
+            setLifecycleHandler(newValue, at: \.geometryReaderBuild)
+        }
     }
 
     /// Ownership of this deferred subtree's captured generation. Adoption
@@ -4740,6 +4966,7 @@ public final class ViewNode {
     public var retainedSubtreeBuildLease: (any RetainedSubtreeBuildLease)? {
         get { lifecycleHandlers?.retainedSubtreeBuildLease }
         set {
+            lifecycleHandlers?.geometryReaderConstructionIdentity = nil
             if lifecycleHandlers?.retainedSubtreeBuildLease !== newValue {
                 lifecycleHandlers?.retainedLazyListAdapter?.revokeStandaloneBuildLease(
                     matching: lifecycleHandlers?.retainedSubtreeBuildLease, from: self)
@@ -4961,6 +5188,21 @@ public final class ViewNode {
             node: self, identity: lifecycleHandlers!.lazyListLayoutIdentity!, attachment: attachment)
     }
 
+    /// Before body construction, either a body or lease assignment revokes the
+    /// old reader operation, including replacement followed by restoration.
+    /// Capturing this marker does not retain the body or lease payload.
+    fileprivate func captureGeometryReaderConstructionIdentity() -> RetainedLazyListAttachmentIdentity {
+        if lifecycleHandlers == nil { lifecycleHandlers = ViewNodeLifecycleHandlers() }
+        if lifecycleHandlers?.geometryReaderConstructionIdentity == nil {
+            lifecycleHandlers?.geometryReaderConstructionIdentity = RetainedLazyListAttachmentIdentity()
+        }
+        return lifecycleHandlers!.geometryReaderConstructionIdentity!
+    }
+
+    fileprivate var geometryReaderConstructionIdentity: RetainedLazyListAttachmentIdentity? {
+        lifecycleHandlers?.geometryReaderConstructionIdentity
+    }
+
     fileprivate var isRetiringLazyListAttachment: Bool {
         lifecycleHandlers?.lazyListRetirementIdentity != nil
     }
@@ -5027,12 +5269,40 @@ public final class ViewNode {
     func reconcileLazyListAdapter(
         from source: ViewNode, admission: RetainedLazyListAdoptionAdmission? = nil,
         lazyJournal: RetainedLazyListAdoptionJournal? = nil,
-        taskAdoption: RetainedTaskAdoptionContext? = nil
+        taskAdoption: RetainedTaskAdoptionContext? = nil,
+        uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil
     ) -> Bool {
-        let metadataOnly = lazyJournal?.isOrdinaryAdoption == true
-        guard admission?.isCurrent != false, metadataOnly || lazyJournal?.canContinueAdoption != false else {
+        if let uiaAuthority, let journalAuthority = lazyJournal?.uiaContinuationAuthority,
+            uiaAuthority !== journalAuthority
+        {
             return false
         }
+        let uiaAuthority = uiaAuthority ?? lazyJournal?.uiaContinuationAuthority
+        let metadataOnly = lazyJournal?.isOrdinaryAdoption == true
+        guard admission?.isCurrent != false, uiaAuthority?.isCurrent != false,
+            metadataOnly || lazyJournal?.canContinueAdoption != false
+        else { return false }
+        let targetAttachment = uiaAuthority == nil ? nil : captureLazyListAttachmentProof()
+        let targetIdentity = uiaAuthority == nil ? nil : captureLazyListIdentityProof()
+        let sourceAttachment = uiaAuthority == nil ? nil : source.captureLazyListAttachmentProof()
+        let sourceIdentity = uiaAuthority == nil ? nil : source.captureLazyListIdentityProof()
+        let incoming = uiaAuthority == nil ? nil : source.retainedLazyListAdapter
+        let contentRevision = source.lazyListContentRevision
+        let environmentRevision = source.lazyListEnvironmentRevision
+        func isCurrent(checkingAcceptedAdapter: Bool = false) -> Bool {
+            let nativeCurrent =
+                targetAttachment?.isCurrent != false && targetIdentity?.isCurrent != false
+                && sourceAttachment?.isCurrent != false && sourceIdentity?.isCurrent != false
+                && (uiaAuthority == nil
+                    || (source.retainedLazyListAdapter === incoming
+                        && source.lazyListContentRevision == contentRevision
+                        && source.lazyListEnvironmentRevision == environmentRevision
+                        && (!checkingAcceptedAdapter || retainedLazyListAdapter === incoming)))
+            if !nativeCurrent { uiaAuthority?.revoke() }
+            return nativeCurrent && admission?.isCurrent != false && uiaAuthority?.isCurrent != false
+                && (metadataOnly || lazyJournal?.canContinueAdoption != false)
+        }
+        guard isCurrent() else { return false }
         guard canAdoptStagedLazyListAdapter(from: source) else { return false }
         let descriptorCopy: RetainedLazyListDescriptorCopyPreparation
         if let lazyJournal, !metadataOnly || lazyJournal.canContinueAdoption {
@@ -5049,24 +5319,29 @@ public final class ViewNode {
             }
             let started = lazyJournal?.markMutationStarted()
             guard metadataOnly || started != false else { return false }
+            guard isCurrent() else { return false }
             admission?.markMutationStarted()
+            uiaAuthority?.markMutationStarted()
             replaceLazyListAdapterPayload(
                 with: source.retainedLazyListAdapter, descriptorCopy: descriptorCopy, lazyJournal: lazyJournal,
                 source: source, taskAdoption: taskAdoption)
         }
-        guard admission?.isCurrent != false, metadataOnly || lazyJournal?.canContinueAdoption != false else {
-            return false
-        }
+        // The adapter setter must finish the native attachment publication
+        // and old-record cleanup it already accepted. Only this later write
+        // of fresh measurement revisions depends on continuing the request.
+        guard isCurrent(checkingAcceptedAdapter: true) else { return false }
         if lazyListContentRevision != source.lazyListContentRevision
             || lazyListEnvironmentRevision != source.lazyListEnvironmentRevision
         {
             let started = lazyJournal?.markMutationStarted()
             guard metadataOnly || started != false else { return false }
+            guard isCurrent() else { return false }
             admission?.markMutationStarted()
+            uiaAuthority?.markMutationStarted()
             setRetainedLazyListMeasurementRevisions(
                 content: source.lazyListContentRevision, environment: source.lazyListEnvironmentRevision)
         }
-        return admission?.isCurrent != false && (metadataOnly || lazyJournal?.canContinueAdoption != false)
+        return isCurrent(checkingAcceptedAdapter: true)
     }
 
     private func replaceLazyListAdapterPayload(
@@ -5163,20 +5438,28 @@ public final class ViewNode {
         _ value: Double, admission: RetainedLazyListAdoptionAdmission?,
         nativeCheck: ComponentHost.NodeReconcileAdmission? = nil, authoredSource: ViewNode? = nil,
         continuingListReveal: RetainedListNavigationRevealContinuation? = nil,
-        continuingAccessibilityAnchor: RetainedLazyListAttachmentIdentity? = nil
+        continuingAccessibilityAnchor: RetainedLazyListAttachmentIdentity? = nil,
+        continuingLazyListUIARequest: RetainedLazyListUIARequest? = nil
     ) -> Bool {
         guard admission?.isCurrent != false, nativeCheck?.isCurrent != false else { return false }
         if let continuingListReveal {
             guard admission == nil, nativeCheck == nil, authoredSource == nil,
-                continuingAccessibilityAnchor == nil,
+                continuingAccessibilityAnchor == nil, continuingLazyListUIARequest == nil,
                 continuingListReveal.container === self, continuingListReveal.state == .waiting,
                 runtime?.isListNavigationRevealCurrent(continuingListReveal) == true
             else { return false }
         }
         if let continuingAccessibilityAnchor {
             guard admission == nil, nativeCheck == nil, authoredSource == nil, continuingListReveal == nil,
+                continuingLazyListUIARequest == nil,
                 runtime?.canBeginLazyListAccessibilityAnchorCorrection(
                     in: self, intent: continuingAccessibilityAnchor) == true
+            else { return false }
+        }
+        if let continuingLazyListUIARequest {
+            guard admission == nil, nativeCheck == nil, authoredSource == nil, continuingListReveal == nil,
+                continuingAccessibilityAnchor == nil,
+                runtime?.canBeginLazyListUIAOwnedScroll(continuingLazyListUIARequest, in: self, offset: value) == true
             else { return false }
         }
         if let nativeCheck, let authoredSource {
@@ -5197,6 +5480,8 @@ public final class ViewNode {
             // Reserve the exact post-write identity before invalidation can
             // release a queued callback. An authored nested write clears it.
             lifecycleHandlers?.lazyListScrollIntentIdentity = continuingAccessibilityAnchor
+        } else if let continuingLazyListUIARequest {
+            lifecycleHandlers?.lazyListScrollIntentIdentity = continuingLazyListUIARequest.ownedScroll?.intent
         } else {
             lifecycleHandlers?.lazyListScrollIntentIdentity = nil
         }
@@ -5204,6 +5489,11 @@ public final class ViewNode {
         let previous = storedScrollOffset
         admission?.markMutationStarted()
         storedScrollOffset = value
+        if let continuingLazyListUIARequest,
+            runtime?.advanceLazyListUIAOwnedScroll(continuingLazyListUIARequest, in: self, to: .stored) != true
+        {
+            return false
+        }
         if let nativeCheck, let authoredSource, let journal = nativeCheck.lazyJournal {
             recordAcceptedLazyProperty(
                 from: authoredSource, keyPath: \ViewNode.scrollOffset, journal: journal,
@@ -5216,6 +5506,11 @@ public final class ViewNode {
         }
         guard admission?.isCurrent != false, attachment?.isCurrent != false, nativeCheck?.isCurrent != false
         else { return false }
+        if let continuingLazyListUIARequest,
+            runtime?.isLazyListUIAOwnedScrollCurrent(continuingLazyListUIARequest, in: self) != true
+        {
+            return false
+        }
         if let continuingAccessibilityAnchor,
             runtime?.isLazyListAccessibilityAnchorCorrectionCurrent(
                 in: self, intent: continuingAccessibilityAnchor) != true
@@ -5223,6 +5518,11 @@ public final class ViewNode {
             return false
         }
         invalidateRuntime(hasVirtualizedDescendants ? [.paint, .layout] : .paint)
+        if let continuingLazyListUIARequest,
+            runtime?.advanceLazyListUIAOwnedScroll(continuingLazyListUIARequest, in: self, to: .invalidated) != true
+        {
+            return false
+        }
         if let continuingAccessibilityAnchor,
             runtime?.isLazyListAccessibilityAnchorCorrectionCurrent(
                 in: self, intent: continuingAccessibilityAnchor) != true
@@ -5232,6 +5532,11 @@ public final class ViewNode {
         if scrollIndicatorAutoHides, storedScrollOffset != previous {
             runtime?.revealScrollIndicator(for: self)
         }
+        if let continuingLazyListUIARequest,
+            runtime?.advanceLazyListUIAOwnedScroll(continuingLazyListUIARequest, in: self, to: .indicator) != true
+        {
+            return false
+        }
         if let continuingAccessibilityAnchor,
             runtime?.isLazyListAccessibilityAnchorCorrectionCurrent(
                 in: self, intent: continuingAccessibilityAnchor) != true
@@ -5239,6 +5544,20 @@ public final class ViewNode {
             return false
         }
         return admission?.isCurrent != false && attachment?.isCurrent != false && nativeCheck?.isCurrent != false
+    }
+
+    /// Install only the marker reserved before this owned offset write. The
+    /// exact nil stamp and every counter stage were proved after the setter;
+    /// no callback or layout may run between that check and this native write.
+    fileprivate func installLazyListUIAQueryLayoutIdentity(_ request: RetainedLazyListUIARequest) -> Bool {
+        guard let owned = request.ownedScroll, owned.stage == .indicator,
+            runtime?.isLazyListUIAOwnedScrollCurrent(request, in: self) == true
+        else { return false }
+        if owned.pass.hasVirtualizedDescendants {
+            guard let lifecycleHandlers, lifecycleHandlers.lazyListLayoutIdentity == nil else { return false }
+            lifecycleHandlers.lazyListLayoutIdentity = owned.nextLayoutIdentity
+        }
+        return true
     }
 
     func reconcileScrollIndicatorsFlashTrigger(
@@ -6814,9 +7133,16 @@ public final class ViewNode {
     @discardableResult
     func launchLifecycleTask(
         _ launch: ViewLifecycleTaskLaunch, admission: RetainedLazyListAdoptionAdmission?,
-        lazyJournal: RetainedLazyListAdoptionJournal? = nil, source: ViewNode? = nil
+        lazyJournal: RetainedLazyListAdoptionJournal? = nil, source: ViewNode? = nil,
+        uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil
     ) -> Bool {
-        guard let lazyJournal, !lazyJournal.isOrdinaryAdoption else {
+        if let uiaAuthority, let journalAuthority = lazyJournal?.uiaContinuationAuthority,
+            uiaAuthority !== journalAuthority
+        {
+            return false
+        }
+        let uiaAuthority = uiaAuthority ?? lazyJournal?.uiaContinuationAuthority
+        if uiaAuthority == nil, lazyJournal?.isOrdinaryAdoption != false {
             guard let admission else {
                 launchLifecycleTask(launch)
                 return true
@@ -6828,7 +7154,9 @@ public final class ViewNode {
             let completed = replaceLifecycleTask(launch, admission: admission, attachment: attachment)
             return completed && admission.isCurrent && attachment.isCurrent
         }
-        guard admission?.isCurrent != false, lazyJournal.canContinueAdoption, acceptsLifecycleTasks,
+        let metadataOnly = lazyJournal?.isOrdinaryAdoption == true
+        guard admission?.isCurrent != false, uiaAuthority?.isCurrent != false,
+            metadataOnly || lazyJournal?.canContinueAdoption != false, acceptsLifecycleTasks,
             runtime?.permitsRenderLifecycleCallbacks != false, !isRetiringLazyListAttachment
         else { return false }
         let attachment = captureLazyListAttachmentProof()
@@ -6837,10 +7165,14 @@ public final class ViewNode {
         let sourceIdentity = source?.captureLazyListIdentityProof()
         let completed = replaceJournalLifecycleTask(
             launch, admission: admission, attachment: attachment, identity: identity,
-            sourceAttachment: sourceAttachment, sourceIdentity: sourceIdentity, lazyJournal: lazyJournal)
-        return completed && admission?.isCurrent != false && lazyJournal.canContinueAdoption
-            && attachment.isCurrent && identity.isCurrent
+            sourceAttachment: sourceAttachment, sourceIdentity: sourceIdentity, lazyJournal: lazyJournal,
+            uiaAuthority: uiaAuthority)
+        let nativeCurrent =
+            attachment.isCurrent && identity.isCurrent
             && sourceAttachment?.isCurrent != false && sourceIdentity?.isCurrent != false
+        if !nativeCurrent { uiaAuthority?.revoke() }
+        return completed && nativeCurrent && admission?.isCurrent != false && uiaAuthority?.isCurrent != false
+            && (metadataOnly || lazyJournal?.canContinueAdoption != false)
     }
 
     private func replaceLifecycleTask(
@@ -6864,16 +7196,24 @@ public final class ViewNode {
         _ launch: ViewLifecycleTaskLaunch, admission: RetainedLazyListAdoptionAdmission?,
         attachment: RetainedLazyListAttachmentProof, identity: RetainedLazyListViewIdentityProof,
         sourceAttachment: RetainedLazyListAttachmentProof?, sourceIdentity: RetainedLazyListViewIdentityProof?,
-        lazyJournal: RetainedLazyListAdoptionJournal?
+        lazyJournal: RetainedLazyListAdoptionJournal?,
+        uiaAuthority: RetainedLazyListUIAContinuationAuthority?
     ) -> Bool {
-        guard lazyJournal?.markMutationStarted() != false else { return false }
+        let metadataOnly = lazyJournal?.isOrdinaryAdoption == true
+        let started = lazyJournal?.markMutationStarted()
+        guard metadataOnly || started != false, uiaAuthority?.isCurrent != false else { return false }
         admission?.markMutationStarted()
+        uiaAuthority?.markMutationStarted()
         let previous = lifecycleTasks.removeValue(forKey: launch.key)
         previous?.cancel()
-        guard admission?.isCurrent != false, lazyJournal?.canContinueAdoption != false,
-            attachment.isCurrent, identity.isCurrent,
-            sourceAttachment?.isCurrent != false, sourceIdentity?.isCurrent != false, acceptsLifecycleTasks,
-            runtime?.permitsRenderLifecycleCallbacks != false, lifecycleTasks[launch.key] == nil
+        let nativeCurrent =
+            attachment.isCurrent && identity.isCurrent
+            && sourceAttachment?.isCurrent != false && sourceIdentity?.isCurrent != false
+            && lifecycleTasks[launch.key] == nil
+        if !nativeCurrent { uiaAuthority?.revoke() }
+        guard nativeCurrent, admission?.isCurrent != false, uiaAuthority?.isCurrent != false,
+            metadataOnly || lazyJournal?.canContinueAdoption != false,
+            acceptsLifecycleTasks, runtime?.permitsRenderLifecycleCallbacks != false
         else { return false }
         lifecycleTasks[launch.key] = Task(priority: launch.priority) {
             await launch.action()
@@ -11830,11 +12170,9 @@ private func stackCrossPadding(for layout: StackLayout) -> Double {
 private func gridSpacing(_ spacing: Double) -> Double {
     spacing.isFinite ? sanitizedLayoutCoordinate(spacing) : 0
 }
-
 private func gridSpacingTotal(count: Int, spacing: Double) -> Double {
     count > 1 ? sanitizedLayoutCoordinate(Double(count - 1) * spacing) : 0
 }
-
 private func gridHorizontalAlignment(
     _ alignment: StackCrossAlignment, isRightToLeft: Bool
 ) -> StackCrossAlignment {
@@ -11845,7 +12183,6 @@ private func gridHorizontalAlignment(
     default: return alignment
     }
 }
-
 private func gridAnchor(for alignment: StackCrossAlignment) -> Double {
     switch alignment {
     case .leading, .stretch, .customHorizontal, .customVertical: return 0
@@ -11854,7 +12191,6 @@ private func gridAnchor(for alignment: StackCrossAlignment) -> Double {
     case .firstTextBaseline, .lastTextBaseline: return 0.8
     }
 }
-
 private func gridTrackCrossAlignment(_ alignment: RetainedHorizontalAlignment) -> StackCrossAlignment {
     switch alignment {
     case .leading: return .leading
@@ -11862,7 +12198,6 @@ private func gridTrackCrossAlignment(_ alignment: RetainedHorizontalAlignment) -
     case .trailing: return .trailing
     }
 }
-
 @MainActor
 private func gridGuideValue(
     for node: ViewNode, axis: StackAxis, alignment: StackCrossAlignment, extent: Double
@@ -11875,7 +12210,6 @@ private func gridGuideValue(
     }
     return stackCrossReference(for: alignment, contentExtent: extent)
 }
-
 private func gridRunIndices(
     _ tracks: [GridTrackRun], firstColumn: Int, endColumn: Int
 ) -> [Int] {
@@ -11883,7 +12217,6 @@ private func gridRunIndices(
         tracks[$0].firstColumn >= firstColumn && tracks[$0].endColumn <= endColumn
     }
 }
-
 private func gridSpanExtent(
     _ tracks: [GridTrackRun], firstColumn: Int, endColumn: Int, spacing: Double
 ) -> Double {
@@ -11893,15 +12226,11 @@ private func gridSpanExtent(
     }
     return sanitizedLayoutExtent(extent + gridSpacingTotal(count: endColumn - firstColumn, spacing: spacing))
 }
-
 private func gridTrackOrigin(_ tracks: [GridTrackRun], firstColumn: Int, spacing: Double) -> Double {
     sanitizedLayoutCoordinate(
         tracks.reduce(0.0) { $0 + ($1.endColumn <= firstColumn ? $1.extent : 0) }
             + Double(firstColumn) * spacing)
 }
-
-/// Equal increments per logical column are a deterministic interim policy for
-/// underdetermined spans, not a claim about SwiftUI's general span solver.
 private func gridRequireSpanExtent(
     _ requiredExtent: Double, firstColumn: Int, endColumn: Int, spacing: Double,
     tracks: inout [GridTrackRun], minimum: Bool = false
@@ -11924,10 +12253,6 @@ private func gridRequireSpanExtent(
         }
     }
 }
-
-/// Fits a finite proposal while retaining the same text/declared-minimum floors
-/// used by the runtime's stacks. Heterogeneous Grid priority negotiation remains
-/// uncharacterized; this proportional-slack policy is intentionally explicit.
 private func gridAllocateExtents(
     desired: [Double], minimum: [Double], flexibleWeights: [Double], available: Double
 ) -> [Double] {
@@ -11955,7 +12280,6 @@ private func gridAllocateExtents(
     }
     return result.map(sanitizedLayoutExtent)
 }
-
 @MainActor
 private func stackCrossOriginUsingAlignmentGuide(
     for child: ViewNode,
@@ -12050,18 +12374,9 @@ private func stackScrollAxis(for axis: StackAxis) -> ScrollAxis {
         return .horizontal
     }
 }
-/// Clamps a resolved layout coordinate to the finite range the scene contract
-/// accepts. Layout arithmetic reaches non-finite values from ordinary app code
-/// — `.frame(maxWidth: .infinity)` landing in `preferredSize`, or a division by
-/// an extent that collapsed to zero during first layout — and every downstream
-/// `Int(_: Float)` conversion traps on those. A Swift trap is the one failure
-/// class the host's renderer fallback cannot degrade, so the clamp happens
-/// here, at the layer boundary. Finite in-range values pass through unchanged.
 private func sanitizedLayoutCoordinate(_ value: Double) -> Double {
     GPUISceneValue.clamped(value, to: Double(GPUISceneLimits.maxCoordinate))
 }
-/// Extents additionally floor at zero: a negative or NaN extent describes no
-/// area, and `Rect.intersected` treats it as an empty region either way.
 private func sanitizedLayoutExtent(_ value: Double) -> Double {
     max(0, sanitizedLayoutCoordinate(value))
 }
@@ -12101,10 +12416,6 @@ private func clampedExtent(_ extent: Double, min minimum: Double, max maximum: D
     }
     return value
 }
-/// Weak box so the runtime can hold a set of nodes without keeping them
-/// alive. Used by the animating-node registry, where a strong reference
-/// would turn a dropped mid-animation node into a permanently spinning
-/// animation timer.
 @MainActor
 private struct WeakViewNodeRef {
     weak var node: ViewNode?
@@ -12126,40 +12437,22 @@ struct RetainedReconciliationSourceNodes {
         nodes[ObjectIdentifier(node)]?.node === node
     }
 }
-/// One invalidation raised while a render pass was open, replayed onto the
-/// node's subtree flags once the pass has finished clearing them.
 @MainActor
 private struct PendingNodeInvalidation {
     var node: WeakViewNodeRef
     var flags: DirtyFlags
 }
-
-/// Kept alive by receipts, without retaining the runtime or application data.
-/// An address alone could identify a different runtime after deallocation.
 fileprivate final class RetainedLayoutSettlementIdentity {}
-
-/// Evidence from one completed, bounded retained layout resolution. Only the
-/// runtime that produced it can validate it; it is not permission to run layout
-/// or a guarantee about callbacks that have not yet executed.
 package struct RetainedLayoutSettlementReceipt {
     fileprivate let identity: RetainedLayoutSettlementIdentity
     fileprivate let geometryRevision: UInt64
     fileprivate let resolutionSequence: UInt64
 }
-
-/// A host must not turn either failure case into a synchronous retry loop.
-/// `unsettled` needs an ordinary layout or active callback/build to finish.
-/// `unavailable` means the completed resolution did not establish the proof,
-/// or its checked generations are exhausted. Exhaustion is permanent.
 package enum RetainedLayoutSettlementStatus {
     case settled(RetainedLayoutSettlementReceipt)
     case unsettled
     case unavailable
 }
-
-/// A facade's accepted removal can restore focus only while its private
-/// receipt remains current. Nodes stay weak, and the owner is a lightweight
-/// registration token rather than the window or runtime.
 @MainActor
 package final class RetainedPresentationFocusRequest {
     fileprivate let owner: AnyObject
@@ -12207,14 +12500,8 @@ package final class RetainedPresentationFocusRequest {
         withExtendedLifetime(retired) { retired.2?() }
     }
 }
-
-/// These identities never retain nodes, callbacks, bindings, or application
-/// payloads. An admitted operation keeps the old identity alive until it ends.
 @MainActor
 package final class RetainedAccessibilityIdentity {}
-
-/// A single synchronous UIA mutation. The runtime owns admission so different
-/// adapters for the same runtime cannot reenter one another.
 @MainActor
 package final class RetainedAccessibilityMutation {
     package private(set) var revision: UInt64 = 0
@@ -12230,9 +12517,6 @@ package final class RetainedAccessibilityMutation {
         revision = next.partialValue
     }
 }
-
-/// The exact physical attachment admitted before a layout query. No retained
-/// owner is pinned by the witness; detach/reparent and reattach cannot revive it.
 @MainActor
 package final class RetainedAccessibilityTarget {
     fileprivate struct Link {
@@ -12263,11 +12547,6 @@ package final class RetainedAccessibilityTarget {
         return true
     }
 }
-
-/// One already accepted List reveal. The runtime owns this finite native
-/// record, not a selection binding, row factory, or public controller. Its
-/// endpoints and attachment paths remain weak, and its receipt points back
-/// weakly so terminal cancellation has no actor-deinit or reference cycle.
 @MainActor
 final class RetainedListNavigationRevealContinuation {
     enum State { case unarmed, waiting, consuming, finished }
@@ -12322,13 +12601,6 @@ final class RetainedListNavigationRevealContinuation {
         receipt = nil
     }
 }
-
-/// An on-demand logical List item, not an offscreen ViewNode or an authority
-/// to run row actions. The token owns only native identity markers; every
-/// runtime, adapter, and container reference is weak. A replaced adapter or
-/// physical attachment invalidates an escaped action item instead of retargeting
-/// it. A native membership marker can separately keep UIA identity metadata
-/// across an accepted source continuation; it grants no action authority.
 @MainActor
 package final class RetainedLazyListAccessibilityItem {
     package let token: RetainedLazyListRowToken
@@ -12365,11 +12637,8 @@ package final class RetainedLazyListAccessibilityItem {
         return adapter?.knownLeafCount(for: token)
     }
 }
-
-/// One synchronous UIA preparation. Only native anchor corrections may advance
-/// its scroll intent; every source, attachment, and input proof stays original.
 @MainActor
-private final class RetainedLazyListAccessibilityPreparation {
+fileprivate final class RetainedLazyListAccessibilityPreparation {
     let token: RetainedLazyListRowToken
     let witness: RetainedLazyListAccessibilityItem
     weak var adapter: RetainedLazyListRuntimeAdapter?
@@ -12384,14 +12653,17 @@ private final class RetainedLazyListAccessibilityPreparation {
     let focusRevision: UInt64
     let pointerSequence: UInt64
     let modal: ObjectIdentifier?
+    let enforcesUIAConstructionIntent: Bool
     var isActive = true
+    var hasIssuedUnusedProviderPhase = false
 
     init(
         token: RetainedLazyListRowToken, witness: RetainedLazyListAccessibilityItem,
         adapter: RetainedLazyListRuntimeAdapter, descriptor: RetainedLazyListManagedLogicalDescriptorBinding?,
         generation: RetainedLazyListGeneration, mutation: RetainedAccessibilityMutation,
         scroll: ViewNode, scrollAttachment: RetainedAccessibilityTarget,
-        focusRevision: UInt64, pointerSequence: UInt64, modal: ObjectIdentifier?
+        focusRevision: UInt64, pointerSequence: UInt64, modal: ObjectIdentifier?,
+        enforcesUIAConstructionIntent: Bool = false
     ) {
         self.token = token
         self.witness = witness
@@ -12406,12 +12678,233 @@ private final class RetainedLazyListAccessibilityPreparation {
         self.focusRevision = focusRevision
         self.pointerSequence = pointerSequence
         self.modal = modal
+        self.enforcesUIAConstructionIntent = enforcesUIAConstructionIntent
     }
 }
+@MainActor
+final class RetainedLazyListUIAContinuationAuthority {
+    fileprivate weak var runtime: RetainedViewRuntime?
+    fileprivate weak var preparation: RetainedLazyListAccessibilityPreparation?
+    fileprivate weak var request: RetainedLazyListUIARequest?
+    fileprivate let hadRequest: Bool
+    fileprivate let requestPhase: RetainedLazyListUIARequest.Phase?
+    fileprivate let querySequence: UInt64?
+    fileprivate let queryWasSealed: Bool?
+    fileprivate let layoutPassID: UInt64
+    fileprivate let resolutionSequence: UInt64
+    fileprivate let displayScale: Double
+    fileprivate let displayScaleIdentity: RetainedLazyListAttachmentIdentity
+    fileprivate let scrollIntent: RetainedLazyListAttachmentIdentity
+    fileprivate let geometryProofs: [RetainedLazyListLocalLayoutProof]
+    fileprivate let hadCompleteGeometry: Bool
+    fileprivate let queryGeometryProofs: [RetainedLazyListLocalLayoutProof]
+    fileprivate let target: RetainedAccessibilityTarget?
+    fileprivate let targetIdentity: RetainedLazyListViewIdentityProof?
+    private var completedSubtrees: [RetainedLazyListAdoptionCompletion] = []
+    private var wasRevoked = false
+    private(set) var didMutate = false
 
-/// Ready roots are actual retained output. An after-layout caller may use
-/// their current pass geometry for programmatic scrolling; focus and UIA must
-/// still obtain their separate completed settlement/attachment authority.
+    fileprivate init(
+        runtime: RetainedViewRuntime, preparation: RetainedLazyListAccessibilityPreparation,
+        request: RetainedLazyListUIARequest?, resolutionSequence: UInt64,
+        displayScaleIdentity: RetainedLazyListAttachmentIdentity
+    ) {
+        self.runtime = runtime
+        self.preparation = preparation
+        self.request = request
+        hadRequest = request != nil
+        requestPhase = request?.phase
+        querySequence = request?.querySequence
+        queryWasSealed = request?.queryIsSealed
+        layoutPassID = runtime.layoutPassID
+        self.resolutionSequence = resolutionSequence
+        displayScale = runtime.displayScale
+        self.displayScaleIdentity = displayScaleIdentity
+        scrollIntent = preparation.scrollIntent
+        let path = preparation.witness.attachment.path
+        geometryProofs = path.compactMap { $0.node?.captureLazyListLocalLayoutProof() }
+        hadCompleteGeometry = geometryProofs.count == path.count
+        queryGeometryProofs = request?.queryLayoutProofs ?? []
+        target = request?.originalTarget
+        targetIdentity = request?.originalTargetIdentity
+    }
+
+    var isCurrent: Bool {
+        guard !wasRevoked else { return false }
+        guard let runtime, let preparation,
+            runtime.isLazyListUIAContinuationCurrent(self, preparation: preparation),
+            completedSubtrees.allSatisfy({ $0.isCurrent })
+        else {
+            revoke()
+            return false
+        }
+        return true
+    }
+
+    /// Bookkeeping for a raw reader's partial accepted write. It carries no
+    /// permission to continue after a later callback revokes this operation.
+    func markMutationStarted() { didMutate = true }
+
+    /// Validate every previous obligation before comparing coverage. A later
+    /// parent completion may replace only identical captured native witnesses;
+    /// it cannot hide an already stale descendant by capturing its new value.
+    func recordCompletion(_ completion: RetainedLazyListAdoptionCompletion) -> Bool {
+        guard isCurrent, completion.isCurrent else {
+            revoke()
+            return false
+        }
+        if completedSubtrees.contains(where: { $0.containsEquivalentWitnesses(of: completion) }) {
+            return isCurrent
+        }
+        completedSubtrees.removeAll { completion.containsEquivalentWitnesses(of: $0) }
+        completedSubtrees.append(completion)
+        return isCurrent
+    }
+
+    /// Refusing one reader cannot let the same initial preparation recapture
+    /// newer geometry in the next reader or provider phase. Only this exact
+    /// original preparation is stopped; a newer request is never touched.
+    func revoke() {
+        wasRevoked = true
+        preparation?.isActive = false
+    }
+}
+@MainActor
+package final class RetainedLazyListUIARequest {
+    fileprivate enum Phase { case prepared, targetQuery, measured, scrolling, finalQuery, resolved, finished }
+
+    package let item: RetainedLazyListAccessibilityItem
+    fileprivate weak var runtime: RetainedViewRuntime?
+    fileprivate let preparation: RetainedLazyListAccessibilityPreparation
+    fileprivate let budget: RetainedLazyListWorkBudget
+    fileprivate var phase = Phase.prepared
+    fileprivate var hint: RetainedLazyListRuntimeAdapter.UIAConstructionHint?
+    fileprivate var targetPass: RetainedLazyListUIATargetPass?
+    fileprivate var querySequence: UInt64?
+    fileprivate var queryStartingRounds = 0
+    fileprivate var queryIsSealed = true
+    fileprivate var originalTarget: RetainedAccessibilityTarget?
+    fileprivate var originalTargetIdentity: RetainedLazyListViewIdentityProof?
+    fileprivate var queryLayoutProofs: [RetainedLazyListLocalLayoutProof] = []
+    fileprivate var ownedScroll: RetainedLazyListUIAOwnedScroll?
+    fileprivate var beganResolution = false
+    fileprivate var completed = false
+
+    fileprivate init(
+        item: RetainedLazyListAccessibilityItem, runtime: RetainedViewRuntime,
+        preparation: RetainedLazyListAccessibilityPreparation, budget: RetainedLazyListWorkBudget
+    ) {
+        self.item = item
+        self.runtime = runtime
+        self.preparation = preparation
+        self.budget = budget
+    }
+}
+@MainActor
+fileprivate final class RetainedLazyListUIATargetPass {
+    struct Geometry {
+        let layout: RetainedLazyListLocalLayoutProof
+        let frame: Rect
+        let contentSize: Size
+        let resolvedScrollOffset: Double
+        let isHidden: Bool
+        let isDeferred: Bool
+    }
+
+    struct List {
+        weak var node: ViewNode?
+        weak var adapter: RetainedLazyListRuntimeAdapter?
+        let descriptor: RetainedLazyListManagedLogicalDescriptorBinding?
+        let layout: RetainedLazyListRuntimeAdapter.LayoutProof
+        let records: RetainedLazyListRuntimeAdapter.UIAActualRecordsProof
+    }
+
+    struct Leaf {
+        weak var node: ViewNode?
+        weak var container: ViewNode?
+        let attachment: RetainedLazyListAttachmentProof
+        let gap: RetainedLazyListGap?
+        let identity: RetainedLazyListViewIdentityProof
+    }
+
+    let target: RetainedAccessibilityTarget
+    let geometry: [Geometry]
+    let lists: [List]
+    let leaves: [Leaf]
+    let viewport: RetainedLazyListRuntimeAdapter.Viewport
+    let contentOriginY: Double
+    let passID: UInt64
+    let resolutionSequence: UInt64
+    let geometryRevision: UInt64
+    let mutationRevision: UInt64
+    let displayScale: Double
+    let scrollOffset: Double
+    let scrollEpoch: RetainedScrollSourceEpoch?
+    let hasVirtualizedDescendants: Bool
+    let autoHidesIndicator: Bool
+    let showsIndicator: Bool
+    let isScrollable: Bool
+
+    init(
+        target: RetainedAccessibilityTarget, geometry: [Geometry], lists: [List], leaves: [Leaf],
+        viewport: RetainedLazyListRuntimeAdapter.Viewport, contentOriginY: Double,
+        passID: UInt64, resolutionSequence: UInt64, geometryRevision: UInt64,
+        mutationRevision: UInt64, displayScale: Double, scroll: ViewNode
+    ) {
+        self.target = target
+        self.geometry = geometry
+        self.lists = lists
+        self.leaves = leaves
+        self.viewport = viewport
+        self.contentOriginY = contentOriginY
+        self.passID = passID
+        self.resolutionSequence = resolutionSequence
+        self.geometryRevision = geometryRevision
+        self.mutationRevision = mutationRevision
+        self.displayScale = displayScale
+        scrollOffset = scroll.scrollOffset
+        scrollEpoch = scroll.scrollSourceEpoch
+        hasVirtualizedDescendants = scroll.hasVirtualizedDescendants
+        autoHidesIndicator = scroll.scrollIndicatorAutoHides
+        showsIndicator = scroll.showsScrollIndicator
+        isScrollable = scroll.isScrollable
+    }
+}
+@MainActor
+fileprivate final class RetainedLazyListUIAOwnedScroll {
+    enum Stage { case reserved, stored, invalidated, indicator }
+
+    let pass: RetainedLazyListUIATargetPass
+    let intent = RetainedLazyListAttachmentIdentity()
+    let nextLayoutIdentity = RetainedLazyListAttachmentIdentity()
+    let offset: Double
+    let offsetGeometryRevision: UInt64
+    let offsetMutationRevision: UInt64
+    let finalGeometryRevision: UInt64
+    let finalMutationRevision: UInt64
+    let revealsIndicator: Bool
+    var stage = Stage.reserved
+
+    init?(
+        pass: RetainedLazyListUIATargetPass, offset: Double
+    ) {
+        let offsetGeometry = pass.geometryRevision.addingReportingOverflow(pass.hasVirtualizedDescendants ? 1 : 0)
+        let offsetMutation = pass.mutationRevision.addingReportingOverflow(1)
+        let revealsIndicator = pass.autoHidesIndicator && pass.showsIndicator && pass.isScrollable
+        let finalGeometry = offsetGeometry.partialValue.addingReportingOverflow(revealsIndicator ? 1 : 0)
+        let finalMutation = offsetMutation.partialValue.addingReportingOverflow(revealsIndicator ? 1 : 0)
+        guard offset.isFinite, !offsetGeometry.overflow, !offsetMutation.overflow,
+            !finalGeometry.overflow, !finalMutation.overflow
+        else { return nil }
+        self.pass = pass
+        self.offset = offset
+        offsetGeometryRevision = offsetGeometry.partialValue
+        offsetMutationRevision = offsetMutation.partialValue
+        finalGeometryRevision = finalGeometry.partialValue
+        finalMutationRevision = finalMutation.partialValue
+        self.revealsIndicator = revealsIndicator
+    }
+}
 @MainActor
 package enum RetainedLazyListTargetResolution {
     case ready([ViewNode])
@@ -12420,7 +12913,6 @@ package enum RetainedLazyListTargetResolution {
     case obsolete
     case unsupported
 }
-
 @MainActor
 private final class RetainedAccessibilityScrollContinuation {
     let mutation: RetainedAccessibilityMutation
@@ -12450,9 +12942,6 @@ private final class RetainedAccessibilityScrollContinuation {
         self.pointerSequence = pointerSequence
     }
 }
-
-/// The focus authority never reuses an admitted intent after exhaustion.
-/// Kept separate from callback delivery so its boundary is deterministic.
 struct RetainedFocusRevision {
     private(set) var value: UInt64
     private(set) var isExhausted = false
@@ -12472,7 +12961,6 @@ struct RetainedFocusRevision {
         return value
     }
 }
-
 @MainActor
 private final class RetainedFocusEntry {
     weak var target: ViewNode?
@@ -12484,20 +12972,17 @@ private final class RetainedFocusEntry {
         self.beganAttached = beganAttached
     }
 }
-
 private enum RetainedFocusOrigin {
     case ordinary
     case accessibility
     case cleanup
 }
-
 private struct RetainedFocusReaffirmation {
     let revision: UInt64
     let origin: RetainedFocusOrigin
     let beganAttached: Bool
     let mutationWitness: UInt64
 }
-
 @MainActor
 private final class RetainedFocusOperation {
     weak var target: ViewNode?
@@ -12522,8 +13007,6 @@ private final class RetainedFocusOperation {
         self.listNavigationReceipt = listNavigationReceipt
     }
 }
-
-/// Fixed bounds for the opt-in, two-fixture gallery diagnostic.
 package enum RetainedSceneGeometryLimits {
     package static let maxNodes = 128
     package static let maxDepth = 32
@@ -12531,8 +13014,6 @@ package enum RetainedSceneGeometryLimits {
     package static let maxPathElements = 4096
     package static let maxSidecarBytes = 256 * 1024
 }
-
-/// Stored values from one painted scene, not a layout-settlement or font-face receipt.
 package struct RetainedSceneGeometryDiagnostic: Encodable, Equatable, Sendable {
     package enum Status: String, Encodable, Equatable, Sendable {
         case captured
@@ -12602,7 +13083,6 @@ package struct RetainedSceneGeometryDiagnostic: Encodable, Equatable, Sendable {
         )
     }
 }
-
 @MainActor
 package final class RetainedSceneGeometryDiagnosticRequest {
     package private(set) var result: RetainedSceneGeometryDiagnostic?
@@ -12613,7 +13093,6 @@ package final class RetainedSceneGeometryDiagnosticRequest {
         result = value
     }
 }
-
 @MainActor
 public final class RetainedViewRuntime {
     private static let buttonRepeatInitialDelay = 0.45
@@ -12764,6 +13243,7 @@ public final class RetainedViewRuntime {
 
     public var displayScale: Double {
         didSet {
+            displayScaleIdentity = RetainedLazyListAttachmentIdentity()
             // No text-cache invalidation here: `TextRasterCache`'s key carries
             // the scale the raster was produced at, so a scale change asks a
             // different question rather than invalidating an answer. This used
@@ -12772,6 +13252,7 @@ public final class RetainedViewRuntime {
             invalidate()
         }
     }
+    private var displayScaleIdentity = RetainedLazyListAttachmentIdentity()
 
     public var clearColor: Color {
         didSet { invalidate() }
@@ -13158,6 +13639,9 @@ public final class RetainedViewRuntime {
 
     private func recordLayoutSettlementInvalidation(_ flags: DirtyFlags) {
         guard !flags.intersection([.layout, .children]).isEmpty else { return }
+        if let phase = unusedLazyListUIAProviderPhase, phase.state == .pending {
+            revokeUnusedLazyListUIAProviderPhase(phase)
+        }
         guard !layoutSettlementGenerationsExhausted else { return }
         let next = layoutSettlementGeometryRevision.addingReportingOverflow(1)
         guard !next.overflow else {
@@ -13257,11 +13741,225 @@ public final class RetainedViewRuntime {
         let geometryRevision: UInt64
     }
 
+    /// Arithmetic only. This value cannot issue a phase, authorize a callback,
+    /// or replace an original visit. Exhaustion rejects before demand is made.
+    internal struct LazyListUIAProviderPhaseReservation {
+        let originalGeometryRevision: UInt64
+        let originalMutationRevision: UInt64
+        let originalResolutionSequence: UInt64
+        let originalPresentationRevision: UInt64
+        let demandGeometryRevision: UInt64
+        let buildGeometryRevision: UInt64
+        let demandMutationRevision: UInt64
+        let resumeResolutionSequence: UInt64
+        let demandPresentationRevision: UInt64
+
+        init?(
+            geometryRevision: UInt64, mutationRevision: UInt64,
+            resolutionSequence: UInt64, presentationRevision: UInt64
+        ) {
+            let demandGeometry = geometryRevision.addingReportingOverflow(1)
+            let buildGeometry = demandGeometry.partialValue.addingReportingOverflow(1)
+            let demandMutation = mutationRevision.addingReportingOverflow(1)
+            let resumeSequence = resolutionSequence.addingReportingOverflow(1)
+            let demandPresentation = presentationRevision.addingReportingOverflow(1)
+            guard !demandGeometry.overflow, !buildGeometry.overflow, !demandMutation.overflow,
+                !resumeSequence.overflow, !demandPresentation.overflow
+            else { return nil }
+            originalGeometryRevision = geometryRevision
+            originalMutationRevision = mutationRevision
+            originalResolutionSequence = resolutionSequence
+            originalPresentationRevision = presentationRevision
+            demandGeometryRevision = demandGeometry.partialValue
+            buildGeometryRevision = buildGeometry.partialValue
+            demandMutationRevision = demandMutation.partialValue
+            resumeResolutionSequence = resumeSequence.partialValue
+            demandPresentationRevision = demandPresentation.partialValue
+        }
+    }
+
+    /// Passive native diagnostics. No callback, node, lease, or continuation
+    /// authority is stored in an entry, and recording cannot schedule work.
+    internal struct LazyListUIAPhaseTrace {
+        enum Kind: Equatable {
+            case layoutPass, roundDebit, measurementPhase, readerPhase, providerPhase
+            case savedProviderPhase, resumedProviderPhase, revokedProviderPhase, ownedScroll
+        }
+
+        let kind: Kind
+        let layoutPassID: UInt64
+        let resolutionSequence: UInt64
+        let geometryRevision: UInt64
+        let mutationRevision: UInt64
+        let consumedRounds: Int
+        let remainingElements: Int
+        let remainingRounds: Int
+        let activePhysicalActivityIDs: [ObjectIdentifier]?
+    }
+
+    internal var recordsLazyListUIAPhasesForTesting = false {
+        didSet {
+            if recordsLazyListUIAPhasesForTesting { lazyListUIAPhasesForTesting.removeAll(keepingCapacity: true) }
+        }
+    }
+    internal private(set) var lazyListUIAPhasesForTesting: [LazyListUIAPhaseTrace] = []
+
+    private func recordLazyListUIAPhase(_ kind: LazyListUIAPhaseTrace.Kind) {
+        guard recordsLazyListUIAPhasesForTesting, lazyListUIAPhasesForTesting.count < 512,
+            let budget = lazyListResolutionBudget
+        else { return }
+        lazyListUIAPhasesForTesting.append(
+            LazyListUIAPhaseTrace(
+                kind: kind, layoutPassID: layoutPassID, resolutionSequence: layoutSettlementResolutionSequence,
+                geometryRevision: layoutSettlementGeometryRevision,
+                mutationRevision: activeAccessibilityMutation?.revision ?? 0,
+                consumedRounds: lazyListRoundLimit - budget.remainingRounds,
+                remainingElements: budget.remainingElements, remainingRounds: budget.remainingRounds,
+                activePhysicalActivityIDs: kind == .ownedScroll || kind == .layoutPass
+                    ? currentUIAPhysicalActivitiesForTesting() : nil))
+    }
+
+    /// Absence is meaningful only for a complete walk. A failed or unavailable
+    /// snapshot is nil, never an empty set that could conceal an actual probe.
+    private func currentUIAPhysicalActivitiesForTesting() -> [ObjectIdentifier]? {
+        guard let content = lazyListUIARequest?.item.content, content.runtime === self else { return nil }
+        var pending = [(node: content, depth: 0)]
+        var visited: Set<ObjectIdentifier> = []
+        var identities: Set<ObjectIdentifier> = []
+        while let entry = pending.popLast() {
+            guard entry.depth < ViewNode.maximumTraversalDepth, entry.node.runtime === self,
+                visited.insert(ObjectIdentifier(entry.node)).inserted
+            else { return nil }
+            if let storage = entry.node.retainedLazyListActivityStorage {
+                for receipt in storage.committedContributions.values where receipt.isActive {
+                    identities.insert(ObjectIdentifier(receipt.physical))
+                }
+            }
+            for child in entry.node.children {
+                guard child.parent === entry.node else { return nil }
+                pending.append((node: child, depth: entry.depth + 1))
+            }
+        }
+        return Array(identities)
+    }
+
+    /// Only Runtime can issue this remainder of one already debited iteration.
+    /// It keeps native markers and weak owners, never the old prepaint snapshot,
+    /// actual row nodes, a build lease, or an application callback alive.
+    @MainActor
+    private final class LazyListUIAUnusedProviderPhase {
+        enum State { case pending, consumed, revoked }
+        enum Stage { case reserved, demand, query, provider, spent }
+
+        struct List {
+            let visit: LazyListLayoutVisit
+            let layout: RetainedLazyListRuntimeAdapter.LayoutProof
+            let records: RetainedLazyListRuntimeAdapter.UIAActualRecordsProof
+            let identity: RetainedLazyListViewIdentityProof
+            weak var lease: (any RetainedSubtreeBuildLease)?
+            let constructionIdentity: RetainedLazyListAttachmentIdentity
+        }
+
+        struct Reader {
+            weak var node: ViewNode?
+            weak var lease: (any RetainedSubtreeBuildLease)?
+            let hadLease: Bool
+            let constructionIdentity: RetainedLazyListAttachmentIdentity
+            let layout: RetainedLazyListLocalLayoutProof
+            let builtSize: Size?
+            let slot: Size
+
+            init(_ node: ViewNode) {
+                self.node = node
+                lease = node.retainedSubtreeBuildLease
+                hadLease = node.retainedSubtreeBuildLease != nil
+                constructionIdentity = node.captureGeometryReaderConstructionIdentity()
+                layout = node.captureLazyListLocalLayoutProof()
+                builtSize = node.geometryReaderBuiltSize
+                slot = node.resolvedFrame.size
+            }
+
+            var isCurrent: Bool {
+                guard let node, layout.isCurrent, node.geometryReaderBuild != nil,
+                    node.geometryReaderConstructionIdentity === constructionIdentity,
+                    node.geometryReaderBuiltSize == builtSize, node.resolvedFrame.size == slot
+                else { return false }
+                if hadLease {
+                    guard let lease, node.retainedSubtreeBuildLease === lease else { return false }
+                } else if node.retainedSubtreeBuildLease != nil {
+                    return false
+                }
+                return true
+            }
+        }
+
+        weak var runtime: RetainedViewRuntime?
+        weak var preparation: RetainedLazyListAccessibilityPreparation?
+        weak var budget: RetainedLazyListWorkBudget?
+        weak var request: RetainedLazyListUIARequest?
+        weak var root: ViewNode?
+        let reservation: LazyListUIAProviderPhaseReservation
+        let passID: UInt64
+        let displayScale: Double
+        let displayScaleIdentity: RetainedLazyListAttachmentIdentity
+        let scrollIntent: RetainedLazyListAttachmentIdentity
+        let initialPrepaintGeneration: PrepaintSnapshotIdentity
+        let traversalOverflowCount: Int
+        let scrollWorkDepth: Int
+        let remainingElements: Int
+        let remainingRounds: Int
+        let order: [ObjectIdentifier]
+        let lists: [List]
+        let readers: [Reader]
+        let geometry: [RetainedLazyListUIATargetPass.Geometry]
+        let queryLayoutProofs: [RetainedLazyListLocalLayoutProof]
+        let actualTree: RetainedLazyListAdoptionCompletion
+        var state = State.pending
+        var stage = Stage.reserved
+        var completedInitialPrepaint = false
+        var completedInitialQuery = false
+
+        init(
+            runtime: RetainedViewRuntime, preparation: RetainedLazyListAccessibilityPreparation,
+            budget: RetainedLazyListWorkBudget, reservation: LazyListUIAProviderPhaseReservation,
+            order: [ObjectIdentifier], lists: [List], readers: [Reader],
+            geometry: [RetainedLazyListUIATargetPass.Geometry],
+            queryLayoutProofs: [RetainedLazyListLocalLayoutProof], actualTree: RetainedLazyListAdoptionCompletion
+        ) {
+            self.runtime = runtime
+            self.preparation = preparation
+            self.budget = budget
+            root = runtime.root
+            self.reservation = reservation
+            passID = runtime.layoutPassID
+            displayScale = runtime.displayScale
+            displayScaleIdentity = runtime.displayScaleIdentity
+            scrollIntent = preparation.scrollIntent
+            initialPrepaintGeneration = runtime.prepaintState.generation
+            traversalOverflowCount = ViewNode.traversalDepthOverflowCount
+            scrollWorkDepth = runtime.lazyListScrollWorkDepth
+            remainingElements = budget.remainingElements
+            remainingRounds = budget.remainingRounds
+            self.order = order
+            self.lists = lists
+            self.readers = readers
+            self.geometry = geometry
+            self.queryLayoutProofs = queryLayoutProofs
+            self.actualTree = actualTree
+        }
+    }
+
+    private var unusedLazyListUIAProviderPhase: LazyListUIAUnusedProviderPhase?
+
     private struct LazyListLeafMeasurement {
         let token: RetainedLazyListRowToken
         let leafIndex: Int
         weak var node: ViewNode?
         let attachment: RetainedLazyListAttachmentProof
+        let gap: RetainedLazyListGap?
+        // A nil gap extent is unresolved provenance, even when the temporary
+        // physical frame has height zero. Ordinary leaves have no gap metadata.
+        let gapExtent: Double?
     }
 
     /// Only an already admitted anchor may normalize its stored offset after
@@ -13299,6 +13997,7 @@ public final class RetainedViewRuntime {
     private var isResolvingLazyListLogicalTarget = false
     private weak var lazyListLogicalRevealScroll: ViewNode?
     private weak var lazyListAccessibilityPreparation: RetainedLazyListAccessibilityPreparation?
+    private weak var lazyListUIARequest: RetainedLazyListUIARequest?
     fileprivate var hasLazyListLayoutScope: Bool { lazyListResolutionBudget != nil }
     private var lazyListElementLimit = 128
     private var lazyListRoundLimit = 4
@@ -13392,6 +14091,8 @@ public final class RetainedViewRuntime {
         guard lazyListResolutionDepth == 0, lazyListScrollWorkDepth == 0,
             !isResolvingLazyListLogicalTarget
         else { return }
+        revokeUnenteredLazyListUIAProviderPhase()
+        unusedLazyListUIAProviderPhase = nil
         if let budget = lazyListResolutionBudget {
             lastLazyListConsumedElements = lazyListElementLimit - budget.remainingElements
             lastLazyListConsumedRounds = lazyListRoundLimit - budget.remainingRounds
@@ -13492,7 +14193,8 @@ public final class RetainedViewRuntime {
         pendingLazyListMeasurements[ObjectIdentifier(container), default: []].append(
             LazyListLeafMeasurement(
                 token: placement.token, leafIndex: placement.leafIndex,
-                node: placement.node, attachment: attachment))
+                node: placement.node, attachment: attachment,
+                gap: placement.node.retainedLazyListGap, gapExtent: placement.extent))
     }
 
     /// Leaf callbacks and child layout have finished before their scalar
@@ -15532,13 +16234,22 @@ public final class RetainedViewRuntime {
     /// removed nodes, and queries during rendering or another geometry query,
     /// return nil. This is layout space; node transforms are not applied.
     public func resolvedLayoutFrame(of node: ViewNode) -> Rect? {
+        revokeUnenteredLazyListUIAProviderPhase()
+        return resolvedLayoutFrame(of: node, resuming: nil)
+    }
+
+    /// A resumed phase enters only through its private typed request path.
+    /// Both routes share the same query flags, frame read, and unwind.
+    private func resolvedLayoutFrame(
+        of node: ViewNode, resuming phase: LazyListUIAUnusedProviderPhase?
+    ) -> Rect? {
         guard node.runtime === self, !isRendering, !isLayoutInProgress, !isResolvingLayoutFrame else { return nil }
         lazyListScrollWorkDepth += 1
         defer {
             lazyListScrollWorkDepth -= 1
             finishLazyListResolutionBudgetIfIdle()
         }
-        settleLayoutFrameQuery()
+        settleLayoutFrameQuery(resuming: phase)
 
         var origin = Point.zero
         var current: ViewNode? = node
@@ -15563,16 +16274,18 @@ public final class RetainedViewRuntime {
         return nil
     }
 
-    private func settleLayoutFrameQuery() {
+    private func settleLayoutFrameQuery(resuming phase: LazyListUIAUnusedProviderPhase? = nil) {
+        if phase == nil { revokeUnenteredLazyListUIAProviderPhase() }
         isResolvingLayoutFrame = true
         defer {
+            auditUnusedLazyListUIAProviderPhaseBeforeEpilogue()
             isResolvingLayoutFrame = false
             let reveal = captureListNavigationRevealSettlement()
             drainPresentationFocusRestorations(layoutIsFresh: true)
             retainedBuildCoordinatorStorage?.retainedCallbacksDidDrain()
             drainListNavigationReveal(reveal)
         }
-        updateResolvedLayout()
+        updateResolvedLayout(resuming: phase)
     }
 
     /// Uses the existing settlement queue, not an independent scheduler.
@@ -18261,6 +18974,7 @@ public final class RetainedViewRuntime {
     /// This terminal revocation also prevents retained accessibility actions
     /// from entering application code through the still-inspectable tree.
     public func stopRenderLifecycleCallbacks() {
+        revokeUnenteredLazyListUIAProviderPhase()
         lazyListLogicalHostLifetime.revoke()
         permitsRenderLifecycleCallbacks = false
         buttonActionTerminalRetirements.append(
@@ -18349,6 +19063,9 @@ public final class RetainedViewRuntime {
     /// An accepted rebuild can retain a node while replacing its callbacks and
     /// geometry. Its old lifecycle snapshot must not run on the new build.
     func invalidateRenderLifecycleCandidates() {
+        if let phase = unusedLazyListUIAProviderPhase, phase.state == .pending {
+            revokeUnusedLazyListUIAProviderPhase(phase)
+        }
         activeAccessibilityMutation?.recordMutation()
         presentationMutationRevision &+= 1
         if isDeliveringRenderLifecycleCallbacks { renderLifecycleRevision &+= 1 }
@@ -19075,7 +19792,8 @@ public final class RetainedViewRuntime {
         return didUpdate
     }
 
-    private func updateResolvedLayout() {
+    private func updateResolvedLayout(resuming phase: LazyListUIAUnusedProviderPhase? = nil) {
+        if phase == nil { revokeUnenteredLazyListUIAProviderPhase() }
         lazyListResolutionDepth += 1
         lazyListRegistrations = lazyListRegistrations.filter { _, registration in
             guard let node = registration.node, let adapter = registration.adapter else { return false }
@@ -19094,6 +19812,7 @@ public final class RetainedViewRuntime {
         isResolvingLayoutSettlement = true
         isUpdatingResolvedLayout = true
         defer {
+            auditUnusedLazyListUIAProviderPhaseBeforeEpilogue()
             isResolvingLayoutSettlement = wasResolvingLayoutSettlement
             isUpdatingResolvedLayout = wasUpdatingLayout
             let reveal = !wasUpdatingLayout && !isRendering ? captureListNavigationRevealSettlement() : nil
@@ -19105,6 +19824,9 @@ public final class RetainedViewRuntime {
             lazyListResolutionDepth -= 1
             finishLazyListResolutionBudgetIfIdle()
         }
+        if let phase {
+            _ = isUnusedLazyListUIAProviderPhaseCurrent(phase, at: .demand, for: phase.request)
+        }
         let settlementSequence = beginLayoutSettlementResolution()
         let traversalOverflowCount = ViewNode.traversalDepthOverflowCount
         advanceTextInputReplayScopeRevision(&textInputReplayScopeRevision)
@@ -19114,19 +19836,38 @@ public final class RetainedViewRuntime {
         lastDeferredOverlayReplayCount = 0
         lastDeferredDrawFrameReplayCount = 0
         lastDeferredDrawSceneReplayCount = 0
-        runLayoutPass()
+        if let phase {
+            if phase.state == .consumed, phase.stage == .demand {
+                phase.stage = .query
+                if resumeUnusedLazyListUIAProviderPhase(phase) {
+                    // Demand already invalidated layout. This is the one
+                    // post-provider actual pass, even for an unchanged build;
+                    // no second measurement batch uses the saved debit.
+                    runLayoutPass()
+                    convergeResolvedSubtrees()
+                }
+            }
+        } else {
+            runLayoutPass()
 
-        // A `GeometryReader` is greedy, so its slot is decided by its parent
-        // and is not knowable at build time. The pass above resolved it; this
-        // loop hands it back to the body that asked for it and re-lays out.
-        // A tree with no reader in it never enters the loop and pays for one
-        // nil-check per pass.
-        convergeResolvedSubtrees()
+            // A reader's slot is decided by its parent, then the existing
+            // bounded loop supplies that size and lays out accepted changes.
+            convergeResolvedSubtrees()
+        }
 
+        // A request may use only the pass captured by the paid first phase.
+        // The ordinary epilogue below still runs, but can never refresh that
+        // witness after a callback, range correction, or nested layout pass.
+        if let request = lazyListUIARequest, request.querySequence == settlementSequence {
+            request.queryIsSealed = true
+        }
+
+        auditUnusedLazyListUIAProviderPhaseBeforeEpilogue()
         if settleProgrammaticScrollRangeChanges() {
             settleLayoutAfterProgrammaticScroll()
         }
 
+        auditUnusedLazyListUIAProviderPhaseBeforeEpilogue()
         if drainAfterLayoutActions() {
             // Programmatic scrolling changes a scrollable node's presented
             // offset after the first pass resolved it. Lazy content also
@@ -19136,6 +19877,7 @@ public final class RetainedViewRuntime {
             settleLayoutAfterProgrammaticScroll()
         }
 
+        auditUnusedLazyListUIAProviderPhaseBeforeEpilogue()
         if resolvePendingPreciseScrollAlignments() {
             // A target inside an oversized, previously deferred lazy row
             // acquires its own frame only after the row's first settle. One
@@ -19144,6 +19886,7 @@ public final class RetainedViewRuntime {
             settleLayoutAfterProgrammaticScroll()
         }
 
+        auditUnusedLazyListUIAProviderPhaseBeforeEpilogue()
         if settleProgrammaticScrollRangeChanges() {
             // A deferred target can change the content extent during its
             // settle pass. Correct that range before this frame is painted.
@@ -19262,24 +20005,47 @@ public final class RetainedViewRuntime {
     }
 
     private func convergeResolvedSubtrees() {
+        let uiaPreparation = lazyListUIAConstructionPreparation
         var legacyRounds = 0
         while true {
+            if let preparation = uiaPreparation,
+                !isLazyListUIAConstructionCurrent(preparation)
+            {
+                return
+            }
             let chargedBudget = lazyListResolutionBudget
             let resolutionSequence = layoutSettlementResolutionSequence
             if let budget = chargedBudget {
+                revokeUnenteredLazyListUIAProviderPhase()
                 guard budget.consumeRound() else { return }
+                recordLazyListUIAPhase(.roundDebit)
             } else {
                 guard legacyRounds < Self.geometryReaderConvergenceLimit else { return }
             }
             var changed = lazyListAnchorNeedsLayout
             if !changed {
+                recordLazyListUIAPhase(.measurementPhase)
                 changed = recordResolvedLazyListMeasurements()
+                if !changed, let chargedBudget, saveUnusedLazyListUIAProviderPhase(chargedTo: chargedBudget) {
+                    return
+                }
+                recordLazyListUIAPhase(.readerPhase)
                 if resolveGeometryReaderSlots() { changed = true }
+                recordLazyListUIAPhase(.providerPhase)
                 if let budget = lazyListResolutionBudget, resolveLazyListContainers(budget: budget) { changed = true }
             }
-            guard changed else { return }
+            guard changed else {
+                if let chargedBudget { _ = captureLazyListUIATargetPass(chargedTo: chargedBudget) }
+                return
+            }
             legacyRounds += 1
             runLayoutPass()
+            if let chargedBudget, chargedBudget === lazyListResolutionBudget,
+                resolutionSequence == layoutSettlementResolutionSequence,
+                captureLazyListUIATargetPass(chargedTo: chargedBudget)
+            {
+                return
+            }
             if let chargedBudget, chargedBudget === lazyListResolutionBudget,
                 resolutionSequence == layoutSettlementResolutionSequence, hasTerminalLazyListLayoutPass()
             {
@@ -19346,6 +20112,7 @@ public final class RetainedViewRuntime {
     }
 
     private func runLayoutPass() {
+        revokeUnenteredLazyListUIAProviderPhase()
         let wasLayoutInProgress = isLayoutInProgress
         isLayoutInProgress = true
         let geometryRevision = layoutSettlementGeometryRevision
@@ -19365,6 +20132,7 @@ public final class RetainedViewRuntime {
         }
 
         layoutPassID &+= 1
+        recordLazyListUIAPhase(.layoutPass)
         currentPassLayoutVisitCount = 0
         pendingGeometryReaderNodes.removeAll(keepingCapacity: true)
         pendingLazyListVisits.removeAll(keepingCapacity: true)
@@ -19407,10 +20175,16 @@ public final class RetainedViewRuntime {
             return false
         }
 
+        let uiaPreparation = lazyListUIAConstructionPreparation
         var didRebuild = false
         for reference in pendingGeometryReaderNodes {
             if hasLazyListLayoutScope, !permitsRetainedActionInvocation { break }
-            guard let node = reference.node, node.runtime === self, let build = node.geometryReaderBuild else {
+            if let preparation = uiaPreparation,
+                !isLazyListUIAConstructionCurrent(preparation)
+            {
+                break
+            }
+            guard let node = reference.node, node.runtime === self, node.geometryReaderBuild != nil else {
                 continue
             }
 
@@ -19429,24 +20203,58 @@ public final class RetainedViewRuntime {
                 continue
             }
 
+            // Capture the original preparation before the first lease/body
+            // callout. An expired weak preparation cannot turn this operation
+            // back into an ordinary, unchecked reader build.
+            let uiaAuthority = uiaPreparation.map { lazyListUIAContinuationAuthority(for: $0) }
+            guard uiaAuthority?.isCurrent != false else { break }
+            let readerWitness = uiaAuthority.map {
+                GeometryReaderRebuildWitness(node: node, runtime: self, uiaAuthority: $0)
+            }
+
             if let budget = lazyListResolutionBudget, !budget.consumeElement() { break }
 
-            if let lease = node.retainedSubtreeBuildLease {
-                if rebuildManagedGeometryReader(node, slot: slot, build: build, lease: lease) {
-                    didRebuild = true
-                }
-            } else {
-                let buttonConstruction = RetainedButtonActionConstruction(runtime: self)
-                defer { buttonConstruction.finish() }
-                guard let rebuilt = build(self, slot).first else { continue }
-                beginLongPressReconciliation()
-                adoptGeometryReader(rebuilt, into: node, slot: slot)
-                didRebuild = true
-                endLongPressReconciliation()
-            }
+            let rebuilt = rebuildGeometryReader(
+                node, slot: slot, uiaAuthority: uiaAuthority, readerWitness: readerWitness)
+            // The old body/lease and throwaway candidate scopes have unwound.
+            // Their capture destruction cannot supply a completed UIA pass.
+            let readerIsCurrent = readerWitness?.auditAfterScope() != false
+            if let uiaAuthority, !rebuilt || !readerIsCurrent { uiaAuthority.revoke() }
+            guard uiaAuthority?.isCurrent != false else { break }
+            if rebuilt { didRebuild = true }
         }
 
         return didRebuild
+    }
+
+    @inline(never)
+    private func rebuildGeometryReader(
+        _ node: ViewNode, slot: Size, uiaAuthority: RetainedLazyListUIAContinuationAuthority?,
+        readerWitness: GeometryReaderRebuildWitness?
+    ) -> Bool {
+        let buttonConstruction = RetainedButtonActionConstruction(runtime: self)
+        defer { buttonConstruction.finish() }
+        guard uiaAuthority?.isCurrent != false, let build = node.geometryReaderBuild else { return false }
+        if let lease = node.retainedSubtreeBuildLease {
+            return rebuildManagedGeometryReader(
+                node, slot: slot, build: build, lease: lease, uiaAuthority: uiaAuthority,
+                readerWitness: readerWitness)
+        }
+        let admission =
+            readerWitness?.original
+            ?? uiaAuthority.map {
+                GeometryDescriptorAdmission(
+                    node: node, runtime: self, lease: nil, parent: node.parent, uiaAuthority: $0)
+            }
+        guard admission?.isCurrent != false else { return false }
+        let rebuilt = build(self, slot).first
+        guard admission?.isCurrent != false, let rebuilt else { return false }
+        beginLongPressReconciliation()
+        let didAdopt = adoptGeometryReader(
+            rebuilt, into: node, slot: slot, uiaAuthority: uiaAuthority, nativeAdmission: admission,
+            readerWitness: readerWitness)
+        endLongPressReconciliation()
+        return didAdopt && uiaAuthority?.isCurrent != false
     }
 
     private struct LazyListAdoptedCandidate {
@@ -19495,11 +20303,13 @@ public final class RetainedViewRuntime {
     }
 
     private func resolveLazyListContainers(budget: RetainedLazyListWorkBudget) -> Bool {
+        let uiaPreparation = lazyListUIAConstructionPreparation
         var changed = false
         // Copy only the native order. A callback can replace the pass registry;
         // each visit is admitted again before its first protocol call.
         let order = pendingLazyListOrder
         for key in order {
+            if let preparation = uiaPreparation, !isLazyListUIAConstructionCurrent(preparation) { break }
             guard let visit = pendingLazyListVisits[key], lazyListVisitIsCurrent(visit),
                 let node = visit.node, let adapter = visit.adapter, let viewport = visit.viewport,
                 adapter.hasUnresolvedWork
@@ -19514,15 +20324,27 @@ public final class RetainedViewRuntime {
     private func rebuildLazyList(
         _ node: ViewNode, adapter: RetainedLazyListRuntimeAdapter,
         viewport: RetainedLazyListRuntimeAdapter.Viewport, visit: LazyListLayoutVisit,
-        budget: RetainedLazyListWorkBudget
+        budget: RetainedLazyListWorkBudget, resuming phase: LazyListUIAUnusedProviderPhase? = nil
     ) -> Bool {
-        guard lazyListVisitIsCurrent(visit), adapter.permitsStandaloneBuild,
+        let uiaPreparation = lazyListUIAConstructionPreparation
+        if let preparation = uiaPreparation,
+            !isLazyListUIAConstructionCurrent(preparation)
+        {
+            return false
+        }
+        guard lazyListRebuildVisitIsCurrent(visit, resuming: phase), adapter.permitsStandaloneBuild,
             let lease = node.retainedSubtreeBuildLease
         else { return false }
         let managedDescriptor = adapter.managedLogicalDescriptorBinding
         let managedIdentity = managedDescriptor == nil ? nil : node.captureLazyListIdentityProof()
         let canBuild = lease.canBuild
-        guard canBuild, lazyListVisitIsCurrent(visit), node.retainedSubtreeBuildLease === lease,
+        if let phase {
+            // A false lease answer is still an authored boundary. Check and
+            // latch the original resumed proof before using either answer.
+            guard isUnusedLazyListUIAProviderPhaseCurrent(phase, at: .query, for: phase.request) else { return false }
+        }
+        if let preparation = uiaPreparation, !isLazyListUIAConstructionCurrent(preparation) { return false }
+        guard canBuild, lazyListRebuildVisitIsCurrent(visit, resuming: phase), node.retainedSubtreeBuildLease === lease,
             managedIdentity?.isCurrent != false
         else { return false }
         let coordinator = retainedBuildCoordinator
@@ -19534,7 +20356,19 @@ public final class RetainedViewRuntime {
         // an overflow or any additional invalidation must still reject the visit.
         let buildStartGeometryRevision = visit.geometryRevision.addingReportingOverflow(1)
         guard let sequence = coordinator.beginBuild() else { return false }
-        if managedDescriptor != nil {
+        if let phase {
+            guard isUnusedLazyListUIAProviderPhaseCurrent(phase, at: .build, for: phase.request),
+                managedDescriptor == nil || managedIdentity?.isCurrent == true,
+                node.retainedSubtreeBuildLease === lease
+            else {
+                coordinator.finishBuild()
+                return false
+            }
+            // The original accepted table qualified entry, not subsequent
+            // row replacement. Ordinary admission now owns construction and
+            // every already-due completion, cancellation, and payload release.
+            phase.stage = .spent
+        } else if managedDescriptor != nil {
             guard !buildStartGeometryRevision.overflow,
                 lazyListVisitIsCurrent(visit, expectedGeometryRevision: buildStartGeometryRevision.partialValue),
                 managedIdentity?.isCurrent == true,
@@ -19663,6 +20497,27 @@ public final class RetainedViewRuntime {
         return admission.didMutate || adopted != nil || extentChanged
     }
 
+    /// There is no caller-supplied expected-revision escape hatch. Only the
+    /// Runtime-created record can carry its exact original visit past demand.
+    private func lazyListRebuildVisitIsCurrent(
+        _ visit: LazyListLayoutVisit, resuming phase: LazyListUIAUnusedProviderPhase?
+    ) -> Bool {
+        guard let phase else { return lazyListVisitIsCurrent(visit) }
+        guard phase.stage == .provider, let request = phase.request,
+            visit.node === request.item.content, visit.adapter === request.item.adapter,
+            visit.passID == phase.passID, visit.geometryRevision == phase.reservation.originalGeometryRevision,
+            phase.lists.contains(where: {
+                $0.visit.node === visit.node && $0.visit.adapter === visit.adapter
+                    && $0.visit.attachment.hasSameCapture(as: visit.attachment)
+                    && $0.visit.viewport == visit.viewport && $0.visit.contentOriginY == visit.contentOriginY
+            })
+        else {
+            revokeUnusedLazyListUIAProviderPhase(phase)
+            return false
+        }
+        return isUnusedLazyListUIAProviderPhaseCurrent(phase, at: .query, for: request)
+    }
+
     private func prepareAndAdoptLazyList(
         _ node: ViewNode, adapter: RetainedLazyListRuntimeAdapter,
         viewport: RetainedLazyListRuntimeAdapter.Viewport, budget: RetainedLazyListWorkBudget,
@@ -19731,41 +20586,51 @@ public final class RetainedViewRuntime {
 
     private func rebuildManagedGeometryReader(
         _ node: ViewNode, slot: Size, build: (RetainedViewRuntime, Size) -> [ViewNode],
-        lease: any RetainedSubtreeBuildLease
+        lease: any RetainedSubtreeBuildLease, uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil,
+        readerWitness: GeometryReaderRebuildWitness? = nil
     ) -> Bool {
         let buttonConstruction = RetainedButtonActionConstruction(runtime: self)
         defer { buttonConstruction.finish() }
         let parent = node.parent
-        let nativeAdmission = GeometryDescriptorAdmission(node: node, runtime: self, lease: lease, parent: parent)
+        let nativeAdmission =
+            readerWitness?.original
+            ?? GeometryDescriptorAdmission(
+                node: node, runtime: self, lease: lease, parent: parent, uiaAuthority: uiaAuthority)
         let hasManagedNativeActivity = node.retainedLazyListActivityStorage != nil
-        guard lease.canBuild else {
+        let requiresNativeAdmission = hasManagedNativeActivity || uiaAuthority != nil
+        guard uiaAuthority == nil || nativeAdmission.isCurrent else { return false }
+        let leaseCanBuild = lease.canBuild
+        guard uiaAuthority == nil || nativeAdmission.isCurrent else { return false }
+        guard leaseCanBuild else {
             // Cleanup can render while the adopted reader's lease is still
             // provisional. Preserve its unresolved path through this render;
             // ordinary idle denial must not create retries or new work.
             if isRendering, hasActiveRetainedBuild, node.runtime === self,
                 node.retainedSubtreeBuildLease === lease, node.geometryReaderBuild != nil,
-                !hasManagedNativeActivity || nativeAdmission.isCurrent
+                !requiresNativeAdmission || nativeAdmission.isCurrent
             {
                 node.markDirty(.layout)
                 invalidate(.layout, from: node)
             }
             return false
         }
-        guard !hasManagedNativeActivity || nativeAdmission.isCurrent else { return false }
+        guard !requiresNativeAdmission || nativeAdmission.isCurrent else { return false }
         let coordinator = retainedBuildCoordinator
         guard let sequence = coordinator.beginBuild() else {
             coordinator.scheduleWhenIdle(for: node) { [weak self, weak node, weak parent] in
                 guard let self, let node, node.runtime === self, node.parent === parent,
                     node.retainedSubtreeBuildLease === lease,
-                    !hasManagedNativeActivity || nativeAdmission.isCurrent,
-                    lease.canBuild, !hasManagedNativeActivity || nativeAdmission.isCurrent
+                    !requiresNativeAdmission || nativeAdmission.isCurrent
+                else { return }
+                let canBuild = lease.canBuild
+                guard !requiresNativeAdmission || nativeAdmission.isCurrent, canBuild
                 else { return }
                 node.markDirty(.layout)
                 self.invalidate(.layout, from: node)
             }
             return false
         }
-        guard !hasManagedNativeActivity || nativeAdmission.isCurrent else {
+        guard !requiresNativeAdmission || nativeAdmission.isCurrent else {
             coordinator.finishBuild()
             return false
         }
@@ -19780,6 +20645,9 @@ public final class RetainedViewRuntime {
             epoch = lease.beginBuild()
             coordinator.install(epoch, startedAt: sequence)
         }
+        // Even a denied/nil epoch may have changed the reader while returning.
+        // Revoke this request before later phases, without skipping cleanup.
+        if requiresNativeAdmission { _ = nativeAdmission.isCurrent }
         beginLongPressReconciliation()
 
         var didAdopt = false
@@ -19791,10 +20659,12 @@ public final class RetainedViewRuntime {
                 if let descriptorBuild {
                     didAdopt = buildAndAdoptGeometryDescriptor(
                         on: node, parent: parent, slot: slot, build: build, lease: lease, epoch: epoch,
-                        descriptorBuild: descriptorBuild, sequence: sequence, transaction: transaction)
+                        descriptorBuild: descriptorBuild, sequence: sequence, transaction: transaction,
+                        readerWitness: readerWitness)
                     // The helper's throwaway node and typed payloads have
                     // unwound. Their destructors cannot certify completion.
-                    didAdopt = didAdopt && descriptorBuild.permitsCompletion
+                    let readerIsCurrent = readerWitness?.auditAfterScope() != false
+                    didAdopt = didAdopt && readerIsCurrent && descriptorBuild.permitsCompletion
                     let disposition = descriptorBuild.journal.seal(
                         completedCheckedAdoption: didAdopt && descriptorBuild.completion?.isCurrent == true)
                     if descriptorBuild.usesManagedPublication {
@@ -19804,7 +20674,7 @@ public final class RetainedViewRuntime {
                             descriptorBuild.journal.revokeBeforeAbandon()
                             epoch.abandon()
                         }
-                    } else if didAdopt {
+                    } else if didAdopt || (uiaAuthority != nil && descriptorBuild.didAcceptPublication) {
                         epoch.commit()
                     } else {
                         descriptorBuild.journal.revokeBeforeAbandon()
@@ -19816,16 +20686,20 @@ public final class RetainedViewRuntime {
                 endLongPressReconciliation()
             }
         } else {
-            if let epoch, epoch.canAdopt, let rebuilt = build(self, slot).first,
-                node.runtime === self, node.parent === parent, node.retainedSubtreeBuildLease === lease,
-                lease.canBuild, epoch.canAdopt, !coordinator.wasSuperseded(since: sequence), epoch.willAdopt()
-            {
-                let taskAdoption = RetainedTaskAdoptionContext(runtime: self, epoch: epoch, transaction: transaction)
-                adoptGeometryReader(rebuilt, into: node, slot: slot, taskAdoption: taskAdoption)
-                didAdopt = true
-                epoch.commit()
-            } else {
-                epoch?.abandon()
+            if let epoch {
+                didAdopt = buildAndAdoptLeasedGeometryReader(
+                    on: node, parent: parent, slot: slot, build: build, lease: lease, epoch: epoch,
+                    sequence: sequence, transaction: transaction, admission: nativeAdmission,
+                    requiresNativeAdmission: uiaAuthority != nil, readerWitness: readerWitness)
+                let readerIsCurrent = readerWitness?.auditAfterScope() != false
+                didAdopt = didAdopt && readerIsCurrent
+                // A revoked UIA request cannot authorize another write, but
+                // accepted output still owns the ordinary epoch publication.
+                if didAdopt || (uiaAuthority?.didMutate == true) {
+                    epoch.commit()
+                } else {
+                    epoch.abandon()
+                }
             }
             endLongPressReconciliation()
         }
@@ -19838,7 +20712,36 @@ public final class RetainedViewRuntime {
             }
             coordinator.finishBuild()
         }
-        return didAdopt
+        return didAdopt && uiaAuthority?.isCurrent != false
+    }
+
+    @inline(never)
+    private func buildAndAdoptLeasedGeometryReader(
+        on node: ViewNode, parent: ViewNode?, slot: Size, build: (RetainedViewRuntime, Size) -> [ViewNode],
+        lease: any RetainedSubtreeBuildLease, epoch: any RetainedBuildEpoch,
+        sequence: UInt64, transaction: RetainedBuildTransaction, admission: GeometryDescriptorAdmission,
+        requiresNativeAdmission: Bool, readerWitness: GeometryReaderRebuildWitness?
+    ) -> Bool {
+        func isCurrent() -> Bool { !requiresNativeAdmission || admission.isCurrent }
+        guard isCurrent() else { return false }
+        let canAdoptBeforeBody = epoch.canAdopt
+        guard isCurrent(), canAdoptBeforeBody else { return false }
+        let rebuilt = build(self, slot).first
+        guard isCurrent(), let rebuilt, node.runtime === self, node.parent === parent,
+            node.retainedSubtreeBuildLease === lease
+        else { return false }
+        let canBuildAfterBody = lease.canBuild
+        guard isCurrent(), canBuildAfterBody else { return false }
+        let canAdoptAfterBody = epoch.canAdopt
+        guard isCurrent(), canAdoptAfterBody, !retainedBuildCoordinator.wasSuperseded(since: sequence)
+        else { return false }
+        let prepared = epoch.willAdopt()
+        guard isCurrent(), prepared else { return false }
+        let taskAdoption = RetainedTaskAdoptionContext(runtime: self, epoch: epoch, transaction: transaction)
+        return adoptGeometryReader(
+            rebuilt, into: node, slot: slot, taskAdoption: taskAdoption,
+            uiaAuthority: admission.uiaAuthority, nativeAdmission: requiresNativeAdmission ? admission : nil,
+            readerWitness: readerWitness)
     }
 
     /// Original physical and lease identity captured before any deferred-build
@@ -19846,32 +20749,92 @@ public final class RetainedViewRuntime {
     @MainActor
     private final class GeometryDescriptorAdmission {
         weak var node: ViewNode?
+        let uiaAuthority: RetainedLazyListUIAContinuationAuthority?
         private weak var runtime: RetainedViewRuntime?
         private weak var lease: (any RetainedSubtreeBuildLease)?
+        private let hadLease: Bool
         private weak var parent: ViewNode?
         private let hadParent: Bool
         private let attachment: RetainedLazyListAttachmentProof
         private let identity: RetainedLazyListViewIdentityProof
+        private let constructionLayout: RetainedLazyListLocalLayoutProof?
+        private let constructionIdentity: RetainedLazyListAttachmentIdentity?
 
-        init(node: ViewNode, runtime: RetainedViewRuntime, lease: any RetainedSubtreeBuildLease, parent: ViewNode?) {
+        init(
+            node: ViewNode, runtime: RetainedViewRuntime, lease: (any RetainedSubtreeBuildLease)?, parent: ViewNode?,
+            uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil
+        ) {
             self.node = node
+            self.uiaAuthority = uiaAuthority
             self.runtime = runtime
             self.lease = lease
+            hadLease = lease != nil
             self.parent = parent
             hadParent = parent != nil
             attachment = node.captureLazyListAttachmentProof()
             identity = node.captureLazyListIdentityProof()
+            constructionLayout = uiaAuthority.map { _ in node.captureLazyListLocalLayoutProof() }
+            constructionIdentity = uiaAuthority.map { _ in node.captureGeometryReaderConstructionIdentity() }
         }
 
         var isPhysicallyCurrent: Bool {
-            guard let node, let runtime, !hadParent || parent != nil else { return false }
-            return attachment.isCurrent && identity.isCurrent && node.parent === parent
+            guard uiaAuthority?.isCurrent != false, let node, let runtime, !hadParent || parent != nil else {
+                uiaAuthority?.revoke()
+                return false
+            }
+            let current =
+                attachment.isCurrent && identity.isCurrent && node.parent === parent
                 && node.isRetainedLazyListAttached(in: runtime)
+            if !current { uiaAuthority?.revoke() }
+            return current
         }
 
         var isCurrent: Bool {
-            guard let node, let lease else { return false }
-            return isPhysicallyCurrent && node.retainedSubtreeBuildLease === lease
+            guard let node, !hadLease || lease != nil else {
+                uiaAuthority?.revoke()
+                return false
+            }
+            let current =
+                isPhysicallyCurrent && node.retainedSubtreeBuildLease === lease
+                && constructionLayout?.isCurrent != false
+                && (constructionIdentity == nil || node.geometryReaderConstructionIdentity === constructionIdentity)
+            if !current { uiaAuthority?.revoke() }
+            return current
+        }
+    }
+
+    /// Native-only egress proof kept outside all old body, lease, epoch and
+    /// candidate payload scopes. Accepted writes replace construction fields
+    /// with their exact resulting native identities, never a later refresh.
+    @MainActor
+    private final class GeometryReaderRebuildWitness {
+        let original: GeometryDescriptorAdmission
+        private var accepted: GeometryDescriptorAdmission?
+        private var acceptedSubtree: RetainedLazyListAdoptionCompletion?
+
+        init(node: ViewNode, runtime: RetainedViewRuntime, uiaAuthority: RetainedLazyListUIAContinuationAuthority) {
+            original = GeometryDescriptorAdmission(
+                node: node, runtime: runtime, lease: node.retainedSubtreeBuildLease,
+                parent: node.parent, uiaAuthority: uiaAuthority)
+        }
+
+        func recordAccepted(on node: ViewNode, in runtime: RetainedViewRuntime) {
+            guard original.isPhysicallyCurrent, let completion = RetainedLazyListAdoptionCompletion(of: node),
+                completion.isCurrent
+            else {
+                original.uiaAuthority?.revoke()
+                return
+            }
+            accepted = GeometryDescriptorAdmission(
+                node: node, runtime: runtime, lease: node.retainedSubtreeBuildLease,
+                parent: node.parent, uiaAuthority: original.uiaAuthority)
+            acceptedSubtree = completion
+        }
+
+        func auditAfterScope() -> Bool {
+            let current = (accepted ?? original).isCurrent && acceptedSubtree?.isCurrent != false
+            if !current { original.uiaAuthority?.revoke() }
+            return current
         }
     }
 
@@ -19885,6 +20848,7 @@ public final class RetainedViewRuntime {
         weak var acceptedLease: (any RetainedSubtreeBuildLease)?
         var acceptedHadLease = false
         var usesManagedPublication: Bool
+        var didAcceptPublication = false
 
         init(
             journal: RetainedLazyListAdoptionJournal, activity: any RetainedLazyListBuildActivity,
@@ -19898,7 +20862,8 @@ public final class RetainedViewRuntime {
         }
 
         var permitsCompletion: Bool {
-            guard usesManagedPublication else { return true }
+            guard admission.uiaAuthority?.isCurrent != false else { return false }
+            guard usesManagedPublication || admission.uiaAuthority != nil else { return true }
             guard admission.isPhysicallyCurrent, completion?.isCurrent == true,
                 let node = admission.node, !acceptedHadLease || acceptedLease != nil
             else { return false }
@@ -19939,13 +20904,14 @@ public final class RetainedViewRuntime {
         } else {
             scope = initial
         }
-        guard activity.bindLazyListDescriptorScope(scope), scope.canConstructDescriptors,
-            admission.isCurrent
+        let bound = activity.bindLazyListDescriptorScope(scope)
+        guard admission.isCurrent, bound, scope.canConstructDescriptors
         else {
             scope.revoke()
             return nil
         }
-        let journal = RetainedLazyListAdoptionJournal(descriptorScope: scope, transaction: transaction)
+        let journal = RetainedLazyListAdoptionJournal(
+            descriptorScope: scope, transaction: transaction, uiaContinuationAuthority: admission.uiaAuthority)
         journal.seedExistingContributions(from: [node])
         let attribution: RetainedLazyListBuildAttribution?
         if let anchor = storage.deferredSubtreeAnchor {
@@ -19965,24 +20931,29 @@ public final class RetainedViewRuntime {
     private func buildAndAdoptGeometryDescriptor(
         on node: ViewNode, parent: ViewNode?, slot: Size, build: (RetainedViewRuntime, Size) -> [ViewNode],
         lease: any RetainedSubtreeBuildLease, epoch: any RetainedBuildEpoch,
-        descriptorBuild: GeometryDescriptorBuild, sequence: UInt64, transaction: RetainedBuildTransaction
+        descriptorBuild: GeometryDescriptorBuild, sequence: UInt64, transaction: RetainedBuildTransaction,
+        readerWitness: GeometryReaderRebuildWitness?
     ) -> Bool {
         let nativeAdmission = descriptorBuild.admission
         let journal = descriptorBuild.journal
         var didAdopt = false
         defer { if !didAdopt { journal.revokeBeforeAbandon() } }
         func nativeConstructionIsCurrent() -> Bool {
-            journal.canContinueConstruction && nativeAdmission.isCurrent
+            nativeAdmission.isCurrent && journal.canContinueConstruction
                 && !retainedBuildCoordinator.wasSuperseded(since: sequence)
         }
-        guard epoch.canAdopt, nativeConstructionIsCurrent() else { return false }
+        guard nativeAdmission.uiaAuthority == nil || nativeConstructionIsCurrent() else { return false }
+        let canAdoptBeforeBody = epoch.canAdopt
+        guard nativeConstructionIsCurrent(), canAdoptBeforeBody else { return false }
         let candidates = buildGeometryDescriptorContent(
             slot: slot, build: build, descriptorBuild: descriptorBuild)
         guard nativeConstructionIsCurrent(), candidates.count == 1,
             !ViewNode.containsRejectedRetainedSource(in: candidates), let rebuilt = candidates.first
         else { return false }
         let leaseCanBuild = lease.canBuild
-        guard nativeConstructionIsCurrent(), leaseCanBuild, epoch.canAdopt, nativeConstructionIsCurrent(),
+        guard nativeConstructionIsCurrent(), leaseCanBuild else { return false }
+        let canAdoptAfterBody = epoch.canAdopt
+        guard nativeConstructionIsCurrent(), canAdoptAfterBody,
             journal.registerSourceDescriptors(in: candidates), let preparation = journal.preparation()
         else { return false }
         descriptorBuild.usesManagedPublication =
@@ -19993,17 +20964,22 @@ public final class RetainedViewRuntime {
                 journal.beginAdoption(preparation, preparedActivity: prepared)
             else { return false }
         } else {
-            guard epoch.willAdopt() else { return false }
-            _ = journal.beginOrdinaryAdoption()
+            let preparedEpoch = epoch.willAdopt()
+            guard nativeAdmission.uiaAuthority == nil || nativeAdmission.isCurrent, preparedEpoch else { return false }
+            let prepared = journal.beginOrdinaryAdoption()
+            guard nativeAdmission.uiaAuthority == nil || prepared else { return false }
         }
         let taskAdoption = RetainedTaskAdoptionContext(runtime: self, epoch: epoch, transaction: transaction)
         let expectedLease = rebuilt.retainedSubtreeBuildLease
         let result = ComponentHost.adopt(
-            source: rebuilt, into: node, taskAdoption: taskAdoption, lazyJournal: journal)
-        if !journal.isOrdinaryAdoption {
+            source: rebuilt, into: node, taskAdoption: taskAdoption, lazyJournal: journal,
+            uiaAuthority: nativeAdmission.uiaAuthority)
+        descriptorBuild.didAcceptPublication = result.didMutate || journal.hasAcceptedContributions
+        if !journal.isOrdinaryAdoption || nativeAdmission.uiaAuthority != nil {
             guard result.completed, nativeAdmission.isPhysicallyCurrent,
                 node.retainedSubtreeBuildLease === expectedLease,
-                journal.canContinueAdoption
+                journal.isOrdinaryAdoption || journal.canContinueAdoption,
+                nativeAdmission.uiaAuthority?.isCurrent != false
             else { return false }
         }
         descriptorBuild.completion =
@@ -20030,6 +21006,7 @@ public final class RetainedViewRuntime {
             }
         }
         geometryReaderResolveCount &+= 1
+        readerWitness?.recordAccepted(on: node, in: self)
         didAdopt = true
         return true
     }
@@ -20058,17 +21035,40 @@ public final class RetainedViewRuntime {
         return nodes
     }
 
+    @discardableResult
     private func adoptGeometryReader(
-        _ rebuilt: ViewNode, into node: ViewNode, slot: Size, taskAdoption: RetainedTaskAdoptionContext? = nil
-    ) {
-        ComponentHost.adopt(source: rebuilt, into: node, taskAdoption: taskAdoption)
+        _ rebuilt: ViewNode, into node: ViewNode, slot: Size, taskAdoption: RetainedTaskAdoptionContext? = nil,
+        uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil,
+        nativeAdmission: GeometryDescriptorAdmission? = nil, readerWitness: GeometryReaderRebuildWitness? = nil
+    ) -> Bool {
+        let expectedLease = rebuilt.retainedSubtreeBuildLease
+        let result = ComponentHost.adopt(
+            source: rebuilt, into: node, taskAdoption: taskAdoption, uiaAuthority: uiaAuthority)
+        guard
+            uiaAuthority == nil
+                || (result.completed && uiaAuthority?.isCurrent == true
+                    && nativeAdmission?.isPhysicallyCurrent == true && node.retainedSubtreeBuildLease === expectedLease)
+        else {
+            uiaAuthority?.revoke()
+            return false
+        }
         // The builder and its resolved size travel together during adoption.
         // This explicit assignment also bounds convergence for custom readers.
         node.geometryReaderBuiltSize = slot
         geometryReaderResolveCount &+= 1
+        readerWitness?.recordAccepted(on: node, in: self)
+        return uiaAuthority?.isCurrent != false
     }
 
     private func updatePrepaintState() {
+        auditUnusedLazyListUIAProviderPhaseBeforeEpilogue()
+        let pendingPhase = unusedLazyListUIAProviderPhase
+        if let pendingPhase, pendingPhase.state == .pending,
+            pendingPhase.completedInitialPrepaint
+                || prepaintState.generation !== pendingPhase.initialPrepaintGeneration
+        {
+            revokeUnusedLazyListUIAProviderPhase(pendingPhase)
+        }
         let previousState = prepaintState
         var nextState = RuntimePrepaintState()
         var replayCount = 0
@@ -20090,6 +21090,9 @@ public final class RetainedViewRuntime {
         prepaintState = nextState
         lastPrepaintReplayCount = replayCount
         lastDeferredOverlayReplayCount = replayCount
+        if let pendingPhase, pendingPhase.state == .pending {
+            pendingPhase.completedInitialPrepaint = true
+        }
     }
 
     /// The coordinate space of every clip the last prepaint recorded. All of
@@ -20805,17 +21808,6 @@ public enum AnimatedColorProperty: Hashable, Sendable {
     case backgroundGradientStart
     case backgroundGradientEnd
 }
-
-/// The state-dependent chrome of one control, as a value the runtime resolves.
-///
-/// Every colour is optional so a control can opt into only the part it owns: a
-/// push button carries the whole fill/border/shadow ramp, a text field and a
-/// slider carry a focus ring and nothing else. `nil` means "leave that
-/// property alone", which is what keeps a field's bezel from being repainted
-/// by a hover the platform does not give it.
-///
-/// Phase precedence is pressed > focused > hovered > idle, matching the order
-/// the control builders resolved by hand before the runtime took it over.
 public struct RetainedInteractionSurface: Sendable, Equatable {
     public enum Phase: Sendable, Equatable {
         case idle
@@ -20989,12 +21981,6 @@ private final class ViewColorAnimation {
         easing.apply(elapsedFraction(at: timestamp))
     }
 }
-/// The frame path's keyboard focus ring: an annulus around `paintFrame`,
-/// drawn as the same `BorderSegments` walk the scene path uses.
-///
-/// Out of line because `appendCommands` is the deepest frame in the paint
-/// traversal and this needs a segment array; inlined, every level of a deep
-/// tree would carry it whether or not the node has a focus ring.
 @inline(never)
 func appendFocusRingCommands(
     into commands: inout [RenderCommand],
@@ -21014,13 +22000,6 @@ func appendFocusRingCommands(
         commands.append(.fillRect(command))
     }
 }
-
-/// The one place a focus ring's geometry is decided, shared by the 2pt focus
-/// effect and the wider chrome outline, and by both the frame and scene paths.
-///
-/// A ring is an annulus, and `BorderSegments.solidSegments` is the walk the
-/// container border already uses when it must paint after its children — edges
-/// plus per-corner arcs, covering the band and nothing inside it.
 func focusRingFillCommands(
     ringFrame: Rect,
     width: Double,
@@ -21057,31 +22036,12 @@ func focusRingFillCommands(
         )
     }
 }
-
 func baseClipAllowsDrawing(baseClip: Rect?, rect: Rect) -> Bool {
     baseClip?.intersected(with: rect) != nil || baseClip == nil
 }
-
 func baseClipAllowsDrawing(baseClip: RuntimeClipShape?, rect: Rect) -> Bool {
     baseClip.allowsDrawing(rect)
 }
-
-/// Culling test for a whole *subtree*, as opposed to a single primitive.
-///
-/// Degenerate footprints are the difference. `Rect.intersected` reports "no
-/// overlap" for every zero-width or zero-height rect wherever it sits, but a
-/// zero-extent node is a legal parent: macOS SwiftUI does not clip at a frame
-/// boundary, so `.frame(height: 0)` without `.clipped()` overflows and its
-/// children still paint (see `docs/GPURenderingPipeline.md` §2b). Culling such
-/// a node on `intersected` alone erases the subtree; not culling it at all —
-/// which is what gating the cull on a paintable extent did — leaves a
-/// collapsed row parked far outside the clip traversing its whole subtree
-/// every frame.
-///
-/// So: a degenerate footprint is culled only when it is strictly outside the
-/// clip, a non-degenerate one keeps the exact overlap test primitives use
-/// (`baseClipAllowsDrawing`), and an empty clip culls everything beneath it —
-/// no pixel under it can survive.
 func clipAllowsSubtreeTraversal(clip: Rect?, bounds: Rect) -> Bool {
     guard let clip else { return true }
     guard !clip.isEmpty else { return false }
@@ -21182,11 +22142,6 @@ public struct PropertySnapshot {
         self.backgroundColor = backgroundColor
     }
 }
-
-/// A mounted source transfer has already claimed an old removal when the
-/// destination's Button admission may expire. These original native entries
-/// keep that cleanup separate from permission to insert. They never acquire
-/// a replacement child, controller, or physical attachment after a callback.
 @MainActor
 final class ButtonActionSourceDeparture {
     @MainActor
@@ -21272,13 +22227,7 @@ final class ButtonActionSourceDeparture {
         buttonActions.recordAttachmentWrite(on: node)
     }
 }
-
-/// Slot writes, including an away-and-back hover, supersede an older cleanup
-/// continuation without relying on wrapping generation counters.
 fileprivate final class ButtonActionInteractionMutationIdentity {}
-
-/// The runtime's original interaction slots and targets, captured before the
-/// source's first departure callback. No authored payload is stored here.
 @MainActor
 fileprivate struct ButtonActionSourceRuntimeInteraction {
     let pointerSequence: UInt64
@@ -21300,10 +22249,6 @@ fileprivate struct ButtonActionSourceRuntimeInteraction {
 
     func attachment(of node: ViewNode) -> RetainedLazyListAttachmentProof? { attachments[ObjectIdentifier(node)] }
 }
-
-/// A concrete source-cleanup receipt, not a callback that can acquire fresh
-/// authority. Inner interaction helpers must recheck it after authored exits
-/// and clocks before their trailing node or runtime writes.
 @MainActor
 fileprivate struct ButtonActionSourceInteraction {
     let departure: ButtonActionSourceDeparture
@@ -21328,7 +22273,6 @@ fileprivate struct ButtonActionSourceInteraction {
         return attachment(of: node)?.isCurrent == true
     }
 }
-
 @MainActor
 private struct LazyListAttachmentEntry {
     let node: ViewNode
@@ -21355,9 +22299,6 @@ private struct LazyListAttachmentEntry {
             && node.retainedLazyListAdapter === adapter
     }
 }
-
-/// The current parent membership and every subtree accepted before a later
-/// controller callback. This is native data, not an arbitrary validator.
 @MainActor
 private struct LazyListPublishedChildrenProof {
     weak var parent: ViewNode?
@@ -21372,7 +22313,6 @@ private struct LazyListPublishedChildrenProof {
             && entries.allSatisfy(\.isCurrent)
     }
 }
-
 @MainActor
 private struct LazyListRetiredNode {
     let node: ViewNode
@@ -21402,9 +22342,6 @@ private struct LazyListRetiredNode {
         node.consumeLazyListAppearanceForRetirement()
     }
 }
-
-/// This contains only native identity/weak references. The delayed completion
-/// must not retain captured callbacks or opaque history after it clears gates.
 @MainActor
 private final class LazyListRetirementGate {
     let identity = RetainedLazyListAttachmentIdentity()
@@ -21424,7 +22361,6 @@ private final class LazyListRetirementGate {
         }
     }
 }
-
 extension ViewNode {
     /// Claim complete group owners across a physical forest before its first
     /// callback. Individual participant states may return the same native
@@ -21454,9 +22390,18 @@ extension ViewNode {
     static func supportsLazyListRemoval(
         of roots: [ViewNode], admission: RetainedLazyListAdoptionAdmission?,
         removalReason: RetainedChildRemovalReason = .structural,
-        lazyJournal: RetainedLazyListAdoptionJournal? = nil
+        lazyJournal: RetainedLazyListAdoptionJournal? = nil,
+        uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil
     ) -> Bool {
-        guard admission?.isCurrent != false, lazyJournal?.canContinueAdoption != false,
+        if let uiaAuthority, let journalAuthority = lazyJournal?.uiaContinuationAuthority,
+            uiaAuthority !== journalAuthority
+        {
+            return false
+        }
+        let uiaAuthority = uiaAuthority ?? lazyJournal?.uiaContinuationAuthority
+        let metadataOnly = uiaAuthority != nil && lazyJournal?.isOrdinaryAdoption == true
+        guard admission?.isCurrent != false, uiaAuthority?.isCurrent != false,
+            metadataOnly || lazyJournal?.canContinueAdoption != false,
             let nodes = lazyListNodes(in: roots)
         else { return false }
         guard nodes.allSatisfy({ !$0.isRetiringLazyListAttachment }) else { return false }
@@ -21483,7 +22428,8 @@ extension ViewNode {
             else { continue }
             guard runtime.canRetireLazyListInteractionOwners(in: identifiers) else { return false }
         }
-        return admission?.isCurrent != false && lazyJournal?.canContinueAdoption != false
+        return admission?.isCurrent != false && uiaAuthority?.isCurrent != false
+            && (metadataOnly || lazyJournal?.canContinueAdoption != false)
     }
 
     /// Adoption journals may also contain ordinary siblings. The nearest
@@ -21511,7 +22457,8 @@ extension ViewNode {
     private func prepareLazyListRemovalPaint(
         roots: [ViewNode], admission: RetainedLazyListAdoptionAdmission?,
         removalReason: RetainedChildRemovalReason, lazyJournal: RetainedLazyListAdoptionJournal?,
-        sourceParent: ViewNode?, proposedChildren: [ViewNode], buttonActions: RetainedButtonActionAdoption? = nil
+        sourceParent: ViewNode?, proposedChildren: [ViewNode], buttonActions: RetainedButtonActionAdoption? = nil,
+        uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil
     ) -> [RetainedLazyListRemovalPaint]? {
         let transitioning = roots.filter { root in
             let reason: RetainedChildRemovalReason
@@ -21527,7 +22474,7 @@ extension ViewNode {
             let nativeCheck = ComponentHost.makeRemovalTransitionCheck(
                 admission: admission, target: self, parent: self,
                 sourceParent: sourceParent, proposedChildren: proposedChildren, lazyJournal: lazyJournal,
-                buttonActions: buttonActions),
+                buttonActions: buttonActions, uiaAuthority: uiaAuthority),
             let check = RetainedRemovalTransitionAdmission(
                 nativeCheck: nativeCheck,
                 departingRoots: roots)
@@ -21626,14 +22573,23 @@ extension ViewNode {
         taskAdoption: RetainedTaskAdoptionContext? = nil,
         sourceParent: ViewNode? = nil,
         completionSources: RetainedReconciliationSourceNodes? = nil,
-        buttonActions: RetainedButtonActionAdoption? = nil
+        buttonActions: RetainedButtonActionAdoption? = nil,
+        uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil
     ) -> RetainedLazyListAdoptionResult {
-        guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false,
+        if let uiaAuthority, let journalAuthority = lazyJournal?.uiaContinuationAuthority,
+            uiaAuthority !== journalAuthority
+        {
+            return lazyListChildResult(
+                false, admission: admission, lazyJournal: lazyJournal, uiaAuthority: uiaAuthority)
+        }
+        let uiaAuthority = uiaAuthority ?? lazyJournal?.uiaContinuationAuthority
+        guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false, uiaAuthority?.isCurrent != false,
             lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false
         else {
-            return RetainedLazyListAdoptionResult(completed: false, didMutate: false, children: children)
+            return RetainedLazyListAdoptionResult(
+                completed: false, didMutate: uiaAuthority?.didMutate == true, children: children)
         }
-        if admission == nil, lazyJournal?.isOrdinaryAdoption != false {
+        if admission == nil, uiaAuthority == nil, lazyJournal?.isOrdinaryAdoption != false {
             let changed = !isChildListUnchanged(nextChildren)
             setChildrenUnchecked(
                 nextChildren, lazyJournal: lazyJournal, taskAdoption: taskAdoption, sourceParent: sourceParent,
@@ -21643,7 +22599,8 @@ extension ViewNode {
                 didMutate: changed, children: children)
         }
         guard admission?.permitsMutation(of: self) != false else {
-            return lazyListChildResult(false, admission: admission, lazyJournal: lazyJournal)
+            return lazyListChildResult(
+                false, admission: admission, lazyJournal: lazyJournal, uiaAuthority: uiaAuthority)
         }
         let parentAttachment = captureLazyListAttachmentProof()
         let parentIdentity = captureLazyListIdentityProof()
@@ -21653,25 +22610,33 @@ extension ViewNode {
             nextChildren, admission: admission, parentAttachment: parentAttachment, parentIdentity: parentIdentity,
             removalReason: removalReason,
             lazyJournal: lazyJournal, taskAdoption: taskAdoption, sourceParent: sourceParent,
-            buttonActions: buttonActions)
+            buttonActions: buttonActions, uiaAuthority: uiaAuthority)
         // Do not form the result in a return followed by a defer. Ending this
         // scope can drain callbacks that change both admission and children.
         interactionRuntime?.endLongPressReconciliation()
+        let parentIsCurrent = parentAttachment.isCurrent && parentIdentity.isCurrent
+        let completionIsCurrent = completion?.isCurrent
+        if !parentIsCurrent || completionIsCurrent == false { uiaAuthority?.revoke() }
         return lazyListChildResult(
-            completion?.isCurrent == true && parentAttachment.isCurrent && parentIdentity.isCurrent
-                && admission?.permitsMutation(of: self) != false && buttonActions?.isCurrent != false,
-            admission: admission, lazyJournal: lazyJournal, completion: completion)
+            completionIsCurrent == true && parentIsCurrent
+                && admission?.permitsMutation(of: self) != false && buttonActions?.isCurrent != false
+                && uiaAuthority?.isCurrent != false,
+            admission: admission, lazyJournal: lazyJournal, completion: completion, uiaAuthority: uiaAuthority)
     }
 
     private func lazyListChildResult(
         _ completed: Bool, admission: RetainedLazyListAdoptionAdmission?,
         lazyJournal: RetainedLazyListAdoptionJournal?,
-        completion: RetainedLazyListAdoptionCompletion? = nil
+        completion: RetainedLazyListAdoptionCompletion? = nil,
+        uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil
     ) -> RetainedLazyListAdoptionResult {
         RetainedLazyListAdoptionResult(
-            completed: completed && admission?.isCurrent != false
-                && lazyJournal?.canContinueAdoption != false && completion?.isCurrent == true,
-            didMutate: admission?.didMutate ?? (lazyJournal?.hasAcceptedContributions == true),
+            completed: completed && admission?.isCurrent != false && uiaAuthority?.isCurrent != false
+                && ((uiaAuthority != nil && lazyJournal?.isOrdinaryAdoption == true)
+                    || lazyJournal?.canContinueAdoption != false)
+                && completion?.isCurrent == true,
+            didMutate: uiaAuthority?.didMutate == true
+                || (admission?.didMutate ?? (lazyJournal?.hasAcceptedContributions == true)),
             children: children, completion: completion)
     }
 
@@ -21680,20 +22645,37 @@ extension ViewNode {
         parentAttachment: RetainedLazyListAttachmentProof, parentIdentity: RetainedLazyListViewIdentityProof,
         removalReason: RetainedChildRemovalReason,
         lazyJournal: RetainedLazyListAdoptionJournal?, taskAdoption: RetainedTaskAdoptionContext?,
-        sourceParent: ViewNode?, buttonActions: RetainedButtonActionAdoption?
+        sourceParent: ViewNode?, buttonActions: RetainedButtonActionAdoption?,
+        uiaAuthority: RetainedLazyListUIAContinuationAuthority?
     ) -> RetainedLazyListAdoptionCompletion? {
-        guard buttonActions?.isCurrent != false, admission?.isCurrent != false,
-            parentAttachment.isCurrent && parentIdentity.isCurrent,
-            lazyJournal?.canContinueAdoption != false
-        else {
-            return nil
+        let metadataOnly = uiaAuthority != nil && lazyJournal?.isOrdinaryAdoption == true
+        func canContinue() -> Bool {
+            let nativeCurrent = parentAttachment.isCurrent && parentIdentity.isCurrent
+            if !nativeCurrent { uiaAuthority?.revoke() }
+            return nativeCurrent && buttonActions?.isCurrent != false && admission?.isCurrent != false
+                && uiaAuthority?.isCurrent != false
+                && (metadataOnly || lazyJournal?.canContinueAdoption != false)
         }
+        func entriesAreCurrent(_ entries: [LazyListAttachmentEntry]) -> Bool {
+            let current = entries.allSatisfy(\.isCurrent)
+            if !current { uiaAuthority?.revoke() }
+            return current
+        }
+        func childrenAreCurrent(_ expected: [ViewNode], includingAttachment: Bool = false) -> Bool {
+            let current =
+                includingAttachment
+                ? isChildListUnchanged(expected) : Self.sameLazyListChildren(expected, children)
+            if !current { uiaAuthority?.revoke() }
+            return current
+        }
+        guard canContinue() else { return nil }
         if isChildListUnchanged(nextChildren) {
             if let sourceParent, let lazyJournal {
-                guard lazyJournal.prepareOwnedStructuralDeclaration(from: sourceParent, to: self) else { return nil }
-                lazyJournal.recordAcceptedOwnedStructuralDeclaration(from: sourceParent, to: self)
+                let prepared = lazyJournal.prepareOwnedStructuralDeclaration(from: sourceParent, to: self)
+                guard metadataOnly || prepared else { return nil }
+                if prepared { lazyJournal.recordAcceptedOwnedStructuralDeclaration(from: sourceParent, to: self) }
             }
-            return RetainedLazyListAdoptionCompletion(of: self)
+            return canContinue() ? RetainedLazyListAdoptionCompletion(of: self) : nil
         }
         guard Set(nextChildren.map(ObjectIdentifier.init)).count == nextChildren.count else { return nil }
         let oldChildren = children
@@ -21701,7 +22683,8 @@ extension ViewNode {
         let departing = oldChildren.filter { !surviving.contains(ObjectIdentifier($0)) }
         guard
             Self.supportsLazyListRemoval(
-                of: departing, admission: admission, removalReason: removalReason, lazyJournal: lazyJournal),
+                of: departing, admission: admission, removalReason: removalReason, lazyJournal: lazyJournal,
+                uiaAuthority: uiaAuthority),
             let departingNodes = Self.lazyListNodes(in: departing)
         else { return nil }
         let departingIDs = Set(departingNodes.map(ObjectIdentifier.init))
@@ -21727,24 +22710,21 @@ extension ViewNode {
             else { return nil }
             incoming[ObjectIdentifier(child)] = nodes.map(LazyListAttachmentEntry.init)
             for node in nodes {
-                guard lazyJournal?.prepareInsertedNode(from: node) != false else { return nil }
+                guard canContinue() else { return nil }
+                let prepared = lazyJournal?.prepareInsertedNode(from: node)
+                guard metadataOnly || prepared != false else { return nil }
             }
         }
-        guard buttonActions?.isCurrent != false, admission?.isCurrent != false,
-            parentAttachment.isCurrent && parentIdentity.isCurrent,
-            lazyJournal?.canContinueAdoption != false,
-            Self.sameLazyListChildren(oldChildren, children)
+        guard canContinue(), childrenAreCurrent(oldChildren)
         else { return nil }
 
         guard
             let removalPaint = prepareLazyListRemovalPaint(
                 roots: departing, admission: admission, removalReason: removalReason, lazyJournal: lazyJournal,
-                sourceParent: sourceParent, proposedChildren: nextChildren, buttonActions: buttonActions),
-            buttonActions?.isCurrent != false, admission?.isCurrent != false,
-            parentAttachment.isCurrent && parentIdentity.isCurrent,
-            lazyJournal?.canContinueAdoption != false,
-            incoming.values.allSatisfy({ $0.allSatisfy(\.isCurrent) }),
-            retainedEntries.allSatisfy(\.isCurrent), Self.sameLazyListChildren(oldChildren, children)
+                sourceParent: sourceParent, proposedChildren: nextChildren, buttonActions: buttonActions,
+                uiaAuthority: uiaAuthority),
+            canContinue(), incoming.values.allSatisfy({ entriesAreCurrent($0) }),
+            entriesAreCurrent(retainedEntries), childrenAreCurrent(oldChildren)
         else { return nil }
 
         var expectedChildren = survivingChildren
@@ -21752,47 +22732,47 @@ extension ViewNode {
         // children table. Publish its marker only at the exact final table.
         let publishesFinalSurvivors = Self.sameLazyListChildren(expectedChildren, nextChildren)
         var deferredOwnedDepartures: [ObjectIdentifier: RetainedLazyListDepartureCause] = [:]
+        var recordsFinalSurvivors = false
         if publishesFinalSurvivors, let sourceParent, let lazyJournal {
-            guard lazyJournal.prepareOwnedStructuralDeclaration(from: sourceParent, to: self) else { return nil }
+            recordsFinalSurvivors = lazyJournal.prepareOwnedStructuralDeclaration(from: sourceParent, to: self)
+            guard metadataOnly || recordsFinalSurvivors else { return nil }
         }
         if !departing.isEmpty {
-            guard lazyJournal?.markMutationStarted() != false else { return nil }
+            let started = lazyJournal?.markMutationStarted()
+            guard metadataOnly || started != false, canContinue() else { return nil }
             admission?.markMutationStarted()
+            uiaAuthority?.markMutationStarted()
             deferredOwnedDepartures = retireLazyListChildren(
                 departing, nodes: departingNodes, survivingChildren: expectedChildren, admission: admission,
                 removalReason: removalReason, lazyJournal: lazyJournal,
                 deferringOwnedDeparture: sourceParent != nil && !publishesFinalSurvivors,
-                sourceParent: publishesFinalSurvivors ? sourceParent : nil, removalPaint: removalPaint,
+                sourceParent: recordsFinalSurvivors ? sourceParent : nil, removalPaint: removalPaint,
                 buttonActions: buttonActions)
         } else if !Self.sameLazyListChildren(expectedChildren, children) {
-            guard lazyJournal?.markMutationStarted() != false else { return nil }
+            let started = lazyJournal?.markMutationStarted()
+            guard metadataOnly || started != false, canContinue() else { return nil }
             admission?.markMutationStarted()
+            uiaAuthority?.markMutationStarted()
             children = expectedChildren
             guard buttonActions?.recordChildrenWrite(on: self) != false else { return nil }
-            if publishesFinalSurvivors, let sourceParent {
+            if recordsFinalSurvivors, let sourceParent {
                 lazyJournal?.recordAcceptedOwnedStructuralDeclaration(from: sourceParent, to: self)
             }
             invalidateRuntime(.children)
         }
-        guard buttonActions?.isCurrent != false, admission?.isCurrent != false,
-            parentAttachment.isCurrent && parentIdentity.isCurrent,
-            lazyJournal?.canContinueAdoption != false,
-            retainedEntries.allSatisfy(\.isCurrent),
-            Self.sameLazyListChildren(expectedChildren, children)
+        guard canContinue(),
+            entriesAreCurrent(retainedEntries), childrenAreCurrent(expectedChildren)
         else { return nil }
 
         for (destinationIndex, child) in nextChildren.enumerated() {
-            guard buttonActions?.isCurrent != false, admission?.isCurrent != false,
-                parentAttachment.isCurrent && parentIdentity.isCurrent,
-                lazyJournal?.canContinueAdoption != false,
-                retainedEntries.allSatisfy(\.isCurrent),
-                Self.sameLazyListChildren(expectedChildren, children)
+            guard canContinue(),
+                entriesAreCurrent(retainedEntries), childrenAreCurrent(expectedChildren)
             else { return nil }
             if child.parent === self {
                 guard children.contains(where: { $0 === child }), child.runtime === runtime else { return nil }
                 continue
             }
-            guard var entries = incoming[ObjectIdentifier(child)], entries.allSatisfy(\.isCurrent) else {
+            guard var entries = incoming[ObjectIdentifier(child)], entriesAreCurrent(entries) else {
                 return nil
             }
             guard buttonActions?.beginInsertion(in: [child]) != false else { return nil }
@@ -21802,8 +22782,10 @@ extension ViewNode {
                 guard temporaryParent.runtime == nil, !temporaryParent.isRetiringLazyListAttachment,
                     let index = temporaryParent.children.firstIndex(where: { $0 === child })
                 else { return nil }
-                guard lazyJournal?.markMutationStarted() != false else { return nil }
+                let started = lazyJournal?.markMutationStarted()
+                guard metadataOnly || started != false, canContinue() else { return nil }
                 admission?.markMutationStarted()
+                uiaAuthority?.markMutationStarted()
                 temporaryParent.children.remove(at: index)
                 child.revokeLazyListAttachmentProofs()
                 child.parent = nil
@@ -21814,23 +22796,24 @@ extension ViewNode {
                 // This matches the existing move out of a temporary parent:
                 // dismantling may call application code even with runtime nil.
                 child.onDismantlePlatformView?(child)
-                guard buttonActions?.isCurrent != false, admission?.isCurrent != false,
-                    parentAttachment.isCurrent && parentIdentity.isCurrent,
-                    lazyJournal?.canContinueAdoption != false,
-                    entries.allSatisfy(\.isCurrent),
-                    retainedEntries.allSatisfy(\.isCurrent),
-                    Self.sameLazyListChildren(expectedChildren, children)
+                guard canContinue(),
+                    entriesAreCurrent(entries), entriesAreCurrent(retainedEntries),
+                    childrenAreCurrent(expectedChildren)
                 else { return nil }
             }
-            guard child.parent == nil, entries.allSatisfy(\.isCurrent) else { return nil }
+            guard entriesAreCurrent(entries), child.parent == nil else { return nil }
             var publishedChildren = expectedChildren
             publishedChildren.insert(child, at: destinationIndex)
             let publishesFinalChildren = Self.sameLazyListChildren(publishedChildren, nextChildren)
+            var recordsFinalChildren = false
             if publishesFinalChildren, let sourceParent, let lazyJournal {
-                guard lazyJournal.prepareOwnedStructuralDeclaration(from: sourceParent, to: self) else { return nil }
+                recordsFinalChildren = lazyJournal.prepareOwnedStructuralDeclaration(from: sourceParent, to: self)
+                guard metadataOnly || recordsFinalChildren else { return nil }
             }
-            guard lazyJournal?.markMutationStarted() != false else { return nil }
+            let started = lazyJournal?.markMutationStarted()
+            guard metadataOnly || started != false, canContinue() else { return nil }
             admission?.markMutationStarted()
+            uiaAuthority?.markMutationStarted()
             child.revokeLazyListAttachmentProofs()
             child.parent = self
             expectedChildren = publishedChildren
@@ -21838,7 +22821,7 @@ extension ViewNode {
             guard buttonActions?.recordAttachmentWrite(on: child, afterChildrenWriteOf: self) != false else {
                 return nil
             }
-            if publishesFinalChildren, let sourceParent {
+            if recordsFinalChildren, let sourceParent {
                 lazyJournal?.recordAcceptedOwnedStructuralDeclaration(from: sourceParent, to: self)
             }
             if publishesFinalChildren {
@@ -21860,23 +22843,18 @@ extension ViewNode {
             guard
                 let attachedEntries = child.attachLazyListCandidate(
                     entries: entries, to: runtime, published: published, admission: admission,
-                    lazyJournal: lazyJournal, taskAdoption: taskAdoption, buttonActions: buttonActions),
-                buttonActions?.isCurrent != false, admission?.isCurrent != false,
-                parentAttachment.isCurrent && parentIdentity.isCurrent,
-                lazyJournal?.canContinueAdoption != false,
-                retainedEntries.allSatisfy(\.isCurrent),
-                Self.sameLazyListChildren(expectedChildren, children)
+                    lazyJournal: lazyJournal, taskAdoption: taskAdoption, buttonActions: buttonActions,
+                    uiaAuthority: uiaAuthority),
+                canContinue(),
+                entriesAreCurrent(retainedEntries), childrenAreCurrent(expectedChildren)
             else { return nil }
             // A later attachment callback can move a previously inserted
             // subtree away and back. Keep its new native proof in the same
             // cumulative set as the rows that survived this reconciliation.
             retainedEntries.append(contentsOf: attachedEntries)
         }
-        guard buttonActions?.isCurrent != false, admission?.isCurrent != false,
-            parentAttachment.isCurrent && parentIdentity.isCurrent,
-            lazyJournal?.canContinueAdoption != false,
-            retainedEntries.allSatisfy(\.isCurrent),
-            isChildListUnchanged(nextChildren)
+        guard canContinue(),
+            entriesAreCurrent(retainedEntries), childrenAreCurrent(nextChildren, includingAttachment: true)
         else { return nil }
         return RetainedLazyListAdoptionCompletion(of: self)
     }
@@ -22046,15 +23024,22 @@ extension ViewNode {
         published: LazyListPublishedChildrenProof,
         admission: RetainedLazyListAdoptionAdmission?,
         lazyJournal: RetainedLazyListAdoptionJournal?, taskAdoption: RetainedTaskAdoptionContext?,
-        buttonActions: RetainedButtonActionAdoption?
+        buttonActions: RetainedButtonActionAdoption?, uiaAuthority: RetainedLazyListUIAContinuationAuthority?
     ) -> [LazyListAttachmentEntry]? {
         var entries = originalEntries
-        guard buttonActions?.isCurrent != false,
-            admission?.isCurrent != false, published.isCurrent, lazyJournal?.canContinueAdoption != false,
-            entries.allSatisfy(\.isCurrent),
+        let metadataOnly = uiaAuthority != nil && lazyJournal?.isOrdinaryAdoption == true
+        func canContinue() -> Bool {
+            let nativeCurrent = published.isCurrent && entries.allSatisfy(\.isCurrent)
+            if !nativeCurrent { uiaAuthority?.revoke() }
+            return nativeCurrent && buttonActions?.isCurrent != false && admission?.isCurrent != false
+                && uiaAuthority?.isCurrent != false
+                && (metadataOnly || lazyJournal?.canContinueAdoption != false)
+        }
+        guard canContinue(),
             entries.allSatisfy({ !$0.node.isRetiringLazyListAttachment && $0.node.runtime == nil }),
             nextRuntime?.permitsRetainedActionInvocation != false
         else { return nil }
+        uiaAuthority?.markMutationStarted()
         for entry in entries {
             guard buttonActions?.isCurrent != false else { return nil }
             let node = entry.node
@@ -22105,9 +23090,7 @@ extension ViewNode {
             for entry in entries { entry.node.listNavigationOwner?.didAttach(to: nextRuntime) }
         }
         for entry in entries {
-            guard buttonActions?.isCurrent != false, admission?.isCurrent != false, published.isCurrent,
-                lazyJournal?.canContinueAdoption != false,
-                entries.allSatisfy(\.isCurrent),
+            guard canContinue(),
                 nextRuntime?.permitsRetainedActionInvocation != false,
                 entry.node.textInputController === entry.controller,
                 entry.node.scrollObserverStorage === entry.observerStorage,
@@ -22117,18 +23100,12 @@ extension ViewNode {
                 return nil
             }
             if nextRuntime != nil { entry.controller?.attach(to: entry.node) }
-            guard buttonActions?.isCurrent != false, admission?.isCurrent != false, published.isCurrent,
-                lazyJournal?.canContinueAdoption != false,
-                entries.allSatisfy(\.isCurrent),
-                entry.node.textInputController === entry.controller
+            guard canContinue(), entry.node.textInputController === entry.controller
             else { return nil }
         }
         if let lazyJournal {
             for entry in entries {
-                guard buttonActions?.isCurrent != false, admission?.isCurrent != false, published.isCurrent,
-                    lazyJournal.canContinueAdoption,
-                    entries.allSatisfy(\.isCurrent)
-                else { return nil }
+                guard canContinue() else { return nil }
                 let accepted = lazyJournal.recordCompletedNode(from: entry.node, to: entry.node)
                 for group in accepted {
                     taskAdoption?.associateLazyAccepted(group, journal: lazyJournal)
@@ -22139,12 +23116,9 @@ extension ViewNode {
                 admission?.recordCompletedOwnedSource(from: entry.node, to: entry.node, journal: lazyJournal)
             }
         }
-        return buttonActions?.isCurrent != false
-            && admission?.isCurrent != false && lazyJournal?.canContinueAdoption != false
-            && published.isCurrent && entries.allSatisfy(\.isCurrent) ? entries : nil
+        return canContinue() ? entries : nil
     }
 }
-
 extension RetainedViewRuntime {
     /// No mutation/callbacks: retirement does not copy existing programmatic
     /// scroll cancellation/anchor policy for a surviving outside container.
@@ -22282,7 +23256,6 @@ extension RetainedViewRuntime {
         return callbacks
     }
 }
-
 extension RetainedViewRuntime {
     /// A candidate List can inspect only an already attached predecessor. Typed
     /// path equality runs under both the original physical witness and the
@@ -22684,6 +23657,16 @@ extension RetainedViewRuntime {
         token: RetainedLazyListRowToken, in witness: RetainedLazyListAccessibilityItem,
         during mutation: RetainedAccessibilityMutation
     ) -> RetainedLazyListAccessibilityItem? {
+        guard let preparation = beginLazyListAccessibilityPreparation(token: token, in: witness, during: mutation)
+        else { return nil }
+        defer { endLazyListAccessibilityPreparation(preparation) }
+        return prepareLazyListAccessibilityItem(preparation)
+    }
+
+    private func beginLazyListAccessibilityPreparation(
+        token: RetainedLazyListRowToken, in witness: RetainedLazyListAccessibilityItem,
+        during mutation: RetainedAccessibilityMutation, enforcesUIAConstructionIntent: Bool = false
+    ) -> RetainedLazyListAccessibilityPreparation? {
         guard lazyListScrollWorkDepth > 0, lazyListAccessibilityPreparation == nil,
             isAccessibilityMutationCurrent(mutation), isLazyListAccessibilityTokenCurrent(token, in: witness),
             let content = witness.content, let adapter = content.retainedLazyListAdapter,
@@ -22696,18 +23679,1017 @@ extension RetainedViewRuntime {
             token: token, witness: witness, adapter: adapter, descriptor: adapter.managedLogicalDescriptorBinding,
             generation: generation, mutation: mutation, scroll: scroll, scrollAttachment: scrollAttachment,
             focusRevision: presentationFocusRevision, pointerSequence: pointerSequence,
-            modal: presentationModalSnapshot.map(ObjectIdentifier.init))
+            modal: presentationModalSnapshot.map(ObjectIdentifier.init),
+            enforcesUIAConstructionIntent: enforcesUIAConstructionIntent)
         lazyListAccessibilityPreparation = preparation
-        defer {
-            preparation.isActive = false
-            if lazyListAccessibilityPreparation === preparation { lazyListAccessibilityPreparation = nil }
+        return preparation
+    }
+
+    private func endLazyListAccessibilityPreparation(_ preparation: RetainedLazyListAccessibilityPreparation) {
+        if let phase = unusedLazyListUIAProviderPhase, phase.preparation === preparation {
+            revokeUnusedLazyListUIAProviderPhase(phase)
+            unusedLazyListUIAProviderPhase = nil
         }
-        guard isLazyListAccessibilityPreparationCurrent(preparation), prepareAccessibilityMutation(mutation),
-            isAccessibilityMutationCurrent(mutation), isLazyListAccessibilityPreparationCurrent(preparation),
-            let container = witness.container, let item = lazyListTarget(in: container, token: token),
-            item.adapter === adapter
+        preparation.isActive = false
+        if lazyListAccessibilityPreparation === preparation { lazyListAccessibilityPreparation = nil }
+    }
+
+    private func prepareLazyListAccessibilityItem(
+        _ preparation: RetainedLazyListAccessibilityPreparation
+    ) -> RetainedLazyListAccessibilityItem? {
+        guard isLazyListAccessibilityPreparationCurrent(preparation),
+            prepareAccessibilityMutation(preparation.mutation),
+            isAccessibilityMutationCurrent(preparation.mutation),
+            isLazyListAccessibilityPreparationCurrent(preparation),
+            let container = preparation.witness.container,
+            let item = lazyListTarget(in: container, token: preparation.token), item.adapter === preparation.adapter
         else { return nil }
         return item
+    }
+
+    /// Unlike the generic preparation API, this retains the original input
+    /// witness until the platform has finished its final projection and bind.
+    /// No target demand is installed before the ordinary initial query returns.
+    package func prepareLazyListUIARequest(
+        token: RetainedLazyListRowToken, in witness: RetainedLazyListAccessibilityItem,
+        during mutation: RetainedAccessibilityMutation
+    ) -> RetainedLazyListUIARequest? {
+        guard lazyListUIARequest == nil,
+            let preparation = beginLazyListAccessibilityPreparation(
+                token: token, in: witness, during: mutation, enforcesUIAConstructionIntent: true)
+        else { return nil }
+        var prepared = false
+        defer { if !prepared { endLazyListAccessibilityPreparation(preparation) } }
+        guard let item = prepareLazyListAccessibilityItem(preparation), let budget = lazyListResolutionBudget,
+            budget.remainingRounds > 0, isLazyListUIAConstructionCurrent(preparation)
+        else { return nil }
+        sealUnusedLazyListUIAProviderPhaseAfterInitialQuery(preparation)
+        let request = RetainedLazyListUIARequest(item: item, runtime: self, preparation: preparation, budget: budget)
+        lazyListUIARequest = request
+        if let phase = unusedLazyListUIAProviderPhase, phase.state == .pending,
+            phase.preparation === preparation, phase.completedInitialQuery
+        {
+            phase.request = request
+        }
+        prepared = true
+        return request
+    }
+
+    /// Capture the presence of a typed request even after it becomes obsolete.
+    /// A weak request disappearing must not reopen an ordinary build fallback.
+    fileprivate var lazyListUIAConstructionPreparation: RetainedLazyListAccessibilityPreparation? {
+        guard let preparation = lazyListAccessibilityPreparation, preparation.enforcesUIAConstructionIntent else {
+            return nil
+        }
+        return preparation
+    }
+
+    private func lazyListUIAContinuationAuthority(
+        for preparation: RetainedLazyListAccessibilityPreparation
+    ) -> RetainedLazyListUIAContinuationAuthority {
+        RetainedLazyListUIAContinuationAuthority(
+            runtime: self, preparation: preparation, request: lazyListUIARequest,
+            resolutionSequence: layoutSettlementResolutionSequence, displayScaleIdentity: displayScaleIdentity)
+    }
+
+    fileprivate func isLazyListUIAContinuationCurrent(
+        _ authority: RetainedLazyListUIAContinuationAuthority,
+        preparation: RetainedLazyListAccessibilityPreparation
+    ) -> Bool {
+        guard authority.runtime === self, authority.preparation === preparation,
+            authority.hadCompleteGeometry, layoutPassID == authority.layoutPassID,
+            layoutSettlementResolutionSequence == authority.resolutionSequence,
+            displayScale == authority.displayScale, displayScaleIdentity === authority.displayScaleIdentity,
+            preparation.scrollIntent === authority.scrollIntent,
+            authority.geometryProofs.allSatisfy({ $0.isCurrent }),
+            authority.queryGeometryProofs.allSatisfy({ $0.isCurrent }),
+            authority.target?.isCurrent(in: self) != false, authority.targetIdentity?.isCurrent != false
+        else { return false }
+        if authority.hadRequest {
+            guard let request = authority.request, lazyListUIARequest === request,
+                request.preparation === preparation, request.phase == authority.requestPhase,
+                request.querySequence == authority.querySequence, request.queryIsSealed == authority.queryWasSealed
+            else { return false }
+        } else if lazyListUIARequest != nil {
+            return false
+        }
+        return isLazyListUIAConstructionCurrent(preparation)
+    }
+
+    /// Construction can be inside adapter.prepare, where public snapshot
+    /// lookup deliberately refuses. The original token was admitted before
+    /// entering that scope; only its fixed native generation is used here.
+    fileprivate func isLazyListUIAConstructionCurrent(
+        _ preparation: RetainedLazyListAccessibilityPreparation
+    ) -> Bool {
+        guard preparation.enforcesUIAConstructionIntent, preparation.isActive,
+            lazyListAccessibilityPreparation === preparation, permitsRetainedActionInvocation,
+            activeAccessibilityMutation === preparation.mutation, !preparation.mutation.isExhausted,
+            !layoutSettlementGenerationsExhausted,
+            preparation.witness.runtime === self,
+            let container = preparation.witness.container, let content = preparation.witness.content,
+            let adapter = preparation.adapter, content.retainedLazyListAdapter === adapter,
+            preparation.witness.attachment.isCurrent(in: self), preparation.witness.identity.isCurrent,
+            preparation.witness.containerIdentity.isCurrent,
+            adapter.logicalMembershipIdentity === preparation.witness.membership, adapter.ownsAttachment(content),
+            ownsLazyListAttachment(container), ownsLazyListAttachment(content), !Self.hasHiddenAncestor(container),
+            adapter.managedLogicalDescriptorBinding === preparation.descriptor, preparation.generation.isCurrent,
+            !focusRevision.isExhausted, presentationFocusRevision == preparation.focusRevision,
+            pointerSequence == preparation.pointerSequence,
+            presentationModalSnapshot.map(ObjectIdentifier.init) == preparation.modal,
+            let scroll = preparation.scroll, preparation.scrollAttachment.isCurrent(in: self),
+            scroll.scrollAxis == .vertical, scroll.scrollSourceEpoch == preparation.scrollEpoch,
+            scroll.lazyListScrollIntentIdentity === preparation.scrollIntent,
+            content.nearestScrollTarget()?.container === scroll, !hasActiveScrollInputCapture(for: scroll),
+            permitsConservativeAccessibilityValueTarget(content)
+        else { return false }
+        if let descriptor = preparation.descriptor {
+            guard descriptor.isCurrent, descriptor.sourceGeneration == preparation.generation else { return false }
+        } else {
+            guard adapter.isUIAConstructionGenerationCurrent(preparation.generation) else { return false }
+        }
+        var node = content
+        var depth = 0
+        while node !== container, depth < ViewNode.maximumTraversalDepth {
+            guard let parent = node.parent, parent.children.count == 1,
+                parent.children.first === node, !node.isHidden
+            else { return false }
+            node = parent
+            depth += 1
+        }
+        return node === container && lazyListUIARequest?.queryLayoutProofs.allSatisfy(\.isCurrent) != false
+            && lazyListUIARequest?.originalTargetIdentity?.isCurrent != false
+    }
+
+    /// Stored work queues only: none of these checks drains callbacks or asks
+    /// a provider whether it considers itself settled.
+    private var hasPendingLazyListUIACallbackWork: Bool {
+        retainedBuildCoordinatorStorage?.hasPendingNativeWork == true
+            || hasUnresolvedLayoutSettlementReader || lazyListUnsupportedThisPass
+            || !pendingLazyListAnchorClamps.isEmpty || lazyListAnchorNeedsLayout
+            || lazyListScrollSearchNeedsMoreWork || isProbingLazyListScrollTarget
+            || longPressReconciliationDepth != 0 || isDrainingReconciliationCallbacks
+            || !pendingLongPressCallbacks.isEmpty || !pendingRetainedBuildCompletions.isEmpty
+            || isDeliveringRenderLifecycleCallbacks || renderLifecycleTaskCancellationDepth != 0
+            || !retiredPreparedListNavigationRetirements.isEmpty
+            || isDrainingAfterLayoutActions || !pendingAfterLayoutActionKeys.isEmpty
+            || !pendingAfterLayoutActions.isEmpty
+            || !pendingPreciseScrollAlignments.isEmpty
+            || isDrainingPresentationFocusRequests || !pendingPresentationFocusRequests.isEmpty
+            || scrollObserverRegistry?.isDelivering == true
+            || isDrainingListNavigationReveal || pendingListNavigationReveal != nil
+            || consumingListNavigationReveal != nil
+    }
+
+    /// The previous prepaint may be its nodes' last owner. Merely keeping that
+    /// snapshot alive until resume would defer application destruction. This
+    /// walk instead proves independent, unchanged ownership by the current
+    /// root and discards every temporary node reference before returning.
+    private func oldUIAPrepaintNodesRemainTreeOwned() -> Bool {
+        let expectedRoot = root
+        var pending = [(node: expectedRoot, depth: 0)]
+        var owned: Set<ObjectIdentifier> = []
+        while let entry = pending.popLast() {
+            guard entry.depth < ViewNode.maximumTraversalDepth, entry.node.runtime === self,
+                !entry.node.isRetiringLazyListAttachment,
+                owned.insert(ObjectIdentifier(entry.node)).inserted
+            else { return false }
+            for child in entry.node.children {
+                guard child.parent === entry.node else { return false }
+                pending.append((node: child, depth: entry.depth + 1))
+            }
+        }
+        guard root === expectedRoot else { return false }
+        return prepaintState.dispatchNodes.allSatisfy { owned.contains(ObjectIdentifier($0.node)) }
+            && prepaintState.interactions.allSatisfy { owned.contains(ObjectIdentifier($0.node)) }
+    }
+
+    private enum UnusedProviderPhaseCheckpoint { case initial, demand, query, build }
+
+    private func revokeUnusedLazyListUIAProviderPhase(_ phase: LazyListUIAUnusedProviderPhase) {
+        guard phase.state != .revoked, phase.stage != .spent else { return }
+        // Before consumption, ordinary paid work remains available. After
+        // consumption, a failed original proof cannot be replaced by another
+        // reader/provider attempt under the same preparation.
+        if phase.state == .consumed { phase.preparation?.isActive = false }
+        phase.state = .revoked
+        recordLazyListUIAPhase(.revokedProviderPhase)
+    }
+
+    private func revokeUnenteredLazyListUIAProviderPhase() {
+        guard let phase = unusedLazyListUIAProviderPhase else { return }
+        revokeUnusedLazyListUIAProviderPhase(phase)
+    }
+
+    /// Every comparison uses a field captured by the original paid iteration.
+    /// Checkpoints select only its checked native successors; no current
+    /// counter or replacement local stamp is copied into the original visit.
+    private func isUnusedLazyListUIAProviderPhaseCurrent(
+        _ phase: LazyListUIAUnusedProviderPhase, at checkpoint: UnusedProviderPhaseCheckpoint,
+        for request: RetainedLazyListUIARequest?
+    ) -> Bool {
+        var current = false
+        defer { if !current { revokeUnusedLazyListUIAProviderPhase(phase) } }
+        guard unusedLazyListUIAProviderPhase === phase, phase.runtime === self, phase.root === root,
+            phase.state != .revoked, phase.stage != .spent,
+            let preparation = phase.preparation, let budget = phase.budget,
+            lazyListResolutionBudget === budget, lazyListAccessibilityPreparation === preparation,
+            isLazyListUIAConstructionCurrent(preparation), !layoutSettlementGenerationsExhausted,
+            !isRendering, !isLayoutInProgress, lazyListResolutionDepth <= 1,
+            layoutPassID == phase.passID, ViewNode.traversalDepthOverflowCount == phase.traversalOverflowCount,
+            displayScale == phase.displayScale, displayScaleIdentity === phase.displayScaleIdentity,
+            preparation.scrollIntent === phase.scrollIntent,
+            budget.remainingElements == phase.remainingElements, budget.remainingRounds == phase.remainingRounds,
+            pendingLazyListOrder == phase.order, pendingLazyListVisits.count == phase.lists.count,
+            lazyListRegistrations.count == phase.lists.count,
+            pendingGeometryReaderNodes.count == phase.readers.count,
+            zip(pendingGeometryReaderNodes, phase.readers).allSatisfy({ pair in pair.0.node === pair.1.node }),
+            phase.readers.allSatisfy({ $0.isCurrent }), phase.actualTree.isCurrent,
+            let scroll = preparation.scroll, isQuietLazyListUIAScroll(scroll), scrollPresentedTweens.isEmpty
+        else { return false }
+        if let request {
+            guard phase.request === request, lazyListUIARequest === request, request.runtime === self,
+                request.preparation === preparation, request.budget === budget,
+                request.originalTarget == nil, request.originalTargetIdentity == nil,
+                isLazyListUIARequestCurrent(request)
+            else { return false }
+        } else {
+            guard phase.request == nil, lazyListUIARequest == nil, phase.state == .pending else { return false }
+        }
+
+        let expectedGeometry: UInt64
+        let expectedMutation: UInt64
+        let expectedSequence: UInt64
+        let expectedPresentation: UInt64
+        switch checkpoint {
+        case .initial:
+            guard phase.stage == .reserved,
+                lastUnmutatedLayoutPassRevision == phase.reservation.originalGeometryRevision
+            else { return false }
+            expectedGeometry = phase.reservation.originalGeometryRevision
+            expectedMutation = phase.reservation.originalMutationRevision
+            expectedSequence = phase.reservation.originalResolutionSequence
+            expectedPresentation = phase.reservation.originalPresentationRevision
+        case .demand:
+            guard phase.state == .consumed, phase.stage == .demand,
+                request?.phase == .prepared || request?.phase == .targetQuery,
+                request?.hint?.isCurrent == true
+            else { return false }
+            expectedGeometry = phase.reservation.demandGeometryRevision
+            expectedMutation = phase.reservation.demandMutationRevision
+            expectedSequence = phase.reservation.originalResolutionSequence
+            expectedPresentation = phase.reservation.demandPresentationRevision
+        case .query, .build:
+            guard phase.state == .consumed, phase.stage == .query || phase.stage == .provider,
+                request?.phase == .targetQuery, request?.queryIsSealed == false,
+                request?.querySequence == phase.reservation.resumeResolutionSequence,
+                request?.hint?.isCurrent == true,
+                request?.queryLayoutProofs.count == phase.queryLayoutProofs.count,
+                let request,
+                zip(request.queryLayoutProofs, phase.queryLayoutProofs).allSatisfy({ pair in
+                    pair.0.node === pair.1.node && pair.0.identity === pair.1.identity
+                        && pair.0.attachment.hasSameCapture(as: pair.1.attachment)
+                })
+            else { return false }
+            expectedGeometry =
+                checkpoint == .build
+                ? phase.reservation.buildGeometryRevision : phase.reservation.demandGeometryRevision
+            expectedMutation = phase.reservation.demandMutationRevision
+            expectedSequence = phase.reservation.resumeResolutionSequence
+            expectedPresentation = phase.reservation.demandPresentationRevision
+        }
+        guard layoutSettlementGeometryRevision == expectedGeometry,
+            preparation.mutation.revision == expectedMutation,
+            layoutSettlementResolutionSequence == expectedSequence,
+            presentationMutationRevision == expectedPresentation
+        else { return false }
+        // The only operation between the complete post-lease check and the
+        // build checkpoint is this coordinator's native beginBuild callback.
+        // isBuilding is expected there; no authored work has entered yet.
+        if checkpoint == .build {
+            guard hasActiveRetainedBuild else { return false }
+        } else {
+            guard !hasPendingLazyListUIACallbackWork, !hasActiveRetainedBuild else { return false }
+        }
+        for entry in phase.geometry {
+            guard let node = entry.layout.node, entry.layout.isCurrent, node.runtime === self,
+                node.resolvedFrame == entry.frame, node.resolvedContentSize == entry.contentSize,
+                node.resolvedScrollOffset == entry.resolvedScrollOffset,
+                node.isHidden == entry.isHidden, node.isLayoutDeferredByVirtualization == entry.isDeferred
+            else { return false }
+        }
+        for list in phase.lists {
+            let visit = list.visit
+            guard lazyListVisitHasCurrentNativeProofs(visit, expectedGeometryRevision: expectedGeometry),
+                let node = visit.node, let adapter = visit.adapter, let lease = list.lease,
+                node.retainedSubtreeBuildLease === lease,
+                node.geometryReaderConstructionIdentity === list.constructionIdentity,
+                list.identity.isCurrent, list.layout.isCurrent, list.records.isCurrent,
+                adapter.permitsStandaloneBuild, let viewport = visit.viewport,
+                let actual = node.readOnlyLazyListViewport(displayScale: displayScale), actual.0 == viewport,
+                actual.1 === visit.scrollContainer, actual.2 == visit.contentOriginY,
+                node.resolvedContentSize.height == adapter.contentExtent
+            else { return false }
+        }
+        current = true
+        return true
+    }
+
+    /// Called only between measurement publication and the still-unentered
+    /// reader/provider phases. An entered empty phase cannot reach this point
+    /// again and this preparation may issue at most one record.
+    private func saveUnusedLazyListUIAProviderPhase(chargedTo budget: RetainedLazyListWorkBudget) -> Bool {
+        guard let preparation = lazyListUIAConstructionPreparation,
+            !preparation.hasIssuedUnusedProviderPhase, isLazyListUIAConstructionCurrent(preparation),
+            lazyListUIARequest == nil, unusedLazyListUIAProviderPhase == nil,
+            lazyListResolutionBudget === budget, budget.remainingRounds > 0,
+            isResolvingLayoutFrame, isUpdatingResolvedLayout, isResolvingLayoutSettlement,
+            !isRendering, lazyListResolutionDepth == 1, lazyListScrollWorkDepth > 1,
+            !isResolvingLazyListLogicalTarget, !hasPendingLazyListUIACallbackWork,
+            scrollPresentedTweens.isEmpty, let scroll = preparation.scroll, isQuietLazyListUIAScroll(scroll),
+            hasTerminalLazyListLayoutPass(), oldUIAPrepaintNodesRemainTreeOwned(),
+            let reservation = LazyListUIAProviderPhaseReservation(
+                geometryRevision: layoutSettlementGeometryRevision, mutationRevision: preparation.mutation.revision,
+                resolutionSequence: layoutSettlementResolutionSequence,
+                presentationRevision: presentationMutationRevision)
+        else { return false }
+        var geometry: [RetainedLazyListUIATargetPass.Geometry] = []
+        var captured: Set<ObjectIdentifier> = []
+        func captureGeometry(_ node: ViewNode) -> Bool {
+            var current: ViewNode? = node
+            var depth = 0
+            while let actual = current, depth < ViewNode.maximumTraversalDepth {
+                guard actual.runtime === self, !actual.isRetiringLazyListAttachment,
+                    actual.resolvedFrame.origin.x.isFinite, actual.resolvedFrame.origin.y.isFinite,
+                    actual.resolvedFrame.width.isFinite, actual.resolvedFrame.height.isFinite,
+                    actual.resolvedContentSize.width.isFinite, actual.resolvedContentSize.height.isFinite,
+                    actual.resolvedScrollOffset.isFinite
+                else { return false }
+                if captured.insert(ObjectIdentifier(actual)).inserted {
+                    geometry.append(
+                        .init(
+                            layout: actual.captureLazyListLocalLayoutProof(), frame: actual.resolvedFrame,
+                            contentSize: actual.resolvedContentSize, resolvedScrollOffset: actual.resolvedScrollOffset,
+                            isHidden: actual.isHidden, isDeferred: actual.isLayoutDeferredByVirtualization))
+                }
+                if actual === root { return true }
+                guard let parent = actual.parent, parent.children.contains(where: { $0 === actual }) else {
+                    return false
+                }
+                current = parent
+                depth += 1
+            }
+            return false
+        }
+        var lists: [LazyListUIAUnusedProviderPhase.List] = []
+        for key in pendingLazyListOrder {
+            guard let visit = pendingLazyListVisits[key], let node = visit.node, let adapter = visit.adapter,
+                let lease = node.retainedSubtreeBuildLease, adapter.permitsStandaloneBuild,
+                !adapter.hasUnresolvedWork, let layout = adapter.captureLayoutProof(),
+                let records = adapter.captureUIAActualRecordsProof(), captureGeometry(node)
+            else { return false }
+            for measurement in pendingLazyListMeasurements[key, default: []] {
+                guard let leaf = measurement.node, measurement.attachment.isCurrent,
+                    leaf.retainedLazyListGap == measurement.gap, captureGeometry(leaf)
+                else { return false }
+                if measurement.gap != nil {
+                    guard let gapExtent = measurement.gapExtent, gapExtent.isFinite, gapExtent >= 0,
+                        leaf.resolvedFrame.height == (leaf.isHidden ? 0 : gapExtent)
+                    else { return false }
+                }
+            }
+            lists.append(
+                .init(
+                    visit: visit, layout: layout, records: records, identity: node.captureLazyListIdentityProof(),
+                    lease: lease, constructionIdentity: node.captureGeometryReaderConstructionIdentity()))
+        }
+        guard lists.contains(where: { $0.visit.node === preparation.witness.content }) else { return false }
+        var readers: [LazyListUIAUnusedProviderPhase.Reader] = []
+        for reference in pendingGeometryReaderNodes {
+            guard let node = reference.node, node.runtime === self, node.geometryReaderBuild != nil,
+                captureGeometry(node)
+            else { return false }
+            readers.append(.init(node))
+        }
+        let path = preparation.witness.attachment.path
+        let queryLayoutProofs = path.compactMap { $0.node?.captureLazyListLocalLayoutProof() }
+        guard queryLayoutProofs.count == path.count, let actualTree = RetainedLazyListAdoptionCompletion(of: root)
+        else { return false }
+        let phase = LazyListUIAUnusedProviderPhase(
+            runtime: self, preparation: preparation, budget: budget, reservation: reservation,
+            order: pendingLazyListOrder, lists: lists, readers: readers, geometry: geometry,
+            queryLayoutProofs: queryLayoutProofs, actualTree: actualTree)
+        preparation.hasIssuedUnusedProviderPhase = true
+        unusedLazyListUIAProviderPhase = phase
+        guard isUnusedLazyListUIAProviderPhaseCurrent(phase, at: .initial, for: nil) else { return false }
+        recordLazyListUIAPhase(.savedProviderPhase)
+        return true
+    }
+
+    /// Each ordinary epilogue still runs. This is checked before it can drain
+    /// a callback or release a snapshot; equal counters after a no-op callback
+    /// are never used to revive a saved phase.
+    private func auditUnusedLazyListUIAProviderPhaseBeforeEpilogue() {
+        guard let phase = unusedLazyListUIAProviderPhase, phase.state == .pending else { return }
+        guard isUnusedLazyListUIAProviderPhaseCurrent(phase, at: .initial, for: nil),
+            oldUIAPrepaintNodesRemainTreeOwned()
+        else {
+            revokeUnusedLazyListUIAProviderPhase(phase)
+            return
+        }
+    }
+
+    private func sealUnusedLazyListUIAProviderPhaseAfterInitialQuery(
+        _ preparation: RetainedLazyListAccessibilityPreparation
+    ) {
+        guard let phase = unusedLazyListUIAProviderPhase, phase.preparation === preparation,
+            phase.state == .pending
+        else { return }
+        guard phase.completedInitialPrepaint, !isResolvingLayoutFrame, !isUpdatingResolvedLayout,
+            !isResolvingLayoutSettlement, lazyListResolutionDepth == 0,
+            lazyListScrollWorkDepth == phase.scrollWorkDepth - 1,
+            isUnusedLazyListUIAProviderPhaseCurrent(phase, at: .initial, for: nil),
+            case .settled = layoutSettlementStatus, hasCurrentAccessibilityPrepaint
+        else {
+            revokeUnusedLazyListUIAProviderPhase(phase)
+            return
+        }
+        phase.completedInitialQuery = true
+    }
+
+    private func consumeUnusedLazyListUIAProviderPhase(
+        for request: RetainedLazyListUIARequest
+    ) -> LazyListUIAUnusedProviderPhase? {
+        guard let phase = unusedLazyListUIAProviderPhase, phase.state == .pending else { return nil }
+        guard phase.completedInitialQuery, phase.request === request, request.phase == .prepared,
+            !isResolvingLayoutFrame, !isUpdatingResolvedLayout, !isResolvingLayoutSettlement,
+            !isResolvingLazyListLogicalTarget, lazyListResolutionDepth == 0,
+            lazyListScrollWorkDepth == phase.scrollWorkDepth - 1,
+            isUnusedLazyListUIAProviderPhaseCurrent(phase, at: .initial, for: request)
+        else {
+            revokeUnusedLazyListUIAProviderPhase(phase)
+            return nil
+        }
+        phase.state = .consumed
+        return phase
+    }
+
+    /// Re-enter only the unentered remainder of the captured paid iteration.
+    /// Its certificate requires all readers and other lists already settled;
+    /// the original target demand is the sole new provider work in this phase.
+    private func resumeUnusedLazyListUIAProviderPhase(_ phase: LazyListUIAUnusedProviderPhase) -> Bool {
+        guard phase.stage == .query, let request = phase.request, let budget = phase.budget,
+            isUnusedLazyListUIAProviderPhaseCurrent(phase, at: .query, for: request)
+        else { return false }
+        recordLazyListUIAPhase(.resumedProviderPhase)
+        recordLazyListUIAPhase(.readerPhase)
+        let readerChanged = resolveGeometryReaderSlots()
+        guard !readerChanged, isUnusedLazyListUIAProviderPhaseCurrent(phase, at: .query, for: request) else {
+            revokeUnusedLazyListUIAProviderPhase(phase)
+            return true
+        }
+        for list in phase.lists where list.visit.node !== request.item.content {
+            guard list.visit.adapter?.hasUnresolvedWork == false else {
+                revokeUnusedLazyListUIAProviderPhase(phase)
+                return true
+            }
+        }
+        phase.stage = .provider
+        recordLazyListUIAPhase(.providerPhase)
+        // Iterate the saved native order, never a newer pass registry. No later
+        // list is entered after this target's callbacks; new work from them
+        // belongs to the following normally charged convergence iteration.
+        for list in phase.lists where list.visit.node === request.item.content {
+            guard let node = list.visit.node, let adapter = list.visit.adapter, let viewport = list.visit.viewport,
+                adapter.hasUnresolvedWork
+            else {
+                revokeUnusedLazyListUIAProviderPhase(phase)
+                return true
+            }
+            _ = rebuildLazyList(
+                node, adapter: adapter, viewport: viewport, visit: list.visit, budget: budget, resuming: phase)
+            if phase.state == .consumed, phase.stage == .provider,
+                isUnusedLazyListUIAProviderPhaseCurrent(phase, at: .query, for: request)
+            {
+                // An unchanged or refused but still-current lease also spends
+                // the entered phase. It cannot be borrowed a second time.
+                phase.stage = .spent
+            }
+            return true
+        }
+        revokeUnusedLazyListUIAProviderPhase(phase)
+        return true
+    }
+
+    private func isQuietLazyListUIAScroll(_ scroll: ViewNode) -> Bool {
+        scrollMomenta[ObjectIdentifier(scroll)] == nil && scrollPresentedTweens[ObjectIdentifier(scroll)] == nil
+            && scroll.scrollOvershoot == 0 && scroll.scrollPresentedDelta == 0
+            && !hasActiveScrollInputCapture(for: scroll)
+            && pendingListNavigationReveal == nil && consumingListNavigationReveal == nil
+    }
+
+    private func isLazyListUIARequestCurrent(_ request: RetainedLazyListUIARequest) -> Bool {
+        request.runtime === self && lazyListUIARequest === request && request.phase != .finished
+            && lazyListResolutionBudget === request.budget
+            && isLazyListAccessibilityPreparationCurrent(request.preparation)
+            && isLazyListUIAConstructionCurrent(request.preparation)
+            && isLazyListAccessibilityItemCurrent(request.item)
+    }
+
+    /// This certificate only ends the current paid convergence phase. It
+    /// accepts no measurements, publishes no settlement, and runs no callback.
+    /// A construction probe awaiting disposal is not measurement-only work.
+    private func captureLazyListUIATargetPass(chargedTo budget: RetainedLazyListWorkBudget) -> Bool {
+        guard let request = lazyListUIARequest,
+            request.phase == .targetQuery || request.phase == .finalQuery,
+            !request.queryIsSealed, request.targetPass == nil, request.budget === budget,
+            budget.remainingRounds < request.queryStartingRounds,
+            request.querySequence == layoutSettlementResolutionSequence,
+            isLazyListUIARequestCurrent(request), !isLayoutInProgress, lazyListResolutionDepth == 1,
+            !layoutSettlementGenerationsExhausted,
+            lastUnmutatedLayoutPassRevision == layoutSettlementGeometryRevision,
+            !hasPendingLazyListUIACallbackWork,
+            let content = request.item.content, let targetAdapter = request.item.adapter,
+            let scroll = request.preparation.scroll, isQuietLazyListUIAScroll(scroll),
+            !pendingLazyListOrder.isEmpty, pendingLazyListOrder.count == pendingLazyListVisits.count,
+            Set(pendingLazyListOrder).count == pendingLazyListOrder.count,
+            pendingLazyListVisits.count == lazyListRegistrations.count,
+            pendingLazyListMeasurements.keys.allSatisfy({ pendingLazyListVisits[$0] != nil }),
+            let targetVisit = pendingLazyListVisits[ObjectIdentifier(content)],
+            let targetViewport = targetVisit.viewport,
+            let roots = targetAdapter.mountedNodes(for: request.item.token),
+            let target = roots.first(where: { !$0.isHidden && !$0.isSeparatorRule && $0.retainedLazyListGap == nil }),
+            let targetAttachment = accessibilityTarget(for: target),
+            permitsConservativeAccessibilityValueTarget(target)
+        else { return false }
+        if let originalTarget = request.originalTarget {
+            guard originalTarget.node === target, originalTarget.isCurrent(in: self) else { return false }
+        }
+
+        var lists: [RetainedLazyListUIATargetPass.List] = []
+        var leaves: [RetainedLazyListUIATargetPass.Leaf] = []
+        var geometry: [RetainedLazyListUIATargetPass.Geometry] = []
+        var capturedNodes: Set<ObjectIdentifier> = []
+        func captureGeometry(of node: ViewNode) -> Bool {
+            var current: ViewNode? = node
+            var depth = 0
+            while let actual = current, depth < ViewNode.maximumTraversalDepth {
+                guard actual.runtime === self, !actual.isRetiringLazyListAttachment,
+                    actual.resolvedFrame.origin.x.isFinite, actual.resolvedFrame.origin.y.isFinite,
+                    actual.resolvedFrame.width.isFinite, actual.resolvedFrame.height.isFinite,
+                    actual.resolvedFrame.width >= 0, actual.resolvedFrame.height >= 0,
+                    actual.resolvedContentSize.width.isFinite, actual.resolvedContentSize.height.isFinite,
+                    actual.resolvedContentSize.width >= 0, actual.resolvedContentSize.height >= 0,
+                    actual.resolvedScrollOffset.isFinite
+                else { return false }
+                if capturedNodes.insert(ObjectIdentifier(actual)).inserted {
+                    geometry.append(
+                        .init(
+                            layout: actual.captureLazyListLocalLayoutProof(), frame: actual.resolvedFrame,
+                            contentSize: actual.resolvedContentSize, resolvedScrollOffset: actual.resolvedScrollOffset,
+                            isHidden: actual.isHidden, isDeferred: actual.isLayoutDeferredByVirtualization))
+                }
+                if actual === root { return true }
+                guard let parent = actual.parent, parent.children.contains(where: { $0 === actual }) else {
+                    return false
+                }
+                current = parent
+                depth += 1
+            }
+            return false
+        }
+
+        for key in pendingLazyListOrder {
+            guard let visit = pendingLazyListVisits[key],
+                lazyListVisitHasCurrentNativeProofs(visit, expectedGeometryRevision: visit.geometryRevision),
+                let node = visit.node, let adapter = visit.adapter, let viewport = visit.viewport,
+                let visitScroll = visit.scrollContainer, node.lastLayoutVisitPassID == visit.passID,
+                visitScroll.lastLayoutVisitPassID == visit.passID,
+                let current = node.readOnlyLazyListViewport(displayScale: displayScale), current.0 == viewport,
+                current.1 === visitScroll, current.2 == visit.contentOriginY,
+                node.resolvedContentSize.height == adapter.contentExtent,
+                let adapterProof = adapter.captureLayoutProof(),
+                let recordProof = adapter.captureUIAActualRecordsProof(), captureGeometry(of: node)
+            else { return false }
+            let records = pendingLazyListMeasurements[key, default: []]
+            guard records.count == node.children.count else { return false }
+            var measurements: [RetainedLazyListRuntimeAdapter.Measurement] = []
+            for (index, record) in records.enumerated() {
+                guard let leaf = record.node, leaf === node.children[index], leaf.parent === node,
+                    leaf.runtime === self, record.attachment.isCurrent,
+                    !leaf.isRetiringLazyListAttachment, !leaf.isLayoutDeferredByVirtualization,
+                    leaf.isHidden || leaf.lastLayoutVisitPassID == visit.passID,
+                    leaf.retainedLazyListGap == record.gap,
+                    leaf.resolvedFrame.height.isFinite, leaf.resolvedFrame.height >= 0,
+                    captureGeometry(of: leaf)
+                else { return false }
+                if record.gap != nil {
+                    guard let gapExtent = record.gapExtent, gapExtent.isFinite, gapExtent >= 0,
+                        leaf.resolvedFrame.height == (leaf.isHidden ? 0 : gapExtent)
+                    else { return false }
+                }
+                measurements.append(
+                    .init(
+                        token: record.token, leafIndex: record.leafIndex, node: leaf,
+                        extent: leaf.isHidden ? 0 : leaf.resolvedFrame.height))
+                leaves.append(
+                    .init(
+                        node: leaf, container: node, attachment: record.attachment, gap: record.gap,
+                        identity: leaf.captureLazyListIdentityProof()))
+            }
+            if adapter === targetAdapter, request.phase == .targetQuery {
+                guard let hint = request.hint,
+                    case .measurementOnly = adapter.uiAConstructionReadiness(
+                        for: hint, viewport: viewport, measurements: measurements)
+                else { return false }
+            } else {
+                guard adapter.matchesAcceptedMeasurements(measurements, viewport: viewport) else { return false }
+            }
+            lists.append(
+                .init(
+                    node: node, adapter: adapter, descriptor: adapter.managedLogicalDescriptorBinding,
+                    layout: adapterProof, records: recordProof))
+        }
+        guard isLazyListUIARequestCurrent(request), targetAttachment.isCurrent(in: self),
+            target.lastLayoutVisitPassID == layoutPassID, target.parent === content,
+            target.resolvedFrame.height > 0, target.resolvedFrame.width > 0
+        else { return false }
+        if request.originalTarget == nil {
+            request.originalTarget = targetAttachment
+            request.originalTargetIdentity = target.captureLazyListIdentityProof()
+            request.queryLayoutProofs = targetAttachment.path.compactMap { $0.node?.captureLazyListLocalLayoutProof() }
+            guard request.queryLayoutProofs.count == targetAttachment.path.count else { return false }
+        }
+        request.targetPass = RetainedLazyListUIATargetPass(
+            target: targetAttachment, geometry: geometry, lists: lists, leaves: leaves,
+            viewport: targetViewport, contentOriginY: targetVisit.contentOriginY,
+            passID: layoutPassID, resolutionSequence: layoutSettlementResolutionSequence,
+            geometryRevision: layoutSettlementGeometryRevision, mutationRevision: request.preparation.mutation.revision,
+            displayScale: displayScale, scroll: scroll)
+        return true
+    }
+
+    private func isLazyListUIATargetPassCurrent(
+        _ pass: RetainedLazyListUIATargetPass, for request: RetainedLazyListUIARequest,
+        ownedScroll: RetainedLazyListUIAOwnedScroll? = nil
+    ) -> Bool {
+        guard request.runtime === self, lazyListUIARequest === request, request.phase != .finished,
+            lazyListResolutionBudget === request.budget, request.targetPass === pass,
+            isAccessibilityMutationCurrent(request.preparation.mutation),
+            isLazyListAccessibilityPreparationCurrent(request.preparation, checkingScrollIntent: ownedScroll == nil),
+            isLazyListAccessibilityItemCurrent(request.item),
+            request.hint?.isCurrent != false,
+            let scroll = request.preparation.scroll, isQuietLazyListUIAScroll(scroll),
+            !hasPendingLazyListUIACallbackWork, !layoutSettlementGenerationsExhausted,
+            layoutPassID == pass.passID, layoutSettlementResolutionSequence == pass.resolutionSequence,
+            lastUnmutatedLayoutPassRevision == pass.geometryRevision, displayScale == pass.displayScale,
+            pass.target.isCurrent(in: self), request.originalTarget?.node === pass.target.node,
+            request.originalTarget?.isCurrent(in: self) == true,
+            request.originalTargetIdentity?.isCurrent == true,
+            scroll.scrollSourceEpoch == pass.scrollEpoch,
+            scroll.hasVirtualizedDescendants == pass.hasVirtualizedDescendants,
+            scroll.scrollIndicatorAutoHides == pass.autoHidesIndicator,
+            scroll.showsScrollIndicator == pass.showsIndicator,
+            scroll.isScrollable == pass.isScrollable
+        else { return false }
+        let expectedGeometry: UInt64
+        let expectedMutation: UInt64
+        let offsetWasWritten: Bool
+        let layoutWasInvalidated: Bool
+        switch ownedScroll?.stage {
+        case .none, .reserved?:
+            expectedGeometry = pass.geometryRevision
+            expectedMutation = pass.mutationRevision
+            offsetWasWritten = false
+            layoutWasInvalidated = false
+        case .stored?:
+            expectedGeometry = pass.geometryRevision
+            expectedMutation = pass.mutationRevision
+            offsetWasWritten = true
+            layoutWasInvalidated = false
+        case .invalidated?:
+            guard let ownedScroll else { return false }
+            expectedGeometry = ownedScroll.offsetGeometryRevision
+            expectedMutation = ownedScroll.offsetMutationRevision
+            offsetWasWritten = true
+            layoutWasInvalidated = true
+        case .indicator?:
+            guard let ownedScroll else { return false }
+            expectedGeometry = ownedScroll.finalGeometryRevision
+            expectedMutation = ownedScroll.finalMutationRevision
+            offsetWasWritten = true
+            layoutWasInvalidated = true
+        }
+        guard layoutSettlementGeometryRevision == expectedGeometry,
+            request.preparation.mutation.revision == expectedMutation,
+            scroll.scrollOffset == (offsetWasWritten ? ownedScroll?.offset : pass.scrollOffset)
+        else { return false }
+        if offsetWasWritten {
+            guard let ownedScroll, scroll.lazyListScrollIntentIdentity === ownedScroll.intent else { return false }
+        } else {
+            guard scroll.lazyListScrollIntentIdentity === request.preparation.scrollIntent,
+                let content = request.item.content,
+                let current = content.readOnlyLazyListViewport(displayScale: displayScale),
+                current.0 == pass.viewport, current.1 === scroll, current.2 == pass.contentOriginY
+            else { return false }
+        }
+        for entry in pass.geometry {
+            guard let node = entry.layout.node, entry.layout.attachment.isCurrent, node.runtime === self,
+                node.resolvedFrame == entry.frame, node.resolvedContentSize == entry.contentSize,
+                node.resolvedScrollOffset == entry.resolvedScrollOffset,
+                node.isHidden == entry.isHidden, node.isLayoutDeferredByVirtualization == entry.isDeferred,
+                !node.isRetiringLazyListAttachment
+            else { return false }
+            if node === scroll, layoutWasInvalidated, pass.hasVirtualizedDescendants {
+                guard node.lazyListLayoutIdentity == nil else { return false }
+            } else {
+                guard entry.layout.isCurrent else { return false }
+            }
+        }
+        for list in pass.lists {
+            guard let node = list.node, let adapter = list.adapter, node.retainedLazyListAdapter === adapter,
+                adapter.ownsAttachment(node), list.layout.isCurrent, list.records.isCurrent,
+                adapter.managedLogicalDescriptorBinding === list.descriptor, list.descriptor?.isCurrent != false
+            else { return false }
+        }
+        return pass.leaves.allSatisfy { leaf in
+            guard let node = leaf.node, let container = leaf.container else { return false }
+            return leaf.attachment.isCurrent && leaf.identity.isCurrent && node.parent === container
+                && container.children.contains(where: { $0 === node }) && node.retainedLazyListGap == leaf.gap
+        }
+    }
+
+    fileprivate func canBeginLazyListUIAOwnedScroll(
+        _ request: RetainedLazyListUIARequest, in scroll: ViewNode, offset: Double
+    ) -> Bool {
+        guard request.phase == .scrolling, request.preparation.scroll === scroll,
+            let owned = request.ownedScroll, owned.stage == .reserved, owned.offset == offset,
+            request.budget.remainingRounds > 0, owned.pass.scrollOffset != offset
+        else { return false }
+        return isLazyListUIATargetPassCurrent(owned.pass, for: request, ownedScroll: owned)
+    }
+
+    fileprivate func isLazyListUIAOwnedScrollCurrent(
+        _ request: RetainedLazyListUIARequest, in scroll: ViewNode
+    ) -> Bool {
+        guard request.phase == .scrolling, request.preparation.scroll === scroll, let owned = request.ownedScroll
+        else { return false }
+        return isLazyListUIATargetPassCurrent(owned.pass, for: request, ownedScroll: owned)
+    }
+
+    fileprivate func advanceLazyListUIAOwnedScroll(
+        _ request: RetainedLazyListUIARequest, in scroll: ViewNode, to stage: RetainedLazyListUIAOwnedScroll.Stage
+    ) -> Bool {
+        guard request.phase == .scrolling, request.preparation.scroll === scroll, let owned = request.ownedScroll
+        else { return false }
+        switch (owned.stage, stage) {
+        case (.reserved, .stored), (.stored, .invalidated), (.invalidated, .indicator):
+            owned.stage = stage
+        default:
+            return false
+        }
+        return isLazyListUIAOwnedScrollCurrent(request, in: scroll)
+    }
+
+    private func checkedLazyListUIAScrollOffset(
+        _ pass: RetainedLazyListUIATargetPass, in request: RetainedLazyListUIARequest
+    ) -> RetainedLazyListUIAScrollGeometry.Offset? {
+        guard isLazyListUIATargetPassCurrent(pass, for: request), let target = pass.target.node,
+            let scroll = request.preparation.scroll,
+            let targetGeometry = pass.geometry.first(where: { $0.layout.node === target }),
+            let scrollGeometry = pass.geometry.first(where: { $0.layout.node === scroll })
+        else { return nil }
+        var origins: [Point] = []
+        var reachedScroll = false
+        for link in pass.target.path.dropFirst() {
+            guard let node = link.node else { return nil }
+            if node === scroll {
+                reachedScroll = true
+                break
+            }
+            guard node.scrollAxis == nil, let entry = pass.geometry.first(where: { $0.layout.node === node }) else {
+                return nil
+            }
+            origins.append(entry.frame.origin)
+        }
+        guard reachedScroll else { return nil }
+        return RetainedLazyListUIAScrollGeometry(
+            targetFrame: targetGeometry.frame, ancestorOrigins: origins,
+            viewportSize: scrollGeometry.frame.size, contentSize: scrollGeometry.contentSize,
+            logicalOffset: pass.scrollOffset, overshoot: 0, presentedDelta: 0
+        ).checkedOffset()
+    }
+
+    /// Motion/cancellation work is refused before any effect. In this quiet
+    /// state the shared setter's cancellation funnel performs no callback.
+    /// The final paid query keeps a marker reserved before the offset write;
+    /// it never reads a newer marker after an authored callout.
+    private func applyLazyListUIAScroll(
+        _ offset: Double, using pass: RetainedLazyListUIATargetPass, for request: RetainedLazyListUIARequest
+    ) -> Bool {
+        guard isLazyListUIATargetPassCurrent(pass, for: request), request.budget.remainingRounds > 0,
+            let scroll = request.preparation.scroll, offset.isFinite
+        else { return false }
+        if offset == pass.scrollOffset {
+            request.targetPass = nil
+            return true
+        }
+        guard let owned = RetainedLazyListUIAOwnedScroll(pass: pass, offset: offset),
+            request.queryLayoutProofs.filter({ $0.node === scroll }).count == 1
+        else { return false }
+        request.ownedScroll = owned
+        request.phase = .scrolling
+        guard scroll.assignScrollOffset(offset, admission: nil, continuingLazyListUIARequest: request),
+            owned.stage == .indicator, isLazyListUIAOwnedScrollCurrent(request, in: scroll),
+            scroll.installLazyListUIAQueryLayoutIdentity(request)
+        else { return false }
+        if pass.hasVirtualizedDescendants {
+            request.queryLayoutProofs = request.queryLayoutProofs.map { proof in
+                guard proof.node === scroll else { return proof }
+                return RetainedLazyListLocalLayoutProof(
+                    node: scroll, identity: owned.nextLayoutIdentity, attachment: proof.attachment)
+            }
+        }
+        request.preparation.scrollIntent = owned.intent
+        request.targetPass = nil
+        request.ownedScroll = nil
+        request.phase = .measured
+        guard isLazyListUIARequestCurrent(request) else { return false }
+        recordLazyListUIAPhase(.ownedScroll)
+        return true
+    }
+
+    private func queryLazyListUIARequest(_ request: RetainedLazyListUIARequest, phase: RetainedLazyListUIARequest.Phase)
+        -> RetainedLazyListUIATargetPass?
+    {
+        performLazyListUIAQuery(request, phase: phase, resuming: nil)
+    }
+
+    /// This entry never calls the ordinary target-query entry and cannot
+    /// acquire its permission from a new actual pass or newly read counters.
+    private func resumeLazyListUIARequest(
+        _ request: RetainedLazyListUIARequest, using unused: LazyListUIAUnusedProviderPhase
+    ) -> RetainedLazyListUIATargetPass? {
+        guard unused.state == .consumed, unused.stage == .demand,
+            request.queryLayoutProofs.isEmpty,
+            isUnusedLazyListUIAProviderPhaseCurrent(unused, at: .demand, for: request)
+        else { return nil }
+        return performLazyListUIAQuery(request, phase: .targetQuery, resuming: unused)
+    }
+
+    private func performLazyListUIAQuery(
+        _ request: RetainedLazyListUIARequest, phase: RetainedLazyListUIARequest.Phase,
+        resuming unused: LazyListUIAUnusedProviderPhase?
+    ) -> RetainedLazyListUIATargetPass? {
+        guard isLazyListUIARequestCurrent(request), request.budget.remainingRounds > 0,
+            phase == .targetQuery || phase == .finalQuery, let content = request.item.content
+        else { return nil }
+        let nextSequence: UInt64
+        if let unused {
+            guard phase == .targetQuery,
+                isUnusedLazyListUIAProviderPhaseCurrent(unused, at: .demand, for: request)
+            else { return nil }
+            nextSequence = unused.reservation.resumeResolutionSequence
+        } else {
+            let next = layoutSettlementResolutionSequence.addingReportingOverflow(1)
+            guard !next.overflow else { return nil }
+            nextSequence = next.partialValue
+        }
+        if request.queryLayoutProofs.isEmpty {
+            // Freeze the existing container/ancestor geometry before the
+            // first target factory. A failed candidate cannot retry under a
+            // newer local stamp after an authored changed-and-restored value.
+            let path = request.item.attachment.path
+            request.queryLayoutProofs =
+                unused?.queryLayoutProofs
+                ?? path.compactMap { $0.node?.captureLazyListLocalLayoutProof() }
+            guard request.queryLayoutProofs.count == path.count, isLazyListUIARequestCurrent(request) else {
+                return nil
+            }
+        }
+        request.phase = phase
+        request.targetPass = nil
+        request.querySequence = nextSequence
+        request.queryStartingRounds = request.budget.remainingRounds
+        request.queryIsSealed = false
+        // resolvedLayoutFrame includes both ordinary query epilogues. Neither
+        // a queued callback nor a nested layout can replace the captured pass.
+        let frame: Rect?
+        if let unused {
+            frame = resolvedLayoutFrame(of: content, resuming: unused)
+        } else {
+            frame = resolvedLayoutFrame(of: content)
+        }
+        request.queryIsSealed = true
+        request.phase = .measured
+        guard frame != nil, isLazyListUIARequestCurrent(request), let pass = request.targetPass,
+            isLazyListUIATargetPassCurrent(pass, for: request)
+        else { return nil }
+        return pass
+    }
+
+    /// One bounded operation combines actual target construction and reveal.
+    /// The hint affects only construction planning, is retired before ordinary
+    /// final viewport selection, and never supplies geometry or ready roots.
+    package func resolveLazyListUIARequest(_ request: RetainedLazyListUIARequest) -> [ViewNode]? {
+        guard request.phase == .prepared, isLazyListUIARequestCurrent(request),
+            isAccessibilityMutationCurrent(request.preparation.mutation),
+            let content = request.item.content, let adapter = request.item.adapter,
+            let scroll = request.preparation.scroll, isQuietLazyListUIAScroll(scroll),
+            adapter.knownLeafCount(for: request.item.token) != 0,
+            adapter.updateProtectedRoots(protectedLazyListRoots(in: content))
+        else { return nil }
+        // Consumption precedes every demand/hint effect. A failed certificate
+        // before consumption falls back to the unchanged paid query path.
+        let unused = consumeUnusedLazyListUIAProviderPhase(for: request)
+        defer {
+            if let unused, unused.state == .consumed, unused.stage != .spent {
+                revokeUnusedLazyListUIAProviderPhase(unused)
+            }
+        }
+        guard beginLazyListTargetResolution(during: request.preparation.mutation) else { return nil }
+        request.beganResolution = true
+        guard
+            let realization = adapter.beginLogicalRealization(
+                of: request.item.token, owner: request.item.realizationOwner)
+        else { return nil }
+        request.item.realization = realization
+        guard let viewport = content.readOnlyLazyListViewport(displayScale: displayScale), viewport.1 === scroll,
+            let hint = adapter.beginUIAConstructionHint(for: realization, viewport: viewport.0)
+        else { return nil }
+        request.hint = hint
+        if let unused {
+            guard isUnusedLazyListUIAProviderPhaseCurrent(unused, at: .initial, for: request) else { return nil }
+        }
+        content.markDirty([.children, .layout, .paint])
+        invalidate(.layout, from: content)
+        let targetPass: RetainedLazyListUIATargetPass?
+        if let unused {
+            unused.stage = .demand
+            targetPass = resumeLazyListUIARequest(request, using: unused)
+        } else {
+            targetPass = queryLazyListUIARequest(request, phase: .targetQuery)
+        }
+        guard var pass = targetPass else { return nil }
+        lazyListLogicalRevealScroll = scroll
+        for _ in 0..<4 {
+            guard let offset = checkedLazyListUIAScrollOffset(pass, in: request),
+                applyLazyListUIAScroll(offset.clampedOffset, using: pass, for: request)
+            else { return nil }
+            if let hint = request.hint {
+                guard adapter.endUIAConstructionHint(hint) else { return nil }
+                request.hint = nil
+            }
+            guard let nextPass = queryLazyListUIARequest(request, phase: .finalQuery),
+                isLazyListUIARequestCurrent(request), case .settled = layoutSettlementStatus,
+                hasCurrentAccessibilityPrepaint, let target = request.originalTarget?.node,
+                request.originalTarget?.isCurrent(in: self) == true,
+                let roots = realizedLazyListAccessibilityNodes(for: request.item),
+                roots.contains(where: { $0 === target })
+            else { return nil }
+            if prepaintState.interactions.contains(where: {
+                $0.node === target && $0.visibleFrame.width > 0 && $0.visibleFrame.height > 0
+            }) {
+                request.phase = .resolved
+                request.completed = true
+                return roots
+            }
+            guard request.budget.remainingRounds > 0,
+                let correction = checkedLazyListUIAScrollOffset(nextPass, in: request),
+                correction.clampedOffset != nextPass.scrollOffset
+            else { return nil }
+            pass = nextPass
+        }
+        return nil
+    }
+
+    package func isResolvedLazyListUIARequestCurrent(_ request: RetainedLazyListUIARequest) -> Bool {
+        guard request.phase == .resolved, request.completed, isLazyListUIARequestCurrent(request),
+            let pass = request.targetPass, isLazyListUIATargetPassCurrent(pass, for: request),
+            case .settled = layoutSettlementStatus, hasCurrentAccessibilityPrepaint
+        else { return false }
+        return true
+    }
+
+    /// Platform calls this after projection and binding, even on failure.
+    /// Cleanup uses native completion and the exact request's own lease; it
+    /// cannot clear a competitor or revive a transferred obsolete request.
+    package func finishLazyListUIARequest(_ request: RetainedLazyListUIARequest) {
+        guard request.runtime === self, request.phase != .finished else { return }
+        request.queryIsSealed = true
+        if let hint = request.hint, let adapter = request.item.adapter { _ = adapter.endUIAConstructionHint(hint) }
+        request.hint = nil
+        request.item.realization?.revoke()
+        releaseLazyListTarget(request.item, invalidatingLayout: !request.completed)
+        if request.beganResolution {
+            request.beganResolution = false
+            finishLazyListTargetResolution()
+        }
+        endLazyListAccessibilityPreparation(request.preparation)
+        request.phase = .finished
+        request.targetPass = nil
+        request.ownedScroll = nil
+        if lazyListUIARequest === request { lazyListUIARequest = nil }
     }
 
     /// This native check also runs inside the existing anchor pass, so it does

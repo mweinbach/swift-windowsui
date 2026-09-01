@@ -80,6 +80,112 @@ package final class RetainedLazyListRuntimeAdapter {
         }
     }
 
+    /// One request's estimate-only construction plan. Coordinates never leave
+    /// the adapter, and the marker owns no node, provider, or authored callback.
+    /// Runtime retains its independent original input and attachment authority.
+    @MainActor
+    final class UIAConstructionHint {
+        fileprivate weak var adapter: RetainedLazyListRuntimeAdapter?
+        fileprivate weak var realization: RetainedLazyListLogicalRealization?
+        fileprivate let configuration: RetainedLazyListAdapterIdentity
+        fileprivate let generation: RetainedLazyListGeneration
+        fileprivate let descriptor: RetainedLazyListManagedLogicalDescriptorBinding?
+        fileprivate let membership: RetainedLazyListMembershipIdentity
+        fileprivate let token: RetainedLazyListRowToken
+        fileprivate let sourceIndex: Int
+        fileprivate let viewport: Viewport
+        fileprivate let estimatedViewport: Viewport
+        fileprivate var wasRevoked = false
+        fileprivate var acceptedPlan: UIAConstructionPlan?
+
+        fileprivate init(
+            adapter: RetainedLazyListRuntimeAdapter, realization: RetainedLazyListLogicalRealization,
+            configuration: RetainedLazyListAdapterIdentity, generation: RetainedLazyListGeneration,
+            descriptor: RetainedLazyListManagedLogicalDescriptorBinding?,
+            membership: RetainedLazyListMembershipIdentity, sourceIndex: Int,
+            viewport: Viewport, estimatedViewport: Viewport
+        ) {
+            self.adapter = adapter
+            self.realization = realization
+            self.configuration = configuration
+            self.generation = generation
+            self.descriptor = descriptor
+            self.membership = membership
+            token = realization.token
+            self.sourceIndex = sourceIndex
+            self.viewport = viewport
+            self.estimatedViewport = estimatedViewport
+        }
+
+        var isCurrent: Bool { adapter?.isUIAConstructionHintCurrent(self) == true }
+    }
+
+    /// A native planning classification, never a settlement, physical-layout,
+    /// scrolling, focus, action, or accessibility-projection authorization.
+    enum UIAConstructionReadiness: Equatable {
+        case obsolete
+        case awaitingPreparation
+        case awaitingProbeRetirement
+        case measurementOnly
+    }
+
+    fileprivate struct UIAConstructionPlan {
+        let attempt: RetainedLazyListAdapterIdentity
+        let requiredTokens: Set<RetainedLazyListRowToken>
+        let plannedTokens: Set<RetainedLazyListRowToken>
+        let preparedTokens: Set<RetainedLazyListRowToken>
+        let probeToken: RetainedLazyListRowToken?
+        let exceedsRecordLimit: Bool
+    }
+
+    /// One preparation's original insertion classifications. This local
+    /// metadata keeps the existing carried-record activity ownership unchanged;
+    /// its adapter and actual attachment nodes remain weak. Runtime still owns
+    /// all build, UIA, and publication authority outside this capture.
+    @MainActor
+    final class UIAInsertionOrigins {
+        fileprivate weak var adapter: RetainedLazyListRuntimeAdapter?
+        fileprivate let attempt: RetainedLazyListAdapterIdentity
+        fileprivate let configuration: RetainedLazyListAdapterIdentity
+        fileprivate let generation: RetainedLazyListGeneration
+        fileprivate let descriptor: RetainedLazyListManagedLogicalDescriptorBinding
+        fileprivate let origins: [RetainedLazyListRowToken: RetainedLazyListInsertionOrigin]
+        fileprivate let cohorts: [RetainedLazyListRowToken: CarriedRecordProof]
+
+        fileprivate init(
+            adapter: RetainedLazyListRuntimeAdapter, attempt: RetainedLazyListAdapterIdentity,
+            configuration: RetainedLazyListAdapterIdentity, generation: RetainedLazyListGeneration,
+            descriptor: RetainedLazyListManagedLogicalDescriptorBinding,
+            origins: [RetainedLazyListRowToken: RetainedLazyListInsertionOrigin],
+            cohorts: [RetainedLazyListRowToken: CarriedRecordProof]
+        ) {
+            self.adapter = adapter
+            self.attempt = attempt
+            self.configuration = configuration
+            self.generation = generation
+            self.descriptor = descriptor
+            self.origins = origins
+            self.cohorts = cohorts
+        }
+
+        var isCurrent: Bool {
+            guard let adapter, !adapter.isReleasing,
+                adapter.attempt === attempt, adapter.configuration === configuration,
+                adapter.generation == generation, generation.isCurrent,
+                adapter.managedLogicalDescriptor === descriptor, descriptor.isCurrent
+            else { return false }
+            return cohorts.values.allSatisfy(\.isCurrent)
+        }
+
+        /// Return the same native event even if it has since been claimed or
+        /// expired. Its own claim gate decides eligibility; never reclassify it
+        /// as materialization or obtain a replacement event after a callback.
+        func origin(for token: RetainedLazyListRowToken) -> RetainedLazyListInsertionOrigin? {
+            guard isCurrent else { return nil }
+            return origins[token]
+        }
+    }
+
     /// Native freshness for an already admitted scalar geometry correction.
     /// It keeps no adapter, provider, or node alive and does not authorize
     /// construction, node adoption, focus, or accessibility operations.
@@ -103,6 +209,67 @@ package final class RetainedLazyListRuntimeAdapter {
             guard let adapter else { return false }
             return !adapter.isReleasing && adapter.configuration === configuration
                 && adapter.generation == generation && generation.isCurrent
+        }
+    }
+
+    /// Exact accepted row authority, separate from scalar layout freshness.
+    /// A root identity assignment can invalidate this proof without changing
+    /// geometry. Runtime separately keeps its original physical-pass evidence.
+    @MainActor
+    final class UIAActualRecordsProof {
+        fileprivate weak var adapter: RetainedLazyListRuntimeAdapter?
+        fileprivate let configuration: RetainedLazyListAdapterIdentity
+        fileprivate let generation: RetainedLazyListGeneration
+        fileprivate let descriptor: RetainedLazyListManagedLogicalDescriptorBinding?
+        fileprivate let membership: RetainedLazyListMembershipIdentity
+        fileprivate let context: RetainedLazyListMeasurementContext
+        fileprivate let records: [UIAActualRecordWitness]
+
+        fileprivate init(
+            adapter: RetainedLazyListRuntimeAdapter, configuration: RetainedLazyListAdapterIdentity,
+            generation: RetainedLazyListGeneration, descriptor: RetainedLazyListManagedLogicalDescriptorBinding?,
+            membership: RetainedLazyListMembershipIdentity, context: RetainedLazyListMeasurementContext,
+            records: [UIAActualRecordWitness]
+        ) {
+            self.adapter = adapter
+            self.configuration = configuration
+            self.generation = generation
+            self.descriptor = descriptor
+            self.membership = membership
+            self.context = context
+            self.records = records
+        }
+
+        var isCurrent: Bool { adapter?.isUIAActualRecordsProofCurrent(self) == true }
+    }
+
+    @MainActor
+    fileprivate struct UIAActualRootWitness {
+        weak var node: ViewNode?
+        let identity: RetainedLazyListViewIdentityProof
+
+        init(_ node: ViewNode) {
+            self.node = node
+            identity = node.captureLazyListIdentityProof()
+        }
+    }
+
+    @MainActor
+    fileprivate final class UIAActualRecordWitness {
+        let request: RetainedLazyListRowRequest
+        let configuration: RetainedLazyListAdapterIdentity
+        let roots: [UIAActualRootWitness]
+        let acceptedIdentities: [RetainedLazyListViewIdentityProof]
+        let hadActivity: Bool
+        weak var activity: RetainedLazyListMaterializedRowActivity?
+
+        init(_ record: Record) {
+            request = record.request
+            configuration = record.configuration
+            roots = record.nodes.map { UIAActualRootWitness($0) }
+            acceptedIdentities = record.identityProofs
+            hadActivity = record.activity != nil
+            activity = record.activity
         }
     }
 
@@ -228,6 +395,7 @@ package final class RetainedLazyListRuntimeAdapter {
         let previousIdentityProofs: [RetainedLazyListViewIdentityProof]
         let managed: ManagedPreparation?
         var carriedRecordProofs: [CarriedRecordProof] = []
+        var constructionHint: UIAConstructionHint? = nil
         // Only synchronous probe authority carries this additional request
         // gate. Nothing stores it after the adapter method returns.
         var probeRequestIsCurrent: (@MainActor () -> Bool)? = nil
@@ -281,6 +449,8 @@ package final class RetainedLazyListRuntimeAdapter {
         fileprivate let attempt: RetainedLazyListAdapterIdentity
         fileprivate let protectedTokens: Set<RetainedLazyListRowToken>
         fileprivate let carriedRecordProofs: [RetainedLazyListRowToken: CarriedRecordProof]
+        fileprivate let constructionHint: UIAConstructionHint?
+        fileprivate let constructionPlan: UIAConstructionPlan?
         fileprivate weak var adapter: RetainedLazyListRuntimeAdapter?
         fileprivate var wasCompleted = false
         fileprivate var wasConsumed = false
@@ -304,7 +474,8 @@ package final class RetainedLazyListRuntimeAdapter {
             virtualizedDepartureRoots: Set<ObjectIdentifier>,
             departingEmptyRows: [(RetainedLazyListMaterializedRowActivity, RetainedLazyListDepartureCause)] = [],
             emptyRowContinuations: [ObjectIdentifier: RetainedLazyListEmptyRowContinuation] = [:],
-            carriedRecordProofs: [RetainedLazyListRowToken: CarriedRecordProof] = [:]
+            carriedRecordProofs: [RetainedLazyListRowToken: CarriedRecordProof] = [:],
+            constructionHint: UIAConstructionHint? = nil, constructionPlan: UIAConstructionPlan? = nil
         ) {
             self.adapter = adapter
             self.buttonConstruction = buttonConstruction
@@ -318,6 +489,8 @@ package final class RetainedLazyListRuntimeAdapter {
             self.attempt = attempt
             self.protectedTokens = protectedTokens
             self.carriedRecordProofs = carriedRecordProofs
+            self.constructionHint = constructionHint
+            self.constructionPlan = constructionPlan
             self.virtualizedDepartureRoots = virtualizedDepartureRoots
             self.departingEmptyRows = departingEmptyRows
             self.emptyRowContinuations = emptyRowContinuations
@@ -510,6 +683,17 @@ package final class RetainedLazyListRuntimeAdapter {
         let exceedsRecordLimit: Bool
     }
 
+    private struct UIAPlannedWindow {
+        let tokens: [RetainedLazyListRowToken]
+        let exceedsRecordLimit: Bool
+    }
+
+    private enum CandidateGapProbe {
+        case none
+        case token(RetainedLazyListRowToken)
+        case invalid
+    }
+
     private struct CoordinateRecord {
         let token: RetainedLazyListRowToken
         let position: Int
@@ -622,6 +806,14 @@ package final class RetainedLazyListRuntimeAdapter {
         }
 
         func predecessor(before position: Int) -> GapPredecessor {
+            guard let entry = predecessorEntry(before: position) else { return .beginning }
+            guard let boundary = entry.summary?.last else { return .unknown(position: entry.position) }
+            return .row(boundary)
+        }
+
+        /// Preserve the ordinal so fresh bounded candidate entries can shadow
+        /// accepted summaries, including a row that has become empty.
+        func predecessorEntry(before position: Int) -> (position: Int, summary: GapBoundarySummary?)? {
             precondition(position >= 0 && position <= summaries.count)
             var lower = leafBase
             var upper = leafBase + position
@@ -638,11 +830,8 @@ package final class RetainedLazyListRuntimeAdapter {
                 lower /= 2
                 upper /= 2
             }
-            guard candidate >= 0 else { return .beginning }
-            guard let summary = summaries[candidate], let boundary = summary.last else {
-                return .unknown(position: candidate)
-            }
-            return .row(boundary)
+            guard candidate >= 0 else { return nil }
+            return (candidate, summaries[candidate])
         }
 
         func ordinalBefore(_ position: Int) -> (parity: Bool, hasUnknownPrefix: Bool) {
@@ -714,6 +903,7 @@ package final class RetainedLazyListRuntimeAdapter {
     private var transitionAwaitingMeasurements: Set<RetainedLazyListRowToken> = []
     private var transitionCapacityDeferred: Set<RetainedLazyListRowToken> = []
     private var logicalRealization: RetainedLazyListLogicalRealization?
+    private var uiaConstructionHint: UIAConstructionHint?
     private(set) var logicalMembershipIdentity = RetainedLazyListMembershipIdentity()
     private var stagedPredecessor: StagedPredecessor?
     private weak var attachmentOwner: ViewNode?
@@ -1102,6 +1292,90 @@ package final class RetainedLazyListRuntimeAdapter {
         logicalRealization = nil
     }
 
+    /// Runtime's original UIA request checks this during admitted construction,
+    /// when ordinary snapshot queries deliberately reject isPreparing. No
+    /// provider getter or logical-membership lookup participates in this check.
+    func isUIAConstructionGenerationCurrent(_ generation: RetainedLazyListGeneration) -> Bool {
+        !isReleasing && self.generation == generation && generation.isCurrent
+    }
+
+    /// Estimates select only additional bounded construction. The actual
+    /// viewport and every current protected/required row keep their own priority.
+    /// Both an unbuilt target and a current target can request useful neighbors.
+    func beginUIAConstructionHint(
+        for realization: RetainedLazyListLogicalRealization, viewport: Viewport
+    ) -> UIAConstructionHint? {
+        discardRevokedUIAConstructionHint()
+        guard uiaConstructionHint == nil, logicalRealization === realization, realization.isActive,
+            hasCurrentLogicalSnapshot, snapshotIsCurrent(for: viewport), !pendingCandidate, !preparationIncomplete,
+            stagedPredecessor == nil, inheritedExtentSpacing == nil,
+            transitionRequiredTokens.isEmpty, transitionAwaitingMeasurements.isEmpty,
+            transitionCapacityDeferred.isEmpty,
+            let generation, generation.isCurrent, let sourceIndex = positions[realization.token],
+            managedLogicalDescriptor.map({ generation == $0.sourceGeneration }) != false,
+            knownLeafCount(for: realization.token) != 0,
+            let bounds = logicalBounds(for: realization.token), bounds.extent > 0,
+            viewport.extent > 0, let selection = windowSelection(viewport, protecting: protectedTokens),
+            !selection.exceedsRecordLimit
+        else { return nil }
+        let targetEnd = bounds.origin + bounds.extent
+        let viewportEnd = viewport.offset + viewport.extent
+        guard bounds.origin.isFinite, bounds.extent.isFinite, targetEnd.isFinite, viewportEnd.isFinite,
+            contentExtent.isFinite
+        else { return nil }
+        let requested: Double
+        if bounds.origin < viewport.offset {
+            requested = bounds.origin
+        } else if targetEnd > viewportEnd {
+            requested = targetEnd - viewport.extent
+        } else {
+            requested = viewport.offset
+        }
+        guard requested.isFinite,
+            let estimatedViewport = Viewport(
+                context: viewport.context,
+                offset: min(max(0, requested), max(0, contentExtent - viewport.extent)),
+                extent: viewport.extent)
+        else { return nil }
+        let hint = UIAConstructionHint(
+            adapter: self, realization: realization, configuration: configuration, generation: generation,
+            descriptor: managedLogicalDescriptor, membership: logicalMembershipIdentity, sourceIndex: sourceIndex,
+            viewport: viewport, estimatedViewport: estimatedViewport)
+        uiaConstructionHint = hint
+        unresolvedWork = true
+        return hint
+    }
+
+    /// Retire only this request's native plan. Releasing actual row payloads is
+    /// still ordinary paid reconciliation, never an effect of dropping a hint.
+    @discardableResult
+    func endUIAConstructionHint(_ hint: UIAConstructionHint) -> Bool {
+        guard hint.adapter === self else { return false }
+        hint.wasRevoked = true
+        hint.acceptedPlan = nil
+        guard uiaConstructionHint === hint else { return false }
+        uiaConstructionHint = nil
+        unresolvedWork = true
+        return true
+    }
+
+    private func discardRevokedUIAConstructionHint() {
+        guard let hint = uiaConstructionHint, !isUIAConstructionHintCurrent(hint) else { return }
+        _ = endUIAConstructionHint(hint)
+    }
+
+    fileprivate func isUIAConstructionHintCurrent(_ hint: UIAConstructionHint) -> Bool {
+        guard !hint.wasRevoked, hint.adapter === self, uiaConstructionHint === hint,
+            !isReleasing, acceptedSnapshot, configuration === hint.configuration,
+            generation == hint.generation, hint.generation.isCurrent,
+            managedLogicalDescriptor === hint.descriptor, managedLogicalDescriptor?.isCurrent != false,
+            logicalMembershipIdentity === hint.membership, extentIndex?.context == hint.viewport.context,
+            let realization = hint.realization, logicalRealization === realization, realization.isActive,
+            realization.token == hint.token, positions[hint.token] == hint.sourceIndex
+        else { return false }
+        return true
+    }
+
     private func discardRevokedLogicalRealization() {
         guard let logicalRealization, !logicalRealization.isActive else { return }
         self.logicalRealization = nil
@@ -1190,6 +1464,65 @@ package final class RetainedLazyListRuntimeAdapter {
             let generation, generation.isCurrent
         else { return nil }
         return LayoutProof(adapter: self, configuration: configuration, generation: generation)
+    }
+
+    /// Capture no provider, authored identity value, Record, or strong root
+    /// array. First measurements may still be pending; this does not certify
+    /// geometry or global settlement, only the exact accepted actual row table.
+    func captureUIAActualRecordsProof() -> UIAActualRecordsProof? {
+        guard hasCurrentLogicalSnapshot, !pendingCandidate, !preparationIncomplete,
+            let generation, generation.isCurrent, let context = extentIndex?.context,
+            mounted.count <= maximumMountedRecords, mountedLeafCount <= maximumMountedLeaves
+        else { return nil }
+        var identities: Set<ObjectIdentifier> = []
+        var records: [UIAActualRecordWitness] = []
+        for record in mounted.values {
+            guard recordIsCurrent(record), record.configuration === configuration else { return nil }
+            for node in record.nodes {
+                guard identities.insert(ObjectIdentifier(node)).inserted else { return nil }
+            }
+            records.append(UIAActualRecordWitness(record))
+        }
+        let proof = UIAActualRecordsProof(
+            adapter: self, configuration: configuration, generation: generation, descriptor: managedLogicalDescriptor,
+            membership: logicalMembershipIdentity, context: context, records: records)
+        return proof.isCurrent ? proof : nil
+    }
+
+    fileprivate func isUIAActualRecordsProofCurrent(_ proof: UIAActualRecordsProof) -> Bool {
+        // Pending construction is not an accepted row-table change. Keep this
+        // identity authority separate from Runtime's layout/settlement guards.
+        guard proof.adapter === self, !isReleasing, acceptedSnapshot,
+            configuration === proof.configuration, generation == proof.generation, proof.generation.isCurrent,
+            managedLogicalDescriptor === proof.descriptor, managedLogicalDescriptor?.isCurrent != false,
+            proof.descriptor.map({
+                $0.sourceGeneration == proof.generation && $0.scope.containsDeclaredDescriptor($0.descriptor)
+            }) != false,
+            logicalMembershipIdentity === proof.membership,
+            extentIndex?.context == proof.context, mounted.count == proof.records.count,
+            mounted.count <= maximumMountedRecords, mountedLeafCount <= maximumMountedLeaves
+        else { return false }
+        for original in proof.records {
+            guard let record = mounted[original.request.token], recordIsCurrent(record),
+                record.request == original.request, record.configuration === original.configuration,
+                record.nodes.count == original.roots.count, original.acceptedIdentities.allSatisfy(\.isCurrent)
+            else { return false }
+            for (node, root) in zip(record.nodes, original.roots) {
+                guard root.node === node, root.identity.isCurrent else { return false }
+            }
+            if let descriptor = proof.descriptor {
+                guard original.hadActivity, let activity = original.activity, record.activity === activity,
+                    activity.request == original.request, activity.isCurrent,
+                    activity.logicalMembership.scope === descriptor.scope, activity.logicalMembership.isDeclared,
+                    activity.physical.membership === activity.logicalMembership.id, activity.physical.state == .active
+                else { return false }
+            } else {
+                // A missing managed activity is never reinterpreted as a raw
+                // record after its weak original lifetime has ended.
+                guard !original.hadActivity, original.activity == nil, record.activity == nil else { return false }
+            }
+        }
+        return true
     }
 
     /// Claim only an actual retained container, never a build descriptor. One
@@ -1380,6 +1713,10 @@ package final class RetainedLazyListRuntimeAdapter {
         managed: ManagedPreparation?, preserving anchor: RetainedLazyListAnchor? = nil
     ) -> Preparation {
         discardRevokedLogicalRealization()
+        let expectedConstructionHint = uiaConstructionHint
+        guard expectedConstructionHint.map({ $0.viewport == viewport && $0.isCurrent }) != false else {
+            return .obsolete
+        }
         guard checkedAdmission?.isBuildCurrent(for: self) != false, managedPreparationIsCurrent(managed) else {
             return .obsolete
         }
@@ -1423,9 +1760,10 @@ package final class RetainedLazyListRuntimeAdapter {
                 let snapshot = widthSnapshot
                     ?? readSnapshot(
                         expectedAttempt: expectedAttempt, expectedConfiguration: expectedConfiguration,
-                        admission: checkedAdmission),
+                        admission: checkedAdmission, constructionHint: expectedConstructionHint),
                 operationIsCurrent(
-                    expectedAttempt, configuration: expectedConfiguration, admission: checkedAdmission),
+                    expectedAttempt, configuration: expectedConfiguration, admission: checkedAdmission,
+                    constructionHint: expectedConstructionHint),
                 snapshot.generation.isCurrent
             else { return .obsolete }
             guard let estimate = RetainedLazyListExtent.estimated(estimatedExtent + interLeafSpacing),
@@ -1483,7 +1821,8 @@ package final class RetainedLazyListRuntimeAdapter {
         }
         guard let generation, generation.isCurrent,
             operationIsCurrent(
-                expectedAttempt, configuration: expectedConfiguration, admission: checkedAdmission)
+                expectedAttempt, configuration: expectedConfiguration, admission: checkedAdmission,
+                constructionHint: expectedConstructionHint)
         else { return .obsolete }
         guard refreshAcceptedGapBoundarySummaries() else { return .unsupported }
         guard protectedRoots.count <= maximumMountedLeaves else { return .workRemaining }
@@ -1515,7 +1854,18 @@ package final class RetainedLazyListRuntimeAdapter {
         guard let selection = windowSelection(selectionViewport, protecting: nextProtected) else {
             return transitionRequiredTokens.isEmpty ? .unsupported : .workRemaining
         }
-        let boundaryProbe = nextGapBoundaryProbe(required: selection.requiredTokens)
+        let plannedWindow: UIAPlannedWindow
+        if let hint = expectedConstructionHint {
+            guard let planned = uiAPlannedWindow(for: hint, required: selection.requiredTokens) else {
+                return .obsolete
+            }
+            plannedWindow = planned
+        } else {
+            plannedWindow = UIAPlannedWindow(tokens: [], exceedsRecordLimit: false)
+        }
+        let plannedTokens = Set(plannedWindow.tokens)
+        var boundaryProbe =
+            expectedConstructionHint == nil ? nextGapBoundaryProbe(required: selection.requiredTokens) : nil
         var selectedTokens = nextProtected
         var orderedTokens = nextProtected.sorted {
             positions[$0, default: Int.max] < positions[$1, default: Int.max]
@@ -1523,36 +1873,64 @@ package final class RetainedLazyListRuntimeAdapter {
         for token in selection.tokens where selection.requiredTokens.contains(token) {
             if selectedTokens.insert(token).inserted { orderedTokens.append(token) }
         }
-        // Boundary discovery uses only spare capacity after every protected
-        // and visible row. It can displace prefetch, never a required lease or
-        // the current viewport's retained state. An exhausted cap stays dirty.
-        if let boundaryProbe, !selectedTokens.contains(boundaryProbe),
-            orderedTokens.count < maximumMountedRecords
-        {
-            selectedTokens.insert(boundaryProbe)
-            orderedTokens.append(boundaryProbe)
-        }
-        for token in selection.tokens where !selectedTokens.contains(token) {
-            guard orderedTokens.count < maximumMountedRecords else { break }
-            selectedTokens.insert(token)
-            orderedTokens.append(token)
+        if expectedConstructionHint != nil {
+            // Planned rows are neither physical input protection nor current
+            // viewport requirements. Their bounded construction follows both.
+            for token in plannedWindow.tokens where selectedTokens.insert(token).inserted {
+                orderedTokens.append(token)
+            }
+        } else {
+            // Keep the ordinary path's existing probe and prefetch order.
+            if let boundaryProbe, !selectedTokens.contains(boundaryProbe),
+                orderedTokens.count < maximumMountedRecords
+            {
+                selectedTokens.insert(boundaryProbe)
+                orderedTokens.append(boundaryProbe)
+            }
+            for token in selection.tokens where !selectedTokens.contains(token) {
+                guard orderedTokens.count < maximumMountedRecords else { break }
+                selectedTokens.insert(token)
+                orderedTokens.append(token)
+            }
         }
         // A capped estimated window must still get a chance to measure its
         // prefix. Large actual rows can make that bounded prefix sufficient.
         // Protected cohorts build first for lease safety, then visible rows,
         // then nearest prefetch. A large prefetch must never consume the cap
         // or a small shared element budget before required visible rows.
+        let requiresUIAInsertionOrigins = managed != nil && expectedConstructionHint != nil
+        var uiaInsertionOrigins: UIAInsertionOrigins?
         var insertionOrigins: [RetainedLazyListRowToken: RetainedLazyListInsertionOrigin] = [:]
         var insertionCohorts: [RetainedLazyListRowToken: CarriedRecordProof] = [:]
         if managed != nil {
-            for token in orderedTokens {
-                if let event = pendingInsertionEvent(for: token) {
-                    insertionOrigins[token] = .logicalIntroduction(event)
-                } else if let record = mounted[token], let proof = carriedRecordProof(for: record) {
-                    insertionOrigins[token] = .existingRow
-                    insertionCohorts[token] = proof
-                } else {
-                    insertionOrigins[token] = .materialization
+            if requiresUIAInsertionOrigins {
+                guard
+                    operationIsCurrent(
+                        expectedAttempt, configuration: expectedConfiguration, admission: checkedAdmission,
+                        constructionHint: expectedConstructionHint),
+                    generation.isCurrent, managedPreparationIsCurrent(managed),
+                    let originalOrigins = captureUIAInsertionOrigins(
+                        initial: orderedTokens, selection: selection.tokens)
+                else { return .obsolete }
+                guard
+                    operationIsCurrent(
+                        expectedAttempt, configuration: expectedConfiguration, admission: checkedAdmission,
+                        constructionHint: expectedConstructionHint),
+                    generation.isCurrent, managedPreparationIsCurrent(managed), originalOrigins.isCurrent
+                else { return .obsolete }
+                uiaInsertionOrigins = originalOrigins
+                insertionOrigins = originalOrigins.origins
+                insertionCohorts = originalOrigins.cohorts
+            } else {
+                for token in orderedTokens {
+                    if let event = pendingInsertionEvent(for: token) {
+                        insertionOrigins[token] = .logicalIntroduction(event)
+                    } else if let record = mounted[token], let proof = carriedRecordProof(for: record) {
+                        insertionOrigins[token] = .existingRow
+                        insertionCohorts[token] = proof
+                    } else {
+                        insertionOrigins[token] = .materialization
+                    }
                 }
             }
         }
@@ -1579,14 +1957,71 @@ package final class RetainedLazyListRuntimeAdapter {
         var leafCount = 0
         var leafIdentities: Set<ObjectIdentifier> = []
         var stoppedForBudget = false
-        for token in orderedTokens {
+        var cursor = 0
+        var appendedProbeAndPrefetch = expectedConstructionHint == nil
+        while cursor < orderedTokens.count || !appendedProbeAndPrefetch {
+            if cursor == orderedTokens.count {
+                appendedProbeAndPrefetch = true
+                guard expectedConstructionHint?.isCurrent == true,
+                    operationIsCurrent(
+                        expectedAttempt, configuration: expectedConfiguration, admission: checkedAdmission,
+                        identityProofs: acceptedIdentityProofs, constructionHint: expectedConstructionHint)
+                else { return .obsolete }
+                let prepared = Set(records.map { $0.request.token })
+                // Missing original requirements cannot be displaced by future
+                // rows, a probe, or spare prefetch after a partial budget slice.
+                guard selection.requiredTokens.isSubset(of: prepared) else { break }
+                switch nextCandidateGapBoundaryProbe(
+                    required: selection.requiredTokens.union(plannedTokens),
+                    records: records, indices: preparedRecordIndices)
+                {
+                case .none:
+                    break
+                case .token(let token):
+                    boundaryProbe = token
+                case .invalid:
+                    return .unsupported
+                }
+                var reservedRecords = records.count
+                // One probe, after the complete bounded planned prefix. Its
+                // own predecessor is never recursively constructed. A token
+                // whose optional output was rejected is not retried here.
+                if let boundaryProbe, !selectedTokens.contains(boundaryProbe),
+                    reservedRecords < maximumMountedRecords, leafCount < maximumMountedLeaves
+                {
+                    // A callback may have changed cached gap provenance. Do
+                    // not refresh an origin after earlier factories ran.
+                    guard !requiresUIAInsertionOrigins || uiaInsertionOrigins?.origin(for: boundaryProbe) != nil else {
+                        return .obsolete
+                    }
+                    selectedTokens.insert(boundaryProbe)
+                    orderedTokens.append(boundaryProbe)
+                    reservedRecords += 1
+                }
+                for token in selection.tokens where !selectedTokens.contains(token) {
+                    guard reservedRecords < maximumMountedRecords else { break }
+                    guard !requiresUIAInsertionOrigins || uiaInsertionOrigins?.origin(for: token) != nil else {
+                        return .obsolete
+                    }
+                    selectedTokens.insert(token)
+                    orderedTokens.append(token)
+                    reservedRecords += 1
+                }
+                if cursor == orderedTokens.count { break }
+            }
+            let token = orderedTokens[cursor]
+            cursor += 1
             guard
                 operationIsCurrent(
                     expectedAttempt, configuration: expectedConfiguration, admission: checkedAdmission,
-                    identityProofs: acceptedIdentityProofs),
+                    identityProofs: acceptedIdentityProofs, constructionHint: expectedConstructionHint),
                 generation.isCurrent, originalActualProofs.allSatisfy(\.isCurrent)
             else { return .obsolete }
             let isRequired = selection.requiredTokens.contains(token)
+            if records.count == maximumMountedRecords {
+                if isRequired { return .workRemaining }
+                continue
+            }
             if originalProofs[token] != nil, let original = mounted[token] {
                 remainingReservedLeaves -= original.nodes.count
             }
@@ -1618,13 +2053,14 @@ package final class RetainedLazyListRuntimeAdapter {
                     budget: budget, admission: checkedAdmission, managed: managed,
                     buttonConstruction: buttonConstruction,
                     carriedRecordProofs: originalActualProofs,
-                    mayDeferForCapacity: originalProofs[token] != nil && !transitionRequiredTokens.isEmpty)
+                    mayDeferForCapacity: originalProofs[token] != nil && !transitionRequiredTokens.isEmpty,
+                    constructionHint: expectedConstructionHint)
                 // In particular, optional oversized outputs and typed identity
                 // temporaries have been destroyed before another provider call.
                 guard
                     operationIsCurrent(
                         expectedAttempt, configuration: expectedConfiguration, admission: checkedAdmission,
-                        identityProofs: acceptedIdentityProofs),
+                        identityProofs: acceptedIdentityProofs, constructionHint: expectedConstructionHint),
                     generation.isCurrent, originalActualProofs.allSatisfy(\.isCurrent)
                 else { return .obsolete }
                 switch result {
@@ -1655,6 +2091,7 @@ package final class RetainedLazyListRuntimeAdapter {
                     admission: checkedAdmission, previousIdentityProofs: acceptedIdentityProofs,
                     managed: managed)
                 authority.carriedRecordProofs = originalActualProofs
+                authority.constructionHint = expectedConstructionHint
                 guard carriedIdentitiesAreDistinct(record, from: acceptedRoots, authority: authority) else {
                     return authorityIsCurrent(authority) ? .unsupported : .obsolete
                 }
@@ -1662,7 +2099,7 @@ package final class RetainedLazyListRuntimeAdapter {
             } else {
                 guard recordIsCurrent(record) else { return .obsolete }
             }
-            if !isRequired, token != boundaryProbe, hasUnresolvedLeadingGap(record),
+            if !isRequired, !plannedTokens.contains(token), token != boundaryProbe, hasUnresolvedLeadingGap(record),
                 !hasPreparedGapPredecessor(for: record, records: records, indices: preparedRecordIndices)
             {
                 continue
@@ -1685,7 +2122,7 @@ package final class RetainedLazyListRuntimeAdapter {
         guard
             operationIsCurrent(
                 expectedAttempt, configuration: expectedConfiguration, admission: checkedAdmission,
-                identityProofs: acceptedIdentityProofs),
+                identityProofs: acceptedIdentityProofs, constructionHint: expectedConstructionHint),
             generation.isCurrent, originalActualProofs.allSatisfy(\.isCurrent),
             records.allSatisfy({ carriedRecordProofs[$0.request.token] != nil || $0.request.isGenerationCurrent })
         else { return .obsolete }
@@ -1712,9 +2149,17 @@ package final class RetainedLazyListRuntimeAdapter {
             return .workRemaining
         }
         records.sort { positions[$0.request.token, default: Int.max] < positions[$1.request.token, default: Int.max] }
+        let constructionPlan = expectedConstructionHint.map { _ in
+            UIAConstructionPlan(
+                attempt: expectedAttempt, requiredTokens: selection.requiredTokens, plannedTokens: plannedTokens,
+                preparedTokens: preparedTokens,
+                probeToken: boundaryProbe.flatMap { preparedTokens.contains($0) ? $0 : nil },
+                exceedsRecordLimit: plannedWindow.exceedsRecordLimit)
+        }
         if acceptedSnapshot, !wasIncomplete, recordsMatchMounted(records) {
             protectedTokens = nextPhysicalProtected
             preparationIncomplete = false
+            expectedConstructionHint?.acceptedPlan = constructionPlan
             updateResolutionState(for: selection)
             return .unchanged
         }
@@ -1734,7 +2179,8 @@ package final class RetainedLazyListRuntimeAdapter {
                 managed.journal.prepareRowReplacementHandoff(from: previousActivity, to: successorActivity),
                 operationIsCurrent(
                     expectedAttempt, configuration: expectedConfiguration, admission: checkedAdmission,
-                    identityProofs: acceptedIdentityProofs), generation.isCurrent
+                    identityProofs: acceptedIdentityProofs, constructionHint: expectedConstructionHint),
+                generation.isCurrent
             else { return .obsolete }
         }
         for (token, record) in mounted where record.nodes.isEmpty {
@@ -1750,7 +2196,8 @@ package final class RetainedLazyListRuntimeAdapter {
                         from: previousActivity, to: successorActivity),
                     operationIsCurrent(
                         expectedAttempt, configuration: expectedConfiguration, admission: checkedAdmission,
-                        identityProofs: acceptedIdentityProofs), generation.isCurrent
+                        identityProofs: acceptedIdentityProofs, constructionHint: expectedConstructionHint),
+                    generation.isCurrent
                 else { return .obsolete }
                 emptyRowContinuations[ObjectIdentifier(successorActivity)] = continuation
             } else {
@@ -1772,7 +2219,8 @@ package final class RetainedLazyListRuntimeAdapter {
                     return record.nodes.map(ObjectIdentifier.init)
                 }),
             departingEmptyRows: departingEmptyRows, emptyRowContinuations: emptyRowContinuations,
-            carriedRecordProofs: carriedRecordProofs)
+            carriedRecordProofs: carriedRecordProofs,
+            constructionHint: expectedConstructionHint, constructionPlan: constructionPlan)
         if managed != nil {
             guard
                 candidate.prepareInsertionPlan(origins: insertionOrigins, cohortProofs: Array(insertionCohorts.values))
@@ -1897,6 +2345,7 @@ package final class RetainedLazyListRuntimeAdapter {
         } else {
             unresolvedWork = true
         }
+        candidate.constructionHint?.acceptedPlan = candidate.constructionPlan
         return true
     }
 
@@ -1991,6 +2440,94 @@ package final class RetainedLazyListRuntimeAdapter {
             extentChanged: changed, requiresLayout: requiresLayout, anchorAdjustedOffset: adjustedOffset)
     }
 
+    /// Purely classify an accepted construction plan. Runtime must separately
+    /// prove that this complete batch came from one current physical pass,
+    /// including that pass's resolved-versus-unknown gap provenance. This read
+    /// neither accepts measurements nor publishes first-measurement row chrome.
+    func uiAConstructionReadiness(
+        for hint: UIAConstructionHint, viewport: Viewport, measurements: [Measurement]
+    ) -> UIAConstructionReadiness {
+        guard hint.isCurrent, hint.viewport == viewport else { return .obsolete }
+        guard hasCurrentLogicalSnapshot, snapshotIsCurrent(for: viewport), !pendingCandidate, !preparationIncomplete,
+            stagedPredecessor == nil, inheritedExtentSpacing == nil,
+            transitionRequiredTokens.isEmpty, transitionAwaitingMeasurements.isEmpty,
+            transitionCapacityDeferred.isEmpty,
+            let plan = hint.acceptedPlan, plan.attempt === attempt,
+            mounted.count <= maximumMountedRecords, mountedLeafCount <= maximumMountedLeaves
+        else { return .awaitingPreparation }
+
+        // An adopted probe is real retained output with possible authored
+        // cleanup. Its eventual departure cannot be moved past coarse scrolling
+        // by calling it planned, optional, or an unknown zero-height gap.
+        if let probe = plan.probeToken, mounted[probe] != nil { return .awaitingProbeRetirement }
+
+        guard let selection = windowSelection(viewport, protecting: protectedTokens), !selection.exceedsRecordLimit,
+            let planned = uiAPlannedWindow(for: hint, required: selection.requiredTokens),
+            !plan.exceedsRecordLimit, !planned.exceedsRecordLimit,
+            plan.requiredTokens == selection.requiredTokens, plan.plannedTokens == Set(planned.tokens),
+            selection.requiredTokens.union(plan.plannedTokens).isSubset(of: Set(mounted.keys)),
+            Set(mounted.keys).isSubset(of: plan.preparedTokens),
+            measurements.count <= maximumMountedLeaves, measurements.count == mountedLeafCount,
+            let currentTotal = extentIndex?.totalExtent, currentTotal.isFinite,
+            let target = mounted[hint.token], !target.nodes.isEmpty, gapBoundaryIndex != nil
+        else { return .awaitingPreparation }
+        let allowed = Set(selection.tokens).union(selection.requiredTokens).union(plan.plannedTokens)
+        guard Set(mounted.keys).isSubset(of: allowed) else { return .awaitingProbeRetirement }
+
+        var measured: [RetainedLazyListRowToken: [Double?]] = [:]
+        for measurement in measurements {
+            guard measurement.extent.isFinite, measurement.extent >= 0,
+                let record = mounted[measurement.token], recordIsCurrent(record),
+                record.nodes.indices.contains(measurement.leafIndex),
+                record.nodes[measurement.leafIndex] === measurement.node
+            else { return .awaitingPreparation }
+            if measured[measurement.token] == nil {
+                measured[measurement.token] = Array(repeating: nil, count: record.nodes.count)
+            }
+            guard measured[measurement.token]?[measurement.leafIndex] == nil else { return .awaitingPreparation }
+            measured[measurement.token]?[measurement.leafIndex] = measurement.extent
+        }
+
+        var updates: [ExtentUpdate] = []
+        for (token, record) in mounted {
+            guard recordIsCurrent(record), let position = positions[token],
+                let summary = gapSummary(of: record.nodes), gapBoundaryIndex?.matches(summary, at: position) == true,
+                let previous = extentIndex?.extent(for: token)
+            else { return .awaitingPreparation }
+            let actual = measured[token]?.compactMap { $0 } ?? []
+            guard actual.count == record.nodes.count,
+                let next = RetainedLazyListExtent.measured(actual.map { $0 + interLeafSpacing })
+            else { return .awaitingPreparation }
+            updates.append(ExtentUpdate(token: token, previous: previous, next: next))
+            var predecessor = gapPredecessor(before: position)
+            var declaredNext: GapRowBoundary?
+            for (index, node) in record.nodes.enumerated() {
+                if let gap = node.retainedLazyListGap {
+                    guard let height = gapExtent(gap, after: predecessor), height.isFinite,
+                        actual[index] == (node.isHidden ? 0 : height)
+                    else { return .awaitingPreparation }
+                    declaredNext = GapRowBoundary(gap)
+                } else {
+                    predecessor = .row(declaredNext ?? .ordinary)
+                    declaredNext = nil
+                }
+            }
+        }
+        // Refuse even finite individual records if replacing their estimates
+        // could overflow the complete index. No index storage is copied or
+        // updated; decreases precede increases as in ordinary measurement.
+        var total = currentTotal
+        for update in updates where update.next.totalExtent < update.previous.totalExtent {
+            total -= update.previous.totalExtent - update.next.totalExtent
+            guard total.isFinite, total >= 0 else { return .awaitingPreparation }
+        }
+        for update in updates where update.next.totalExtent > update.previous.totalExtent {
+            total += update.next.totalExtent - update.previous.totalExtent
+            guard total.isFinite else { return .awaitingPreparation }
+        }
+        return .measurementOnly
+    }
+
     /// A pure terminal comparison for Runtime's already completed layout pass.
     /// It cannot accept first measurements, update selection/gap/chrome caches,
     /// or call a provider. Runtime separately proves every physical attachment,
@@ -2075,6 +2612,7 @@ package final class RetainedLazyListRuntimeAdapter {
     /// Revoke before an external structural mutation or attachment change.
     /// This operation drops no authored payload and invokes no application code.
     package func revokePendingCandidate() {
+        if let hint = uiaConstructionHint { _ = endUIAConstructionHint(hint) }
         configuration = RetainedLazyListAdapterIdentity()
         attempt = RetainedLazyListAdapterIdentity()
         // Preserve old scalar coordinates for Runtime's next anchor capture,
@@ -2130,13 +2668,20 @@ package final class RetainedLazyListRuntimeAdapter {
     private func readSnapshot(
         expectedAttempt: RetainedLazyListAdapterIdentity,
         expectedConfiguration: RetainedLazyListAdapterIdentity,
-        admission: RetainedLazyListAdoptionAdmission?
+        admission: RetainedLazyListAdoptionAdmission?, constructionHint: UIAConstructionHint? = nil
     ) -> Snapshot? {
-        guard operationIsCurrent(expectedAttempt, configuration: expectedConfiguration, admission: admission) else {
+        guard
+            operationIsCurrent(
+                expectedAttempt, configuration: expectedConfiguration, admission: admission,
+                constructionHint: constructionHint)
+        else {
             return nil
         }
         let reply = provider.metadata
-        guard operationIsCurrent(expectedAttempt, configuration: expectedConfiguration, admission: admission),
+        guard
+            operationIsCurrent(
+                expectedAttempt, configuration: expectedConfiguration, admission: admission,
+                constructionHint: constructionHint),
             let metadata = reply, metadata.generation.isCurrent
         else { return nil }
         var nextTokens: [RetainedLazyListRowToken] = []
@@ -2167,6 +2712,7 @@ package final class RetainedLazyListRuntimeAdapter {
         buttonConstruction suppliedButtonConstruction: RetainedButtonActionConstruction? = nil,
         carriedRecordProofs: [CarriedRecordProof] = [],
         mayDeferForCapacity: Bool = false,
+        constructionHint: UIAConstructionHint? = nil,
         probeRequestIsCurrent: (@MainActor () -> Bool)? = nil
     ) -> RecordPreparation {
         let buttonConstruction =
@@ -2190,6 +2736,7 @@ package final class RetainedLazyListRuntimeAdapter {
             admission: admission, previousIdentityProofs: existingProofs, managed: managed)
         authority.probeRequestIsCurrent = probeRequestIsCurrent
         authority.carriedRecordProofs = carriedRecordProofs
+        authority.constructionHint = constructionHint
         guard authorityIsCurrent(authority) else { return .obsolete }
         let request: RetainedLazyListRowRequest
         if let existing {
@@ -2279,7 +2826,7 @@ package final class RetainedLazyListRuntimeAdapter {
         guard
             operationIsCurrent(
                 authority.attempt, configuration: authority.configuration, admission: authority.admission,
-                identityProofs: authority.previousIdentityProofs)
+                identityProofs: authority.previousIdentityProofs, constructionHint: authority.constructionHint)
                 && authority.generation.isCurrent && additionalProofs.allSatisfy(\.isCurrent)
                 && authority.carriedRecordProofs.allSatisfy(\.isCurrent)
                 && managedPreparationIsCurrent(authority.managed)
@@ -2289,7 +2836,7 @@ package final class RetainedLazyListRuntimeAdapter {
         return current
             && operationIsCurrent(
                 authority.attempt, configuration: authority.configuration, admission: authority.admission,
-                identityProofs: authority.previousIdentityProofs)
+                identityProofs: authority.previousIdentityProofs, constructionHint: authority.constructionHint)
             && authority.generation.isCurrent && additionalProofs.allSatisfy(\.isCurrent)
             && authority.carriedRecordProofs.allSatisfy(\.isCurrent)
             && managedPreparationIsCurrent(authority.managed)
@@ -2599,11 +3146,12 @@ package final class RetainedLazyListRuntimeAdapter {
         _ expectedAttempt: RetainedLazyListAdapterIdentity,
         configuration expectedConfiguration: RetainedLazyListAdapterIdentity,
         admission: RetainedLazyListAdoptionAdmission? = nil,
-        identityProofs: [RetainedLazyListViewIdentityProof] = []
+        identityProofs: [RetainedLazyListViewIdentityProof] = [], constructionHint: UIAConstructionHint? = nil
     ) -> Bool {
         !isReleasing && attempt === expectedAttempt && configuration === expectedConfiguration
             && admission?.isBuildCurrent(for: self) != false && identityProofs.allSatisfy(\.isCurrent)
             && managedLogicalDescriptor?.isCurrent != false && permitsStandaloneBuild
+            && constructionHint?.isCurrent != false
     }
 
     private func recordIsCurrent(_ record: Record) -> Bool {
@@ -2615,7 +3163,8 @@ package final class RetainedLazyListRuntimeAdapter {
 
     fileprivate func isOperationCurrent(_ candidate: Candidate) -> Bool {
         candidate.adapter === self
-            && operationIsCurrent(candidate.attempt, configuration: candidate.configuration)
+            && operationIsCurrent(
+                candidate.attempt, configuration: candidate.configuration, constructionHint: candidate.constructionHint)
             && generation == candidate.generation && candidate.generation.isCurrent
             && extentIndex?.context == candidate.viewport.context
             && candidate.requestProofs.allSatisfy(\.isGenerationCurrent)
@@ -2626,6 +3175,110 @@ package final class RetainedLazyListRuntimeAdapter {
             && candidate.identityProofs.allSatisfy(\.isCurrent)
             && candidate.carriedRecordProofs.values.allSatisfy(\.isCurrent)
             && candidate.insertionPreparationIsCurrent
+    }
+
+    /// Capture original origins and physical cohort proofs before the managed
+    /// UIA preparation calls a provider. The caller checks its full admission
+    /// around this native helper; this result is never a replacement for it.
+    func captureUIAInsertionOrigins(
+        initial: [RetainedLazyListRowToken], selection: [RetainedLazyListRowToken]
+    ) -> UIAInsertionOrigins? {
+        let originalAttempt = attempt
+        let originalConfiguration = configuration
+        guard !isReleasing, let generation, generation.isCurrent,
+            let descriptor = managedLogicalDescriptor, descriptor.isCurrent,
+            let originalTokens = uiAInsertionOriginTokens(initial: initial, selection: selection)
+        else { return nil }
+        var origins: [RetainedLazyListRowToken: RetainedLazyListInsertionOrigin] = [:]
+        var cohorts: [RetainedLazyListRowToken: CarriedRecordProof] = [:]
+        for token in originalTokens {
+            if let event = pendingInsertionEvent(for: token) {
+                origins[token] = .logicalIntroduction(event)
+            } else if let record = mounted[token], let proof = carriedRecordProof(for: record) {
+                origins[token] = .existingRow
+                cohorts[token] = proof
+            } else {
+                origins[token] = .materialization
+            }
+        }
+        let capture = UIAInsertionOrigins(
+            adapter: self, attempt: originalAttempt, configuration: originalConfiguration, generation: generation,
+            descriptor: descriptor, origins: origins, cohorts: cohorts)
+        return capture.isCurrent ? capture : nil
+    }
+
+    /// Native choices whose insertion origins must be captured before the
+    /// managed UIA preparation enters any factory. The later probe can only
+    /// inspect an original prepared position or an earlier prepared position;
+    /// its unknown cached predecessor is therefore in this bounded set.
+    /// With K records, the two inputs and at most one predecessor per initial
+    /// token contain at most 3K tokens. Do not copy the index or scan all events.
+    /// This metadata result grants no build, insertion, or attachment authority.
+    func uiAInsertionOriginTokens(
+        initial: [RetainedLazyListRowToken], selection: [RetainedLazyListRowToken]
+    ) -> [RetainedLazyListRowToken]? {
+        guard initial.count <= maximumMountedRecords, selection.count <= maximumMountedRecords,
+            gapBoundaryIndex != nil
+        else { return nil }
+        var result: [RetainedLazyListRowToken] = []
+        var included: Set<RetainedLazyListRowToken> = []
+        for token in initial {
+            guard let position = positions[token], tokens.indices.contains(position), tokens[position] == token else {
+                return nil
+            }
+            if included.insert(token).inserted { result.append(token) }
+        }
+        for token in selection {
+            guard let position = positions[token], tokens.indices.contains(position), tokens[position] == token else {
+                return nil
+            }
+            if included.insert(token).inserted { result.append(token) }
+        }
+        for token in initial {
+            guard let position = positions[token] else { return nil }
+            guard let predecessor = gapBoundaryIndex?.predecessorEntry(before: position),
+                predecessor.summary?.last == nil
+            else { continue }
+            guard predecessor.position >= 0, predecessor.position < position,
+                tokens.indices.contains(predecessor.position)
+            else { return nil }
+            let predecessorToken = tokens[predecessor.position]
+            if included.insert(predecessorToken).inserted { result.append(predecessorToken) }
+        }
+        return result
+    }
+
+    /// Future rows use only capacity left by the ordinary current requirements.
+    /// This bounded cursor never copies the full index or scans an unknown
+    /// prefix, and its tokens are never added to physical input protection.
+    private func uiAPlannedWindow(
+        for hint: UIAConstructionHint, required: Set<RetainedLazyListRowToken>
+    ) -> UIAPlannedWindow? {
+        guard hint.isCurrent, required.count <= maximumMountedRecords,
+            let window = extentIndex?.window(
+                offset: hint.estimatedViewport.offset, viewportExtent: hint.estimatedViewport.extent)
+        else { return nil }
+        guard !window.isEmpty else { return UIAPlannedWindow(tokens: [], exceedsRecordLimit: false) }
+        guard let end = extentIndex?.prefixOffset(before: window.upperBound) else { return nil }
+        var selected = required
+        var planned: [RetainedLazyListRowToken] = []
+        var position = window.lowerBound
+        while position < window.upperBound {
+            guard let record = coordinateRecord(at: position) else { return nil }
+            if !selected.contains(record.token) {
+                guard selected.count < maximumMountedRecords else {
+                    return UIAPlannedWindow(tokens: planned, exceedsRecordLimit: true)
+                }
+                selected.insert(record.token)
+                planned.append(record.token)
+            }
+            if record.end >= end { break }
+            guard let next = followingRecord(from: record.end, through: end), next.position > position else {
+                return nil
+            }
+            position = next.position
+        }
+        return UIAPlannedWindow(tokens: planned, exceedsRecordLimit: false)
     }
 
     /// Required viewport records get capacity before optional prefetch. The
@@ -2930,6 +3583,54 @@ package final class RetainedLazyListRuntimeAdapter {
         return true
     }
 
+    /// Inspect exact prepared output without publishing any of its summaries.
+    /// Every empty step consumes one earlier candidate entry; the first unknown
+    /// source row is returned once, never recursively materialized here.
+    private func nextCandidateGapBoundaryProbe(
+        required: Set<RetainedLazyListRowToken>, records: [Record], indices: [Int: Int]
+    ) -> CandidateGapProbe {
+        let ordered = required.sorted { positions[$0, default: Int.max] < positions[$1, default: Int.max] }
+        let preparedPositions = indices.keys.sorted()
+        for token in ordered {
+            guard var position = positions[token], let index = indices[position], records.indices.contains(index) else {
+                continue
+            }
+            let record = records[index]
+            guard recordIsCurrent(record), gapSummary(of: record.nodes) != nil else { return .invalid }
+            guard record.nodes.first?.retainedLazyListGap != nil else { continue }
+            while position > 0 {
+                let cached = gapBoundaryIndex?.predecessorEntry(before: position)
+                var lower = 0
+                var upper = preparedPositions.count
+                while lower < upper {
+                    let middle = lower + (upper - lower) / 2
+                    if preparedPositions[middle] < position { lower = middle + 1 } else { upper = middle }
+                }
+                let previousPrepared = lower > 0 ? preparedPositions[lower - 1] : nil
+                if let previous = previousPrepared, previous >= (cached?.position ?? -1) {
+                    guard let preparedIndex = indices[previous], records.indices.contains(preparedIndex) else {
+                        return .invalid
+                    }
+                    let prepared = records[preparedIndex]
+                    guard recordIsCurrent(prepared), let summary = gapSummary(of: prepared.nodes) else {
+                        return .invalid
+                    }
+                    position = summary.last == nil ? previous : 0
+                } else if let cached {
+                    guard cached.position >= 0, cached.position < position, tokens.indices.contains(cached.position)
+                    else {
+                        return .invalid
+                    }
+                    if cached.summary?.last == nil { return .token(tokens[cached.position]) }
+                    position = 0
+                } else {
+                    position = 0
+                }
+            }
+        }
+        return .none
+    }
+
     /// One unknown predecessor per pass, using ordinary caps and factory
     /// admission. Its own predecessor is not recursively resolved. Once its
     /// summary is accepted, its nodes can leave the next bounded candidate.
@@ -2953,6 +3654,9 @@ package final class RetainedLazyListRuntimeAdapter {
         {
             return true
         }
+        // A construction plan cannot turn an intermediate target pass into
+        // ordinary global settlement or accessibility readiness.
+        if uiaConstructionHint != nil { return true }
         let allowed = Set(selection.tokens).union(selection.requiredTokens)
         guard selection.requiredTokens.isSubset(of: Set(mounted.keys)) else { return true }
         for (token, record) in mounted {

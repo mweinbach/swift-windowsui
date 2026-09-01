@@ -188,6 +188,7 @@ private final class RetainedScrollObserverPublication {
     let admission: RetainedLazyListAdoptionAdmission?
     let journal: RetainedLazyListAdoptionJournal?
     let taskAdoption: RetainedTaskAdoptionContext?
+    let uiaAuthority: RetainedLazyListUIAContinuationAuthority?
     weak var sourceNode: ViewNode?
     weak var targetNode: ViewNode?
     let sourceAttachment: RetainedLazyListAttachmentProof
@@ -200,34 +201,58 @@ private final class RetainedScrollObserverPublication {
     init(
         from source: ViewNode, to target: ViewNode,
         admission: RetainedLazyListAdoptionAdmission?, journal: RetainedLazyListAdoptionJournal?,
-        taskAdoption: RetainedTaskAdoptionContext?
+        taskAdoption: RetainedTaskAdoptionContext?, uiaAuthority: RetainedLazyListUIAContinuationAuthority?
     ) {
         self.admission = admission
         self.journal = journal
         self.taskAdoption = taskAdoption
+        self.uiaAuthority = uiaAuthority
         sourceNode = source
         targetNode = target
         sourceAttachment = source.captureLazyListAttachmentProof()
         targetAttachment = target.captureLazyListAttachmentProof()
         sourceIdentity = source.captureLazyListIdentityProof()
         targetIdentity = target.captureLazyListIdentityProof()
-        checksContinuation = admission != nil || journal?.isOrdinaryAdoption == false
+        checksContinuation = admission != nil || journal?.isOrdinaryAdoption == false || uiaAuthority != nil
+    }
+
+    // An ordinary journal observes descriptor facts; missing facts do not
+    // authorize skipping the separate request and native lifetime checks.
+    private var usesOrdinaryUIAContinuation: Bool {
+        uiaAuthority != nil && journal?.isOrdinaryAdoption == true
     }
 
     var isCurrent: Bool {
-        sourceNode != nil && targetNode != nil && admission?.isCurrent != false
-            && journal?.canContinueAdoption != false && sourceAttachment.isCurrent && targetAttachment.isCurrent
-            && sourceIdentity.isCurrent && targetIdentity.isCurrent
+        guard sourceNode != nil, targetNode != nil, sourceAttachment.isCurrent, targetAttachment.isCurrent,
+            sourceIdentity.isCurrent, targetIdentity.isCurrent
+        else {
+            uiaAuthority?.revoke()
+            return false
+        }
+        return admission?.isCurrent != false && uiaAuthority?.isCurrent != false
+            && (usesOrdinaryUIAContinuation || journal?.canContinueAdoption != false)
     }
 
     var canContinue: Bool { !checksContinuation || isCurrent }
 
-    func prepare(_ field: PartialKeyPath<ViewNode>) -> Bool {
-        guard isCurrent, let sourceNode, let targetNode,
-            journal?.preparePropertyCopy(from: sourceNode, to: targetNode, keyPath: field) != false
-        else { return false }
-        preparedFields.insert(field)
+    func hasCurrentStorageBindings(
+        source expectedSource: RetainedScrollObserverStorage?, target expectedTarget: RetainedScrollObserverStorage?
+    ) -> Bool {
+        guard checksContinuation else { return true }
+        guard let sourceNode, let targetNode,
+            sourceNode.scrollObserverStorage === expectedSource, targetNode.scrollObserverStorage === expectedTarget
+        else {
+            uiaAuthority?.revoke()
+            return false
+        }
         return true
+    }
+
+    func prepare(_ field: PartialKeyPath<ViewNode>) -> Bool {
+        guard isCurrent, let sourceNode, let targetNode else { return false }
+        let prepared = journal?.preparePropertyCopy(from: sourceNode, to: targetNode, keyPath: field) != false
+        if prepared { preparedFields.insert(field) }
+        return (usesOrdinaryUIAContinuation || prepared) && (uiaAuthority == nil || isCurrent)
     }
 
     func prepareAllFields() -> Bool {
@@ -239,8 +264,11 @@ private final class RetainedScrollObserverPublication {
     }
 
     func markMutationStarted() -> Bool {
-        guard isCurrent, journal?.markMutationStarted() != false else { return false }
+        guard isCurrent else { return false }
+        let started = journal?.markMutationStarted() != false
+        guard usesOrdinaryUIAContinuation || started else { return false }
         admission?.markMutationStarted()
+        uiaAuthority?.markMutationStarted()
         return isCurrent
     }
 
@@ -273,6 +301,7 @@ final class RetainedScrollObserverStorage {
         let admission: RetainedLazyListAdoptionAdmission?
         let publication: RetainedScrollObserverPublication?
         let nativeCheck: ComponentHost.NodeReconcileAdmission?
+        let uiaAuthority: RetainedLazyListUIAContinuationAuthority?
         let targetAttachment: RetainedLazyListAttachmentProof?
         let sourceAttachment: RetainedLazyListAttachmentProof?
         private weak var storage: RetainedScrollObserverStorage?
@@ -295,11 +324,13 @@ final class RetainedScrollObserverStorage {
             sourceAttachment: RetainedLazyListAttachmentProof?, storage: RetainedScrollObserverStorage,
             incoming: RetainedScrollObserverStorage?, selectedSourceNode: ViewNode?,
             publication: RetainedScrollObserverPublication?, nativeCheck: ComponentHost.NodeReconcileAdmission?,
+            uiaAuthority: RetainedLazyListUIAContinuationAuthority?,
             owner: ViewNode?, ownerIdentity: RetainedLazyListViewIdentityProof?
         ) {
             self.admission = admission
             self.publication = publication
             self.nativeCheck = nativeCheck
+            self.uiaAuthority = uiaAuthority ?? publication?.uiaAuthority ?? nativeCheck?.uiaAuthority
             self.targetAttachment = targetAttachment
             self.sourceAttachment = sourceAttachment
             self.storage = storage
@@ -317,33 +348,46 @@ final class RetainedScrollObserverStorage {
         }
 
         var isCurrent: Bool {
-            guard isValid, admission?.isCurrent != false, publication?.isCurrent != false,
-                nativeCheck?.isCurrent != false,
-                targetAttachment?.isCurrent != false,
+            guard isValid, targetAttachment?.isCurrent != false,
                 sourceAttachment?.isCurrent != false, let storage, storage.mutationIdentity === expectedMutation
-            else { return false }
+            else {
+                uiaAuthority?.revoke()
+                return false
+            }
             if checksOwnerBinding {
                 guard let owner, let ownerIdentity, ownerIdentity.isCurrent,
                     owner.scrollObserverStorage === storage
-                else { return false }
+                else {
+                    uiaAuthority?.revoke()
+                    return false
+                }
             }
             if let incomingMutation {
-                guard let incoming, incoming.mutationIdentity === incomingMutation else { return false }
+                guard let incoming, incoming.mutationIdentity === incomingMutation else {
+                    uiaAuthority?.revoke()
+                    return false
+                }
             }
             if let publication {
-                guard publication.targetNode?.scrollObserverStorage === storage else { return false }
+                guard publication.targetNode?.scrollObserverStorage === storage else {
+                    uiaAuthority?.revoke()
+                    return false
+                }
                 if checksSourceStorage {
                     guard let sourceStorage, publication.sourceNode?.scrollObserverStorage === sourceStorage else {
+                        uiaAuthority?.revoke()
                         return false
                     }
                 }
             }
             if hadSelectedSourceNode {
                 guard let selectedSourceNode, selectedSourceNode.scrollSourceEpoch == selectedSourceEpoch else {
+                    uiaAuthority?.revoke()
                     return false
                 }
             }
-            return true
+            return admission?.isCurrent != false && publication?.isCurrent != false
+                && nativeCheck?.isCurrent != false && uiaAuthority?.isCurrent != false
         }
 
         func markMutationStarted() -> Bool {
@@ -351,6 +395,7 @@ final class RetainedScrollObserverStorage {
                 nativeCheck?.markMutationStarted() != false
             else { return false }
             if publication == nil && nativeCheck == nil { admission?.markMutationStarted() }
+            uiaAuthority?.markMutationStarted()
             return isCurrent
         }
     }
@@ -381,20 +426,27 @@ final class RetainedScrollObserverStorage {
         sourceAttachment: RetainedLazyListAttachmentProof? = nil,
         sourceNode: ViewNode? = nil, targetNode: ViewNode? = nil,
         lazyJournal: RetainedLazyListAdoptionJournal? = nil,
-        taskAdoption: RetainedTaskAdoptionContext? = nil
+        taskAdoption: RetainedTaskAdoptionContext? = nil,
+        uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil
     ) -> Bool {
+        if let uiaAuthority, let journalAuthority = lazyJournal?.uiaContinuationAuthority,
+            uiaAuthority !== journalAuthority
+        {
+            return false
+        }
+        let uiaAuthority = uiaAuthority ?? lazyJournal?.uiaContinuationAuthority
         let publication: RetainedScrollObserverPublication?
-        if lazyJournal != nil, let sourceNode, let targetNode {
+        if lazyJournal != nil || uiaAuthority != nil, let sourceNode, let targetNode {
             publication = RetainedScrollObserverPublication(
                 from: sourceNode, to: targetNode, admission: admission, journal: lazyJournal,
-                taskAdoption: taskAdoption)
+                taskAdoption: taskAdoption, uiaAuthority: uiaAuthority)
         } else {
             // Present managed authority never becomes an ordinary transfer just
             // because its original native source or target was not supplied.
-            guard lazyJournal?.isOrdinaryAdoption != false else { return false }
+            guard lazyJournal?.isOrdinaryAdoption != false, uiaAuthority == nil else { return false }
             publication = nil
         }
-        if admission == nil && lazyJournal?.isOrdinaryAdoption != false {
+        if admission == nil && lazyJournal?.isOrdinaryAdoption != false && uiaAuthority == nil {
             let operation = beginCheckedOperation(
                 admission: nil, targetAttachment: nil, sourceAttachment: nil,
                 incoming: incoming, publication: publication)
@@ -402,12 +454,15 @@ final class RetainedScrollObserverStorage {
             finishCheckedOperation(operation)
             return true
         }
-        guard admission?.isCurrent != false, targetAttachment?.isCurrent != false,
-            sourceAttachment?.isCurrent != false, publication?.isCurrent != false
+        guard admission?.isCurrent != false, uiaAuthority?.isCurrent != false, publication?.isCurrent != false
         else { return false }
+        guard targetAttachment?.isCurrent != false, sourceAttachment?.isCurrent != false else {
+            uiaAuthority?.revoke()
+            return false
+        }
         let operation = beginCheckedOperation(
             admission: admission, targetAttachment: targetAttachment, sourceAttachment: sourceAttachment,
-            incoming: incoming, publication: publication)
+            incoming: incoming, publication: publication, uiaAuthority: uiaAuthority)
         let completed = reconcilePayloads(from: incoming, operation: operation)
         // All old array/history payloads in reconcilePayloads have unwound.
         let remainsCurrent = operation?.isCurrent != false
@@ -550,10 +605,13 @@ final class RetainedScrollObserverStorage {
         nativeCheck: ComponentHost.NodeReconcileAdmission? = nil,
         owner: ViewNode? = nil, ownerIdentity: RetainedLazyListViewIdentityProof? = nil
     ) -> Bool {
-        if let nativeCheck, nativeCheck.lazyJournal?.isOrdinaryAdoption == false {
-            guard nativeCheck.isCurrent, admission?.isCurrent != false, attachment?.isCurrent != false,
-                let owner, let ownerIdentity, ownerIdentity.isCurrent, owner.scrollObserverStorage === self
+        if let nativeCheck, nativeCheck.lazyJournal?.isOrdinaryAdoption == false || nativeCheck.uiaAuthority != nil {
+            guard nativeCheck.isCurrent, admission?.isCurrent != false, let owner, let ownerIdentity
             else { return false }
+            guard attachment?.isCurrent != false, ownerIdentity.isCurrent, owner.scrollObserverStorage === self else {
+                nativeCheck.uiaAuthority?.revoke()
+                return false
+            }
             guard
                 source !== node || selectedSourceIdentifier != node.map(ObjectIdentifier.init)
                     || selectedSourceEpoch != node?.scrollSourceEpoch
@@ -636,16 +694,17 @@ final class RetainedScrollObserverStorage {
         sourceAttachment: RetainedLazyListAttachmentProof?, incoming: RetainedScrollObserverStorage? = nil,
         selectedSourceNode: ViewNode? = nil, publication: RetainedScrollObserverPublication? = nil,
         nativeCheck: ComponentHost.NodeReconcileAdmission? = nil,
+        uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil,
         owner: ViewNode? = nil, ownerIdentity: RetainedLazyListViewIdentityProof? = nil
     ) -> CheckedOperation? {
         checkedOperation?.isValid = false
         invalidateMutationIdentity()
         let operation: CheckedOperation?
-        if admission != nil || publication != nil || nativeCheck != nil {
+        if admission != nil || publication != nil || nativeCheck != nil || uiaAuthority != nil {
             operation = CheckedOperation(
                 admission: admission, targetAttachment: targetAttachment, sourceAttachment: sourceAttachment,
                 storage: self, incoming: incoming, selectedSourceNode: selectedSourceNode, publication: publication,
-                nativeCheck: nativeCheck, owner: owner, ownerIdentity: ownerIdentity)
+                nativeCheck: nativeCheck, uiaAuthority: uiaAuthority, owner: owner, ownerIdentity: ownerIdentity)
         } else {
             operation = nil
         }
@@ -681,6 +740,7 @@ final class RetainedScrollObserverStorage {
         _ keyPath: ReferenceWritableKeyPath<RetainedScrollObserverStorage, Value>, with incoming: Value,
         operation: CheckedOperation?, field: PartialKeyPath<ViewNode>, preservesOrdinaryContinuation: Bool = false
     ) -> Bool {
+        let preservesOrdinaryContinuation = preservesOrdinaryContinuation && operation?.uiaAuthority == nil
         let mayRecord = operation?.isCurrent != false && operation?.publication?.prepare(field) != false
         guard preservesOrdinaryContinuation || mayRecord else { return false }
         let previous = self[keyPath: keyPath]
@@ -832,14 +892,33 @@ extension ViewNode {
     func reconcileScrollObservers(
         from source: ViewNode, admission: RetainedLazyListAdoptionAdmission? = nil,
         lazyJournal: RetainedLazyListAdoptionJournal? = nil,
-        taskAdoption: RetainedTaskAdoptionContext? = nil
+        taskAdoption: RetainedTaskAdoptionContext? = nil,
+        uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil
     ) -> Bool {
-        if lazyJournal == nil {
-            return reconcileScrollObserversWithoutJournal(from: source, admission: admission)
+        if let uiaAuthority, let journalAuthority = lazyJournal?.uiaContinuationAuthority,
+            uiaAuthority !== journalAuthority
+        {
+            return false
         }
+        let uiaAuthority = uiaAuthority ?? lazyJournal?.uiaContinuationAuthority
+        if lazyJournal == nil {
+            return reconcileScrollObserversWithoutJournal(
+                from: source, admission: admission, uiaAuthority: uiaAuthority)
+        }
+        return reconcileScrollObserversWithPublication(
+            from: source, admission: admission, lazyJournal: lazyJournal,
+            taskAdoption: taskAdoption, uiaAuthority: uiaAuthority)
+    }
+
+    private func reconcileScrollObserversWithPublication(
+        from source: ViewNode, admission: RetainedLazyListAdoptionAdmission?,
+        lazyJournal: RetainedLazyListAdoptionJournal?, taskAdoption: RetainedTaskAdoptionContext?,
+        uiaAuthority: RetainedLazyListUIAContinuationAuthority?
+    ) -> Bool {
         let publication = RetainedScrollObserverPublication(
-            from: source, to: self, admission: admission, journal: lazyJournal, taskAdoption: taskAdoption)
-        let checksContinuation = admission != nil || lazyJournal?.isOrdinaryAdoption == false
+            from: source, to: self, admission: admission, journal: lazyJournal,
+            taskAdoption: taskAdoption, uiaAuthority: uiaAuthority)
+        let checksContinuation = admission != nil || lazyJournal?.isOrdinaryAdoption == false || uiaAuthority != nil
         guard publication.canContinue else { return false }
         guard let incoming = source.scrollObserverStorage else {
             if scrollObserverStorage != nil {
@@ -849,40 +928,45 @@ extension ViewNode {
                 replaceScrollObserverStorage(with: nil, publication: publication)
             }
             return publication.canContinue
-                && (!checksContinuation || (scrollObserverStorage == nil && source.scrollObserverStorage == nil))
+                && publication.hasCurrentStorageBindings(source: nil, target: nil)
         }
         if let storage = scrollObserverStorage {
             guard
                 storage.reconcile(
                     from: incoming, admission: admission,
                     targetAttachment: publication.targetAttachment, sourceAttachment: publication.sourceAttachment,
-                    sourceNode: source, targetNode: self, lazyJournal: lazyJournal, taskAdoption: taskAdoption),
+                    sourceNode: source, targetNode: self, lazyJournal: lazyJournal,
+                    taskAdoption: taskAdoption, uiaAuthority: uiaAuthority),
                 publication.canContinue,
-                !checksContinuation || (scrollObserverStorage === storage && source.scrollObserverStorage === incoming)
+                publication.hasCurrentStorageBindings(source: incoming, target: storage)
             else { return false }
             // A transform may capture changed application state even while
             // the scroll geometry itself is unchanged. The individual family
             // writes already recorded their facts; this setter adds no facts.
             replaceScrollObserverStorage(with: storage)
             return publication.canContinue
-                && (!checksContinuation
-                    || (scrollObserverStorage === storage && source.scrollObserverStorage === incoming))
+                && publication.hasCurrentStorageBindings(source: incoming, target: storage)
         } else {
             guard publication.prepareAllFields() else { return false }
             let started = publication.markMutationStarted()
             guard !checksContinuation || started else { return false }
             replaceScrollObserverStorage(with: incoming, publication: publication)
             return publication.canContinue
-                && (!checksContinuation
-                    || (scrollObserverStorage === incoming && source.scrollObserverStorage === incoming))
+                && publication.hasCurrentStorageBindings(source: incoming, target: incoming)
         }
     }
 
-    /// Preserve both original nil-journal routes, including checked Stage 2
-    /// admission. Neither route constructs the supplemental publication proof.
+    /// Preserve both original nil-journal routes when no request guard is
+    /// present. UIA uses the same checked native publication as journal adoption.
     private func reconcileScrollObserversWithoutJournal(
-        from source: ViewNode, admission: RetainedLazyListAdoptionAdmission? = nil
+        from source: ViewNode, admission: RetainedLazyListAdoptionAdmission? = nil,
+        uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil
     ) -> Bool {
+        if let uiaAuthority {
+            return reconcileScrollObserversWithPublication(
+                from: source, admission: admission, lazyJournal: nil,
+                taskAdoption: nil, uiaAuthority: uiaAuthority)
+        }
         if admission == nil {
             guard let incoming = source.scrollObserverStorage else {
                 if scrollObserverStorage != nil { scrollObserverStorage = nil }
@@ -941,7 +1025,7 @@ extension ViewNode {
         from source: ViewNode, admission: RetainedLazyListAdoptionAdmission? = nil,
         nativeCheck: ComponentHost.NodeReconcileAdmission? = nil
     ) -> Bool {
-        if let nativeCheck, nativeCheck.lazyJournal?.isOrdinaryAdoption == false {
+        if let nativeCheck, nativeCheck.lazyJournal?.isOrdinaryAdoption == false || nativeCheck.uiaAuthority != nil {
             guard nativeCheck.isCurrent, admission?.isCurrent != false, nativeCheck.markMutationStarted() else {
                 return false
             }

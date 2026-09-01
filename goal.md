@@ -11770,3 +11770,52 @@ by this synthetic check.
 The combined Swift build still requires its separately reviewed Button/Runtime
 compile corrections and a fresh run. No tests or native qualification are
 inferred from these tooling integrations. All nine original gates remain open.
+
+
+### 2026-09-01 fresh Stage B synthetic validation: 216 cases, 1518 assertions
+
+All four complete synthetic suites passed on root `1bebfb61d88b1a3e6d4605c8241b39ca18a9d1c0`,
+tree `268ef5316f333e1b017067ee0897d00d564c2e86`, in separate PowerShell 7.6.4
+processes without case filters. These are fresh tooling results, not copied
+private receipts or Swift XCTest/native SDK results. All nine original completion
+gates remain open and unchanged.
+
+The new output root is
+`artifacts/goal-ninth-stageb-root-1bebfb6-ddba14e8a14547e1a2e67edbc917122d`.
+The start binding is `d8746c/0`. Observed exits and complete selections are:
+
+| Suite | Cases | Assertions | Root execution evidence |
+| --- | ---: | ---: | --- |
+| Intake | 72 | 427 | ef80d5/session24822 to d0347a/0 |
+| Native-record parser, synthetic only | 28 | 286 | e8a08a/0 |
+| Supplemental graphs, synthetic only | 71 | 304 | 2fdb72/0 |
+| Collector, synthetic only | 45 | 501 | edbe16/session24920 to c6e302/0 |
+
+Post-run contracts passed in `246f8d/0`. Reconciliation `131edf/0`, retained in
+`artifacts/goal-ninth-stageb-root-1bebfb6-reconciled-v2.json`, verifies all four
+ordered case lists against their sealed rosters, all 216 case outcomes, no
+failures/skips, and all 1,518 reported successful assertions. The unchanged
+source/index endpoints include 126 script/baseline/goal/package files. The
+collector's sixteen actually loaded source hashes match before/after and disk;
+its fullSuite flag is true, both adapter/process counters are zero, and all four
+qualification flags remain false. Graph nativeExecution remains false. Intake
+verifies the original source capture, all nine audit streams, and positive
+census fixtures unchanged. Add-Type initialized the existing managed helper
+in-process; no external compiler, SwiftPM, SDK collector, or native SDK ran.
+
+The first reconciliation helper stopped at `7b85a6` because it incorrectly
+assumed every intake assertion belonged to a named case. Source inspection at
+`d838ee/0` confirms the unchanged global counter also includes initial checks
+and census-fixture setup outside those case windows. The successful immutable
+successor records 310 named-case assertions plus 117 outside them, retaining
+the exact original total 427; native and collector per-case totals match their
+global counters. Neither tests nor receipts were altered to resolve this
+accounting error. The graph schema does not report per-case assertion counts.
+
+Report SHA-256 values, in suite order, are
+`c7dec6c3ecf6698b3c002517f1a7a93e7c4dc16129a0aa98330a496e8bc44603`,
+`465c7c47ca81d176b5e39f71b58afe40e634db70019a048071b676e34547e66b`,
+`2f431e4b72f64045c12a13d024fecd44ec04cb508a5f67217d428967a5fdd5e7`,
+and `0cc48cc26ec137520f77b4e295b123b5c2fd7b867ed0faeb6dcd25d27a79cb90`.
+Actual SDK identity, overlay/declaration completeness, behavior conformance,
+macOS execution, and release qualification remain separate unfinished work.

@@ -176,12 +176,37 @@ enum NativeOwnedSmokeValidation {
             .nativeWorkDequeued, .nativeMessageDispatched, .nativeDispatchReturned, .nativeWindowCreated,
             .nativeWindowNonClientDestroyed, .nativeAttachmentDetached, .nativeCloseDispatchUnwound,
             .nativeCloseAwaitingAttachments, .nativeCloseReplyReady, .nativeCloseReplyReturned,
-            .nativeThreadTerminated, .nativeQueryStarted, .nativeQueryCompleted,
+            .nativeQueryStarted, .nativeQueryCompleted,
             .ownedCommandReply, .smokeProbeEmitted, .frameReplyReceived,
         ]
         let actorRows = rows.filter { row in actorKinds.contains { row.isKind($0) } }
         let nativeRows = rows.filter { row in nativeKinds.contains { row.isKind($0) } }
         let joinedOrdinal = one(.nativeThreadJoined).flatMap { $0.flags == 1 ? $0.ordinal : nil }
+        let terminated = one(.nativeThreadTerminated)
+        let terminationObservedByJoiner: Bool
+        if let owner, let terminated, let joined = one(.nativeThreadJoined),
+            let closeReturned = one(.nativeCloseReplyReturned)
+        {
+            // This is the worker that observed the original thread handle
+            // become signaled, not N recording an early intent to return.
+            // Count all receipts before checking success so an extra failed
+            // join cannot be hidden beside an otherwise successful one.
+            terminationObservedByJoiner =
+                owner.threadID != 0 && terminated.threadID != 0
+                && terminated.value == 0
+                && terminated.auxiliary == UInt64(owner.threadID)
+                && joined.auxiliary == UInt64(owner.threadID)
+                && terminated.threadID == joined.threadID
+                && closeReturned.threadID == owner.threadID && closeReturned.flags == 15 && closeReturned.value == 0
+                && joined.flags == 1 && joined.value == 0
+                && owner.ordinal < closeReturned.ordinal && closeReturned.ordinal < terminated.ordinal
+                && terminated.ordinal < joined.ordinal
+                && nativeRows.allSatisfy {
+                    $0.threadID == owner.threadID && $0.ordinal < terminated.ordinal && $0.ordinal < joined.ordinal
+                }
+        } else {
+            terminationObservedByJoiner = false
+        }
         let overlappingActorRows = actorRows.filter {
             $0.ordinal > (owner?.ordinal ?? .max) && $0.ordinal < (joinedOrdinal ?? .max)
         }
@@ -191,6 +216,7 @@ enum NativeOwnedSmokeValidation {
             owner != nil && !overlappingActorRows.isEmpty && !nativeRows.isEmpty
             && overlappingActorRows.allSatisfy { $0.threadID != owner?.threadID }
             && nativeRows.allSatisfy { $0.threadID == owner?.threadID && $0.ordinal < (joinedOrdinal ?? .max) }
+            && (all(.nativeThreadTerminated).isEmpty || terminationObservedByJoiner)
         let queryStart = one(.nativeQueryStarted)
         let queryEnd = one(.nativeQueryCompleted)
         let querySpan: Bool
@@ -345,6 +371,7 @@ enum NativeOwnedSmokeValidation {
             && one(.nativeCloseReplyReturned)?.flags == 15 && one(.nativeCloseReplyReturned)?.value == 0
             && one(.nativeThreadJoined)?.auxiliary == owner.map { UInt64($0.threadID) }
             && one(.actorStopConsumed)?.value == 0 && one(.coordinatorReturned)?.value == 0 && state.ownerExitCode == 0
+            && terminationObservedByJoiner
         checks["closed-owner-rejection-is-one-shot"] =
             state.lateReplyCount == 1 && state.lateReplyWasOwnerStopped
             && one(.staleCommandRejected)?.flags == 1 && replies.count == 64 && emitted.count == 64

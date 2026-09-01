@@ -238,6 +238,7 @@ final class NativeOwnedSmokeValidationTests: XCTestCase {
         fixture.add(.nativeThreadEntered, thread: 10)
         fixture.add(.nativeCloseReplyReady, value: 0, flags: 7, thread: 10)
         fixture.add(.nativeCloseReplyReturned, value: 0, flags: 15, thread: 10)
+        fixture.add(.nativeThreadTerminated, value: 0, auxiliary: 10, thread: 40)
         fixture.add(.nativeThreadJoined, value: 0, auxiliary: 10, flags: 1, thread: 40)
         fixture.add(.actorStopConsumed, value: 0, thread: 20)
         fixture.add(.coordinatorReturned, value: 0, thread: 20)
@@ -464,7 +465,7 @@ private final class SmokePredicateFixture {
         // A may consume the reply before N logs callback return.
         add(.actorCloseConsumed)
         add(.nativeCloseReplyReturned, value: 0, flags: 15, thread: 10)
-        add(.nativeThreadTerminated, thread: 10)
+        add(.nativeThreadTerminated, value: 0, auxiliary: 10, thread: 40)
         add(.nativeThreadJoined, value: 0, auxiliary: 10, flags: 1, thread: 40)
         add(.actorStopConsumed, value: 0)
         add(.coordinatorReturned, value: 0)

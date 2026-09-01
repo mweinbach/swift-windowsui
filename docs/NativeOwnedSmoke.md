@@ -85,6 +85,49 @@ observes C-helper return; it is not described as an OS-thread join. Releasing
 the fixture's primary provider/gate holders does not claim that every retained
 bridge object has already deallocated.
 
+## Termination observation and join validation
+
+`nativeThreadTerminated` is recorded by the existing independent join worker
+after its actual `WaitForSingleObject` call succeeds on the original owner
+thread handle. The record keeps the recorder's actual calling thread ID, names
+the original owner in `auxiliary`, and carries that call's actual wait result
+in `value`. It is not an event emitted by N before returning. Windows signals
+the thread object when the thread terminates; `WAIT_OBJECT_0` is the successful
+signaled-object result. The later `nativeThreadJoined` record still requires
+successful exit-code retrieval and handle closure.
+([Thread termination](https://learn.microsoft.com/en-us/windows/win32/procthread/terminating-a-thread),
+[WaitForSingleObject](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-waitforsingleobject).)
+
+The validator therefore classifies only this termination observation outside
+the N-produced event list. A present termination record must be unique, have
+wait result zero, name the unique original N, and share both that target and
+its real observer thread ID with the unique successful join record. Owner
+entry and successful close-reply return must precede termination, which must
+precede join. All other N-produced records must still belong to N and precede
+both termination and join. Duplicate receipts are counted before checking
+success, so an extra failed join cannot hide beside a successful one.
+
+Actor separation retains its original owner-entry-through-join interval,
+including the gap between termination observation and join. An actor callback
+on N in that gap is still rejected. After join, numeric thread IDs may be
+reused; neither a later actor callback nor the observer must have a numerically
+different ID from the retired N. Missing termination can preserve the existing
+partial separation observation but can never prove a full join. Malformed or
+duplicate termination fails both separation and full-join checks. Actor stop,
+coordinator return, all original exit-status checks, and the separate absence
+of fixture/owner/join failures remain required.
+
+This correction changes no predicate names, command counts, turn limits,
+timeouts, scheduling routes, or recorder identity API. The native attempt at
+`66e9a7d` remains failed at 24 of 27 predicates; no saved trace is reclassified.
+The two fairness predicates remain separate, unexercised obligations. The
+separate `NativeOwnedSmokeTerminationObserverTests` matrix uses only synthetic
+scalar input and directly checks separation, full join, and failure predicates.
+The original 22 validation methods and 58 assertions stay intact; only their
+two termination-receipt scaffolds adopt the actual producer shape. The new
+source tests and a freshly bound native attempt still require serial execution
+after integration. Source review and formatting do not supply those results.
+
 ## Bounds and future invocation
 
 The observer belongs to this one pump/host instance. It stores at most 4,096

@@ -11606,3 +11606,53 @@ retirement assertion, remains byte-identical. Package.swift is unchanged.
 No compiler or XCTest run has qualified these amendments yet. The next combined
 selection retains all original 132 identifiers and appends the 20 empty-membership
 regressions. All nine original completion gates remain open and unchanged.
+
+
+### 2026-09-01 root integration 91: observe actual native-thread termination
+
+The reviewed native termination-observer correction is integrated after
+`5723c3d55b1691fc7c7d54c5608c4ced23f0c5d8`. The old native attempt remains failed
+at 24/27, with its original result, trace, exit statuses, and cleanup-required
+flag unchanged. This source change does not reclassify that old trace or create
+a native pass. All nine original completion gates remain open and unchanged.
+
+Win32NativePump still observes the original thread handle on its existing join
+worker after successful WaitForSingleObject. The observation now includes that
+actual wait result; it still records GetCurrentThreadId for the real observer and
+the original native owner's ID as auxiliary data. There is no fabricated thread
+ID, early termination marker, extra scheduling hop, or changed shutdown order.
+
+The validator distinguishes that post-wait observation from work produced by the
+window thread. Unique owner-entry, close-return, termination, and join receipts
+must name the same original owner and satisfy owner < close < termination < join.
+Termination and join share the actual nonzero observer and require successful
+wait/exit values. All remaining native records precede termination and join on
+the original owner. All receipt rows count before success is checked. Actor
+separation still covers the complete original owner-entry-through-join interval,
+including the termination-to-join gap. Missing termination retains only the old
+partial separation possibility; it cannot establish the complete join predicate.
+
+Root intake `eb5589/0` verified the passive wrapper: 53 payloads, 648,008 bytes,
+manifest SHA-256 `e39ec16b502bac65e385b4cf9300b900626ee9b56bb6de042a062f57699b7bfa`.
+The mapping-shaped original manifest, original seal, and all 51 original payloads
+are preserved under original/. Root read both production diffs and the complete
+independent review at `fad0dd/0`. The private source is `555bf18e176a874151d01213466658d8bf2fab89`.
+Its exact 27,706-byte patch has SHA-256
+`82b133c146d09856ad8dc032673f6d8cdb5775a567ffe0e7eeb0e44a3ed59cb1`.
+
+Root pre/post contracts, strict formatting of all four Swift files, and exact
+staged-source proof passed in `2c8ce3/0`. The proof is retained in
+`artifacts/goal-ninth-native-termination555-root-proof-v1.json`, binding source
+tree `31dd4e0182920d16d307d791d358798333974cd7`. The entire root diff is byte-identical
+to the sealed patch. Of 640 old test files, 639 are exact and the sole changed
+file contains only the two approved trace scaffolds. Independent inverse proof
+restores its complete old blob and preserves all 22 methods and 58 assertions.
+The 29 new async regressions have not run. Package.swift is unchanged.
+
+The future focused native prerequisite keeps the original 65 identifiers and
+adds these 29, for 94. Only a fresh same-HEAD successful compile, exact test
+reconciliation, and closure evidence may produce a new binding. The 27 predicate
+names, 64-command workload, ordinal-31 query, 16/32 bounds, idle interval, trace
+caps, fixture/watchdog deadlines, and 55+5 outer budget are unchanged. No forced
+backlog, scheduler hold, workload increase, or retry to search for a fairness
+pass is authorized. The two independent fairness predicates remain unqualified.

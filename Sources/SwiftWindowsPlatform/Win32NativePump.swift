@@ -173,7 +173,8 @@ public final class Win32NativePump: NativeWindowCommandSink {
                     mailbox.didJoin(.failure(.native(operation: "WaitForSingleObject", code: Int64(code))))
                     return
                 }
-                observation?.record(.nativeThreadTerminated, auxiliary: UInt64(ownerThreadID))
+                observation?.record(
+                    .nativeThreadTerminated, value: Int64(waitResult), auxiliary: UInt64(ownerThreadID))
                 var exitCode: DWORD = 0
                 let readExit = GetExitCodeThread(handle, &exitCode)
                 let readError = readExit ? 0 : GetLastError()

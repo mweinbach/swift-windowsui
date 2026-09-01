@@ -11110,3 +11110,77 @@ separately. Its fresh third observation found no relevant process or formatter
 (`3678ab/0`); no process was killed and no earlier receipt was rewritten.
 This is a point-in-time closure observation, not continuous descendant proof.
 Actual native execution and all broader qualifications remain pending.
+
+
+### 2026-09-01: native repair tests pass; actual shutdown succeeds with three checks still open
+
+All nine original completion gates remain open. Fresh compilation and the
+fixed 65-method native repair selection passed on
+`66e9a7dba78f0190cf8f6c2a39deee819a78b234`, tree
+`c43571d9f68f4f7fc90045d71a1af961539ea96f`. The original 45 methods and
+twenty new shutdown/actor-dispatch methods all started and passed, with zero
+failures or skips and one separate zero-test Swift Testing footer.
+
+The run is
+`artifacts/goal-ninth-native65-66e9a7d-88890848b80c4bb7894b14d15927d62a`.
+Launch `b439ab/session45777` closed naturally at `1192b8/0`; retained child
+16924 and runner exited 0/0 after 364.719 seconds including compilation.
+Its log is 3,348,863 bytes, SHA256
+`7f2f17a505666f907af7cdc3e7f80cf4d8190475b2b676c9eaf72f10ca0516ee`.
+Independent reconciliation and the post-closure census passed (`0cdd59/0`).
+The separately observed formatter was not a SwiftPM/test process; the retained
+child and relevant build/test processes were absent.
+
+The actual native attempt used a fresh binding
+`artifacts/goal-ninth-native-smoke-66e9a7d-binding-v1.json`, 35,057 bytes,
+SHA256 `31e88bdbfc1d9df0a37f4ab9512cc303649255c916178caf3cf688e57172d1c3`.
+The 93,475,840-byte executable has SHA256
+`916c49316a96f6f6e4a1933b004b8908cc90da275a73fbea8ddb816b1b60fc7c`.
+One native-executable link was observed in the successful build, and its
+modification time falls within that retained attempt. The build-association
+directory retains debug.yaml and the native link input list. All 135 immediate
+DLL inputs from the two fixed Swift 6.3 directories were freshly pinned,
+817,850,784 bytes total. These are input pins, not proof of loader selection.
+An initial controller argument preflight refused a relative binding path
+before creating an attempt directory or child (`5c4e06/1`); the same unused
+binding was then supplied with its required absolute path.
+
+The actual attempt is
+`artifacts/goal-ninth-native-owned-smoke-f5d4b9307e054654a5063f09e375d3d6`.
+Launch `82a496/session7073` closed at `797b48/1`: native child 34356 and
+controller both exited naturally with 1 after 11.094 seconds. There was no
+timeout, process termination, fixture failure, or native-owner failure.
+The result remains failed: 24 of the original 27 predicates passed, while
+actor-and-native-owner-thread-separation, actor-progress-between-backlogged-turns,
+and backlogged-32-record-turn-and-continuation remain false. The result explicitly
+records insufficient fairness exercise. The predicate set, 64-probe workload,
+32-record bounds, timeouts, and original failed attempts are unchanged.
+
+This run observed the previously missing shutdown chain: both native
+attachments detached after the held full C call drained, renderer detachment
+preceded NCDESTROY, the native close unwound before actor close consumption,
+the native thread was joined, actor stop was consumed, and a closed-owner
+command was rejected once. All 64 accepted probes were delivered in FIFO
+order with 64 actual replies. All three frame phases, two mounted-task awaits,
+and the three-second unforced settled-idle checks also passed. These observations
+do not turn the three false predicates into passes.
+
+The trace contains 2,776 contiguous records, 643,576 bytes, SHA256
+`a39e8a39f3d155728d6206f6ef907bdc884098ae1d5a418e1a9b99df68315852`.
+The 6,097-byte result has SHA256
+`78964763f74cce1d90cd2d27354d9e0a75307d11c3c06ebd060c23ff8207dad4`;
+raw stdout/stderr is empty. Independent reconciliation (`871984/0`) verifies
+source/index and bound-input endpoints, file hashes, trace sequence/counts,
+and agreement with all recorded predicates. It does not replace the semantic
+validator. The process census (`b35488/0`) observed relevant processes absent.
+The producer's requiresOperatorCleanupBeforeAnotherNativeRun flag remains true
+and immutable; no automatic retry is authorized by this result.
+
+Targeted trace inspection found all twelve actor-query callbacks on thread
+56880 and the native query on owner thread 6352. The termination and join
+observations occur on joiner thread 31624, naming 6352 in their auxiliary field.
+That distinction is being reviewed against the separation predicate; no thread
+ID has been rewritten and no classification change is yet qualified. The
+backlog/fairness failure is being investigated separately. Original owned
+fixtures, Core/List cohorts, full visual/release validation and product gates
+remain required despite the narrower shutdown progress.

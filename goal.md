@@ -10018,3 +10018,94 @@ parent contracts, and strict formatting passed. Compilation, all eight new
 methods, unchanged ownership regressions, and the original 14 interaction
 methods still require execution with unchanged limits. All nine gates remain
 open.
+
+### 2026-09-01: Image, layout, removal and file-preview evidence at 04568c8
+
+This entry records new execution evidence for source commit
+`04568c87b5992c2199a35276f107289c51603529`, tree
+`5657f3a29dea5c8308620abb266f7950e8dc0f11`. It adds detail to the original
+acceptance criteria; all nine original completion gates remain open. The native
+source-ownership index is not a demonstrated solution to the remaining file
+browser interaction timeout.
+
+Three serial, fixed-roster XCTest runs completed with 476 starts and 476
+terminals: 474 passed, two failed, and none skipped. Each run's source and index
+endpoints were independently compared, and each emitted the explicit Swift
+Testing zero-test footer. These counts cover only the selected classes, not a
+Full run or the separate timed-out interaction cohort.
+
+| Fixed cohort | Observed result | Raw log bytes and SHA-256 |
+| --- | --- | --- |
+| Image/List ownership, 208 methods | 208 passed; natural exit 0; 356.171 seconds including 346.83-second build | 3,032,707; `aaf8097797347c5230296c3c48eccdeb01467505df4f5010e75fd2b8370a09b8` |
+| Layout/sizing, 118 methods | 118 passed; natural exit 0; 8.047 seconds | 32,183; `dc076dcb033c7f2c10d71052d4ec2a56937cfaa71f75b32353b3a01b7bd943f0` |
+| Removal/blur, 150 methods | 148 passed, two failed; natural exit 1; 70.954 seconds | 47,681; `45c1ee59a4de3a2899f6c12c661992a367a22c3764adb60eec07b4f2aa628c36` |
+
+The 208-method run passes both previously failing image-density and
+foreign-then-original standalone List cases. It includes all 23 image-scale,
+ten standalone snapshot, three file-browser render, eight native ownership
+freeze and seven erased-key identity cases. The freeze tests qualify their
+native roster/order/lifetime assertions, not end-to-end interaction speed.
+
+The layout cohort includes all 16 existing `WinSwiftUICompositeTests` methods.
+A rejected preliminary 116-method specification had missed two existing
+`nonisolated` GroupBox methods. A separately reviewed artifact-only parser
+successor accepts that exact optional declaration modifier; it preserves the
+same masking, structural, count and identifier-size checks, filter derivation,
+timeout and process handling. No test was removed or edited to obtain 118.
+
+The three corrected removal background comparisons now pass with exact dark
+BGRA `[28, 23, 23, 255]`. The two unchanged positive assertions still fail:
+`testManagedTabCrossfadeKeepsDeclaredStateAndDoesNotRestartOnRebuild` at line
+172 and `testRemovalDuringInsertionUsesPresentedOpacityAndCannotCancelReinsertedRow`
+at line 225 both require a non-nil `AnimationState`. These remain production
+insertion-animation defects, not tolerance or fixture problems. All four
+declared-owner continuation, 24 CPU material blur and 16 D3D11 material blur
+cases in this cohort pass; that is not a claim of complete backend equivalence.
+
+Reconciled receipts are retained as
+`artifacts/goal-ninth-image-list208-04568c8-reconciled.json`,
+`artifacts/goal-ninth-layout118-04568c8-reconciled.json`, and
+`artifacts/goal-ninth-removal-blur150-04568c8-reconciled.json`. Their recorded
+run directories contain the raw logs, exact roster derivations and source
+snapshots. The layout and removal process censuses found no surviving original
+direct child, child process or Swift test process before the next workload.
+
+The unchanged 14-method `DemoFileBrowserInteractionTests` run again reached its
+900-second limit: controller exit 124, direct PowerShell exit 1, with unchanged
+source/index endpoints. The 227-byte raw log, SHA-256
+`f1aab64c1cae1d1d10adb5d55cb3dffc3afc8c3a87e1b5e786618337598f2696`, records
+a 0.35-second successful build but no observable XCTest start or terminal.
+Buffered output does not establish which individual cases executed or passed.
+One local, noninvasive, nonsuspending CDB sample completed and detached; its
+incomplete unwind and candidate raw stack words do not establish a complete
+active call chain. They motivate source investigation of repeated ownership
+checks, not a timing qualification or permission-cache change.
+
+After the timeout, retained handles verified every recorded process creation
+identity before cleanup. Only the owned XCTest process was terminated; its
+Swift/PowerShell parents consumed that exit naturally. A subsequent CIM census
+found none of the seven recorded controller/process/console IDs or their
+children. The exact attempt and cleanup are retained in
+`artifacts/goal-ninth-file14-04568c8-timeout.json`; the original workload and
+deadline were not reduced or extended.
+
+Six retained gallery renders then completed at the same source commit using
+the executable linked by the successful 208-method build. Both renderer and
+resource-copy children exited naturally with code 0; source, executable,
+generated accessor and the two image resources stayed unchanged. The six new
+images and all three old file previews were visually inspected. All four file
+rows and the appropriate selected-row background now appear in the loaded,
+empty-file and invalid-UTF-8 previews; their corresponding preview bodies
+remain unchanged. Differences are confined to the Files area: 12,967, 23,135
+and 18,936 pixels respectively. The cap-inset, tiled and aspect-fit bitmap
+controls are byte-identical to their retained comparison images.
+
+Gallery output is retained under
+`artifacts/goal-ninth-file-preview-gallery-797bda7174b54bf1a57dc07a1b3e07af/`,
+with pixel/hash comparison in
+`artifacts/goal-ninth-file-preview-gallery-04568c8-comparison.json`. This is six
+specific retained fixtures, not the full gallery gate, a native input workflow,
+macOS comparison or a baseline refresh. No reviewed baseline was changed.
+ContractsOnly passed again after these runs. Full validation, the two remaining
+animation repairs, the interaction timeout, hosted CI and all other original
+completion requirements remain outstanding.

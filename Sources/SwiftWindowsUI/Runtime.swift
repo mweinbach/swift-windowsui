@@ -13370,6 +13370,8 @@ public final class RetainedViewRuntime {
         return changed
     }
 
+    /// A prefix change must not move a scroll view away from its leading edge.
+    /// Local offset zero below a header can still preserve a keyed anchor.
     private func lazyListAnchorMayControl(_ scroll: ViewNode) -> Bool {
         lazyListLogicalRevealScroll !== scroll
             && !(pendingListNavigationReveal?.container === scroll
@@ -13380,6 +13382,7 @@ public final class RetainedViewRuntime {
             && scrollDragState?.node !== scroll && activeScrollIndicatorNode !== scroll
             && !pendingPreciseScrollAlignments.contains(where: { $0.container === scroll })
             && scroll.initialScrollAnchor == nil && scroll.scrollSizeChangeAnchor == nil
+            && scroll.scrollOffset > 0
     }
 
     private func normalizeLazyListAnchorOffsets() -> Bool {

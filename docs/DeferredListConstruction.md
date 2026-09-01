@@ -267,6 +267,16 @@ blocks that successor's anchor writes until the original query unwinds.
 These regressions, including first-query and exhausted-budget cases, remain
 unexecuted with this source composition.
 
+Framework keyed anchors preserve a viewport only when its enclosing scroll
+view has a positive scroll offset. At absolute offset zero, an accepted prefix
+insertion or reorder keeps the leading edge fixed, including an explicit
+return to zero before successor metadata is prepared. The same native policy
+guards both future-window selection and the later anchor correction. A list
+below a header can still preserve its first-row anchor when its local viewport
+offset is zero but the enclosing scroll view has a positive offset. This adds
+no authored anchor, row cache, construction pass, or provider authority; the
+existing input and equal-value authored-intent guards remain unchanged.
+
 The native host source now shares this construction path. Logical item-state
 and property-zero ItemContainer lookup use typed native requests with copied
 geometry. The full C-call lease spans actor dispatch, foreign start-after

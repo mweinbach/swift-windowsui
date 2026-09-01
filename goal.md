@@ -10745,3 +10745,45 @@ all eight changed Swift files and post-edit contracts passed (`c5621b/0`).
 reviewed patch body/hunks, all original test blobs, and the eleven-method roster.
 Compilation, the original failing tests, the combined focused cohorts, broader
 List validation, and release-quality visual checks are still pending.
+
+
+### 2026-09-01: keep the absolute leading edge fixed during keyed List updates
+
+All nine original completion gates remain open. This is a source repair for
+the two `MountedLazyListStateTests` failures in the partial 26390ef List run,
+not a claim that those tests or the full 402-method cohort now pass.
+
+The reviewed `0ecccf420c8b4cb80b0718dfbd86afef3df9ae40` packet adds one
+native policy condition and two explanatory comments in Runtime.swift,
+four new `LazyListLeadingEdgeAnchorTests`, and ten documentation lines in
+`docs/DeferredListConstruction.md`. Root intake is
+`artifacts/goal-ninth-leading-edge-0ecccf4-intake-v1/source.patch`
+(23,246 bytes; SHA256
+`acd0156979fedb210a2bf409ac9adb0b55d65db4d9538aac3744162c505786be`).
+
+Automatic keyed preservation now requires a positive enclosing scroll offset.
+At absolute zero, accepted metadata reordering or prefix insertion keeps the
+leading edge at zero instead of shifting the future mounted window to follow
+the formerly first key. This also covers an explicit return to zero before
+successor metadata preparation. The shared guard applies to future-window
+selection, correction application, and pending normalization. A List below a
+header at local offset zero still preserves its key when the enclosing scroll
+offset is positive. Every prior reveal, motion, indicator, authored-anchor,
+epoch, and equal-value authored-intent guard remains unchanged. There is no
+new build pass, provider call, authority, owner policy, or round-budget change.
+
+The new tests mirror every existing cold-binding and keyed-owner assertion,
+with the same layout and reload counts, and add cached geometry checks. Two
+controls retain positive-offset keyed preservation and local-zero preservation
+below a positive header. The original eight MountedLazyListStateTests and all
+other prior test files are unchanged. Required execution also includes the
+existing runtime anchor, terminal-checkpoint, public accessibility, and
+programmatic-scroll controls listed in the packet's execution roster. The
+historical File14 timeout remains unresolved and is not covered by this fix.
+
+Root strict formatting on both changed Swift files and architecture contracts
+passed (`c49f9c/0`). The root proof
+`artifacts/goal-ninth-leading-edge-0ecccf4-root-proof-v1.json` checks the
+reviewed patch with only index hashes and hunk start offsets adjusted, and
+verifies that removing exactly the three added Runtime lines restores its
+entire preceding source. Compilation and runtime validation remain pending.

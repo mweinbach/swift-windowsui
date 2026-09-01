@@ -9684,3 +9684,26 @@ or immediate descendant. The same cohort must be rerun after this correction.
 Architecture checks passed before and after the edit, and strict formatting
 passed for the one changed Swift file. The change still needs compilation and
 execution. All original completion gates remain open.
+
+### Ninth batch: removal fixture compilation corrections
+
+The next run at `4b628f6d7f89b160c8fd93973be4961e5204133c` compiled the
+production image/removal source but stopped while compiling the tests. Two
+new removal fixtures needed source corrections: the path-rounding scene now
+passes layer zero to `addPath`, and the release hook explicitly captures its
+MainActor closure rather than sending non-Sendable `self` into
+`MainActor.assumeIsolated`. The latter uses the same capture-list pattern as
+existing checked-key ownership tests. The release still happens synchronously
+at the same point. No assertions, case identifiers, or production behavior
+changed in this correction.
+
+The run is retained at
+`artifacts/goal-ninth-async159-4b628f6-f968fc40b2dd49728136a0a1cefa5ca6`.
+Its controller and child exited naturally with code 1 after 188.75 seconds
+of child wait, without timeout or termination. Tracked files and index
+endpoints were preserved. Its 2,951,623-byte log has SHA256
+`990efd5b094fcde37911fdb4fab367558a293c528779c014a849873f0a2d370c`.
+No selected test began, so the 159 individual outcomes remain unverified.
+The two unique compiler errors are corrected here; fresh compilation and
+execution remain required. Contracts and strict formatting passed for the
+two changed Swift test files. No original completion gate is closed.

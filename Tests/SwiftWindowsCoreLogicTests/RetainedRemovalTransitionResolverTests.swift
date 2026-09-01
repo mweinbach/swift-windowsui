@@ -451,5 +451,5 @@ private final class RemovalResolverReleaseHook {
 
     init(_ action: @escaping @MainActor () -> Void) { self.action = action }
 
-    deinit { MainActor.assumeIsolated { action() } }
+    deinit { MainActor.assumeIsolated { [action] in action() } }
 }

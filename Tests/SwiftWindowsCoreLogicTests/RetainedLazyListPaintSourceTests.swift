@@ -656,7 +656,8 @@ final class RetainedLazyListPaintSourceTests: XCTestCase {
         scene.addPath(
             PathPrimitive(
                 elements: [.moveTo(.zero), .lineTo(Point(x: 8, y: 0)), .lineTo(Point(x: 8, y: 8)), .close],
-                bounds: Rect(x: 0, y: 0, width: 8, height: 8), fillColor: .white, clipCornerRadius: 1))
+                bounds: Rect(x: 0, y: 0, width: 8, height: 8), fillColor: .white, clipCornerRadius: 1),
+            toLayer: 0)
         let source = try captured(scene)
         XCTAssertTrue(source.wasClipped)
         XCTAssertEqual(source.input, .independent)

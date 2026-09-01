@@ -20152,7 +20152,7 @@ private func observingChanges<Value: Equatable>(
 /// structural outputs. An empty append closes a proposal without inventing a
 /// node; only the native structural adoption can later accept that proposal.
 @MainActor
-private func lazyListSyntheticComponent(
+func lazyListSyntheticComponent(
     in component: Component, context: ViewBuildContext, attribution: LazyListViewAttribution,
     kind: RetainedLazyListContributionKind,
     prepare: @escaping @MainActor (RetainedLazyListGroupID) -> Void = { _ in },
@@ -20211,7 +20211,7 @@ private func lazyListSyntheticComponent(
 /// Root and ordinary subtree components also need exact effect groups when a
 /// build contains a managed List. These records carry no logical row receipt.
 @MainActor
-private func descriptorSyntheticComponent(
+func descriptorSyntheticComponent(
     in component: Component, context: ViewBuildContext, attribution: RetainedDescriptorComponentAttribution,
     kind: RetainedLazyListContributionKind,
     prepare: @escaping @MainActor (RetainedDescriptorGroupID) -> Void = { _ in },
@@ -31545,12 +31545,12 @@ extension View {
         )
     }
 
-    public func keyframeAnimator<Value: Animatable>(
+    public func keyframeAnimator<Value, KeyframePath: Keyframes, Content: View>(
         initialValue: Value,
         repeating: Bool = true,
-        @ViewBuilder content keyframeContent: @escaping (PlaceholderContentView<Self>, Value) -> [AnyView],
-        keyframes: @escaping (KeyframeTrack<Value>) -> Keyframes
-    ) -> some View {
+        @ViewBuilder content keyframeContent: @escaping (PlaceholderContentView<Self>, Value) -> Content,
+        @KeyframesBuilder<Value> keyframes: @escaping (Value) -> KeyframePath
+    ) -> some View where KeyframePath.Value == Value {
         KeyframeAnimator(
             initialValue: initialValue,
             repeating: repeating,
@@ -31559,12 +31559,12 @@ extension View {
         )
     }
 
-    public func keyframeAnimator<Value: Animatable, Trigger: Equatable>(
+    public func keyframeAnimator<Value, KeyframePath: Keyframes, Content: View, Trigger: Equatable>(
         initialValue: Value,
         trigger: Trigger,
-        @ViewBuilder content keyframeContent: @escaping (PlaceholderContentView<Self>, Value) -> [AnyView],
-        keyframes: @escaping (KeyframeTrack<Value>) -> Keyframes
-    ) -> some View {
+        @ViewBuilder content keyframeContent: @escaping (PlaceholderContentView<Self>, Value) -> Content,
+        @KeyframesBuilder<Value> keyframes: @escaping (Value) -> KeyframePath
+    ) -> some View where KeyframePath.Value == Value {
         KeyframeAnimator(
             initialValue: initialValue,
             trigger: trigger,

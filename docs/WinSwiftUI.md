@@ -1116,6 +1116,13 @@ the same live retained node; a recycled allocation address receives a new ID.
   animation call sites with `PlaceholderContentView` for the modifier form and
   retain phase, trigger, and animation metadata on the node. See
   `docs/AnimationParity.md` for the retained phase timer and its limitations.
+- `KeyframeAnimator` and `keyframeAnimator` build typed linear, cubic, spring,
+  and move tracks. Managed occurrences retain their timeline across ordinary
+  rebuilds, resume from the current value and velocity when interrupted, and
+  use the runtime's existing frame queue for bounded repeat advancement.
+  Unmanaged construction only samples a beginning value. Native numerical,
+  lifecycle, Reduce Motion and long-gap parity remain unqualified; see
+  [KeyframeAnimations.md](KeyframeAnimations.md) for the supported local rules.
 - `disabled(_:)` propagates an inherited enabled-state environment through `ViewBuildContext`, and retained controls consume that state while they are built.
 - `scrollDisabled(_:)` propagates `EnvironmentValues.isScrollEnabled`; retained `ScrollView`, `List`, and scrolling `Section` nodes keep their axis, layout, clipping, and presented offset while rejecting wheel, keyboard-scroll, and indicator-drag input. Disabling during input-driven motion stops at the current in-bounds presentation rather than jumping to the origin. Programmatic scrolling remains separate from input suppression, and re-enabling does not restore a stale hidden offset.
 - `scrollClipDisabled(_:)` maps to retained scroll container bounds clipping for `ScrollView`, `List`, and scrolling `Section` nodes. Non-scroll `Section` panels keep their rounded clipping.

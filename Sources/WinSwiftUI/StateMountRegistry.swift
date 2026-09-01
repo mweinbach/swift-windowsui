@@ -38,6 +38,14 @@ struct StateMountDeclarationScope {
     }
 }
 
+/// Framework-owned synthetic observations can own a runtime resource without
+/// making it part of ordinary application State. Final retirement is permanent;
+/// reversible preparation must not release or cancel this resource.
+@MainActor
+protocol MountedSyntheticObservationLifetime: AnyObject {
+    func finishMountedObservation()
+}
+
 @MainActor
 fileprivate protocol AnyMountedStateCell: AnyObject {
     var ownedSlotGeneration: RetainedOwnedSlotGenerationID? { get }
@@ -181,8 +189,10 @@ final class MountedStateCell<Value>: AnyMountedStateCell {
     }
 
     fileprivate func finishRetirement() {
+        guard phase != .retired else { return }
         phase = .retired
         owner = nil
+        (value as? any MountedSyntheticObservationLifetime)?.finishMountedObservation()
     }
 
     fileprivate func cancelRetirement() {

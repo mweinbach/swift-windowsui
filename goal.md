@@ -10158,3 +10158,52 @@ interaction, multiple windows, display timing, GPU recovery, long-session
 resource behavior, or clean-machine deployment. See
 [NativeOwnedSmoke.md](docs/NativeOwnedSmoke.md) for the concrete workload and
 remaining scope. All original goal gates remain open.
+
+### 2026-09-01: Integrate typed keyframe timelines and managed playback
+
+`KeyframeAnimator` no longer discards its authored tracks. The integrated
+implementation builds typed linear, cubic/Hermite, spring and move timelines,
+supports the documented scalar and geometry adapters, preserves declaration
+order, and samples the maximum track duration. Root values need not themselves
+conform to `Animatable`. Per-track velocity and truncated spring endpoints are
+retained for interruption; this is a concrete local implementation, not a
+claim that its numerical curves match the pinned native SwiftUI baseline.
+
+Managed occurrences stage one synthetic state cell, commit the exact adopted
+proposal, and start factories under their captured transaction and ownership
+checks. Equal triggers and ordinary rebuilds do not restart a run. An
+interruption begins from the current sampled value and velocity. Frame delivery
+uses the existing runtime queue with its actual tick timestamp, disables an
+extra implicit tween for each published value, and preserves other transaction
+fields. Final retirement/close cancels before captured payloads are released;
+reversible retirement does not manufacture a replacement run or new authority.
+
+Repeating playback anchors ordinary overshoot to the previous cycle end. At
+most eight factory boundaries may run in one frame before the documented
+long-gap policy resets the remaining current cycle at that frame. Zero-duration
+repetition cannot create an infinite loop. These policies, first-mount trigger
+seeding and Reduce Motion still require native comparison. An unmanaged raw
+Component only samples a beginning value; durable unmanaged/snapshot playback
+remains an open requirement, not a platform exception or a completed feature.
+
+The reviewed private source ends at
+`a1a10d2911e9903d28507441aeb5b193da54a606`, tree
+`4200deab95edd4ec96fbaa46a0187336ff19494e`. Its 206,411-byte patch, SHA-256
+`0c31db7933d57768eb6b5efd6d5915af5098c306eda0a656fac320930bfb7986`, was applied
+to root `7b3970211c8e457fe3504eae86b29751c6fcdee0` with every added/removed
+packet line preserved. The 12 packet paths comprise eight production Swift
+files, three new test files and one document. Root also replaced the obsolete
+shim description in `CompatibilityStatus.md` and documented the supported
+partial behavior in `WinSwiftUI.md`; the original goal was not revised.
+
+All prior test files and the 7,331-byte native-smoke package variant remain
+unchanged. The new source roster is 25 timeline, 15 playback and 22 mounted
+tests, all async. Strict formatting of all 11 changed Swift files and
+ContractsOnly passed (`ea0ece/session61637` through `e69a04/0`); the exact
+packet/context preservation proof is
+`artifacts/goal-ninth-keyframes-root-integration-proof-v1.json`. These 62 tests
+and the newly integrated source have not yet been compiled or executed at this
+point in the ledger. Generated registration, real test terminals, wider
+preservation checks, rendered motion and hardware pacing still need evidence.
+See [KeyframeAnimations.md](docs/KeyframeAnimations.md) for the supported API,
+local policies and limits. All nine original completion gates remain open.

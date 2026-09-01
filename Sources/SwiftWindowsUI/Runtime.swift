@@ -12454,7 +12454,7 @@ public final class RetainedViewRuntime {
 
     private struct DeferredRebuild {
         var deadline: Double
-        var action: @MainActor () -> Void
+        var action: @MainActor (Double) -> Void
     }
 
     private var deferredRebuilds: [String: DeferredRebuild] = [:]
@@ -12477,7 +12477,18 @@ public final class RetainedViewRuntime {
     public func scheduleDeferredRebuild(
         key: String, delay: Double, perform action: @escaping @MainActor () -> Void
     ) {
-        deferredRebuilds[key] = DeferredRebuild(deadline: clock() + max(0, delay), action: action)
+        deferredRebuilds[key] = DeferredRebuild(deadline: clock() + max(0, delay), action: { _ in action() })
+        invalidate()
+    }
+
+    /// A mounted frame producer supplies a time already read under its own
+    /// admission guard. Sampling uses the actual admitted tick, not another
+    /// clock read or a fixed refresh interval. Rearming waits for the next tick
+    /// because the due-action snapshot is claimed before callbacks run.
+    package func scheduleDeferredFrameRebuild(
+        key: String, at timestamp: Double, perform action: @escaping @MainActor (Double) -> Void
+    ) {
+        deferredRebuilds[key] = DeferredRebuild(deadline: timestamp, action: action)
         invalidate()
     }
 
@@ -12499,14 +12510,14 @@ public final class RetainedViewRuntime {
         let dueKeys = deferredRebuilds.filter { $0.value.deadline <= timestamp }.keys.sorted()
         guard !dueKeys.isEmpty else { return false }
 
-        var due: [@MainActor () -> Void] = []
+        var due: [@MainActor (Double) -> Void] = []
         for key in dueKeys {
             if let entry = deferredRebuilds.removeValue(forKey: key) {
                 due.append(entry.action)
             }
         }
         for action in due {
-            action()
+            action(timestamp)
         }
         return true
     }

@@ -305,7 +305,7 @@ existing environment value untouched.
 | `onScrollTargetVisibilityChange` / `onScroll` | **Shim** | Metadata only; callbacks are not dispatched |
 | `scrollTargetBehavior` (paging / viewAligned) | **Shim** | Metadata; no deceleration behavior |
 | `PhaseAnimator` continuous cycling | **Partial** | Initial phase renders; continuous/trigger advancement limited |
-| `KeyframeAnimator` | **Partial** / **Shim** | API shape; not full keyframe timeline engine |
+| `KeyframeAnimator` / `keyframeAnimator` | **Partial** | Typed linear, cubic, spring and move timelines with managed retained playback, interruption and bounded repeats. Unmanaged durable playback and native curve, lifecycle, Reduce Motion and long-gap parity remain incomplete; see [KeyframeAnimations.md](KeyframeAnimations.md) |
 | Color effects (`brightness`, `contrast`, `colorInvert`, …) | **Partial** | Ordered effects apply to the composited subtree, including glyphs, images, paths, shadows, and nested effect passes. Contrast and saturation use 1 as identity. Native color-space conformance, animated parameters, and surrounding group/blend semantics remain incomplete |
 | `colorEffect` / `distortionEffect` / `layerEffect` / `Shader*` | **Shim** | Metadata only |
 | Style enums that only change chrome profiles | **Partial** | e.g. many `listStyle`, `formStyle`, `menuStyle`, `groupBoxStyle` values map to retained shells or metadata, not protocol-based custom styles |

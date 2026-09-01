@@ -610,11 +610,11 @@ struct LazyListViewAttribution {
 }
 
 enum LazyListSyntheticKind {
-    case onChange, onPreferenceChange, taskID, presentation, alert, deferredAnchor
+    case onChange, onPreferenceChange, taskID, presentation, alert, deferredAnchor, keyframe
 
     var contributionKind: RetainedLazyListContributionKind {
         switch self {
-        case .onChange: return .observation
+        case .onChange, .keyframe: return .observation
         case .onPreferenceChange: return .preferenceObservation
         case .taskID: return .scopedTask
         case .presentation: return .presentation

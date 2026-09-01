@@ -9492,13 +9492,16 @@ public struct ScrollViewReader: View {
 }
 @MainActor
 enum ListSelectionMode {
-    case single(get: () -> AnyHashable?, set: (AnyHashable?) -> Void)
+    case single(get: (() -> Bool) -> AnyHashable?, set: (AnyHashable?) -> Void)
     case multiple(get: (() -> Bool) -> [AnyHashable]?, set: ([AnyHashable], () -> Bool) -> Bool)
 
     static func single<Value: Hashable>(_ selection: Binding<Value?>) -> ListSelectionMode {
         .single(
-            get: {
-                selection.wrappedValue.map { AnyHashable($0) }
+            get: { isCurrent in
+                let value = selection.wrappedValue
+                guard isCurrent(), let value else { return nil }
+                let erased = AnyHashable(value)
+                return isCurrent() ? erased : nil
             },
             set: { value in
                 selection.wrappedValue = value?.base as? Value
@@ -9508,8 +9511,11 @@ enum ListSelectionMode {
 
     static func requiredSingle<Value: Hashable>(_ selection: Binding<Value>) -> ListSelectionMode {
         .single(
-            get: {
-                AnyHashable(selection.wrappedValue)
+            get: { isCurrent in
+                let value = selection.wrappedValue
+                guard isCurrent() else { return nil }
+                let erased = AnyHashable(value)
+                return isCurrent() ? erased : nil
             },
             set: { value in
                 guard let value = value?.base as? Value else {
@@ -9553,7 +9559,7 @@ enum ListSelectionMode {
         guard isCurrent() else { return false }
         switch self {
         case .single(let get, _):
-            let selected = get()
+            let selected = get(isCurrent)
             guard isCurrent(), let selected else { return false }
             return RetainedViewIdentity.Key(selected).checkedEquals(
                 RetainedViewIdentity.Key(value), isCurrent: isCurrent) == true
@@ -9574,7 +9580,7 @@ enum ListSelectionMode {
         guard isCurrent() else { return false }
         switch self {
         case .single(let get, let set):
-            let selected = get()
+            let selected = get(isCurrent)
             guard isCurrent() else { return false }
             if let selected {
                 let same = RetainedViewIdentity.Key(selected).checkedEquals(
@@ -9617,7 +9623,7 @@ enum ListSelectionMode {
             return nil
         }
 
-        let current = get()
+        let current = get(isCurrent)
         guard isCurrent() else { return nil }
         let nextIndex: Int
         if let current, let currentIndex = indicesByTag[RetainedViewIdentity.Key(current), while: isCurrent] {
@@ -10665,6 +10671,8 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
     public func makeComponent(context: ViewBuildContext) -> Component {
         let context = context.withViewIdentityType(Self.self)
         return Component { runtime in
+            let admission = TableConstructionAdmission(context: context)
+            guard admission.isCurrent else { return rejectedRetainedViewNode() }
             let columnCount = columns.count
             guard columnCount > 0 else {
                 return Controls.panel(
@@ -10724,15 +10732,18 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
             }
 
             // Build header row
-            let headerCells = columns.enumerated().map { pair in
-                let column = pair.element
-                let headerNode = self.buildHeaderCell(
-                    column: column,
-                    columnIndex: pair.offset,
-                    context: context,
-                    runtime: runtime
-                )
-                return headerNode
+            guard let headerIdentities = admission.headerIdentities(for: columns) else {
+                return rejectedRetainedViewNode()
+            }
+            var headerCells: [ViewNode] = []
+            for (index, column) in columns.enumerated() {
+                guard admission.isCurrent,
+                    let header = self.buildHeaderCell(
+                        column: column, columnIdentity: headerIdentities[index],
+                        context: context, runtime: runtime, admission: admission),
+                    admission.isCurrent
+                else { return rejectedRetainedViewNode() }
+                headerCells.append(header)
             }
 
             let headerRow = Controls.stackPanel(
@@ -10748,23 +10759,49 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
             headerRow.retainedViewIdentity = context.withViewIdentityRole(.header).retainedViewIdentity
 
             // Build data rows
-            let dataRows = data.enumerated().map { pair in
-                let element = pair.element
-                let elementID = AnyHashable(element.id)
+            var dataRows: [ViewNode] = []
+            guard var index = admission.withValueLookup({ _ in data.startIndex }),
+                let endIndex = admission.withValueLookup({ _ in data.endIndex })
+            else { return rejectedRetainedViewNode() }
+            var rowOffset = 0
+            while true {
+                guard let reachedEnd = admission.withValueLookup({ _ in index == endIndex }) else {
+                    return rejectedRetainedViewNode()
+                }
+                if reachedEnd { break }
+                guard let element = admission.withValueLookup({ _ in data[index] }),
+                    let rowID = admission.withValueLookup({ _ in element.id })
+                else { return rejectedRetainedViewNode() }
+                // Either erasure can invoke the row ID's custom AnyHashable
+                // representation. Both must retain this operation's receipt.
+                guard
+                    let rowIdentity = admission.withLookup({
+                        isCurrent -> (elementID: AnyHashable, key: RetainedViewIdentity.Key)? in
+                        let elementID = AnyHashable(rowID)
+                        guard isCurrent() else { return nil }
+                        let key = RetainedViewIdentity.Key(rowID)
+                        guard isCurrent() else { return nil }
+                        return (elementID, key)
+                    })
+                else { return rejectedRetainedViewNode() }
+                let elementID = rowIdentity.elementID
                 let rowContext = context.withViewIdentityRole(.row)
-                    .withViewIdentityPrefix([.keyed(RetainedViewIdentity.Key(element.id))])
-                let isSelected = self.selectionMode?.contains(elementID) == true
+                    .withViewIdentityPrefix([.keyed(rowIdentity.key)])
+                guard
+                    let isSelected = admission.withLookup({ isCurrent in
+                        self.selectionMode?.contains(elementID, isCurrent: isCurrent) == true
+                    })
+                else { return rejectedRetainedViewNode() }
 
-                let cells = columns.enumerated().map { cellPair in
-                    let column = cellPair.element
-                    let cellNode = self.buildDataCell(
-                        column: column,
-                        element: element,
-                        columnIndex: cellPair.offset,
-                        context: rowContext,
-                        runtime: runtime
-                    )
-                    return cellNode
+                var cells: [ViewNode] = []
+                for (index, column) in columns.enumerated() {
+                    guard admission.isCurrent,
+                        let cell = self.buildDataCell(
+                            column: column, element: element, columnIndex: index,
+                            context: rowContext, runtime: runtime, admission: admission),
+                        admission.isCurrent
+                    else { return rejectedRetainedViewNode() }
+                    cells.append(cell)
                 }
 
                 var row = Controls.stackPanel(
@@ -10779,14 +10816,20 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
                 row.retainedViewIdentity = rowContext.retainedViewIdentity
 
                 // Alternating row background
-                if pair.offset % 2 == 1, !isSelected {
+                if rowOffset % 2 == 1, !isSelected {
                     row.backgroundColor = rowAltBackground
                 }
 
                 if let selectionMode = self.selectionMode {
+                    guard
+                        let rowTag = admission.withLookup({ _ in
+                            "table-selection:\(String(describing: elementID.base))"
+                        })
+                    else { return rejectedRetainedViewNode() }
                     row = self.selectableTableRow(
                         wrapping: row,
                         tag: elementID,
+                        nodeTag: rowTag,
                         selectionMode: selectionMode,
                         isSelected: isSelected,
                         context: context,
@@ -10794,9 +10837,16 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
                     )
                 }
 
-                return row
+                guard admission.isCurrent else { return rejectedRetainedViewNode() }
+                dataRows.append(row)
+                guard let nextIndex = admission.withValueLookup({ _ in data.index(after: index) }) else {
+                    return rejectedRetainedViewNode()
+                }
+                index = nextIndex
+                rowOffset += 1
             }
 
+            guard admission.isCurrent else { return rejectedRetainedViewNode() }
             let tableContent = Controls.scrollPanel(
                 axis: .vertical,
                 stackLayout: .vertical(
@@ -10816,12 +10866,48 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
 
     private func buildHeaderCell(
         column: AnyTableColumn<Data.Element>,
-        columnIndex: Int,
+        columnIdentity: [RetainedViewIdentity.Segment],
         context: ViewBuildContext,
-        runtime: RetainedViewRuntime
-    ) -> ViewNode {
-        let context = context.withViewIdentityRole(.columnHeader).withViewIdentityPrefix([.slot(columnIndex)])
-        let headerViews = column.headerBuilder()
+        runtime: RetainedViewRuntime,
+        admission: TableConstructionAdmission
+    ) -> ViewNode? {
+        let context = context.withViewIdentityRole(.columnHeader).withViewIdentityPrefix(columnIdentity)
+        guard let headerViews = admission.withLookup({ _ in column.headerBuilder() }) else { return nil }
+        let sortedOrder: SortOrder?
+        if let key = column.sortKey, let sort = currentSort {
+            guard
+                let matches = admission.withLookup({ isCurrent in
+                    RetainedViewIdentity.Key(sort.key).checkedEquals(.init(key), isCurrent: isCurrent)
+                })
+            else { return nil }
+            sortedOrder = matches ? sort.order : nil
+        } else {
+            sortedOrder = nil
+        }
+
+        if column.isSortable, let onSort {
+            // Sort is controlled by the author: activation requests the next
+            // direction from this declaration, without mutating the data.
+            let nextOrder: SortOrder = sortedOrder == .forward ? .reverse : .forward
+            let button = Button {
+                onSort(column.sortKey, nextOrder)
+            } label: {
+                TableSortHeaderLabel(
+                    content: headerViews.first, title: column.title, sortedOrder: sortedOrder)
+            }
+            let node = makeViewComponent(button, context: context.withButtonStyle(.plain)).makeNode(runtime: runtime)
+            // The label helper exposes only the authored root label or visible
+            // title. Its decorative sort glyph must not become the Button name.
+            node.accessibilityLabel = node.children.first?.accessibilityLabel ?? column.title
+            node.accessibilityValue =
+                sortedOrder.map { $0 == .forward ? "Sorted ascending" : "Sorted descending" } ?? "Not sorted"
+            node.accessibilityHint = nextOrder == .forward ? "Sort ascending" : "Sort descending"
+            applyColumnWidth(column.width, to: node)
+            return node
+        }
+
+        // A sort descriptor without a callback is a passive indication, not
+        // an invokable control. Preserve the existing passive-header structure.
         let headerNode =
             headerViews.first?.makeComponent(context: context).makeNode(runtime: runtime)
             ?? Controls.panel(frame: .zero, text: column.title)
@@ -10831,8 +10917,8 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
 
         // Sort indicator
         if column.isSortable {
-            let isSorted = currentSort?.key == column.sortKey
-            let sortOrder = currentSort?.order ?? .forward
+            let isSorted = sortedOrder != nil
+            let sortOrder = sortedOrder ?? .forward
             let indicatorText = isSorted ? (sortOrder == .forward ? " ▲" : " ▼") : ""
             let sortIndicator = Controls.label(
                 indicatorText,
@@ -10859,10 +10945,11 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
         element: Data.Element,
         columnIndex: Int,
         context: ViewBuildContext,
-        runtime: RetainedViewRuntime
-    ) -> ViewNode {
+        runtime: RetainedViewRuntime,
+        admission: TableConstructionAdmission
+    ) -> ViewNode? {
         let context = context.withViewIdentityRole(.column).withViewIdentityPrefix([.slot(columnIndex)])
-        let cellViews = column.cellBuilder(element)
+        guard let cellViews = admission.withLookup({ _ in column.cellBuilder(element) }) else { return nil }
         let cellNode =
             cellViews.first?.makeComponent(context: context).makeNode(runtime: runtime)
             ?? Controls.panel(frame: .zero)
@@ -10895,6 +10982,7 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
     private func selectableTableRow(
         wrapping row: ViewNode,
         tag: AnyHashable,
+        nodeTag: String,
         selectionMode: ListSelectionMode,
         isSelected: Bool,
         context: ViewBuildContext,
@@ -10910,7 +10998,7 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
                 spacing: 0, padding: EdgeInsets(top: 2, leading: 4, bottom: 2, trailing: 4), alignment: .stretch),
             children: [row]
         )
-        rowNode.nodeTag = "table-selection:\(String(describing: tag.base))"
+        rowNode.nodeTag = nodeTag
         rowNode.retainedViewIdentity = row.retainedViewIdentity
         rowNode.accessibilityTraits.formUnion(.isSelectable)
         if isSelected {
@@ -10928,6 +11016,38 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
             }
         }
         return rowNode
+    }
+}
+/// A normal Button label composed through the same typed View path as any
+/// other control. The Table owns the column width; the label fills that width.
+@MainActor
+private struct TableSortHeaderLabel: View {
+    let content: AnyView?
+    let title: String
+    let sortedOrder: SortOrder?
+
+    var body: Never { fatalError("TableSortHeaderLabel has no body") }
+
+    func makeComponent(context: ViewBuildContext) -> Component {
+        let contentContext = context.withViewIdentityRole(.content).withTextAlignment(.leading)
+        let component =
+            content?.makeComponent(context: contentContext)
+            ?? makeViewComponent(Text(title), context: contentContext)
+        return Component { runtime in
+            let header = component.makeNode(runtime: runtime)
+            header.flexItem = .init(grow: 1, shrink: 1)
+            let indicator = Controls.label(
+                sortedOrder.map { $0 == .forward ? " ▲" : " ▼" } ?? "",
+                color: sortedOrder == nil ? Color(red: 0.5, green: 0.5, blue: 0.5, alpha: 1) : context.tint,
+                scale: 1.4, alignment: .trailing)
+            indicator.isAccessibilityHidden = true
+            let label = Controls.stackPanel(
+                stackLayout: .horizontal(spacing: 4, padding: .zero, alignment: .center, distribution: .fill),
+                children: [header, indicator])
+            label.accessibilityLabel = header.accessibilityLabel ?? firstRetainedText(in: header) ?? title
+            if sortedOrder != nil { label.backgroundColor = context.tint.opacity(0.08) }
+            return label
+        }
     }
 }
 public enum SortOrder: Sendable, Equatable {

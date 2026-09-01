@@ -11443,3 +11443,46 @@ Pre/post contracts and strict formatting of all four Swift files passed
 (`cbe929/0`). Package.swift is unchanged. None of these twenty methods, nor the
 original failure, has run against this repair yet. Runtime, broader List/UIA,
 visual, performance, and release qualification remain pending.
+
+
+### 2026-09-01 root integration 87: Table construction and owned sort headers
+
+The reviewed Table source is now composed after the accepted empty-row membership
+repair at `ea323dbf6429dd22e309148fbd756ddaa0a6b20a`. This records a source
+integration, not executed Table, Button, UIA, visual, or release qualification.
+All nine original completion gates remain open and unchanged.
+
+The nine-path patch is the original 129,363-byte Table patch, SHA-256
+`d291eba7797b9d1bd9fa1750ceb6730bc815f04b4911078a85fceaf4d88dee11`.
+The independently reviewed private composition was `754ba96626900bd92763273a965c91baac706fbe`,
+tree `808bd7c5e5c6dbac9613e3b199f70bfa2193e68f`. Root read the complete independent
+review and all three production diffs. A first source-only output attempt hit the
+Windows stdout encoding for a sort glyph; the corrected UTF-8 read completed at
+`24437d/0`. No source adaptation or fixture change was needed on root.
+
+Table keeps its original construction attribution across authored collection, ID,
+header, and cell callbacks. Both row-ID erasures share one original lookup receipt.
+Single-selection reads use the caller's original continuation, read the binding
+once, and check before and after erasure; an optional nil value remains distinct
+from rejected admission. Typed child installation remains outside the pure lookup
+receipt, so legitimate child State publication is not itself rejected. Sortable
+headers with a callback use the normal typed Button and its accepted action owner.
+The author still owns the declared sort state and data order.
+
+Root pre-edit contracts passed in `6d12f2`; strict formatting of all eight changed
+Swift files and post-edit contracts completed with `3f47d2/0`. Source proof
+`dcc100/0`, retained in `artifacts/goal-ninth-table-ea725-root-proof-v1.json`,
+binds the staged source tree `57517068a255aad0dd28cf08dabb3b083b409dbe`.
+Its entire staged patch is byte-identical to the sealed original, the reverse
+patch check passes, and all 628 pre-existing Tests files remain byte-identical.
+The five added test files declare exactly 56 new async methods: 12 identity and
+selection admission, 14 construction admission, 16 sort interaction, and 14 sort
+ownership. These methods have not yet run on root. The earlier 110 Button methods
+and the newly integrated 20 empty-membership methods are preserved, also awaiting
+fresh combined-source execution. Package.swift is unchanged.
+
+The documented Table remains eager. This slice does not establish the complete
+SwiftUI sortOrder/comparator API, multi-column sorting, table virtualization,
+macOS behavior, visual parity, template completion, or native accessibility
+qualification. Default list budgets and the original Row300 test are unchanged
+and still require execution after the pending accessibility composition.

@@ -94,7 +94,7 @@ final class DeferredListKeyboardNavigation {
         else { return }
         cancelPendingRequest()
         guard receipt.permitsBindingWrite else { return }
-        let selected = get()
+        let selected = get { receipt.permitsBindingWrite }
         guard receipt.permitsBindingWrite else { return }
         let direction = delta > 0 ? 1 : -1
         var start = direction > 0 ? 0 : source.rowCount - 1

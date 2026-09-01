@@ -13860,6 +13860,7 @@ public final class RetainedViewRuntime {
             let constructionIdentity: RetainedLazyListAttachmentIdentity
         }
 
+        @MainActor
         struct Reader {
             weak var node: ViewNode?
             weak var lease: (any RetainedSubtreeBuildLease)?
@@ -24648,7 +24649,7 @@ extension RetainedViewRuntime {
                 roots.contains(where: { $0 === target })
             else { return nil }
             if prepaintState.interactions.contains(where: {
-                $0.node === target && $0.visibleFrame.width > 0 && $0.visibleFrame.height > 0
+                $0.node === target && $0.frame.width > 0 && $0.frame.height > 0
             }) {
                 request.phase = .resolved
                 request.completed = true

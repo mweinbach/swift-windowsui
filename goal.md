@@ -11851,3 +11851,37 @@ Root validation before this ledger append:
 These are source and formatting checks, not a successful compiler or XCTest
 result. The separate Runtime compile correction and fresh preserved cohorts
 remain required. No original completion gate is closed by this change.
+
+
+### 2026-09-01 UIA phase reader and prepaint compile corrections
+
+The reviewed `652f61e4` correction addresses the remaining Runtime diagnostics
+from the failed Button/Table166 compilation without changing the selected
+tests, continuation budgets, or cleanup rules. The nested UIA phase `Reader`
+is now explicitly `@MainActor`, matching its retained-node reads and the
+existing main-actor construction and currentness call sites. Its weak storage
+and reader body are unchanged.
+
+The resolved-target test now reads the existing prepaint interaction `frame`
+instead of the nonexistent `visibleFrame` property. That frame is the raw
+absolute layout rectangle, not an exact clipped pixel-visibility rectangle.
+The interaction entry has already passed the existing transformed-paint and
+clip culling; presence plus positive raw extent remains a conservative
+condition. This correction introduces no new coordinate-space intersection,
+transform exclusion, fallback, or visibility guarantee.
+
+Root validation before this ledger append:
+
+- Source parent `77067bdff6ad04a7d82465cbc1729cae651a4eb1`;
+  staged source tree `a42252c4ea78b22a6d2bc913e24ebe25e5a91289`.
+- The complete staged diff equals the sealed 1,055-byte source patch, SHA256
+  `860709d65d4d7d6f2b145b633508c2026eb74b0266a4f4722fd005d1cacddaf6`.
+- Pre/post architecture checks and strict formatting of Runtime.swift passed.
+  All 641 existing test files and Package.swift remain byte-identical.
+- Proof: `artifacts/goal-ninth-uia-compile652-root-proof-v1.json`.
+
+The preceding Button fix and this Runtime fix have not yet been compiled
+together. Fresh Button/Table166, ordinary152, UIA continuation/budget/public
+accessibility, and original Core/List validation remain necessary. The
+previous compile failure remains failed evidence. All original goal gates
+remain open.

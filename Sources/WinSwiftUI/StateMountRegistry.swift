@@ -1635,6 +1635,7 @@ extension StateMountRegistry {
         _ reservation: LazyListSelectedRowReservation, selection: LazyListStateAdoptionSelection
     ) -> Bool {
         guard !isClosed, activeEpoch == nil, lastManagedAdoption === selection.attempt,
+            reservation.preparation.attempt === selection.attempt,
             let row = reservation.boundRow, row.id === reservation.membership, row.isDeclared,
             reservation.preparation.descriptor.scope.containsDeclaredDescriptor(
                 reservation.preparation.descriptor.descriptor),
@@ -2345,6 +2346,7 @@ extension StateMountEpoch {
             disposition.acceptedGroups.map(\.proposal) + disposition.partialGroups.map(\.proposal)
             + disposition.acceptedEmptyGroups.map(\.proposal)
         var result = Set(groups.map { ObjectIdentifier($0.membership) })
+        result.formUnion(disposition.acceptedRowMemberships.map { ObjectIdentifier($0) })
         for fact in disposition.acceptedOwnedComponents {
             guard case .lazy(let component) = fact.plan.origin,
                 let acquired = lazyOwners.values.first(where: { $0.attribution.component === component })

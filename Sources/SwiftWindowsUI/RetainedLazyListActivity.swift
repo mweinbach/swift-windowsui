@@ -1133,6 +1133,9 @@ package final class RetainedLazyListPreparedActivity {
 package final class RetainedLazyListAdoptionDisposition {
     package let attempt: RetainedLazyListAttemptID
     package let stop: RetainedLazyListAdoptionStop
+    /// Logical row retention follows an accepted native table even when its
+    /// factory declares no owned component, effect group, or physical leaf.
+    package let acceptedRowMemberships: [RetainedLazyListMembershipID]
     package let acceptedLogicalDeclarations: [RetainedLazyListAcceptedLogicalDeclaration]
     package let acceptedLogicalRemovals: [RetainedLazyListAcceptedLogicalScopeRemoval]
     package let acceptedFacets: [RetainedLazyListAcceptedFacet]
@@ -1156,6 +1159,7 @@ package final class RetainedLazyListAdoptionDisposition {
 
     fileprivate init(
         attempt: RetainedLazyListAttemptID, stop: RetainedLazyListAdoptionStop,
+        acceptedRowMemberships: [RetainedLazyListMembershipID],
         acceptedLogicalDeclarations: [RetainedLazyListAcceptedLogicalDeclaration],
         acceptedLogicalRemovals: [RetainedLazyListAcceptedLogicalScopeRemoval],
         acceptedFacets: [RetainedLazyListAcceptedFacet], acceptedGroups: [RetainedLazyListAcceptedGroup],
@@ -1168,6 +1172,7 @@ package final class RetainedLazyListAdoptionDisposition {
     ) {
         self.attempt = attempt
         self.stop = stop
+        self.acceptedRowMemberships = acceptedRowMemberships
         self.acceptedLogicalDeclarations = acceptedLogicalDeclarations
         self.acceptedLogicalRemovals = acceptedLogicalRemovals
         self.acceptedFacets = acceptedFacets
@@ -1622,7 +1627,7 @@ final class RetainedLazyListAdoptionJournal {
     private var phase: Phase = .constructing
     private var wasRevoked = false
     private var didMutate = false
-    private var acceptedRowTables: Set<ObjectIdentifier> = []
+    private var acceptedRowTables: [ObjectIdentifier: RetainedLazyListMembershipID] = [:]
     private(set) var isOrdinaryAdoption = false
     private var preparedInput: RetainedLazyListAdoptionPreparation?
     private var preparedActivity: RetainedLazyListPreparedActivity?
@@ -3080,7 +3085,7 @@ final class RetainedLazyListAdoptionJournal {
         let activity = continuation.successor
         guard canContinueAdoption, continuation.journal === self, !continuation.wasConsumed,
             activity.attempt === attempt, activity.isCurrent,
-            acceptedRowTables.contains(ObjectIdentifier(activity.component)),
+            acceptedRowTables[ObjectIdentifier(activity.component)] != nil,
             continuation.previous.logicalMembership === activity.logicalMembership,
             continuation.previous.physical === activity.physical, structuralAnchor.isAttached,
             continuation.anchors.allSatisfy({
@@ -3178,7 +3183,7 @@ final class RetainedLazyListAdoptionJournal {
             }
             return false
         }
-        acceptedRowTables.insert(ObjectIdentifier(activity.component))
+        acceptedRowTables[ObjectIdentifier(activity.component)] = activity.logicalMembership.id
         if case .selectedRows(let admission) = origin { admission.recordCompletedInsertionRow(activity) }
         rowReplacementHandoffs[ObjectIdentifier(activity.component)]?.finish()
         boundDescriptorScope?.recordAcceptedDescriptor()
@@ -3256,7 +3261,8 @@ final class RetainedLazyListAdoptionJournal {
         let stop: RetainedLazyListAdoptionStop =
             !hasAcceptedContributions ? .noAcceptance : (complete ? .completedCheckedAdoption : .stoppedAfterAcceptance)
         let disposition = RetainedLazyListAdoptionDisposition(
-            attempt: attempt, stop: stop, acceptedLogicalDeclarations: logicalDeclarations,
+            attempt: attempt, stop: stop, acceptedRowMemberships: Array(acceptedRowTables.values),
+            acceptedLogicalDeclarations: logicalDeclarations,
             acceptedLogicalRemovals: logicalRemovals,
             acceptedFacets: acceptedFacetFacts, acceptedGroups: completedGroups,
             partialGroups: partial, acceptedEmptyGroups: emptyGroups, unchanged: unchanged,

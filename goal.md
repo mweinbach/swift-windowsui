@@ -11401,3 +11401,45 @@ or test assertion changed. The proof is
 of both changed Swift files and contracts passed (`0376f7/0`). Compilation,
 all 110 Button methods, the original UIA budget cases, and broader validation
 remain pending; source review and fixture correction are not test passes.
+
+
+### 2026-09-01: retain accepted empty rows through their native membership IDs
+
+All nine original completion gates remain open. The production repair for the
+observed empty-row membership loss is now integrated. Native row completion
+already accepted an empty table anchored to its List container, but the facade
+retained sparse rows only through accepted effect groups or owned components.
+A genuinely empty builder branch has neither, so the next descriptor could
+revoke its logical row before any replacement factory ran.
+
+The journal now records the original membership ID at the same successful
+completed-row boundary and carries those IDs in its immutable disposition.
+Storage remains bounded to one ID per component, without retaining physical
+nodes, providers, factories, State cells, or effect payloads. The facade unions
+these native IDs into its existing accepted-membership selection. Sparse commit
+also explicitly requires the original reservation's attempt to match that
+selection. All existing completion, liveness, descriptor, revision, original-row,
+and post-callback publication checks remain in place. This grants no synthetic
+owner, group, task, or build permission and adds no query or retry.
+
+The reviewed source is `a51a8ec5c099558cbcc8200c7e5dd57397fce84f` on its private
+base. Its complete 45,967-byte patch has SHA256
+`5e18bbc8e7c269ceb2ad6974307b75348470ea119e7929cda57a8c04a0eab09d`.
+The production delta is twelve added and four removed lines across Activity
+and StateMountRegistry. Two new files contain twenty methods: nine native table
+cases, eight registry acceptance/refusal cases, and three complete bare-empty
+facade cases. They include same-ID stale reservation rejection, partial and
+uncompleted rows, revoked or competing descriptors, immutable repeated seal,
+first physical insertion, empty reload, and deletion/reinsertion.
+
+Root read every new method and the minimal production delta, then verified all
+626 preceding test files remain byte-identical. The original failing test and
+diagnostic are unchanged. The complete root diff differs from the sealed patch
+only in Git blob IDs and hunk starting offsets; every other line and hunk count
+matches, and reverse application checks pass (`929de1/0`). The proof is
+`artifacts/goal-ninth-empty-membership-a51a8ec-root-proof-v1.json`; the staged
+source tree before this append is `3208c21da7cf21accbe634bce1f6ac47d0b3059f`.
+Pre/post contracts and strict formatting of all four Swift files passed
+(`cbe929/0`). Package.swift is unchanged. None of these twenty methods, nor the
+original failure, has run against this repair yet. Runtime, broader List/UIA,
+visual, performance, and release qualification remain pending.

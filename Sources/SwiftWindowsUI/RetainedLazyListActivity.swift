@@ -5884,6 +5884,14 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         else { return }
         let actual = storage.captureActualAttachment(of: node, in: runtime)
         publish(publication.declarations, actual: actual, source: node, facet: nil, kind: .structuralEntry)
+        // Refused activation cannot supply a physical owned footprint. Recheck
+        // after publish's weak-source scan before assigning the prepared members.
+        guard
+            publication.declarations.allSatisfy({
+                !$0.receipt.owner.wasRevoked && $0.receipt.nativeLifetime.permitsConstruction
+                    && $0.receipt.slotPermissions.allSatisfy { !$0.wasRevoked }
+            })
+        else { return }
         // Presence inspection reads native stored fields only, immediately after
         // the exact object attachment and before controller/appear callbacks.
         for field in node.retainedSourcePayloadFields {
@@ -5911,6 +5919,12 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         let actual = storage.captureActualAttachment(of: target, in: runtime)
         let declarations = allDeclarations.filter { !$0.declarationOnly }
         publish(declarations, actual: actual, source: source, facet: nil, kind: .structuralEntry)
+        guard
+            declarations.allSatisfy({
+                !$0.receipt.owner.wasRevoked && $0.receipt.nativeLifetime.permitsConstruction
+                    && $0.receipt.slotPermissions.allSatisfy { !$0.wasRevoked }
+            })
+        else { return }
         replaceStructural(on: storage, actual: actual, with: permissions)
         replaceComponentStructural(
             on: storage, actual: actual, with: declarations.map { $0.receipt.componentPresence })

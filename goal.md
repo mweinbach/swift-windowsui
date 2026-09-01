@@ -11536,3 +11536,41 @@ contracts. The fixed Core320 and List402 selections remain required, not replace
 by this new cohort. PublicLazyListAccessibility uses its existing legacy bridge;
 passing it would not by itself qualify the separate owned native actor hop.
 No native, visual, macOS, full-suite, or release claim is made by this integration.
+
+
+### 2026-09-01 root integration 89: refuse retired ownership after publication
+
+The fourteen-line, two-site Activity repair is composed after UIA commit
+`46d487ac16162a5ec8fbeda3caf73afba7e2b649`. It addresses the precise failed final
+retirement count in `testAClosingDepartureCallbackCannotPublishThePreparedContinuation`;
+the callback itself ran in the earlier failed execution. The complete original
+closing-callback test remains unchanged. No fresh behavioral pass is claimed.
+
+The approved guards run immediately after publish's weak-source scan and before
+the first prepared payload/structural membership map write, both for inserted
+nodes and completed nodes. They inspect only each original declaration's owner,
+native lifetime, and slot generations. They do not require an accepted owned
+write: an ordinary suspended continuation can still be valid. They capture no
+new receipt, rescan no returned tree, and skip no runtime cleanup. Refused native
+activation therefore cannot leave a new physical footprint that masks retirement.
+
+Root intake `8cabc6/0` verified the sealed 13-payload ordinary repair packet,
+409,835 bytes, manifest SHA-256
+`6ad78935e5ba549a49b601d25b6b31247137d0b13e8d3d8b498d3784632000df`.
+The complete production and fixture diffs and independent review were read at
+`28cf1a`; only the production patch is applied in this commit. Its 2,133 bytes
+have SHA-256 `c7489bbccedd5391b6275916a4a6a4af5e3a0378c9837c46b38fac7e4254e363`.
+The private production commit is `6296dc83b9e1e41a3a45e0cec35365bcb5a06d8c`.
+
+Pre/post architecture checks and strict formatting of the one changed Swift
+file passed in `4b925d/0`. Source proof `3450c8/0`, retained in
+`artifacts/goal-ninth-ordinary-production6296-root-proof-v1.json`, binds source
+tree `2159eaab6218239324bfc0eefff511f9c1b05d7b`: the entire patch is unchanged
+except Git blob IDs and hunk starting offsets, its reverse check passes, and all
+640 existing Tests files are exact. The actual staged patch SHA-256 is
+`33c9a90b1e83fbd34b0dcf23bf91fa4d3114d65487853f73c28478004fcae708`.
+The earlier accepted-empty membership and UIA changes remain intact; Package.swift
+is unchanged. The separately reviewed fixture corrections will follow before
+the combined regression run. Analogous property/declared-path observations are
+a separate source audit, not part of this bounded correction or a claimed pass.
+All nine original completion gates remain open and unchanged.

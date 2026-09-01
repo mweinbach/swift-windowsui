@@ -2359,6 +2359,41 @@ final class RetainedLazyListAdoptionAdmission {
         return adapter.claimDepartingEmptyRows(in: candidate, journal: journal)
     }
 
+    func beginInsertionAdoption() -> Bool {
+        guard isCurrent, let candidate else { return false }
+        return candidate.beginInsertionAdoption()
+    }
+
+    func beginInsertionNode(source: ViewNode, target: ViewNode, isFresh: Bool) -> Bool {
+        guard isCurrent else { return false }
+        return candidate?.insertionPlan?.beginNode(source: source, target: target, isFresh: isFresh) != false
+    }
+
+    func prepareInsertionNode(source: ViewNode, target: ViewNode, transaction: RetainedBuildTransaction) -> Bool {
+        guard isCurrent else { return false }
+        return candidate?.insertionPlan?.prepareNode(source: source, target: target, transaction: transaction) != false
+    }
+
+    func isLogicalInsertion(source: ViewNode) -> Bool {
+        candidate?.insertionPlan?.isLogicalIntroduction(of: source) == true
+    }
+
+    /// The journal already proved this exact publication beside the native
+    /// write. Preserve its original event even if later callbacks revoke the
+    /// candidate; historical acceptance cannot authorize subsequent delivery.
+    func recordAcceptedInsertionPublication(
+        from source: ViewNode, to target: ViewNode, actual: RetainedLazyListActualAttachment,
+        copiedConfiguration: Bool = false, inserted: Bool = false
+    ) {
+        candidate?.insertionPlan?.recordAcceptedPublication(
+            from: source, to: target, actual: actual,
+            copiedConfiguration: copiedConfiguration, inserted: inserted)
+    }
+
+    func recordCompletedInsertionRow(_ activity: RetainedLazyListMaterializedRowActivity) {
+        candidate?.insertionPlan?.recordCompletedRow(activity)
+    }
+
     func recordCompletedOwnedSource(
         from source: ViewNode, to actual: ViewNode, journal: RetainedLazyListAdoptionJournal
     ) {
@@ -4223,6 +4258,18 @@ public final class ViewNode {
             retainInsertionTransaction(transaction)
         }
         withExtendedLifetime(previous) {}
+    }
+
+    /// Managed arrival is claimed at actual publication, before attachment
+    /// controllers run. A later generic root traversal cannot replay it, even
+    /// when only a prefix of the row survived. Preserve existing lifecycle.
+    func consumeManagedInsertionArrival(initial: Bool) {
+        if initial {
+            isInitialBuildNode = true
+        } else {
+            didPlayInsertionTransition = true
+        }
+        animationModifierStorage?.insertionTransaction = nil
     }
 
     /// Marks this node as a text input's insertion indicator, so the runtime
@@ -13022,12 +13069,15 @@ public final class RetainedViewRuntime {
         let alreadyOwnedAttachment = adapter.ownsAttachment(node)
         if !adapter.claimAttachment(to: node) {
             lazyListUnsupportedThisPass = true
-        } else if !alreadyOwnedAttachment {
-            // An earlier runtime may have painted this subtree without owning
-            // the adapter. Reach its pending rows through clean cached wrappers
-            // on this first accepted attachment. Repeated registration must not
-            // invalidate an attachment whose layout is already current.
-            node.markDirty(.layout)
+        } else {
+            adapter.activateInsertionBuildTransaction(in: node)
+            if !alreadyOwnedAttachment {
+                // An earlier runtime may have painted this subtree without owning
+                // the adapter. Reach its pending rows through clean cached wrappers
+                // on this first accepted attachment. Repeated registration must not
+                // invalidate an attachment whose layout is already current.
+                node.markDirty(.layout)
+            }
         }
         if lazyListResolutionDepth > 0 { ensureLazyListResolutionBudget() }
     }
@@ -19128,7 +19178,10 @@ public final class RetainedViewRuntime {
         }
         let admission = RetainedLazyListAdoptionAdmission(
             adapter: adapter, container: node, runtime: self, coordinator: coordinator, sequence: sequence)
-        let transaction = RetainedBuildTransaction()
+        let transaction =
+            managedDescriptor == nil
+            ? RetainedBuildTransaction()
+            : adapter.insertionBuildTransaction() ?? RetainedBuildTransaction(transaction: nil, animation: nil)
         let originalExtent = adapter.contentExtent
         let anchor = lazyListAnchor(adapter: adapter, viewport: viewport)
         var epoch: (any RetainedBuildEpoch)?
@@ -19292,6 +19345,11 @@ public final class RetainedViewRuntime {
             return nil
         }
         if let lazyJournal {
+            guard
+                candidate.insertionPlan?.deliver(
+                    in: self, admission: admission, completion: completion, journal: lazyJournal) != false,
+                admission.isCurrent, completion.isCurrent
+            else { return nil }
             let anchor = node.lazyListActivityStorage().captureActualAttachment(of: node, in: self)
             guard nativePreparation != nil,
                 adapter.complete(

@@ -2212,6 +2212,16 @@ final class RetainedLazyListAdoptionJournal {
         } ?? []
     }
 
+    private func recordInsertionPublication(
+        from source: ViewNode, to target: ViewNode, actual: RetainedLazyListActualAttachment,
+        copiedConfiguration: Bool = false, inserted: Bool = false
+    ) {
+        guard case .selectedRows(let admission) = origin else { return }
+        admission.recordAcceptedInsertionPublication(
+            from: source, to: target, actual: actual,
+            copiedConfiguration: copiedConfiguration, inserted: inserted)
+    }
+
     func preparePropertyCopy(
         from source: ViewNode, to target: ViewNode, keyPath: PartialKeyPath<ViewNode>
     ) -> Bool {
@@ -2257,6 +2267,10 @@ final class RetainedLazyListAdoptionJournal {
             let actual = actualAttachment(for: target),
             actual.target === pending.targetID, actual.attachment === pending.attachmentID
         else { return [] }
+        recordInsertionPublication(
+            from: source, to: target, actual: actual,
+            copiedConfiguration: keyPath == \ViewNode.transition || keyPath == \ViewNode.implicitReconcileAnimation
+                || keyPath == \ViewNode.reconcileAnimationModifiers)
         boundDescriptorScope?.recordAcceptedDescriptor()
         ownedLedger?.recordAcceptedProperty(from: source, to: target, keyPath: keyPath)
         _ = ordinaryLedger?.recordAcceptedProperty(from: source, to: target, keyPath: keyPath)
@@ -2285,6 +2299,7 @@ final class RetainedLazyListAdoptionJournal {
     @discardableResult
     func recordAcceptedAttachment(from source: ViewNode, to target: ViewNode) -> [RetainedLazyListAcceptedTaskGroup] {
         guard let actual = actualAttachment(for: target) else { return [] }
+        recordInsertionPublication(from: source, to: target, actual: actual)
         boundDescriptorScope?.recordAcceptedDescriptor()
         _ = ordinaryLedger?.recordAcceptedAttachment(from: source, to: target)
         for output in ownedOutputs(of: source) {
@@ -2332,7 +2347,9 @@ final class RetainedLazyListAdoptionJournal {
     /// Consumes the native-only preflight immediately beside the exact final
     /// children-field publication. It never evaluates application code.
     func recordAcceptedOwnedStructuralDeclaration(from source: ViewNode, to target: ViewNode) {
-        ownedLedger?.recordAcceptedStructuralDeclaration(from: source, to: target)
+        if let actual = ownedLedger?.recordAcceptedStructuralDeclaration(from: source, to: target) {
+            recordInsertionPublication(from: source, to: target, actual: actual)
+        }
     }
 
     @discardableResult
@@ -2640,6 +2657,9 @@ final class RetainedLazyListAdoptionJournal {
         publication.publishedFact = fact
         logicalDeclarations.append(fact)
         publication.actual.node?.lazyListActivityStorage().acceptedLogicalDeclaration = fact
+        if let node = publication.actual.node {
+            node.retainedLazyListAdapter?.activateInsertionBuildTransaction(in: node)
+        }
         switch publication.source {
         case .descriptorBuild(let source): source.scope.recordAcceptedDescriptor()
         case .selectedRow: break
@@ -2723,6 +2743,7 @@ final class RetainedLazyListAdoptionJournal {
             pending.attachment === storage.attachmentID, let actual = actualAttachment(for: node)
         else { return [] }
         _ = recordAcceptedInsertedDescriptor(on: node)
+        recordInsertionPublication(from: node, to: node, actual: actual, inserted: true)
         ownedLedger?.recordAcceptedInsertedNode(on: node)
         _ = ordinaryLedger?.recordAcceptedInsertedNode(on: node)
         for facet in pending.nativeFacets { recordAcceptedFacet(facet, actual: actual) }
@@ -3094,6 +3115,7 @@ final class RetainedLazyListAdoptionJournal {
             return false
         }
         acceptedRowTables.insert(ObjectIdentifier(activity.component))
+        if case .selectedRows(let admission) = origin { admission.recordCompletedInsertionRow(activity) }
         rowReplacementHandoffs[ObjectIdentifier(activity.component)]?.finish()
         boundDescriptorScope?.recordAcceptedDescriptor()
         return true
@@ -5630,7 +5652,9 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
     /// The caller has published the complete checked children field for this
     /// source parent, including an exact unchanged field. Intermediate child
     /// arrays and scalar-property copies are not declaration publications.
-    func recordAcceptedStructuralDeclaration(from source: ViewNode, to target: ViewNode) {
+    func recordAcceptedStructuralDeclaration(
+        from source: ViewNode, to target: ViewNode
+    ) -> RetainedLazyListActualAttachment? {
         let key = RetainedOwnedPropertyKey(
             source: ObjectIdentifier(source), target: ObjectIdentifier(target), field: \ViewNode.children)
         guard let publication = structuralPublications.removeValue(forKey: key),
@@ -5640,7 +5664,7 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
             let expectedRevision = publication.expectedStructuralRevision,
             storage.ownedDeclaredStructuralRevision == expectedRevision, expectedRevision < .max,
             let runtime = target.retainedLazyListRuntime
-        else { return }
+        else { return nil }
         let actual = storage.captureActualAttachment(of: target, in: runtime)
         publish(
             publication.declarations, actual: actual, source: source,
@@ -5673,6 +5697,7 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
             retireIfUnreferenced(old, preservingCold: false)
         }
         if !publication.regions.isEmpty { completedRegionPublications[key] = publication }
+        return actual
     }
 
     private func publishCompletedRegions(

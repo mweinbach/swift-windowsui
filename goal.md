@@ -10317,3 +10317,47 @@ event after adoption, a managed prepared action followed by a separate new
 action, original claim publication, release, and lifetime refusal cases. They
 have not yet compiled or executed on root. No new keyboard, UIA, visual, or
 release qualification is claimed. All nine original completion gates remain open.
+
+### Managed List insertion events and deferred transaction delivery integrated (2026-09-01)
+
+Root source now includes the reviewed insertion repair from private commit
+`8aeb2e8e77338456797be2c7d61a37006a8681c2`. This addresses the mechanism behind
+the two remaining missing-animation failures recorded at `04568c8`; those
+failures are not considered resolved until their unchanged tests pass again.
+
+Provider continuations distinguish newly introduced logical row tokens from
+initial, cold, and remounted viewport rows. A pending introduction survives an
+accepted descriptor continuation without carrying an obsolete transaction.
+Insertion uses the latest accepted declaration's effective transaction, captured
+inside its existing modifier scope and bound to its actual accepted attachment.
+An absent transaction preserves the existing 0.35-second default; explicit nil
+animation or disabled animations suppress it. Logical reinsertion may reuse a
+physical node while taking its new State identity and authored destination pose.
+It does not reset physical appearance or replay an already accepted arrival.
+
+The first actual accepted native property, attachment, structural declaration,
+inserted-node, or empty-row-table publication claims the event. A later failure
+does not return that claim for replay. Generic insertion is consumed before
+attachment controllers can call out. Only a completed original candidate may
+deliver the prepared animation; the injected clock and its captured payloads
+unwind before original attachment, configuration, completion, and presentation
+checks admit scalar writes. One finite clock sample covers the accepted forest,
+and unrelated animation channels are preserved.
+
+Integration on root parent `9224738abd82afc20973e46dcfccce1e464b09ac` required two
+explicit hunk joins. Successful List claims activate the insertion context while
+the earlier cached-layout fix still marks layout dirty only for a newly owned
+attachment. Release preserves navigation revocation, then expires insertion
+context before the unchanged standalone lease and candidate teardown. The
+derivation in `artifacts/goal-ninth-managed-insertion-root922-merge-derivation.json`
+proves that inverting these two adaptations restores the original normalized
+packet. Independent join review found no blocker (`a8e7c2`, exit 0).
+
+Root audit `artifacts/goal-ninth-managed-insertion-root-integration-proof-v1.json`
+records exact applied adapted content, all other packet file edits unchanged,
+and preservation of existing tests and Package.swift. Strict formatting of nine
+Swift files and ContractsOnly passed (`9b18ed`, session 8879, terminal `e95c55`,
+exit 0). Twenty-one new async tests cover event semantics and callback boundaries.
+They and the unchanged removal tests still require compilation and execution on
+the combined root source. No factory budget, cleanup obligation, timeout,
+workload, or original completion criterion was reduced; all nine gates remain open.

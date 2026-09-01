@@ -290,6 +290,8 @@ package final class RetainedLazyListRuntimeAdapter {
         private var managedPreparation: RetainedLazyListAdoptionPreparation?
         private var completedSourceRoots: [ObjectIdentifier: (ViewNode, RetainedLazyListAdoptionCompletion)] = [:]
         private var completedRows: Set<ObjectIdentifier> = []
+        private var insertionCohortProofs: [CarriedRecordProof] = []
+        private(set) var insertionPlan: RetainedLazyListInsertionPlan?
 
         fileprivate init(
             adapter: RetainedLazyListRuntimeAdapter, viewport: Viewport, records: [Record],
@@ -321,6 +323,35 @@ package final class RetainedLazyListRuntimeAdapter {
         package var isCurrent: Bool { adapter?.isCurrent(self) == true }
 
         package var recordLeafCounts: [Int] { records.map { $0.nodes.count } }
+
+        fileprivate func prepareInsertionPlan(
+            origins: [RetainedLazyListRowToken: RetainedLazyListInsertionOrigin],
+            cohortProofs: [CarriedRecordProof]
+        ) -> Bool {
+            guard insertionPlan == nil, cohortProofs.allSatisfy(\.isCurrent),
+                let plan = RetainedLazyListInsertionPlan(
+                    rows: records.map { record in
+                        RetainedLazyListInsertionRow(
+                            token: record.request.token, roots: record.nodes, activity: record.activity,
+                            origin: origins[record.request.token] ?? .materialization)
+                    })
+            else { return false }
+            insertionCohortProofs = cohortProofs
+            insertionPlan = plan
+            return true
+        }
+
+        fileprivate var insertionPreparationIsCurrent: Bool {
+            insertionCohortProofs.allSatisfy(\.isCurrent) && insertionPlan?.isCurrent != false
+        }
+
+        /// The complete native child plan has now preserved these original
+        /// historical cohorts. Its own witnesses govern intentional departure.
+        func beginInsertionAdoption() -> Bool {
+            guard isCurrent else { return false }
+            insertionCohortProofs = []
+            return true
+        }
 
         func configureManagedPublication(_ preparation: RetainedLazyListAdoptionPreparation) -> Bool {
             guard isCurrent, managedPreparation == nil else { return false }
@@ -426,6 +457,9 @@ package final class RetainedLazyListRuntimeAdapter {
         func discardBuiltContent() {
             guard !wasConsumed else { return }
             wasConsumed = true
+            insertionPlan?.discard()
+            insertionPlan = nil
+            insertionCohortProofs = []
             releaseBuiltContent()
         }
 
@@ -623,8 +657,21 @@ package final class RetainedLazyListRuntimeAdapter {
         }
     }
 
+    private enum InsertionBuildContext {
+        case unstaged
+        case staged(
+            transaction: RetainedBuildTransaction, descriptor: RetainedLazyListManagedLogicalDescriptorBinding,
+            installedList: RetainedLazyListActualAttachment?)
+        case active(
+            transaction: RetainedBuildTransaction, descriptor: RetainedLazyListManagedLogicalDescriptorBinding,
+            installedList: RetainedLazyListActualAttachment)
+        case expired
+    }
+
     private let provider: any RetainedLazyListProvider<[ViewNode]>
     private var managedLogicalDescriptor: RetainedLazyListManagedLogicalDescriptorBinding?
+    private var insertionBuildContext: InsertionBuildContext = .unstaged
+    private var pendingInsertionEvents: [RetainedLazyListRowToken: RetainedLazyListInsertionEvent] = [:]
     private let estimatedExtent: Double
     private let prefetchExtent: Double
     /// Count a gap after each projected leaf in the prefix index, then remove
@@ -706,6 +753,94 @@ package final class RetainedLazyListRuntimeAdapter {
         managedLogicalDescriptor
     }
 
+    /// Capture once while the fresh source's effective modifier scope is active.
+    /// Staging grants neither an attachment nor permission to animate a row.
+    func stageInsertionBuildTransaction(_ transaction: RetainedBuildTransaction) {
+        guard case .unstaged = insertionBuildContext,
+            let descriptor = managedLogicalDescriptor, descriptor.isCurrent,
+            attachmentOwner == nil, generation == nil, mounted.isEmpty, extentIndex == nil,
+            standaloneBuildLease == nil, !isPreparing, !isReleasing, !pendingCandidate
+        else { return }
+        insertionBuildContext = .staged(transaction: transaction, descriptor: descriptor, installedList: nil)
+    }
+
+    /// Descriptor publication and attachment registration can arrive in either
+    /// order. Pin the first matching accepted fact before awaiting the claim.
+    func activateInsertionBuildTransaction(in node: ViewNode) {
+        guard case .staged(let transaction, let descriptor, let installedList) = insertionBuildContext else { return }
+        guard !isReleasing, managedLogicalDescriptor === descriptor, descriptor.isCurrent else {
+            expireInsertionBuildContext()
+            return
+        }
+        guard node.retainedLazyListAdapter === self,
+            descriptor.scope.containsDeclaredDescriptor(descriptor.descriptor),
+            let fact = node.retainedLazyListActivityStorage?.acceptedLogicalDeclaration,
+            fact.declaration === descriptor.descriptor,
+            fact.membershipPlan.facadeProposal === descriptor.facadeProposal,
+            fact.membershipPlan.expected.scope === descriptor.scope,
+            fact.membershipPlan.sourceGeneration == descriptor.sourceGeneration
+        else { return }
+        let original = installedList ?? fact.installedList
+        guard original === fact.installedList, original.node === node, original.isAttached,
+            original.runtime === node.retainedLazyListRuntime
+        else {
+            expireInsertionBuildContext()
+            return
+        }
+        if installedList == nil {
+            insertionBuildContext = .staged(transaction: transaction, descriptor: descriptor, installedList: original)
+        }
+        guard ownsAttachment(node) else { return }
+        insertionBuildContext = .active(transaction: transaction, descriptor: descriptor, installedList: original)
+    }
+
+    /// Validate the original accepted attachment; a late retry must not replace
+    /// its proof or recapture the ambient transaction after the source unwinds.
+    func insertionBuildTransaction() -> RetainedBuildTransaction? {
+        guard case .active(let transaction, let descriptor, let installedList) = insertionBuildContext else {
+            return nil
+        }
+        guard !isReleasing, managedLogicalDescriptor === descriptor, descriptor.isCurrent,
+            descriptor.scope.containsDeclaredDescriptor(descriptor.descriptor), installedList.isAttached,
+            let node = installedList.node, let runtime = installedList.runtime,
+            node.retainedLazyListRuntime === runtime, node.retainedLazyListAdapter === self, ownsAttachment(node),
+            let fact = node.retainedLazyListActivityStorage?.acceptedLogicalDeclaration,
+            fact.declaration === descriptor.descriptor, fact.installedList === installedList,
+            fact.membershipPlan.facadeProposal === descriptor.facadeProposal,
+            fact.membershipPlan.expected.scope === descriptor.scope,
+            fact.membershipPlan.sourceGeneration == descriptor.sourceGeneration
+        else {
+            expireInsertionBuildContext()
+            return nil
+        }
+        return transaction
+    }
+
+    func pendingInsertionEvent(for token: RetainedLazyListRowToken) -> RetainedLazyListInsertionEvent? {
+        guard let event = pendingInsertionEvents[token] else { return nil }
+        guard event.isPending else {
+            pendingInsertionEvents.removeValue(forKey: token)
+            return nil
+        }
+        guard insertionBuildTransaction() != nil else {
+            event.expireIfPending()
+            pendingInsertionEvents.removeValue(forKey: token)
+            return nil
+        }
+        return event
+    }
+
+    private func expireInsertionBuildContext() {
+        insertionBuildContext = .expired
+        for event in pendingInsertionEvents.values { event.expireIfPending() }
+        pendingInsertionEvents = [:]
+    }
+
+    private func updateResolutionState(for selection: WindowSelection) {
+        unresolvedWork = needsResolution(selection: selection)
+        if !unresolvedWork { expireInsertionBuildContext() }
+    }
+
     var hasStagedPredecessor: Bool { stagedPredecessor != nil }
 
     /// Runtime first identifies the accepted actual container using its
@@ -778,8 +913,27 @@ package final class RetainedLazyListRuntimeAdapter {
     @discardableResult
     func inheritMountedRecords(from predecessor: RetainedLazyListRuntimeAdapter, in container: ViewNode) -> Bool {
         guard container.retainedLazyListAdapter === self,
-            canInheritMountedRecords(from: predecessor, in: container)
+            canInheritMountedRecords(from: predecessor, in: container),
+            let continuation = stagedPredecessor?.continuation, let descriptor = managedLogicalDescriptor
         else { return false }
+        if descriptor.scope.containsDeclaredDescriptor(descriptor.descriptor),
+            let fact = container.retainedLazyListActivityStorage?.acceptedLogicalDeclaration,
+            fact.declaration === descriptor.descriptor, fact.installedList.node === container,
+            fact.installedList.isAttached
+        {
+            // The new accepted descriptor has already replaced the old scope
+            // entry. Move live events without asking the old transaction context
+            // to remain current, and never carry its transaction into this one.
+            var inheritedEvents = predecessor.pendingInsertionEvents
+            predecessor.pendingInsertionEvents = [:]
+            for token in continuation.removedTokens {
+                inheritedEvents.removeValue(forKey: token)?.expireIfPending()
+            }
+            pendingInsertionEvents = inheritedEvents.filter { $0.value.isPending }
+            for token in continuation.introducedTokens {
+                pendingInsertionEvents[token] = RetainedLazyListInsertionEvent(declaration: descriptor.descriptor)
+            }
+        }
         predecessor.revokePendingCandidate()
         revokePendingCandidate()
         // Move, rather than copy-and-release: the old release path must not
@@ -1092,6 +1246,7 @@ package final class RetainedLazyListRuntimeAdapter {
     package func releaseAttachment(from node: ViewNode) -> Bool {
         guard attachmentOwner === node else { return false }
         navigationContainer?.revokeAttachment(from: node)
+        expireInsertionBuildContext()
         standaloneBuildLease?.revoke()
         revokePendingCandidate()
         attachmentOwner = nil
@@ -1157,7 +1312,7 @@ package final class RetainedLazyListRuntimeAdapter {
                 }
             }
         }
-        unresolvedWork = needsResolution(selection: selection)
+        updateResolutionState(for: selection)
         rememberRequiredActualRows(selection)
         return LayoutPlan(
             contentExtent: contentExtent, placements: placements,
@@ -1370,6 +1525,20 @@ package final class RetainedLazyListRuntimeAdapter {
         // Protected cohorts build first for lease safety, then visible rows,
         // then nearest prefetch. A large prefetch must never consume the cap
         // or a small shared element budget before required visible rows.
+        var insertionOrigins: [RetainedLazyListRowToken: RetainedLazyListInsertionOrigin] = [:]
+        var insertionCohorts: [RetainedLazyListRowToken: CarriedRecordProof] = [:]
+        if managed != nil {
+            for token in orderedTokens {
+                if let event = pendingInsertionEvent(for: token) {
+                    insertionOrigins[token] = .logicalIntroduction(event)
+                } else if let record = mounted[token], let proof = carriedRecordProof(for: record) {
+                    insertionOrigins[token] = .existingRow
+                    insertionCohorts[token] = proof
+                } else {
+                    insertionOrigins[token] = .materialization
+                }
+            }
+        }
         var originalProofs: [RetainedLazyListRowToken: CarriedRecordProof] = [:]
         var remainingReservedLeaves = 0
         if managed != nil, !transitionRequiredTokens.isEmpty {
@@ -1382,7 +1551,9 @@ package final class RetainedLazyListRuntimeAdapter {
                 remainingReservedLeaves += original.nodes.count
             }
         }
-        let originalActualProofs = Array(originalProofs.values)
+        var originalActualByToken = insertionCohorts
+        for (token, proof) in originalProofs { originalActualByToken[token] = proof }
+        let originalActualProofs = Array(originalActualByToken.values)
         var carriedRecordProofs: [RetainedLazyListRowToken: CarriedRecordProof] = [:]
         var records: [Record] = []
         var preparedRecordIndices: [Int: Int] = [:]
@@ -1526,7 +1697,7 @@ package final class RetainedLazyListRuntimeAdapter {
         if acceptedSnapshot, !wasIncomplete, recordsMatchMounted(records) {
             protectedTokens = nextPhysicalProtected
             preparationIncomplete = false
-            unresolvedWork = needsResolution(selection: selection)
+            updateResolutionState(for: selection)
             return .unchanged
         }
         var departingEmptyRows: [(RetainedLazyListMaterializedRowActivity, RetainedLazyListDepartureCause)] = []
@@ -1583,6 +1754,11 @@ package final class RetainedLazyListRuntimeAdapter {
                 }),
             departingEmptyRows: departingEmptyRows, emptyRowContinuations: emptyRowContinuations,
             carriedRecordProofs: carriedRecordProofs)
+        if managed != nil {
+            guard
+                candidate.prepareInsertionPlan(origins: insertionOrigins, cohortProofs: Array(insertionCohorts.values))
+            else { return .unsupported }
+        }
         pendingCandidate = true
         return .ready(candidate)
     }
@@ -1694,7 +1870,7 @@ package final class RetainedLazyListRuntimeAdapter {
         }
         finishTransitionMeasurements(for: Set(completedEmptyPositions.map { tokens[$0] }))
         if let selection = windowSelection(candidate.viewport, protecting: protectedTokens) {
-            unresolvedWork = needsResolution(selection: selection)
+            updateResolutionState(for: selection)
             rememberRequiredActualRows(selection)
         } else {
             unresolvedWork = true
@@ -1784,7 +1960,7 @@ package final class RetainedLazyListRuntimeAdapter {
             resolveAnchor($0, viewportExtent: viewport.extent)
         }
         if let selection = windowSelection(viewport, protecting: protectedTokens) {
-            unresolvedWork = needsResolution(selection: selection)
+            updateResolutionState(for: selection)
             rememberRequiredActualRows(selection)
         } else {
             unresolvedWork = true
@@ -1901,6 +2077,7 @@ package final class RetainedLazyListRuntimeAdapter {
         revokePendingCandidate()
         guard !isReleasing else { return }
         isReleasing = true
+        expireInsertionBuildContext()
         logicalRealization?.revoke()
         logicalRealization = nil
         stagedPredecessor = nil
@@ -2416,6 +2593,7 @@ package final class RetainedLazyListRuntimeAdapter {
         !candidate.wasConsumed && isOperationCurrent(candidate)
             && candidate.identityProofs.allSatisfy(\.isCurrent)
             && candidate.carriedRecordProofs.values.allSatisfy(\.isCurrent)
+            && candidate.insertionPreparationIsCurrent
     }
 
     /// Required viewport records get capacity before optional prefetch. The

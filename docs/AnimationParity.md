@@ -446,6 +446,17 @@ the Task fallback, and either path consumes a batch only once.
 `WinSwiftUIWindowHostTests` covers native-frame delivery, preserved animation,
 explicit nil/disabled transactions, and dependency filtering.
 
+## Managed List arrivals after deferred construction
+
+Managed List rows are constructed after the root declaration has already been
+accepted. Their insertion now uses a native logical-introduction event and the
+latest accepted declaration transaction, with a one-shot claim at actual row
+publication and delivery after checked attached reconciliation. Initial and
+viewport materializations remain suppressed. Source proofs, partial acceptance,
+transaction precedence, and the source-only validation checkpoint are detailed
+in [ManagedListInsertion.md](ManagedListInsertion.md); this does not establish
+native SwiftUI coalescing or broader transition-geometry parity.
+
 ## The first tree is a state, not an insertion
 
 `ComponentHost.reload()` called `applyNewNodeTransitionsRecursively`

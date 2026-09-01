@@ -87,6 +87,8 @@ package struct RetainedLazyListGeneration: Equatable, Sendable {
 package final class RetainedLazyListProviderContinuation {
     package let predecessorGeneration: RetainedLazyListGeneration
     package let successorGeneration: RetainedLazyListGeneration
+    let introducedTokens: Set<RetainedLazyListRowToken>
+    let removedTokens: Set<RetainedLazyListRowToken>
     private let owner: RetainedLazyListIdentity
     private let predecessorIdentity: ObjectIdentifier
     private let successorIdentity: ObjectIdentifier
@@ -94,13 +96,16 @@ package final class RetainedLazyListProviderContinuation {
     fileprivate init(
         owner: RetainedLazyListIdentity, predecessor: AnyObject, successor: AnyObject,
         predecessorGeneration: RetainedLazyListGeneration,
-        successorGeneration: RetainedLazyListGeneration
+        successorGeneration: RetainedLazyListGeneration,
+        introducedTokens: Set<RetainedLazyListRowToken>, removedTokens: Set<RetainedLazyListRowToken>
     ) {
         self.owner = owner
         predecessorIdentity = ObjectIdentifier(predecessor)
         successorIdentity = ObjectIdentifier(successor)
         self.predecessorGeneration = predecessorGeneration
         self.successorGeneration = successorGeneration
+        self.introducedTokens = introducedTokens
+        self.removedTokens = removedTokens
     }
 
     package var isCurrent: Bool {
@@ -519,10 +524,13 @@ package final class RetainedLazyListDataSource<Element, Output>: RetainedLazyLis
                 data, id: id, factory: factory, previous: previous, generation: generation, admission: admission),
             successor.isCurrent(admission), isCommitted(previous)
         else { return nil }
+        let introducedTokens = Set(next.positionsByToken.keys).subtracting(previous.positionsByToken.keys)
+        let removedTokens = Set(previous.positionsByToken.keys).subtracting(next.positionsByToken.keys)
         successor.configuration = next
         successor.predecessorContinuation = RetainedLazyListProviderContinuation(
             owner: owner, predecessor: self, successor: successor,
-            predecessorGeneration: predecessorGeneration, successorGeneration: generation)
+            predecessorGeneration: predecessorGeneration, successorGeneration: generation,
+            introducedTokens: introducedTokens, removedTokens: removedTokens)
         didPublish = true
         return successor
     }

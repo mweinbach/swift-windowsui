@@ -96,6 +96,11 @@ struct RetainedBuildTransaction {
         animation = currentAnimationTransaction
     }
 
+    init(transaction: Transaction?, animation: (duration: Double, easing: AnimationEasing)?) {
+        self.transaction = transaction
+        self.animation = animation
+    }
+
     func perform(_ body: () -> Void) {
         let previousTransaction = currentTransaction
         let previousAnimation = currentAnimationTransaction

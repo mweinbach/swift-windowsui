@@ -1127,6 +1127,9 @@ public final class ComponentHost {
                 return false
             }
         }
+        guard admission?.beginInsertionAdoption() != false,
+            admission?.beginInsertionNode(source: source, target: target, isFresh: false) != false
+        else { return false }
         taskAdoption?.associate(source: source, target: target)
         guard check.isCurrent, plan?.isCurrent != false, plan?.stillOwnsOldChildren != false else { return false }
         guard check.markMutationStarted(), check.prepareTaskTransport(from: source, to: target) else { return false }
@@ -1139,8 +1142,13 @@ public final class ComponentHost {
         let propertyCheck = NodeReconcileAdmission(
             admission, source: source, target: target, childrenSnapshot: plan?.childrenSnapshot,
             lazyJournal: lazyJournal, taskAdoption: taskAdoption)
-        let completed = withReconcileAnimationTransaction(source: source, previous: target, check: propertyCheck) {
+        let previous = admission?.isLogicalInsertion(source: source) == true ? nil : target
+        let completed = withReconcileAnimationTransaction(source: source, previous: previous, check: propertyCheck) {
             guard plan?.isCurrent != false, plan?.stillOwnsOldChildren != false else { return false }
+            guard
+                admission?.prepareInsertionNode(
+                    source: source, target: target, transaction: RetainedBuildTransaction()) != false
+            else { return false }
             guard updateNodeProperties(target: target, source: source, check: propertyCheck), propertyCheck.isCurrent
             else {
                 return false
@@ -1584,9 +1592,15 @@ public final class ComponentHost {
         guard check.isCurrent,
             (admission == nil && lazyJournal?.isOrdinaryAdoption != false) || depth <= ViewNode.maximumTraversalDepth
         else { return false }
+        guard admission?.beginInsertionNode(source: node, target: node, isFresh: true) != false else { return false }
         taskAdoption?.associate(source: node, target: node)
         guard check.isCurrent else { return false }
         let completed = withReconcileAnimationTransaction(source: node, previous: nil, check: check) {
+            let transaction = RetainedBuildTransaction()
+            node.retainedLazyListAdapter?.stageInsertionBuildTransaction(transaction)
+            guard admission?.prepareInsertionNode(source: node, target: node, transaction: transaction) != false else {
+                return false
+            }
             guard node.retainInsertionTransaction(inheritedTransaction, admission: admission), check.isCurrent else {
                 return false
             }
@@ -1654,6 +1668,7 @@ public final class ComponentHost {
         guard check.isCurrent, plan?.isCurrent != false, plan?.supportsScrollInputAdoption != false else {
             return false
         }
+        guard admission?.beginInsertionAdoption() != false else { return false }
         if let admission, let lazyJournal {
             guard admission.claimDepartingEmptyRows(journal: lazyJournal), check.isCurrent else { return false }
         }
@@ -1957,13 +1972,21 @@ public final class ComponentHost {
             let previousChildren = childPlan?.oldChildren ?? oldNode.children
             let proposedChildren =
                 childPlan?.entries.map(\.source) ?? oldNode.childrenForLazyListReconciliation(from: newNode)
+            guard admission?.beginInsertionNode(source: newNode, target: oldNode, isFresh: false) != false else {
+                return false
+            }
             taskAdoption?.associate(source: newNode, target: oldNode)
             guard check.isCurrent, nodeCheck.isCurrent, childPlan?.isCurrent != false,
                 childPlan?.stillOwnsOldChildren != false
             else { return false }
             guard nodeCheck.prepareTaskTransport(from: newNode, to: oldNode) else { return false }
-            let completed = withReconcileAnimationTransaction(source: newNode, previous: oldNode, check: nodeCheck) {
+            let previous = admission?.isLogicalInsertion(source: newNode) == true ? nil : oldNode
+            let completed = withReconcileAnimationTransaction(source: newNode, previous: previous, check: nodeCheck) {
                 guard childPlan?.isCurrent != false, childPlan?.stillOwnsOldChildren != false else { return false }
+                guard
+                    admission?.prepareInsertionNode(
+                        source: newNode, target: oldNode, transaction: RetainedBuildTransaction()) != false
+                else { return false }
                 guard updateNodeProperties(target: oldNode, source: newNode, check: nodeCheck), nodeCheck.isCurrent
                 else {
                     return false
@@ -2239,6 +2262,7 @@ public final class ComponentHost {
         target: ViewNode, source: ViewNode, check: NodeReconcileAdmission
     ) -> Bool {
         guard check.isCurrent else { return false }
+        source.retainedLazyListAdapter?.stageInsertionBuildTransaction(RetainedBuildTransaction())
         // An incomplete checked update must not clear revocations installed by
         // a newer preparation. Ordinary reconciliation retains its old scope.
         defer {

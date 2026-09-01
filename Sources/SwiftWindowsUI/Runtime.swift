@@ -4636,6 +4636,8 @@ public final class ViewNode {
         get { lifecycleHandlers?.retainedSubtreeBuildLease }
         set {
             if lifecycleHandlers?.retainedSubtreeBuildLease !== newValue {
+                lifecycleHandlers?.retainedLazyListAdapter?.revokeStandaloneBuildLease(
+                    matching: lifecycleHandlers?.retainedSubtreeBuildLease, from: self)
                 lifecycleHandlers?.retainedLazyListAdapter?.revokePendingCandidate()
             }
             setLifecycleHandler(newValue, at: \.retainedSubtreeBuildLease)
@@ -19020,7 +19022,9 @@ public final class RetainedViewRuntime {
         viewport: RetainedLazyListRuntimeAdapter.Viewport, visit: LazyListLayoutVisit,
         budget: RetainedLazyListWorkBudget
     ) -> Bool {
-        guard lazyListVisitIsCurrent(visit), let lease = node.retainedSubtreeBuildLease else { return false }
+        guard lazyListVisitIsCurrent(visit), adapter.permitsStandaloneBuild,
+            let lease = node.retainedSubtreeBuildLease
+        else { return false }
         let managedDescriptor = adapter.managedLogicalDescriptorBinding
         let managedIdentity = managedDescriptor == nil ? nil : node.captureLazyListIdentityProof()
         let canBuild = lease.canBuild

@@ -658,6 +658,7 @@ package final class RetainedLazyListRuntimeAdapter {
     private(set) var logicalMembershipIdentity = RetainedLazyListMembershipIdentity()
     private var stagedPredecessor: StagedPredecessor?
     private weak var attachmentOwner: ViewNode?
+    private var standaloneBuildLease: RetainedLazyListStandaloneBuildLease?
     private var isPreparing = false
     private var isReleasing = false
     private var pendingCandidate = false
@@ -692,7 +693,7 @@ package final class RetainedLazyListRuntimeAdapter {
     package func installManagedLogicalDescriptor(
         _ binding: RetainedLazyListManagedLogicalDescriptorBinding
     ) -> Bool {
-        guard managedLogicalDescriptor == nil, attachmentOwner == nil,
+        guard managedLogicalDescriptor == nil, standaloneBuildLease == nil, attachmentOwner == nil,
             generation == nil, mounted.isEmpty, !isPreparing, !isReleasing,
             !pendingCandidate, binding.isCurrent
         else { return false }
@@ -1032,16 +1033,44 @@ package final class RetainedLazyListRuntimeAdapter {
         if let attachmentOwner { return attachmentOwner === node }
         revokePendingCandidate()
         attachmentOwner = node
+        if let standaloneBuildLease, !standaloneBuildLease.acceptFirstAttachment(to: node) {
+            attachmentOwner = nil
+            return false
+        }
         return true
     }
 
     package func ownsAttachment(_ node: ViewNode) -> Bool { attachmentOwner === node }
+
+    /// A concrete native read, not a callback to an installed protocol lease.
+    /// Replacing that lease cannot reopen an opted-in standalone row factory.
+    var permitsStandaloneBuild: Bool { standaloneBuildLease?.hasCurrentAttachment != false }
+
+    /// Ordinary direct View construction has no managed descriptor owner.
+    /// Its native lease is armed only by the first actual Runtime attachment,
+    /// which can be a retained target instead of the temporary source node.
+    package func installStandaloneBuildLease(in runtime: RetainedViewRuntime) -> (any RetainedSubtreeBuildLease)? {
+        guard standaloneBuildLease == nil, managedLogicalDescriptor == nil, attachmentOwner == nil,
+            generation == nil, mounted.isEmpty, !isPreparing, !isReleasing, !pendingCandidate
+        else { return nil }
+        let lease = RetainedLazyListStandaloneBuildLease(runtime: runtime, adapter: self)
+        standaloneBuildLease = lease
+        return lease
+    }
+
+    /// Adapter adoption precedes the lease property copy. Revoke only the
+    /// outgoing lease that belongs to this adapter, never its incoming lease.
+    func revokeStandaloneBuildLease(matching lease: (any RetainedSubtreeBuildLease)?, from node: ViewNode) {
+        guard ownsAttachment(node), let standaloneBuildLease, standaloneBuildLease === lease else { return }
+        standaloneBuildLease.revoke()
+    }
 
     /// A foreign or stale owner cannot revoke another container's claim.
     /// Dropping mounted payloads remains a separate post-teardown operation.
     @discardableResult
     package func releaseAttachment(from node: ViewNode) -> Bool {
         guard attachmentOwner === node else { return false }
+        standaloneBuildLease?.revoke()
         revokePendingCandidate()
         attachmentOwner = nil
         return true
@@ -2343,7 +2372,7 @@ package final class RetainedLazyListRuntimeAdapter {
     ) -> Bool {
         !isReleasing && attempt === expectedAttempt && configuration === expectedConfiguration
             && admission?.isBuildCurrent(for: self) != false && identityProofs.allSatisfy(\.isCurrent)
-            && managedLogicalDescriptor?.isCurrent != false
+            && managedLogicalDescriptor?.isCurrent != false && permitsStandaloneBuild
     }
 
     private func recordIsCurrent(_ record: Record) -> Bool {

@@ -68,6 +68,18 @@ whole List leaves. The new ownership and reentry tests must still run against
 this composition before the earlier L06/L21/L23 gaps can be called verified.
 See [LazyListStateActivity.md](LazyListStateActivity.md).
 
+Direct construction without a State coordinator uses a native standalone lease.
+The adapter binds it once when Runtime claims an actual attached container, not
+when a temporary source node is built. GeometryReader reconciliation can keep
+the previous List node while copying a new adapter and lease onto that target.
+The fixed attachment and identity proof, expected runtime, exact adapter, and
+installed lease must still match before any standalone row construction.
+Adapter release, lease replacement, detach, and identity reassignment cannot
+refresh that original proof. Discarded source nodes cannot revoke its accepted
+target, and a replacement protocol lease cannot reopen the opted-in adapter.
+Managed ownership and raw adapters without this standalone opt-in keep their
+existing paths. This does not add mounted State continuity to direct snapshots.
+
 ## Navigation, scrolling and accessibility
 
 Direct data initializers preserve element-ID selection precedence. Builder rows

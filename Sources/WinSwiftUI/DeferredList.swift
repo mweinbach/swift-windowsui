@@ -149,7 +149,10 @@ func makeDeferredListComponent(
             guard receipt.isCurrent else { return rejectedRetainedViewNode() }
             lease = capturedLease
         } else {
-            lease = StandaloneDeferredListLease(runtime: runtime, adapter: adapter)
+            guard let standalone = adapter.installStandaloneBuildLease(in: runtime) else {
+                return rejectedRetainedViewNode()
+            }
+            lease = standalone
         }
         if let predecessor, let continuation = source.predecessorContinuation {
             guard adapter.stagePredecessor(predecessor, continuation: continuation), receipt?.isCurrent != false else {
@@ -164,7 +167,6 @@ func makeDeferredListComponent(
         list.retainedLazyListAdapter = adapter
         list.layoutFillAxes = .horizontalOnly
         list.accessibilityChildBehavior = .contain
-        if let standalone = lease as? StandaloneDeferredListLease { standalone.bind(to: list) }
         coordinator?.materializeSubtreeLease(lease)
         guard receipt?.isCurrent != false, projection.isCurrent,
             DeferredListScrollSource.install(
@@ -276,63 +278,4 @@ private func makeDeferredListGap(
         gap.addChild(inset)
     }
     return gap
-}
-
-/// Direct makeComponent callers have no mounted State owner, just as with
-/// ordinary direct View construction. They still need a real retained lease
-/// so raw row builders cannot run after this exact container has departed.
-@MainActor
-private final class StandaloneDeferredListLease: RetainedSubtreeBuildLease {
-    private weak var runtime: RetainedViewRuntime?
-    private weak var container: ViewNode?
-    private weak var adapter: RetainedLazyListRuntimeAdapter?
-
-    init(runtime: RetainedViewRuntime, adapter: RetainedLazyListRuntimeAdapter) {
-        self.runtime = runtime
-        self.adapter = adapter
-    }
-
-    func bind(to container: ViewNode) { if self.container == nil { self.container = container } }
-
-    var canBuild: Bool {
-        guard let runtime, let container, let adapter, adapter.ownsAttachment(container),
-            container.retainedLazyListAdapter === adapter, runtime.permitsRetainedActionInvocation
-        else { return false }
-        var ancestor: ViewNode? = container
-        var depth = 0
-        while let node = ancestor, depth < ViewNode.retainedTraversalDepthLimit {
-            if node === runtime.root { return true }
-            ancestor = node.parent
-            depth += 1
-        }
-        return false
-    }
-
-    func beginBuild() -> (any RetainedBuildEpoch)? {
-        canBuild ? StandaloneDeferredListEpoch(lease: self) : nil
-    }
-}
-
-@MainActor
-private final class StandaloneDeferredListEpoch: RetainedBuildEpoch {
-    private weak var lease: StandaloneDeferredListLease?
-    private var didPrepare = false
-    private var didFinish = false
-    private var wasSuperseded = false
-
-    init(lease: StandaloneDeferredListLease) { self.lease = lease }
-    var canAdopt: Bool { !didFinish && !wasSuperseded && lease?.canBuild == true }
-    var canComplete: Bool { !wasSuperseded && lease?.canBuild == true }
-    func supersede() { if !didPrepare { wasSuperseded = true } }
-    func willAdopt() -> Bool {
-        guard canAdopt else { return false }
-        didPrepare = true
-        return true
-    }
-    func commit() { didFinish = true }
-    func abandon() {
-        wasSuperseded = true
-        didFinish = true
-    }
-    func finishAfterCallbacks() { didFinish = true }
 }

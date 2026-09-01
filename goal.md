@@ -9763,3 +9763,41 @@ in reconciliation. These are structural source bounds, not elapsed-time or
 memory measurements. Fresh compilation, the 15 methods, unchanged File Browser
 interaction cases, and actual timeout resolution remain unverified. This
 repair does not close any original completion gate.
+
+### Ninth batch: standalone List attachment after GeometryReader adoption
+
+The blank Files panes in the retained gallery were caused by a standalone
+build lease tied to a temporary List construction node. GeometryReader
+reconciliation kept the previous List node and adopted a new adapter onto it,
+but the copied lease still checked the discarded source node. This prevented
+the accepted List from constructing its rows.
+
+The adapter now owns a concrete native standalone lease that captures its
+first actual runtime attachment. Construction nodes cannot arm it. Builds
+require that original attachment and identity proof, expected runtime, exact
+adapter ownership, and installed lease. A temporary mismatch while the
+accepted adapter and lease are copied does not revoke the incoming lease.
+Actual release or lease replacement permanently revokes the outgoing lease;
+detach/reinstall and identity reassignment cannot refresh it. A discarded
+source cannot revoke the accepted target, and a foreign protocol lease cannot
+reopen the opted-in adapter. Managed Lists and raw adapters without this
+standalone opt-in retain their existing routes.
+
+The source packet is `artifacts/goal-ninth-standalone-list-lease-intake-v1`,
+25 payloads / 2,765,920 bytes, manifest SHA256
+`4703904d76914d23829e1dfe3487fdbcb74799f5e88c6b8cc2f54090fb78e399`.
+Its private composition is `f4f1f7608be75f3944151e161709095d437ec60f`, tree
+`40ded6d0a15ed1fa07fb0147a59cfc2d55bbd6ee`. The 36,052-byte patch has SHA256
+`374a7c979b33e558c972b2b35bb38217a77f6def957dd0c398425567452422d3`.
+The parent applied the eight narrow file changes without replacing shared
+files. All 588 prior test files in that composition remain unchanged by the
+patch. Ten new standalone ownership/render cases and three production file
+browser cases require visible labels in the first retained scene; they do
+not retry rendering until blank output disappears.
+
+Parent contracts and strict formatting passed for six Swift files.
+Independent review checked claim ordering, lease copy, permanent revocation,
+and unchanged surrounding attachment callers. Compilation, the 13 cases,
+existing managed/raw regressions, and renewed inspection of the gallery PNGs
+remain required. The separate File Browser interaction timeouts are not
+claimed resolved. No baseline or original completion gate changed.

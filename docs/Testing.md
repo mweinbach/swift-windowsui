@@ -1287,15 +1287,30 @@ The gallery entry point is now async, but preparation runs only for selected
 file-browser fixtures; all previous specs retain their existing synchronous
 snapshot setup. The 85-entry comparison roster and baselines are unchanged.
 
-`DemoFileBrowserGalleryPreparationTests` adds four source-authored async cases
-for the no-read wait and loaded, empty, and invalid sample preparation. These
-are model checks, not pixel or UI interaction checks. This increment has not
-been compiled, tested, or rendered; the new three-fixture render and visual
-review remain separate from the previously recorded bitmap evidence above.
-Use the repository's serial workflow after integrating the source:
+`DemoFileBrowserGalleryPreparationTests` covers the no-read wait and loaded,
+empty, and invalid sample preparation. All four passed in the parent-owned
+111-test file/media run at `ccff414`, but those are model checks, not pixel or
+UI interaction checks. The three retained PNGs at that commit showed correct
+previews and a blank Files pane. That render is a visual failure, not an
+approved baseline. Source inspection traced the missing rows to a standalone
+List lease bound to a discarded GeometryReader construction node.
+
+`StandaloneLazyListSnapshotTests` adds ten cases for first-scene glyph paint
+through padded public GeometryReader/List construction, accepted source-to-target
+copy, equivalent assignments, discarded and foreign candidates, and permanent
+refusal after attachment, adapter, lease, or identity revocation. The native
+standalone attachment repair and these new cases have source checks only.
+`DemoFileBrowserRenderTests` adds three cases that prepare the same production
+sample states and require every file name to emit visible glyphs in the first
+retained scene, within its actual clip and canvas. These cases do not take a
+later scene or retry until a blank render disappears. Compilation, execution,
+and renewed inspection of all three gallery PNGs remain required. Use the
+repository's serial workflow after integrating the source:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter DemoFileBrowserGalleryPreparationTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter StandaloneLazyListSnapshotTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter DemoFileBrowserRenderTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Product swift-windowsui-gallery
 .build\x86_64-unknown-windows-msvc\debug\swift-windowsui-gallery.exe --entries file-browser-loaded,file-browser-empty,file-browser-invalid-utf8 --output-dir artifacts/file-browser-gallery
 ```

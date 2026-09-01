@@ -9916,3 +9916,30 @@ formatting passed for the runtime file. Execution and all six retained gallery
 renders remain required; the prior 12 passing scene cases are not evidence
 that this new correction has run. Standalone navigation lifetime and insertion
 animation repairs remain separate work. No original completion gate changed.
+
+### Ninth batch: exact background pixels in removal fixtures
+
+Three managed-removal cases used a grayscale contrast assertion for pixels
+that should equal the application's dark background. That background is
+`surface0.dark`, RGB `0x17171C`, so its channels differ by five even when no
+removed row is present. The offset case already reported this difference in
+its initial empty control, before any removal. That evidence and the palette
+definition distinguish the fixture error from a residual painted row.
+
+Five assertion locations in three method bodies now compare complete BGRA
+pixels against the independent expected background `(28, 23, 23, 255)`.
+The offset control is first checked against that palette before supplying
+later comparisons. No tolerance is widened, method dropped, or intermediate
+ownership, State, lifecycle, or task assertion removed. Both tests requiring
+the currently missing insertion animation state remain unchanged and failing
+at the previous commit; this fixture repair does not address them.
+
+The packet is `artifacts/goal-ninth-removal-background-fixture-intake-v1`,
+private commit `e7146ab3d0a5e336fae5415d25e499f99794ccf1`, tree
+`e713da9a6ec6175a5f070d38946dd116a5594f24`. Its 6,397-byte patch has SHA256
+`8565c79be2c2a423768e4ca4c99f410823499b9dbe10f82c534f2bfcf6d035d7`.
+All nine method identifiers and the other 590 test files remain unchanged.
+Only this fixture and its documentation change; production code does not.
+Independent source review, parent contracts, and strict formatting passed.
+The revised assertions still require execution and do not count as passing
+evidence yet. All original completion gates remain open.

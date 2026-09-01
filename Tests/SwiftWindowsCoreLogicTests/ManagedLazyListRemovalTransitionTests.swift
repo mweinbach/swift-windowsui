@@ -75,7 +75,7 @@ final class ManagedLazyListRemovalTransitionTests: XCTestCase {
             XCTAssertTrue(samples.allSatisfy { $0 > 5 && $0 < before.blueContrast - 5 })
             XCTAssertTrue(zip(samples, samples.dropFirst()).allSatisfy { $0 > $1 })
             let finished = managedRemovalPixel(harness.render(at: 11.01), at: point)
-            XCTAssertEqual(finished.blueContrast, 0, accuracy: 2)
+            XCTAssertEqual(finished, managedRemovalPlainListBackground)
             XCTAssertEqual(harness.host.runtime.retiredLazyListPaintCount, 0)
             XCTAssertEqual(probe.disappearances[0], 1)
             assertRetired(original, lastValue: 41, in: harness.host)
@@ -125,7 +125,7 @@ final class ManagedLazyListRemovalTransitionTests: XCTestCase {
         XCTAssertEqual(cached, middle)
         XCTAssertEqual(harness.host.runtime.retiredLazyListPaintCount, 1)
         let completed = harness.renderFrame(at: 11.01)
-        XCTAssertEqual(managedRemovalPixel(completed, at: point).blueContrast, 0, accuracy: 2)
+        XCTAssertEqual(managedRemovalPixel(completed, at: point), managedRemovalPlainListBackground)
         XCTAssertEqual(harness.host.runtime.retiredLazyListPaintCount, 0)
         XCTAssertEqual(probe.disappearances[0], 1)
         XCTAssertFalse(harness.host.runtime.isDirty)
@@ -485,7 +485,8 @@ final class ManagedLazyListRemovalTransitionTests: XCTestCase {
         let right = Point(x: frame.maxX + 10, y: left.y)
         XCTAssertLessThan(right.x, Double(harness.size.width))
         XCTAssertGreaterThan(managedRemovalPixel(initial, at: left).blueContrast, 230)
-        XCTAssertEqual(managedRemovalPixel(initial, at: right).blueContrast, 0, accuracy: 2)
+        let background = managedRemovalPixel(initial, at: right)
+        XCTAssertEqual(background, managedRemovalPlainListBackground)
 
         probe.rows = []
         harness.refresh()
@@ -494,13 +495,13 @@ final class ManagedLazyListRemovalTransitionTests: XCTestCase {
 
         XCTAssertEqual(harness.host.runtime.retiredLazyListPaintCount, 1)
         XCTAssertGreaterThan(managedRemovalPixel(first, at: left).blueContrast, 230)
-        XCTAssertEqual(managedRemovalPixel(middle, at: left).blueContrast, 0, accuracy: 2)
+        XCTAssertEqual(managedRemovalPixel(middle, at: left), background)
         XCTAssertGreaterThan(managedRemovalPixel(middle, at: right).blueContrast, 230)
         XCTAssertFalse(node.hasAppeared)
         XCTAssertFalse(node.isRemovalOverlay)
         XCTAssertEqual(probe.disappearances[0], 1)
         let finished = harness.render(at: 11.01)
-        XCTAssertEqual(managedRemovalPixel(finished, at: right).blueContrast, 0, accuracy: 2)
+        XCTAssertEqual(managedRemovalPixel(finished, at: right), background)
         XCTAssertEqual(harness.host.runtime.retiredLazyListPaintCount, 0)
     }
 
@@ -768,6 +769,15 @@ private struct ManagedRemovalPixel: Equatable {
     let red: Int
     let alpha: Int
     var blueContrast: Double { Double(blue - red) }
+}
+
+/// A plain List keeps its opaque control well after its final row leaves.
+/// Its slight blue cast is background, not a remnant of the blue test row.
+private var managedRemovalPlainListBackground: ManagedRemovalPixel {
+    let color = ControlPalette.darkStandard.controlBackground
+    return ManagedRemovalPixel(
+        blue: Int((color.blue * 255).rounded()), green: Int((color.green * 255).rounded()),
+        red: Int((color.red * 255).rounded()), alpha: Int((color.alpha * 255).rounded()))
 }
 
 private func managedRemovalPixel(

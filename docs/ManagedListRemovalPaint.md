@@ -1,9 +1,9 @@
 # Managed List removal paint
 
-This is a source checkpoint. The bridge and its new regressions have not yet
-been compiled or executed together. It does not close the original animation,
-collection lifetime, accessibility, native rendering, or resource gates in
-`goal.md`.
+The first combined focused run at `02edb4c` compiled and executed 150 cases:
+145 passed and five failed, all in `ManagedLazyListRemovalTransitionTests`.
+This is not a completed animation, collection lifetime, accessibility, native
+rendering, or resource gate in `goal.md`.
 
 Managed flat List rows can retain a bounded visual tail after a checked
 structural departure. The retained value contains renderer-neutral primitives,
@@ -114,7 +114,17 @@ Source regressions cover guarded resolution and reentry, frozen resources and
 paint namespaces, opacity overlap, timeline sampling, frame clip spans,
 aggregate pass limits, public List removal, Tab state continuation, Canvas
 callback isolation, tasks, input/UIA revocation, interrupted insertion, host
-closure, and resource release. Fresh combined compilation and execution of
-these tests and the unchanged original cases remain required. Retained visual
+closure, and resource release. The initial combined run exposed two missing
+insertion animations and three pixel tests that expected zero blue-minus-red
+contrast after removal. A plain List actually retains the declared opaque dark control well,
+`#17171C` (BGRA `28, 23, 23, 255`). The initially unoccupied control pixel in the
+offset test already reported the same blue-minus-red contrast of five before
+any removal; the original log did not report all four channels. Those vacated
+and completed pixel assertions now compare all four channels exactly against
+the declared
+palette background; the offset test checks its initial control before reusing
+it. Intermediate fade/motion and ownership assertions are unchanged. The
+corrected expectations have not yet been executed, and the two missing
+insertion animations remain a separate production defect. Retained visual
 review, native D3D11/UIA qualification, and latency/memory measurements remain
 open under the original goal.

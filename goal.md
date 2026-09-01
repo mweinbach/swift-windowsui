@@ -9707,3 +9707,22 @@ No selected test began, so the 159 individual outcomes remain unverified.
 The two unique compiler errors are corrected here; fresh compilation and
 execution remain required. Contracts and strict formatting passed for the
 two changed Swift test files. No original completion gate is closed.
+
+### Ninth batch: direct native completion predicates
+
+The first performance-repair slice replaces three native `allSatisfy`
+key-path predicates with equivalent closures. It retains the same currentness
+getters, order, short-circuit behavior, and validation frequency. This is the
+1,571-byte patch from private commit
+`002a130e41dcb507af785405e614cae80f214413`, SHA256
+`0c2e201a19e3069c9eb7a3a10c5d17f1ae5f37402c781807cf24a997679ce7f0`.
+
+The complete two-slice source packet is retained at
+`artifacts/goal-ninth-completion-compaction-intake-v1`: 30 payloads,
+3,847,801 bytes, manifest SHA256
+`f589567ffcb641ce4bb3964fd89772527af6bc823526667c18a85f3fee30cd27`.
+Parent intake checked every payload against its recorded size and hash.
+Independent review found no changed admission obligation. Contracts and
+strict formatting passed for these two Swift files. No tests changed in this
+slice, and no elapsed-time improvement is claimed. The retained File Browser
+timeouts still require execution of the full repair and unchanged tests.

@@ -96,7 +96,7 @@ final class RetainedLazyListAdoptionCompletion {
         nodes = snapshots
     }
 
-    var isCurrent: Bool { nodes.allSatisfy(\.isCurrent) }
+    var isCurrent: Bool { nodes.allSatisfy { $0.isCurrent } }
 }
 
 @MainActor

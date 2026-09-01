@@ -9824,3 +9824,69 @@ strict formatting passed for the corrected file. The same 159 image cases
 plus 28 completion/standalone/render cases still require execution, followed
 by the prepared removal/blur cohort and original File Browser interaction
 regressions. No original goal requirement is reduced or marked complete.
+
+### Ninth batch: executed repair cohorts and fixed-size image placement
+
+The image/List cohort at `02edb4cb233f5684c5efbbc7881843506702a779`
+compiled and completed all 187 XCTest methods: 185 passed, two failed, and
+none skipped. The 15 completion-forest methods, all three first-scene File
+Browser render methods, and nine of ten standalone attachment methods passed.
+The failures were the existing unconstrained resizable-image density case and
+the standalone first actual attachment after a foreign-runtime render. The
+runner exited naturally with code 1 after 341.25 seconds; the 2,060,177-byte
+raw log has SHA256
+`2fb67b6b47196cca923ce744f45066316c0e0002117bbbd46ad80897f2f6916f`.
+Exact method reconciliation and unchanged source/index endpoints are recorded
+in `artifacts/goal-ninth-image-list187-02edb4c-reconciled.json`. Swift Testing
+reported zero tests; this is not a full-suite result.
+
+The separate removal/blur cohort at the same commit completed 150 XCTest
+methods: 145 passed, five failed, none skipped, and zero Swift Testing tests.
+All four declared-owner continuation cases and all 24 CPU material cases now
+passed, including the previously failing blur boundary fixture. Five managed
+removal cases failed: three compared the dark background against a grayscale
+contrast value of zero, while two found no insertion animation state. The
+latter two remain production behavior gaps. The run exited naturally with
+code 1 after 70.766 seconds; its 49,549-byte raw log has SHA256
+`3d72f0698ce4424f85a22a6fb226fe0e162e37e1d49ca3ea7c17655196160be4`.
+`artifacts/goal-ninth-removal-blur150-02edb4c-reconciled.json` retains the exact
+150 starts and terminal outcomes, eight failed assertions, and preservation
+checks. The five failed methods are not counted as passes.
+
+The unchanged 14-method File Browser interaction attempt at that commit again
+reached its 900-second limit. Build completed in 0.32 seconds, but the retained
+227-byte log contains no observed test starts or outcomes. SwiftPM buffers
+child output, so this does not prove that no test executed. The controller
+recorded timeout 124 and direct child exit 1. Only the recorded test process,
+verified through its retained process handle and exact creation identity, was
+terminated with code 143; the remaining recorded parents exited naturally.
+A subsequent CIM check found none of the recorded processes or their children,
+including the associated console host. All tracked source/index endpoints
+were unchanged. The timeout receipt is
+`artifacts/goal-ninth-file14-02edb4c-timeout.json`; its raw log SHA256 is
+`996bc09f6320559b24086b6f23b3f039cfea5b4d92eb951ffbcd084b17b9341a`.
+A single noninvasive, nonsuspending local stack sample pointed to repeated
+native identity searches in owned-component ledger freezing. The incomplete
+unwind is diagnostic evidence, not a complete call chain, identified test,
+timing qualification, or proof of the sole cause. No timeout was increased.
+
+For the image failure, measurement produced the correct density-adjusted size,
+but stack allocation still treated the fixed axis as greedy and enlarged it.
+`fillsMainAxis` now excludes only axes protected by `fixedSize`, including
+inherited fill intent through wrappers. The other axis remains flexible.
+Intrinsic measurement, source density, bitmap identity, explicit equal-share
+distribution, and priority/flex rules are unchanged. This also changes the
+existing greedy shrink classification on protected axes; complete compression
+and native proposal parity remain unqualified.
+
+The source packet `artifacts/goal-ninth-fixed-image-axis-intake-v1` contains
+private commit `a8534967d58f3d0ddf098a1406515fe666989f51`, tree
+`5dee6ee622f2ac60ae1bd22ee170793cb06df425`. Its 8,119-byte patch has SHA256
+`75736ec14ab087c77148b2538791dae555e1fb9f5c0004e8e492978e5dd52928`.
+It preserves the existing 17 image-density methods and adds six cases for
+single-axis behavior, nested stacks, wrapper fill, a flexible sibling, modifier
+order, and reconciliation of the same bitmap leaf. Parent contracts and strict
+formatting passed for both changed Swift files. Compilation and execution of
+this correction and the unchanged layout regressions remain required. The
+failed standalone case, two insertion cases, File Browser timeout, renewed
+gallery inspection, full validation, and all nine original gates remain open.

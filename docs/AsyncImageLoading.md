@@ -128,6 +128,16 @@ budgets. A byte limit alone is not a process-wide peak-memory guarantee.
 fall back to 1. Intrinsic and unconstrained resizable sizes divide pixel
 dimensions by scale; the source Data and content token stay unchanged.
 
+A fixed-size image is not a greedy participant on its protected axes when a
+stack distributes spare space. This prevents stack placement from enlarging
+the density-adjusted fallback after measurement. The same check prevents a
+fixed-size wrapper from exporting its child's fill intent to an enclosing
+stack; single-axis `fixedSize` leaves the other axis flexible. Explicit
+equal-share distribution and legacy priority/flex growth keep their existing
+rules. The same predicate also stops classifying a protected axis as greedy
+in the existing shrink pass; complete compression and native fixed-size
+proposal parity remain unqualified.
+
 Cap insets and destination placement remain authored in points. The sampling
 resolver accepts a source density, defaulting to 1, and converts only cap/center
 sampling distances into source-texel units. Placement validation still checks

@@ -38,6 +38,102 @@ final class AsyncImageScaleTests: XCTestCase {
         }
     }
 
+    func testSingleAxisFixedSizeKeepsTheOtherAxisFlexibleAtFractionalDensity() async throws {
+        let source = bitmap(width: 12, height: 8)
+        let horizontal = snapshot(
+            Image(bitmap: source, scale: 1.5).resizable().fixedSize(horizontal: true, vertical: false))
+        try assertImage(horizontal, source: source, logicalSize: Size(width: 8, height: 24))
+
+        let vertical = snapshot(
+            Image(bitmap: source, scale: 1.5).resizable().fixedSize(horizontal: false, vertical: true))
+        try assertImage(vertical, source: source, logicalSize: Size(width: 24, height: 8 / 1.5))
+    }
+
+    func testFixedSizeBitmapDoesNotPropagateFillThroughNestedStacks() async throws {
+        let source = bitmap(width: 12, height: 8)
+        let result = snapshot(
+            VStack(spacing: 0) {
+                VStack(spacing: 0) {
+                    Image(bitmap: source, scale: 2).resizable().fixedSize()
+                }
+            })
+        let expected = Size(width: 6, height: 4)
+        try assertImage(result, source: source, logicalSize: expected)
+        let innerStack = try XCTUnwrap(try imageNode(result.runtime).parent)
+        let outerStack = try XCTUnwrap(innerStack.parent)
+        XCTAssertEqual(innerStack.resolvedFrame.size, expected)
+        XCTAssertEqual(outerStack.resolvedFrame.size, expected)
+    }
+
+    func testFixedSizeWrapperStopsInheritedBitmapFill() async throws {
+        let source = bitmap(width: 12, height: 8)
+        let result = snapshot(
+            VStack(spacing: 0) {
+                Image(bitmap: source, scale: 2).resizable()
+            }.fixedSize())
+        let expected = Size(width: 6, height: 4)
+        try assertImage(result, source: source, logicalSize: expected)
+        let wrapper = try XCTUnwrap(try imageNode(result.runtime).parent)
+        XCTAssertEqual(wrapper.fixedSizeAxes, FixedSizeAxes(horizontal: true, vertical: true))
+        XCTAssertEqual(wrapper.resolvedFrame.size, expected)
+    }
+
+    func testHorizontalStackKeepsFixedImageWidthBesideFlexibleSibling() async throws {
+        let source = bitmap(width: 12, height: 8)
+        let result = snapshot(
+            HStack(spacing: 0) {
+                Image(bitmap: source, scale: 2).resizable().fixedSize(horizontal: true, vertical: false)
+                Spacer(minLength: 0)
+            })
+        try assertImage(result, source: source, logicalSize: Size(width: 6, height: 24))
+        let stack = try XCTUnwrap(try imageNode(result.runtime).parent)
+        XCTAssertEqual(stack.resolvedFrame.size, Size(width: 24, height: 24))
+        XCTAssertEqual(stack.children.last?.resolvedFrame.width, 18)
+    }
+
+    func testFixedSizePreservesEarlierFramesWithoutAcceptingLaterFrameGrowth() async throws {
+        let source = bitmap(width: 12, height: 8)
+        let frameBeforeFixedSize = snapshot(
+            Image(bitmap: source, scale: 2).resizable().frame(width: 18, height: 12).fixedSize())
+        try assertImage(frameBeforeFixedSize, source: source, logicalSize: Size(width: 18, height: 12))
+
+        let frameAfterFixedSize = snapshot(
+            Image(bitmap: source, scale: 2).resizable().fixedSize().frame(width: 18, height: 12))
+        try assertImage(frameAfterFixedSize, source: source, logicalSize: Size(width: 6, height: 4))
+    }
+
+    func testReconciliationUpdatesFixedSizePlacementOnTheSameBitmapLeaf() async throws {
+        let source = bitmap(width: 12, height: 8)
+        let runtime = RetainedViewRuntime(clearColor: .clear, root: ViewNode())
+        runtime.setRootSize(IntSize(width: 24, height: 24))
+        let host = ComponentHost(runtime: runtime)
+        let context = ViewBuildContext(canvasSizeProvider: { Size(width: 24, height: 24) }, invalidateHandler: {})
+        var density = 1.0
+        var fixesHeight = true
+        host.setComponents {
+            [
+                Image(bitmap: source, scale: density).resizable()
+                    .fixedSize(horizontal: true, vertical: fixesHeight)
+                    .frame(width: 24, height: 24, alignment: .topLeading).makeComponent(context: context)
+            ]
+        }
+        _ = runtime.renderScene()
+        let retained = try imageNode(runtime)
+        let cases = [(2.0, true), (1.5, false), (1.5, true), (1.0, true)]
+        for (nextDensity, nextFixesHeight) in cases {
+            density = nextDensity
+            fixesHeight = nextFixesHeight
+            host.reload()
+            _ = runtime.renderScene()
+            let leaf = try imageNode(runtime)
+            XCTAssertTrue(leaf === retained)
+            XCTAssertEqual(
+                leaf.resolvedFrame.size,
+                Size(width: 12 / density, height: fixesHeight ? 8 / density : 24))
+            XCTAssertEqual(leaf.bitmapSurface?.contentKey, source.contentKey)
+        }
+    }
+
     func testFiniteStretchStillAcceptsTheProposalAtNondefaultDensity() async throws {
         let source = bitmap(width: 12, height: 8)
         let result = snapshot(Image(bitmap: source, scale: 2).resizable().frame(width: 24, height: 12))

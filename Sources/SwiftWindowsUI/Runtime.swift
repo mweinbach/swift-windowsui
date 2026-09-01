@@ -10657,7 +10657,15 @@ public final class ViewNode {
 
     /// True when this node accepts its parent's proposal along `axis`.
     fileprivate static func fillsMainAxis(_ node: ViewNode, axis: StackAxis) -> Bool {
-        axis == .vertical ? node.effectiveFillAxes.vertical : node.effectiveFillAxes.horizontal
+        // Measurement removes the maximum proposal on a fixed-size axis.
+        // Do not treat that accepted size as greedy during stack allocation, or
+        // propagate its underlying fill declaration to an enclosing stack.
+        switch axis {
+        case .vertical:
+            return node.fixedSizeAxes?.vertical != true && node.effectiveFillAxes.vertical
+        case .horizontal:
+            return node.fixedSizeAxes?.horizontal != true && node.effectiveFillAxes.horizontal
+        }
     }
 
     /// The axes this node is actually greedy on: the ones it declares, plus

@@ -10787,3 +10787,63 @@ passed (`c49f9c/0`). The root proof
 reviewed patch with only index hashes and hunk start offsets adjusted, and
 verifies that removing exactly the three added Runtime lines restores its
 entire preceding source. Compilation and runtime validation remain pending.
+
+
+### 2026-09-01: preserve the original Tab owner across dormant-marker removal
+
+All nine original goal gates remain open. The reviewed Tab handoff source is
+integrated without changing the old transition test, identity matching,
+State registry, provider, animation, or default resolution-budget policy.
+The 26390ef removal result remains 149 passing methods and one failing method
+until fresh execution establishes otherwise.
+
+The accepted return build already named the original inactive page owner,
+but publishing its replacement children declaration removed the last dormant
+marker before its normal physical source could attach. Immediate native
+retirement then invalidated that original plan. The failed return assertions
+reported a different owner, generation 38 instead of 10, a different model,
+and value 100 instead of 41; 38 was an owner generation, not a factory count.
+
+The source now admits a retirement ticket only at the original accepted
+marker-removal operation for an exact old native permission or presence with
+no remaining attached footprint. It must be named by an already frozen,
+selected, registered normal plan with a nonempty original source roster,
+valid native lifetime, and no revoked slots. Omitted slots and rejected,
+unselected, declaration-only, empty, or later unrelated sources cannot
+manufacture a handoff. The ticket immediately suspends old writes through
+the existing mechanism and never grants write permission.
+
+Only a matching original accepted normal publication can consume that ticket:
+its exact plan and source payload must match, its native structural member
+must actually be stored, and its current actual attachment, target, storage,
+and attachment identity must still agree. Neither a prepared source nor an
+arbitrary later facet is sufficient. Spent entries remain recorded until
+finish so callback-produced work cannot rearm the old member's ticket.
+Direct revocation and retirement of omitted slots remain immediate.
+
+Seal and abandonment drain original pending physical departures first,
+then unresolved declared-marker tickets. Retirement consumes a ticket before
+checking its old native member and releases only its own write suspension.
+This ordering is preserved for the separate ordinary-physical handoff repair;
+no physical-map-clear continuation or legacy root-guard exception is added.
+
+The exact `d64eead6144017c780655156c5c465ea79b4819b` source delta is
+`artifacts/goal-ninth-tab-handoff-d64eead-intake-v1/payload/SOURCE.patch`
+(42,895 bytes; SHA256
+`ad13c5dd5ea3d7f4420625f6e20da06f72a01a8c7257ed59ac5ba40d54158cdf`).
+It adds 170 Activity lines and two separate test files: eleven
+`RetainedDeclaredMarkerHandoffTests` and three `ManagedTabDeclaredHandoffTests`.
+The native controls cover same-attachment and inserted acceptance, original
+source/attempt isolation, spent tickets, immediate omission, zero slots,
+invalidated preflights, revocation, and terminal cleanup. The mounted controls
+cover two return cycles with the same owner/model/value, an actual build-time
+binding write and invalidation, and closing before the second controller.
+Every prior test file is unchanged. Ticket scanning, temporary metadata,
+and native facet checks have not been benchmarked.
+
+Root strict formatting on all three changed Swift files and architecture
+contracts passed (`262cba/0`). The root proof
+`artifacts/goal-ninth-tab-handoff-d64eead-root-proof-v1.json` verifies the
+byte-identical patch, fourteen new methods, unchanged prior tests, and cleanup
+order. Compilation, execution of the original failing Tab regression and new
+controls, the full removal cohort, and broader release checks remain pending.

@@ -3160,6 +3160,7 @@ final class RetainedLazyListAdoptionJournal {
 
     func revokeBeforeAbandon() {
         finishPendingOwnedDepartures()
+        ownedLedger?.finishPendingDeclaredMarkerRetirements()
         finishRowReplacementHandoffs()
         guard !hasAcceptedContributions, !didMutate else { return }
         wasRevoked = true
@@ -3171,6 +3172,7 @@ final class RetainedLazyListAdoptionJournal {
         if let sealedDisposition { return sealedDisposition }
         let complete = completedCheckedAdoption && canContinueAdoption
         finishPendingOwnedDepartures()
+        ownedLedger?.finishPendingDeclaredMarkerRetirements()
         finishRowReplacementHandoffs()
         let ordinary = ordinaryLedger?.seal()
         for cleanup in ordinary?.cleanup ?? [] { recordCleanupID(cleanup) }
@@ -5108,6 +5110,91 @@ fileprivate final class RetainedOwnedPhysicalDepartureSnapshot {
     }
 }
 
+/// Removing a dormant marker can precede the original source's normal owned
+/// publication. This ticket postpones retirement, never grants write authority,
+/// and contains only original native plans, members, and weak attachment proof.
+@MainActor
+private final class RetainedOwnedDeclaredMarkerRetirement {
+    @MainActor
+    enum Member {
+        case slot(RetainedOwnedSlotPermission)
+        case component(RetainedOwnedComponentPresence)
+
+        var identity: ObjectIdentifier {
+            switch self {
+            case .slot(let permission): return ObjectIdentifier(permission)
+            case .component(let presence): return ObjectIdentifier(presence)
+            }
+        }
+
+        var hasAttachedFootprint: Bool {
+            switch self {
+            case .slot(let permission):
+                return permission.payloadFacets.values.contains(where: \.isAttached)
+                    || permission.structuralFacets.values.contains(where: \.isAttached)
+            case .component(let presence):
+                return presence.payloadFacets.values.contains(where: \.isAttached)
+                    || presence.structuralFacets.values.contains(where: \.isAttached)
+            }
+        }
+
+        var canContinue: Bool {
+            switch self {
+            case .slot(let permission):
+                return permission.isDeclared && !permission.owner.wasRevoked
+                    && permission.lifetime.permitsDeclaredWrite
+            case .component(let presence): return presence.hasDeclaredComponent
+            }
+        }
+
+        func isNamed(by plan: RetainedOwnedComponentDeclarationPlan) -> Bool {
+            switch self {
+            case .slot(let permission):
+                return plan.receipt.permission(for: permission.slot) === permission
+                    && plan.receipt.nativeLifetime.isSame(as: permission.lifetime)
+            case .component(let presence): return plan.receipt.componentPresence === presence
+            }
+        }
+
+        func hasNormalMarker(on storage: RetainedLazyListNodeActivityStorage) -> Bool {
+            switch self {
+            case .slot(let permission): return storage.ownedStructuralPermissions.contains { $0 === permission }
+            case .component(let presence): return storage.ownedStructuralComponents.contains { $0 === presence }
+            }
+        }
+    }
+
+    let attempt: RetainedLazyListAttemptID
+    let member: Member
+    let plans: [RetainedOwnedComponentDeclarationPlan]
+    let formerActual: RetainedLazyListActualAttachment
+    let removalFacet: RetainedLazyListSourceFacetID
+    var wasConsumed = false
+
+    init(
+        attempt: RetainedLazyListAttemptID, member: Member, plans: [RetainedOwnedComponentDeclarationPlan],
+        formerActual: RetainedLazyListActualAttachment, removalFacet: RetainedLazyListSourceFacetID
+    ) {
+        self.attempt = attempt
+        self.member = member
+        self.plans = plans
+        self.formerActual = formerActual
+        self.removalFacet = removalFacet
+    }
+
+    func suspendOwnedWrite() {
+        guard case .slot(let permission) = member else { return }
+        permission.pendingDepartures[ObjectIdentifier(self)] = RetainedOwnedPhysicalFacetKey(
+            target: ObjectIdentifier(formerActual.target), attachment: ObjectIdentifier(formerActual.attachment),
+            field: nil)
+    }
+
+    func finishOwnedWriteSuspension() {
+        guard case .slot(let permission) = member else { return }
+        permission.pendingDepartures.removeValue(forKey: ObjectIdentifier(self))
+    }
+}
+
 /// Native owned-slot metadata is independent of effect-group completion. Its
 /// exact field records survive partial adoption, with no application payload.
 @MainActor
@@ -5129,6 +5216,7 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
     private var structuralPublications: [RetainedOwnedPropertyKey: RetainedOwnedPropertyPublication] = [:]
     private var insertedRegionPublications: [ObjectIdentifier: RetainedOwnedInsertionPublication] = [:]
     private var completedRegionPublications: [RetainedOwnedPropertyKey: RetainedOwnedPropertyPublication] = [:]
+    private var declaredMarkerRetirements: [ObjectIdentifier: RetainedOwnedDeclaredMarkerRetirement] = [:]
     private var acceptedPermissions: Set<ObjectIdentifier> = []
     private var acceptedPresences: Set<ObjectIdentifier> = []
     private(set) var acceptedDeclarations: [RetainedOwnedComponentDeclarationFact] = []
@@ -5565,6 +5653,8 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
             on: storage, actual: actual, field: keyPath,
             with: publication.declarations.map { $0.receipt.componentPresence },
             hasPayload: publication.hasPayload)
+        fulfillDeclaredMarkerRetirements(
+            publication.declarations, source: source, storage: storage, actual: actual)
     }
 
     func prepareInsertedNode(from source: ViewNode) -> Bool {
@@ -5601,6 +5691,8 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         replaceStructural(on: storage, actual: actual, with: publication.permissions)
         replaceComponentStructural(
             on: storage, actual: actual, with: publication.declarations.map { $0.receipt.componentPresence })
+        fulfillDeclaredMarkerRetirements(
+            publication.declarations, source: node, storage: storage, actual: actual)
         if !publication.regions.isEmpty {
             insertedRegionPublications[ObjectIdentifier(storage.targetID)] = publication
         }
@@ -5618,6 +5710,7 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         replaceStructural(on: storage, actual: actual, with: permissions)
         replaceComponentStructural(
             on: storage, actual: actual, with: declarations.map { $0.receipt.componentPresence })
+        fulfillDeclaredMarkerRetirements(declarations, source: source, storage: storage, actual: actual)
         publishCompletedRegions(from: source, to: target, storage: storage, actual: actual)
     }
 
@@ -5692,14 +5785,87 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         }
         for old in oldPermissions where !publication.permissions.contains(where: { $0 === old }) {
             removeStructuralReference(old, storage: storage, key: facetKey)
+            deferDeclaredMarkerRetirement(.slot(old), formerActual: actual, removalFacet: publication.facet)
             retireIfUnreferenced(old, preservingCold: false)
         }
         for old in oldPresences where storage.ownedDeclaredStructuralComponents[ObjectIdentifier(old.owner)] !== old {
             removeComponentStructuralReference(old, storage: storage, key: facetKey)
+            deferDeclaredMarkerRetirement(.component(old), formerActual: actual, removalFacet: publication.facet)
             retireIfUnreferenced(old, preservingCold: false)
         }
         if !publication.regions.isEmpty { completedRegionPublications[key] = publication }
         return actual
+    }
+
+    private func isSelectedNormalContinuation(_ plan: RetainedOwnedComponentDeclarationPlan) -> Bool {
+        didPrepare && !wasFinished && !plan.declarationOnly && !plan.sourcePayloads.isEmpty
+            && selectedPlans.contains(ObjectIdentifier(plan))
+            && planRegistrations[ObjectIdentifier(plan)]?.receipt === plan.receipt
+            && plan.receipt.componentPresence.hasDeclaredComponent
+            && plan.receipt.nativeLifetime.permitsDeclaredWrite
+            && plan.receipt.slotPermissions.allSatisfy { !$0.wasRevoked }
+    }
+
+    private func deferDeclaredMarkerRetirement(
+        _ member: RetainedOwnedDeclaredMarkerRetirement.Member,
+        formerActual: RetainedLazyListActualAttachment, removalFacet: RetainedLazyListSourceFacetID
+    ) {
+        guard formerActual.isAttached, member.canContinue, !member.hasAttachedFootprint,
+            declaredMarkerRetirements[member.identity] == nil
+        else { return }
+        let witnesses = (frozenPlans ?? []).filter { member.isNamed(by: $0) && isSelectedNormalContinuation($0) }
+        guard !witnesses.isEmpty else { return }
+        let ticket = RetainedOwnedDeclaredMarkerRetirement(
+            attempt: attempt, member: member, plans: witnesses, formerActual: formerActual,
+            removalFacet: removalFacet)
+        declaredMarkerRetirements[member.identity] = ticket
+        ticket.suspendOwnedWrite()
+    }
+
+    private func awaitsDeclaredMarkerReplacement(_ member: ObjectIdentifier) -> Bool {
+        guard let ticket = declaredMarkerRetirements[member], !ticket.wasConsumed,
+            ticket.attempt === attempt, ticket.member.canContinue
+        else { return false }
+        return ticket.plans.contains { isSelectedNormalContinuation($0) }
+    }
+
+    /// Only the original accepted normal publication can finish its ticket.
+    /// Row tables, dormant declarations, and a later source with the same owner
+    /// do not substitute for the frozen source and exact stored member marker.
+    private func fulfillDeclaredMarkerRetirements(
+        _ declarations: [RetainedOwnedComponentDeclarationPlan], source: ViewNode,
+        storage: RetainedLazyListNodeActivityStorage, actual: RetainedLazyListActualAttachment
+    ) {
+        guard actual.isAttached, actual.node?.retainedLazyListActivityStorage === storage,
+            actual.target === storage.targetID, actual.attachment === storage.attachmentID,
+            !source.containsRejectedRetainedSource
+        else { return }
+        let payloads = sources.filter { $0.node === source }.map(\.payload)
+        for ticket in declaredMarkerRetirements.values
+        where awaitsDeclaredMarkerReplacement(ticket.member.identity) && ticket.member.hasNormalMarker(on: storage) {
+            guard
+                ticket.plans.contains(where: { plan in
+                    isSelectedNormalContinuation(plan) && declarations.contains(where: { $0 === plan })
+                        && plan.sourcePayloads.contains { expected in payloads.contains { $0 === expected } }
+                })
+            else { continue }
+            ticket.wasConsumed = true
+            ticket.finishOwnedWriteSuspension()
+        }
+    }
+
+    func finishPendingDeclaredMarkerRetirements() {
+        for ticket in declaredMarkerRetirements.values where !ticket.wasConsumed {
+            // Mark it spent before retirement so no helper can defer it again.
+            // Keep the original member entry until finish; reentry cannot rearm
+            // this journal's already claimed handoff after an accepted prefix.
+            ticket.wasConsumed = true
+            switch ticket.member {
+            case .slot(let permission): retireIfUnreferenced(permission, preservingCold: false)
+            case .component(let presence): retireIfUnreferenced(presence, preservingCold: false)
+            }
+            ticket.finishOwnedWriteSuspension()
+        }
     }
 
     private func publishCompletedRegions(
@@ -6269,6 +6435,7 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         guard !permission.payloadFacets.values.contains(where: \.isAttached),
             !permission.structuralFacets.values.contains(where: \.isAttached)
         else { return }
+        guard !awaitsDeclaredMarkerReplacement(ObjectIdentifier(permission)) else { return }
         retire(permission)
     }
 
@@ -6336,6 +6503,7 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         guard !presence.payloadFacets.values.contains(where: \.isAttached),
             !presence.structuralFacets.values.contains(where: \.isAttached)
         else { return }
+        guard !awaitsDeclaredMarkerReplacement(ObjectIdentifier(presence)) else { return }
         retire(presence)
     }
 
@@ -6373,12 +6541,14 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
     }
 
     func finish() {
+        finishPendingDeclaredMarkerRetirements()
         wasFinished = true
         propertyPublications.removeAll()
         insertions.removeAll()
         structuralPublications.removeAll()
         insertedRegionPublications.removeAll()
         completedRegionPublications.removeAll()
+        declaredMarkerRetirements.removeAll()
         registrations.removeAll()
         sources.removeAll()
         componentParents.removeAll()

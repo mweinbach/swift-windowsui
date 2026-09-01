@@ -10439,3 +10439,148 @@ A fresh compile and the same 165-method roster are still required, followed by
 the unchanged 150-method removal/effect roster. This is compilation repair, not
 functional, native-host, visual, performance, or macOS qualification. All nine
 original completion gates remain open and unchanged.
+
+### First functional execution of the combined List, insertion, and keyframe work (2026-09-01)
+
+The compile repairs allowed the complete new 165-method roster to execute on
+`26390ef2f30b4aeb8cf022ab998eb5a14e7fbfd7`, tree
+`4c1be84b7278f28c1d140a1d0bff1367586a58fa`. The direct child and controller both
+returned 1 naturally after 309.235 seconds, without timeout: 156 methods passed,
+nine failed, and none skipped. The 2,170,085-byte raw log has SHA-256
+`9b1e33ece8c44d706ea4db3244849fb731e5b80c03024100debf2abf864792ce`.
+The independent case-ID, terminal-result, source/index endpoint, and process
+closure records are `artifacts/goal-ninth-new165-26390ef-reconciled.json` and
+`artifacts/goal-ninth-new165-26390ef-post-closure.json`. These results replace the
+earlier compile-only unknown outcomes for this roster at this source, not for
+subsequent changes or the entire package.
+
+The timeline's 25 methods, playback's 15 methods, all 45 native-smoke validation
+methods, six adoption-predicate methods, eight navigation-container methods, and
+14 standalone navigation-lifetime methods passed. The nine failed methods are
+now specific remaining work:
+
+- Deferred navigation: the managed prepared continuation did not allow the
+  separate next keyboard action after rebuild; eight other transport methods
+  passed.
+- Insertion boundaries: the two callback-count fixtures observed four fresh
+  attempts under the existing default four-round budget, not the single attempt
+  assumed by those fixtures. Any fixture correction must explicitly select the
+  existing one-round policy and preserve the assertions; a separate default-budget
+  regression must retain and distinguish the four original attempts.
+- Insertion events: an accepted initially empty row did not retain the physical
+  cohort needed for its first later child, and a nested initial List could not
+  attach its expected row. The nine other event methods passed.
+- Mounted keyframes: keyed reordering lost the surviving run's physical sample;
+  explicit-identity replacement, factory-capture cleanup, and a factory closing
+  its host did not reach their expected original factory or cleanup behavior.
+  Eighteen other mounted methods passed. Passing timeline and playback tests
+  therefore does not establish mounted keyframe correctness.
+
+The unchanged 150-method removal/effect roster then executed on the same source.
+It returned 1 naturally after 77.843 seconds: 149 passed, one failed, none skipped.
+Its 48,181-byte log has SHA-256
+`67c2987fa0dc43133a2c5c4a32953c24f4f136888cda1197dd56ee87e76980d4`.
+The two earlier missing-insertion-animation observations no longer occur in
+their unchanged tests. In particular, removal during insertion now observes its
+presented opacity and retained reinsertion behavior. However,
+`testManagedTabCrossfadeKeepsDeclaredStateAndDoesNotRestartOnRebuild` fails later,
+when returning to the original page: the owner and model identities change,
+the owner generation is 38 instead of 10, and state is 100 instead of 41. The
+incoming page and unchanged midpoint rebuild assertions pass. This is not a
+pass for Tab state preservation. The owner generation is not a factory count.
+Receipts are `artifacts/goal-ninth-removal150-26390ef-reconciled.json` and
+`artifacts/goal-ninth-removal150-26390ef-post-closure.json`.
+
+### Fixed Core and List regression runs stopped at their first failing classes (2026-09-01)
+
+The reviewed Core320 and List402 controllers retained their original selections,
+180-second class limits, 1,800-second total limits, and stop-on-first-failing-class
+policy. Neither was a complete suite pass. Both ran serially on the same
+unchanged `26390ef2` source and index after the functional runs above.
+
+Core320 completed eight classes and 146 methods in 77.547 seconds: 145 passed,
+one failed, none skipped, and 174 methods in 14 classes were not run. The
+remaining failure is the unchanged
+`UIANativeItemContainerIntegrationTests.testNativeRuntimeIDAndRealizeRespectPendingAcceptedReplacement`:
+the requested row 300 remains a placeholder with an unavailable result. The
+earlier runtime-geometry and deleted-token cases now pass, but the deferred UIA
+realization repair and the four separate shared-budget tests still require
+execution. Those four tests are outside the fixed Core/List selections.
+
+List402 completed nine classes and 107 methods in 114.485 seconds: 105 passed,
+two failed, none skipped, and 295 methods in 20 classes were not run. Both
+failures are in the unchanged `MountedLazyListStateTests`. Cold deletion and
+reinsertion cannot recover the expected collection binding. Keyed reordering
+and insertion lose the physical row for key 1 and the installed owner for key
+99. The later public navigation classes were never entered, so this run gives
+no new result for their opaque-builder navigation cases.
+
+`artifacts/goal-ninth-core320-26390ef-partial-reconciled.json` and
+`artifacts/goal-ninth-list402-26390ef-partial-reconciled.json` independently
+reconcile the exact ordered executed prefixes, every observed start and terminal
+case ID, per-class raw hashes, and source/index endpoints against the original
+fixed selections. Their corresponding `post-closure.json` receipts found all
+retained controller/direct-child PIDs, still-parented children, and observed
+Swift processes absent after natural controller exit 1. No process was killed.
+These are endpoint process observations, not continuous descendant attestation.
+Unrun methods are not skips or successes. Package.swift and the original test
+workloads remain unchanged; the localization resource change is still deferred.
+
+### First owned native-window smoke failed during UIA shutdown (2026-09-01)
+
+A separate fixed three-class, 45-method smoke-validation run passed all methods
+on `26390ef2`, with child/controller exit 0/0 and no timeout or skip. Its original
+start and exit records, not a rewritten Core per-class record or a failed compile,
+bound the subsequent native execution. The only runner changes were the two
+class-filter literals; the 900-second limit and all source/process guards were
+preserved. `artifacts/goal-ninth-native45-26390ef-reconciled.json` records the
+13,576-byte raw log, SHA-256
+`6ac8d206990abfc4c80781a4c0520ddd14dcd7d431a96af46475d664b2217db6`.
+These 45 methods overlap the new 165-method roster; they are not 45 additional
+distinct tests of the product.
+
+The actual native fixture then used binding
+`artifacts/goal-ninth-native-smoke-26390ef-binding-v1.json`, SHA-256
+`7bed7ffa1a1f779ea0d6f7c206c501735d055817783e1836b04f3c777ef40c33`.
+It pins the 93,270,528-byte executable, SHA-256
+`f74f6681ec5adb818c7037ed6fb75d58b4a216983be93dfa325fec4a940f4a79`,
+the reviewed controller and output schema, the actual successful compilation
+records, Python/Git, and 135 immediate DLL inputs from the two fixed Swift 6.3
+directories. The source and index were not changed between compilation and
+native execution. The preserved SwiftPM build graph includes the native-smoke
+product in its test target. This is incremental build validation: the native
+product was linked during the earlier `62a76fa` attempt, and only the two test
+compile fixes and this goal's earlier ledger changed before the successful
+`26390ef2` build. A fresh link at `26390ef2` and actual loaded-DLL selection are
+not claimed. The build association is retained separately under
+`artifacts/goal-ninth-native-smoke-26390ef-build-association-v1/`.
+
+The native child, PID 64832, returned 1 naturally; its retained wait and cleanup
+interval was 11.063 seconds, and the controller also returned 1. Neither timed
+out or required termination. It created one owned window,
+delivered the 64 queued probe/command replies, recorded the three retained update
+phases and two mounted task awaits, and reached the three-second unforced idle
+observation. Shutdown then reported `UiaDisconnectProvider` failure with native
+code -2147220991. The fixture records two failure notifications for that native
+error, no nonclient window destruction, and no actual native-thread join.
+Its unfinished native operation remains explicitly unknown. The fixed validator
+reports 16 true and 11 false predicates out of 27; the result is failed, not a
+partial native qualification or a fairness pass.
+
+The 2,717-record trace is 633,329 bytes, SHA-256
+`9c20fbf629cd719b364e48c274ad2f64514423fbc2b2111951d77c4f20a31705`.
+`artifacts/goal-ninth-native-smoke-26390ef-failed-reconciled.json` independently
+checks the actual exit, hashes, contiguous trace identities, event counts, and
+source/index/input preservation; it does not reimplement the native semantic
+validator. The post-exit census found the child, still-parented children, and
+observed Swift/native-smoke processes absent. The original controller's
+conservative cleanup-required flag remains unchanged in its sealed record;
+the later census is separate evidence, not a replacement receipt. No automatic
+retry occurred. The shutdown failure and independent fairness/thread-observation
+failures require diagnosis and a fresh bounded native run after repair.
+
+These focused results and failed native execution do not qualify Narrator or
+COM routing, visual parity, full-suite validation, frame pacing, resource bounds,
+macOS, hosted CI, deployment, or any release gate. No original workload, timeout,
+cleanup obligation, or completion criterion was reduced. All nine original
+completion gates remain open and unchanged.

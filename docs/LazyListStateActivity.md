@@ -93,6 +93,21 @@ only ownership that the still-declared logical row permits. Repeated generations
 at a shared anchor are covered by the native pruning fixtures; their boundedness
 still needs execution against this composition.
 
+Retained adoption stores weak native completion snapshots of the actual adopted
+subtrees. When one snapshot covers every exact captured obligation of another,
+the admission retains only the covering snapshot. It checks the old snapshots
+and incoming one before compacting, then rechecks the admission. Attachment and
+identity tokens, optional owner presence, runtime/parent references, and ordered
+children must match; a new snapshot cannot repair stale authority. No currentness
+result survives an application callback. Externally held receipts are unchanged.
+
+For a nested chain of N nodes, this reduces admission-held witnesses from
+quadratic to linear storage and cumulative completion validation from cubic to
+quadratic work. Subtree capture and the rest of reconciliation still cost work.
+`RetainedLazyListCompletionForestTests` covers structural counts and stale,
+overlapping, independent, and externally held snapshots. These source bounds
+do not establish end-to-end latency or hardware qualification.
+
 The following qualification work remains open in this source checkpoint:
 
 - The new checked-bucket, collision, nested-identity, and cleanup regressions

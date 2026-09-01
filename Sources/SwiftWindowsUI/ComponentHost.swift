@@ -23,6 +23,12 @@ struct RetainedLazyListAdoptionResult {
     }
 }
 
+/// Scalar evidence from one ordered native witness walk, never stored authority.
+struct RetainedLazyListCompletionValidation {
+    let isCurrent: Bool
+    let nodeVisits: Int
+}
+
 /// A successful call is not a lasting permit: enclosing runtime scopes may
 /// still drain application cleanup. This weak native snapshot lets the caller
 /// check the actual adopted subtree again after those scopes have unwound.
@@ -75,18 +81,46 @@ final class RetainedLazyListAdoptionCompletion {
             }
             return zip(node.children, children).allSatisfy { pair in ObjectIdentifier(pair.0) == pair.1 }
         }
+
+        /// Exact captured obligations, including ordered children and absence
+        /// of optional owners. Simultaneous currentness alone is not used as a
+        /// substitute for comparing the snapshots that will remain retained.
+        func hasSameWitness(as other: NodeSnapshot) -> Bool {
+            guard let node, let otherNode = other.node, node === otherNode,
+                attachment.hasSameCapture(as: other.attachment), identity.hasSameCapture(as: other.identity),
+                hadController == other.hadController, hadObservers == other.hadObservers,
+                hadAdapter == other.hadAdapter, children == other.children
+            else { return false }
+            if hadController {
+                guard let controller, let otherController = other.controller, controller === otherController else {
+                    return false
+                }
+            }
+            if hadObservers {
+                guard let observers, let otherObservers = other.observers, observers === otherObservers else {
+                    return false
+                }
+            }
+            if hadAdapter {
+                guard let adapter, let otherAdapter = other.adapter, adapter === otherAdapter else { return false }
+            }
+            return true
+        }
     }
 
     private let nodes: [NodeSnapshot]
+    private let nodeIndices: [ObjectIdentifier: Int]
 
     init?(of root: ViewNode) {
         var pending = [(node: root, depth: 0)]
         var visited: Set<ObjectIdentifier> = []
         var snapshots: [NodeSnapshot] = []
+        var indices: [ObjectIdentifier: Int] = [:]
         while let entry = pending.popLast() {
             guard entry.depth <= ViewNode.maximumTraversalDepth,
                 visited.insert(ObjectIdentifier(entry.node)).inserted
             else { return nil }
+            indices[ObjectIdentifier(entry.node)] = snapshots.count
             snapshots.append(NodeSnapshot(of: entry.node))
             for child in entry.node.children {
                 guard child.parent === entry.node, child.hasSameLazyListRuntime(as: entry.node) else { return nil }
@@ -94,9 +128,35 @@ final class RetainedLazyListAdoptionCompletion {
             }
         }
         nodes = snapshots
+        nodeIndices = indices
     }
 
-    var isCurrent: Bool { nodes.allSatisfy { $0.isCurrent } }
+    var isCurrent: Bool { validation().isCurrent }
+    var retainedNodeWitnessCount: Int { nodes.count }
+
+    func validation() -> RetainedLazyListCompletionValidation {
+        var nodeVisits = 0
+        for snapshot in nodes {
+            nodeVisits += 1
+            guard snapshot.isCurrent else {
+                return RetainedLazyListCompletionValidation(isCurrent: false, nodeVisits: nodeVisits)
+            }
+        }
+        return RetainedLazyListCompletionValidation(isCurrent: true, nodeVisits: nodeVisits)
+    }
+
+    /// Only for a native section that has already rejected every stale old
+    /// completion and checked the incoming one. No currentness is cached here.
+    /// The native index selects a candidate; every old witness must still match.
+    func containsEquivalentWitnesses(of other: RetainedLazyListAdoptionCompletion) -> Bool {
+        guard nodes.count >= other.nodes.count else { return false }
+        for previous in other.nodes {
+            guard let node = previous.node, let index = nodeIndices[ObjectIdentifier(node)],
+                nodes[index].hasSameWitness(as: previous)
+            else { return false }
+        }
+        return true
+    }
 }
 
 @MainActor

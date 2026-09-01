@@ -9726,3 +9726,40 @@ Independent review found no changed admission obligation. Contracts and
 strict formatting passed for these two Swift files. No tests changed in this
 slice, and no elapsed-time improvement is claimed. The retained File Browser
 timeouts still require execution of the full repair and unchanged tests.
+
+### Ninth batch: exact completion snapshot compaction
+
+Nested checked reconciliation previously retained full-subtree completion
+snapshots after each child reconciliation. A chain could keep snapshots of
+sizes 1 through N and repeatedly validate all of them, causing quadratic
+admission storage and cubic cumulative completion-validation work.
+
+The second source slice now removes a snapshot only when another immutable
+snapshot contains every exact captured native obligation. The original
+admission and incoming snapshot must both be current before compaction, and
+the original final admission check remains. Comparisons include attachment
+and view-identity tokens, parent/runtime presence and referents, optional
+controller/observer/adapter presence and referents, and ordered child IDs.
+No proof is refreshed, no application callback is added, and no currentness
+result becomes permission for a later operation. External old receipts remain
+unchanged and continue to reject stale ownership.
+
+This uses private commit `2fd3f0badf6d870a486777896da5be5177da7e88`, tree
+`b72c6a3fc1f26a8309b513a8589a52fd4ac4b234`, from the intake recorded above.
+Its 42,202-byte second patch has SHA256
+`f5c2df5bafd4d6637e9c2ef8fc32ab5a7d5ea65c766804334450acfefe8bfbbc`.
+The parent applied narrow context patches to current shared files. All 576
+pre-existing test files are unchanged by that private patch; it adds 15 async
+methods in `RetainedLazyListCompletionForestTests`. Existing root compiler
+fixture corrections are retained. Independent reviews checked stale-prior
+rejection, exact coverage, callback boundaries, and the tests. Contracts and
+strict formatting passed for the three changed Swift files in the parent.
+
+For the nested-chain source pattern, admission-held witnesses are now linear
+and cumulative completion-validation work is quadratic. Full subtree capture,
+independent branches, ancestry/layout work, and externally retained receipts
+remain. The tests count explicit fresh validation walks, not every operation
+in reconciliation. These are structural source bounds, not elapsed-time or
+memory measurements. Fresh compilation, the 15 methods, unchanged File Browser
+interaction cases, and actual timeout resolution remain unverified. This
+repair does not close any original completion gate.

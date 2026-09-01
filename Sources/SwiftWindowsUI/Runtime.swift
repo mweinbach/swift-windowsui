@@ -1993,6 +1993,13 @@ final class RetainedLazyListViewIdentityProof {
     }
 
     var isCurrent: Bool { node?.lazyListViewIdentity === identity }
+
+    /// Compare captured expectations without taking a new identity witness.
+    /// This is not a currentness check or permission to replace a stale proof.
+    func hasSameCapture(as other: RetainedLazyListViewIdentityProof) -> Bool {
+        guard identity === other.identity, let node, let otherNode = other.node else { return false }
+        return node === otherNode
+    }
 }
 
 @MainActor
@@ -2026,6 +2033,21 @@ final class RetainedLazyListAttachmentProof {
             guard let runtime, node.runtime === runtime else { return false }
         } else if node.runtime != nil {
             return false
+        }
+        return true
+    }
+
+    /// Equivalent captures must reject every later attachment change alike.
+    /// Never compare proof-wrapper allocations or refresh their native tokens.
+    func hasSameCapture(as other: RetainedLazyListAttachmentProof) -> Bool {
+        guard identity === other.identity, hadParent == other.hadParent, hadRuntime == other.hadRuntime,
+            let node, let otherNode = other.node, node === otherNode
+        else { return false }
+        if hadParent {
+            guard let parent, let otherParent = other.parent, parent === otherParent else { return false }
+        }
+        if hadRuntime {
+            guard let runtime, let otherRuntime = other.runtime, runtime === otherRuntime else { return false }
         }
         return true
     }
@@ -2257,7 +2279,7 @@ final class RetainedLazyListAdoptionAdmission {
             runtime.permitsRetainedActionInvocation,
             runtime.layoutPassID == expectedLayoutPassID,
             runtime.displayScale == expectedDisplayScale, layoutProofs.allSatisfy({ $0.isCurrent }),
-            completedSubtrees.allSatisfy({ $0.isCurrent }),
+            validateCompletedSubtrees().isCurrent,
             container.runtime === runtime, container.retainedLazyListAdapter === adapter,
             adapter.ownsAttachment(container),
             container.retainedSubtreeBuildLease === lease,
@@ -2290,8 +2312,33 @@ final class RetainedLazyListAdoptionAdmission {
 
     func recordCompletion(_ completion: RetainedLazyListAdoptionCompletion) -> Bool {
         guard isCurrent, completion.isCurrent else { return false }
-        completedSubtrees.append(completion)
+        // Both the old obligations and the incoming capture are current here.
+        // Coverage compares every captured witness, not only a subtree root.
+        // This native-only section must not call out or take replacement proofs.
+        if !completedSubtrees.contains(where: { $0.containsEquivalentWitnesses(of: completion) }) {
+            completedSubtrees.removeAll { completion.containsEquivalentWitnesses(of: $0) }
+            completedSubtrees.append(completion)
+        }
         return isCurrent
+    }
+
+    var retainedCompletionCount: Int { completedSubtrees.count }
+    var retainedCompletionWitnessCount: Int {
+        completedSubtrees.reduce(0) { $0 + $1.retainedNodeWitnessCount }
+    }
+
+    /// Fresh scalar evidence from the same ordered walk used by isBuildCurrent.
+    /// No validity result or query survives into a callback or later operation.
+    func validateCompletedSubtrees() -> RetainedLazyListCompletionValidation {
+        var nodeVisits = 0
+        for completion in completedSubtrees {
+            let validation = completion.validation()
+            nodeVisits += validation.nodeVisits
+            guard validation.isCurrent else {
+                return RetainedLazyListCompletionValidation(isCurrent: false, nodeVisits: nodeVisits)
+            }
+        }
+        return RetainedLazyListCompletionValidation(isCurrent: true, nodeVisits: nodeVisits)
     }
 
     func claimDepartingEmptyRows(journal: RetainedLazyListAdoptionJournal) -> Bool {

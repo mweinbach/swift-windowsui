@@ -40,9 +40,14 @@ final class RetainedLazyListAdoptionCompletion {
         weak var controller: (any RetainedTextInputController)?
         weak var observers: RetainedScrollObserverStorage?
         weak var adapter: RetainedLazyListRuntimeAdapter?
+        // Later clocks can replace an action without changing the attachment.
+        // Keep only native metadata after the adoption batch has closed.
+        weak var buttonOwner: RetainedButtonActionOwner?
         let hadController: Bool
         let hadObservers: Bool
         let hadAdapter: Bool
+        let hadButtonOwner: Bool
+        let buttonOwnerWasRetired: Bool
         let attachment: RetainedLazyListAttachmentProof
         let identity: RetainedLazyListViewIdentityProof
         let children: [ObjectIdentifier]
@@ -52,9 +57,12 @@ final class RetainedLazyListAdoptionCompletion {
             controller = node.textInputController
             observers = node.scrollObserverStorage
             adapter = node.retainedLazyListAdapter
+            buttonOwner = node.buttonActionOwner
             hadController = node.textInputController != nil
             hadObservers = node.scrollObserverStorage != nil
             hadAdapter = node.retainedLazyListAdapter != nil
+            hadButtonOwner = node.buttonActionOwner != nil
+            buttonOwnerWasRetired = node.buttonActionOwner?.isRetired == true
             attachment = node.captureLazyListAttachmentProof()
             identity = node.captureLazyListIdentityProof()
             children = node.children.map(ObjectIdentifier.init)
@@ -79,6 +87,13 @@ final class RetainedLazyListAdoptionCompletion {
             } else if node.retainedLazyListAdapter != nil {
                 return false
             }
+            if hadButtonOwner {
+                guard let buttonOwner, node.buttonActionOwner === buttonOwner,
+                    buttonOwner.isRetired == buttonOwnerWasRetired
+                else { return false }
+            } else if node.buttonActionOwner != nil {
+                return false
+            }
             return zip(node.children, children).allSatisfy { pair in ObjectIdentifier(pair.0) == pair.1 }
         }
 
@@ -89,7 +104,8 @@ final class RetainedLazyListAdoptionCompletion {
             guard let node, let otherNode = other.node, node === otherNode,
                 attachment.hasSameCapture(as: other.attachment), identity.hasSameCapture(as: other.identity),
                 hadController == other.hadController, hadObservers == other.hadObservers,
-                hadAdapter == other.hadAdapter, children == other.children
+                hadAdapter == other.hadAdapter, hadButtonOwner == other.hadButtonOwner,
+                buttonOwnerWasRetired == other.buttonOwnerWasRetired, children == other.children
             else { return false }
             if hadController {
                 guard let controller, let otherController = other.controller, controller === otherController else {
@@ -103,6 +119,11 @@ final class RetainedLazyListAdoptionCompletion {
             }
             if hadAdapter {
                 guard let adapter, let otherAdapter = other.adapter, adapter === otherAdapter else { return false }
+            }
+            if hadButtonOwner {
+                guard let buttonOwner, let otherButtonOwner = other.buttonOwner, buttonOwner === otherButtonOwner else {
+                    return false
+                }
             }
             return true
         }
@@ -483,6 +504,8 @@ public final class ComponentHost {
         epoch: (any RetainedBuildEpoch)?, sequence: UInt64?, validity: (any RetainedBuildRequest)?,
         lazyBuild: RootLazyBuild? = nil
     ) -> Bool {
+        let buttonConstruction = RetainedButtonActionConstruction(runtime: runtime)
+        defer { buttonConstruction.finish() }
         let taskTransaction = RetainedBuildTransaction()
         var completedNativeBuild = false
         defer {
@@ -1076,28 +1099,33 @@ public final class ComponentHost {
         taskAdoption: RetainedTaskAdoptionContext? = nil,
         lazyJournal: RetainedLazyListAdoptionJournal? = nil
     ) -> RetainedLazyListAdoptionResult {
+        let buttonActions = RetainedButtonActionAdoption(retainedRoots: [target], sourceRoots: [source])
         // Keep the final primitive check outside the scope that owns matching,
         // transaction and retired-property payloads. Their destruction can
         // synchronously replace or close the provider.
         let check = NodeReconcileAdmission(
-            admission, source: source, target: target, lazyJournal: lazyJournal, taskAdoption: taskAdoption)
+            admission, source: source, target: target, lazyJournal: lazyJournal, taskAdoption: taskAdoption,
+            buttonActions: buttonActions)
         var completion: RetainedLazyListAdoptionCompletion?
         let completed = performAdoption(
             source: source, into: target, admission: admission, taskAdoption: taskAdoption,
-            lazyJournal: lazyJournal, completion: &completion)
+            lazyJournal: lazyJournal, buttonActions: buttonActions, completion: &completion)
         return adoptionResult(
             of: target, completed: completed && check.isCurrent,
-            admission: admission, completion: completion, lazyJournal: lazyJournal)
+            admission: admission, completion: completion, lazyJournal: lazyJournal, buttonActions: buttonActions,
+            check: check)
     }
 
     private static func performAdoption(
         source: ViewNode, into target: ViewNode,
         admission: RetainedLazyListAdoptionAdmission?, taskAdoption: RetainedTaskAdoptionContext?,
         lazyJournal: RetainedLazyListAdoptionJournal?,
+        buttonActions: RetainedButtonActionAdoption?,
         completion: inout RetainedLazyListAdoptionCompletion?
     ) -> Bool {
         let check = NodeReconcileAdmission(
-            admission, source: source, target: target, lazyJournal: lazyJournal, taskAdoption: taskAdoption)
+            admission, source: source, target: target, lazyJournal: lazyJournal, taskAdoption: taskAdoption,
+            buttonActions: buttonActions)
         guard check.isCurrent, admission?.permitsMutation(of: target) != false else { return false }
         if lazyJournal != nil, source.containsRejectedRetainedSource { return false }
         if source === target, admission != nil {
@@ -1120,7 +1148,8 @@ public final class ComponentHost {
             guard
                 let prepared = prepareChildrenPlan(
                     of: target, oldChildren: oldChildren, newNodes: newNodes, admission: admission,
-                    sourceParent: preservesChildren ? target : source, lazyJournal: lazyJournal)
+                    sourceParent: preservesChildren ? target : source, lazyJournal: lazyJournal,
+                    buttonActions: buttonActions)
             else { return false }
             plan = prepared
         } else {
@@ -1143,12 +1172,13 @@ public final class ComponentHost {
         target.invalidateRenderLifecycleCandidates()
         guard
             revokeDepartingTextInputOwnership(
-                source: source, target: target, plan: plan, admission: admission, lazyJournal: lazyJournal)
+                source: source, target: target, plan: plan, admission: admission, lazyJournal: lazyJournal,
+                buttonActions: buttonActions)
         else { return false }
         guard check.isCurrent, plan?.isCurrent != false, plan?.stillOwnsOldChildren != false else { return false }
         let propertyCheck = NodeReconcileAdmission(
             admission, source: source, target: target, childrenSnapshot: plan?.childrenSnapshot,
-            lazyJournal: lazyJournal, taskAdoption: taskAdoption)
+            lazyJournal: lazyJournal, taskAdoption: taskAdoption, buttonActions: buttonActions)
         let previous = admission?.isLogicalInsertion(source: source) == true ? nil : target
         let completed = withReconcileAnimationTransaction(source: source, previous: previous, check: propertyCheck) {
             guard plan?.isCurrent != false, plan?.stillOwnsOldChildren != false else { return false }
@@ -1163,12 +1193,13 @@ public final class ComponentHost {
             return reconcilePreparedChildren(
                 of: target, oldChildren: oldChildren, newNodes: newNodes, plan: plan, admission: admission,
                 preservesChildren: preservesChildren, sourceParent: source,
-                taskAdoption: taskAdoption, lazyJournal: lazyJournal, completionSources: completionSources)
+                taskAdoption: taskAdoption, lazyJournal: lazyJournal, completionSources: completionSources,
+                buttonActions: buttonActions)
         }
         guard completed, check.isCurrent else { return false }
         check.recordCompletedNode(from: source, to: target)
         guard check.isCurrent else { return false }
-        if admission != nil || lazyJournal?.isOrdinaryAdoption == false {
+        if admission != nil || lazyJournal?.isOrdinaryAdoption == false || buttonActions != nil {
             completion = RetainedLazyListAdoptionCompletion(of: target)
         }
         return true
@@ -1183,15 +1214,18 @@ public final class ComponentHost {
 
     private static func adoptionResult(
         of parent: ViewNode, completed: Bool, admission: RetainedLazyListAdoptionAdmission?,
-        completion: RetainedLazyListAdoptionCompletion?, lazyJournal: RetainedLazyListAdoptionJournal?
+        completion: RetainedLazyListAdoptionCompletion?, lazyJournal: RetainedLazyListAdoptionJournal?,
+        buttonActions: RetainedButtonActionAdoption?, check: NodeReconcileAdmission
     ) -> RetainedLazyListAdoptionResult {
         let isComplete =
             completed && admission?.isCurrent != false
             && ((admission == nil && lazyJournal?.isOrdinaryAdoption != false) || completion?.isCurrent == true)
+        let actionsAccepted =
+            buttonActions?.finish(completed: isComplete, check: check, completion: completion) ?? isComplete
         return RetainedLazyListAdoptionResult(
-            completed: isComplete,
+            completed: isComplete && actionsAccepted,
             didMutate: admission?.didMutate ?? (lazyJournal?.hasAcceptedContributions ?? completed),
-            children: parent.children, completion: isComplete ? completion : nil)
+            children: parent.children, completion: isComplete && actionsAccepted ? completion : nil)
     }
 
     /// The actual retirement scope already owns matching. Preserve its parent
@@ -1200,7 +1234,7 @@ public final class ComponentHost {
     static func makeRemovalTransitionCheck(
         admission: RetainedLazyListAdoptionAdmission?, target: ViewNode, parent: ViewNode,
         sourceParent: ViewNode? = nil, proposedChildren: [ViewNode],
-        lazyJournal: RetainedLazyListAdoptionJournal?
+        lazyJournal: RetainedLazyListAdoptionJournal?, buttonActions: RetainedButtonActionAdoption? = nil
     ) -> NodeReconcileAdmission? {
         let snapshot = ReconcileChildrenSnapshot(
             parent: parent, oldChildren: parent.children, sourceParent: sourceParent,
@@ -1216,7 +1250,8 @@ public final class ComponentHost {
             else { return nil }
         }
         let check = NodeReconcileAdmission(
-            admission, source: sourceParent, target: target, childrenSnapshot: snapshot, lazyJournal: lazyJournal)
+            admission, source: sourceParent, target: target, childrenSnapshot: snapshot, lazyJournal: lazyJournal,
+            buttonActions: buttonActions)
         return check.isCurrent ? check : nil
     }
 
@@ -1228,6 +1263,7 @@ public final class ComponentHost {
         let admission: RetainedLazyListAdoptionAdmission?
         let lazyJournal: RetainedLazyListAdoptionJournal?
         let taskAdoption: RetainedTaskAdoptionContext?
+        let buttonActions: RetainedButtonActionAdoption?
         weak var source: ViewNode?
         let sourceAttachment: RetainedLazyListAttachmentProof?
         let targetAttachment: RetainedLazyListAttachmentProof?
@@ -1239,11 +1275,13 @@ public final class ComponentHost {
             _ admission: RetainedLazyListAdoptionAdmission?, source: ViewNode? = nil, target: ViewNode,
             childrenSnapshot: ReconcileChildrenSnapshot? = nil,
             lazyJournal: RetainedLazyListAdoptionJournal? = nil,
-            taskAdoption: RetainedTaskAdoptionContext? = nil
+            taskAdoption: RetainedTaskAdoptionContext? = nil,
+            buttonActions: RetainedButtonActionAdoption? = nil
         ) {
             self.admission = admission
             self.lazyJournal = lazyJournal
             self.taskAdoption = taskAdoption
+            self.buttonActions = buttonActions
             self.source = source
             let isChecked = admission != nil || lazyJournal?.isOrdinaryAdoption == false
             sourceAttachment = isChecked ? source?.captureLazyListAttachmentProof() : nil
@@ -1254,7 +1292,7 @@ public final class ComponentHost {
         }
 
         var isCurrent: Bool {
-            admission?.isCurrent != false && sourceAttachment?.isCurrent != false
+            buttonActions?.isCurrent != false && admission?.isCurrent != false && sourceAttachment?.isCurrent != false
                 && targetAttachment?.isCurrent != false && sourceIdentity?.isCurrent != false
                 && targetIdentity?.isCurrent != false && childrenSnapshot?.isCurrent != false
                 && (lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false)
@@ -1459,9 +1497,11 @@ public final class ComponentHost {
         of parent: ViewNode, oldChildren: [ViewNode], newNodes: [ViewNode],
         admission: RetainedLazyListAdoptionAdmission?, sourceParent: ViewNode? = nil,
         inheritedChildren: ReconcileChildrenSnapshot? = nil, depth: Int = 0,
-        lazyJournal: RetainedLazyListAdoptionJournal? = nil
+        lazyJournal: RetainedLazyListAdoptionJournal? = nil,
+        buttonActions: RetainedButtonActionAdoption? = nil
     ) -> PreparedChildrenPlan? {
-        guard admission?.isCurrent != false, lazyJournal?.canContinueAdoption != false,
+        guard buttonActions?.isCurrent != false, admission?.isCurrent != false,
+            lazyJournal?.canContinueAdoption != false,
             depth <= ViewNode.maximumTraversalDepth,
             sameChildren(parent.children, oldChildren)
         else { return nil }
@@ -1478,7 +1518,7 @@ public final class ComponentHost {
         guard
             let matches = matchingChildren(
                 oldChildren: oldChildren, newNodes: newNodes, admission: admission, parent: parent,
-                childrenSnapshot: childrenSnapshot, lazyJournal: lazyJournal),
+                childrenSnapshot: childrenSnapshot, lazyJournal: lazyJournal, buttonActions: buttonActions),
             admission?.isCurrent != false, lazyJournal?.canContinueAdoption != false,
             parentAttachment.isCurrent, parentIdentity.isCurrent,
             oldAttachments.allSatisfy({ $0.isCurrent }), sourceAttachments.allSatisfy({ $0.isCurrent }),
@@ -1491,7 +1531,8 @@ public final class ComponentHost {
         var entries: [PreparedChildrenPlan.Entry] = []
         entries.reserveCapacity(newNodes.count)
         for (index, source) in newNodes.enumerated() {
-            guard admission?.isCurrent != false, lazyJournal?.canContinueAdoption != false,
+            guard buttonActions?.isCurrent != false, admission?.isCurrent != false,
+                lazyJournal?.canContinueAdoption != false,
                 parentAttachment.isCurrent, parentIdentity.isCurrent,
                 sourceAttachments[index].isCurrent, sourceIdentities[index].isCurrent, childrenSnapshot.isCurrent
             else {
@@ -1508,7 +1549,7 @@ public final class ComponentHost {
                         of: retained, oldChildren: retained.children,
                         newNodes: retained.childrenForLazyListReconciliation(from: source),
                         admission: admission, sourceParent: sourceParent, inheritedChildren: childrenSnapshot,
-                        depth: depth + 1, lazyJournal: lazyJournal)
+                        depth: depth + 1, lazyJournal: lazyJournal, buttonActions: buttonActions)
                 else { return nil }
                 descendants = childPlan
             } else {
@@ -1529,7 +1570,8 @@ public final class ComponentHost {
         guard ViewNode.supportsLazyListRemoval(of: departing, admission: admission, lazyJournal: lazyJournal) else {
             return nil
         }
-        return admission?.isCurrent != false && lazyJournal?.canContinueAdoption != false
+        return buttonActions?.isCurrent != false && admission?.isCurrent != false
+            && lazyJournal?.canContinueAdoption != false
             && plan.isCurrent && plan.stillOwnsOldChildren ? plan : nil
     }
 
@@ -1585,7 +1627,8 @@ public final class ComponentHost {
         _ node: ViewNode, admission: RetainedLazyListAdoptionAdmission?,
         taskAdoption: RetainedTaskAdoptionContext?,
         inheritedChildren: ReconcileChildrenSnapshot? = nil, depth: Int = 0,
-        lazyJournal: RetainedLazyListAdoptionJournal? = nil
+        lazyJournal: RetainedLazyListAdoptionJournal? = nil,
+        buttonActions: RetainedButtonActionAdoption? = nil
     ) -> Bool {
         let children = node.children
         let childrenSnapshot =
@@ -1595,7 +1638,7 @@ public final class ComponentHost {
                 parent: node, oldChildren: children, sourceParent: nil, newNodes: children, ancestor: inheritedChildren)
         let check = NodeReconcileAdmission(
             admission, source: node, target: node, childrenSnapshot: childrenSnapshot,
-            lazyJournal: lazyJournal, taskAdoption: taskAdoption)
+            lazyJournal: lazyJournal, taskAdoption: taskAdoption, buttonActions: buttonActions)
         guard check.isCurrent,
             (admission == nil && lazyJournal?.isOrdinaryAdoption != false) || depth <= ViewNode.maximumTraversalDepth
         else { return false }
@@ -1615,7 +1658,8 @@ public final class ComponentHost {
                 guard check.isCurrent, admission == nil || sameChildren(children, node.children),
                     prepareInsertedSubtree(
                         child, admission: admission, taskAdoption: taskAdoption,
-                        inheritedChildren: childrenSnapshot, depth: depth + 1, lazyJournal: lazyJournal)
+                        inheritedChildren: childrenSnapshot, depth: depth + 1, lazyJournal: lazyJournal,
+                        buttonActions: buttonActions)
                 else { return false }
             }
             return check.isCurrent && (admission == nil || sameChildren(children, node.children))
@@ -1638,25 +1682,30 @@ public final class ComponentHost {
         taskAdoption: RetainedTaskAdoptionContext? = nil,
         lazyJournal: RetainedLazyListAdoptionJournal? = nil
     ) -> RetainedLazyListAdoptionResult {
+        let buttonActions = RetainedButtonActionAdoption(retainedRoots: [parent], sourceRoots: newNodes)
         let check = NodeReconcileAdmission(
-            admission, target: parent, lazyJournal: lazyJournal, taskAdoption: taskAdoption)
+            admission, target: parent, lazyJournal: lazyJournal, taskAdoption: taskAdoption,
+            buttonActions: buttonActions)
         var completion: RetainedLazyListAdoptionCompletion?
         let completed = performChildrenReconciliation(
             of: parent, oldChildren: oldChildren, newNodes: newNodes, admission: admission,
-            taskAdoption: taskAdoption, lazyJournal: lazyJournal, completion: &completion)
+            taskAdoption: taskAdoption, lazyJournal: lazyJournal, buttonActions: buttonActions, completion: &completion)
         return adoptionResult(
             of: parent, completed: completed && check.isCurrent,
-            admission: admission, completion: completion, lazyJournal: lazyJournal)
+            admission: admission, completion: completion, lazyJournal: lazyJournal, buttonActions: buttonActions,
+            check: check)
     }
 
     private static func performChildrenReconciliation(
         of parent: ViewNode, oldChildren: [ViewNode], newNodes: [ViewNode],
         admission: RetainedLazyListAdoptionAdmission?, taskAdoption: RetainedTaskAdoptionContext?,
         lazyJournal: RetainedLazyListAdoptionJournal?,
+        buttonActions: RetainedButtonActionAdoption?,
         completion: inout RetainedLazyListAdoptionCompletion?
     ) -> Bool {
         let check = NodeReconcileAdmission(
-            admission, target: parent, lazyJournal: lazyJournal, taskAdoption: taskAdoption)
+            admission, target: parent, lazyJournal: lazyJournal, taskAdoption: taskAdoption,
+            buttonActions: buttonActions)
         guard check.isCurrent, admission?.permitsMutation(of: parent) != false else { return false }
         if lazyJournal != nil, ViewNode.containsRejectedRetainedSource(in: newNodes) { return false }
         let completionSources: RetainedReconciliationSourceNodes?
@@ -1671,7 +1720,7 @@ public final class ComponentHost {
             guard
                 let prepared = prepareChildrenPlan(
                     of: parent, oldChildren: oldChildren, newNodes: newNodes, admission: admission,
-                    lazyJournal: lazyJournal)
+                    lazyJournal: lazyJournal, buttonActions: buttonActions)
             else { return false }
             plan = prepared
         } else {
@@ -1694,15 +1743,16 @@ public final class ComponentHost {
         guard
             revokeDepartingTextInputOwnership(
                 oldChildren: oldChildren, newNodes: newNodes, plan: plan, admission: admission,
-                lazyJournal: lazyJournal), check.isCurrent
+                lazyJournal: lazyJournal, buttonActions: buttonActions), check.isCurrent
         else { return false }
         guard
             reconcilePreparedChildren(
                 of: parent, oldChildren: oldChildren, newNodes: newNodes, plan: plan, admission: admission,
-                taskAdoption: taskAdoption, lazyJournal: lazyJournal, completionSources: completionSources),
+                taskAdoption: taskAdoption, lazyJournal: lazyJournal, completionSources: completionSources,
+                buttonActions: buttonActions),
             check.isCurrent
         else { return false }
-        if admission != nil || lazyJournal?.isOrdinaryAdoption == false {
+        if admission != nil || lazyJournal?.isOrdinaryAdoption == false || buttonActions != nil {
             completion = RetainedLazyListAdoptionCompletion(of: parent)
         }
         return true
@@ -1715,6 +1765,7 @@ public final class ComponentHost {
     private struct MatchingChildrenAdmission {
         let admission: RetainedLazyListAdoptionAdmission?
         let lazyJournal: RetainedLazyListAdoptionJournal?
+        let buttonActions: RetainedButtonActionAdoption?
         weak var parent: ViewNode?
         let hadParent: Bool
         let parentCheck: NodeReconcileAdmission?
@@ -1726,11 +1777,12 @@ public final class ComponentHost {
         init(
             _ admission: RetainedLazyListAdoptionAdmission?, oldChildren: [ViewNode], newNodes: [ViewNode],
             parent: ViewNode?, childrenSnapshot: ReconcileChildrenSnapshot?,
-            lazyJournal: RetainedLazyListAdoptionJournal?
+            lazyJournal: RetainedLazyListAdoptionJournal?, buttonActions: RetainedButtonActionAdoption?
         ) {
             self.admission = admission
             self.lazyJournal = lazyJournal
-            let checked = admission != nil || lazyJournal?.isOrdinaryAdoption == false
+            self.buttonActions = buttonActions
+            let checked = admission != nil || lazyJournal?.isOrdinaryAdoption == false || buttonActions != nil
             self.parent = checked ? parent : nil
             hadParent = checked && parent != nil
             parentCheck =
@@ -1746,7 +1798,7 @@ public final class ComponentHost {
         }
 
         var isCurrent: Bool {
-            guard admission?.isCurrent != false, parentCheck?.isCurrent != false,
+            guard buttonActions?.isCurrent != false, admission?.isCurrent != false, parentCheck?.isCurrent != false,
                 attachments.allSatisfy({ $0.isCurrent }), identities.allSatisfy({ $0.isCurrent }),
                 childrenSnapshot?.isCurrent != false,
                 lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false
@@ -1760,11 +1812,12 @@ public final class ComponentHost {
     private static func matchingChildren(
         oldChildren: [ViewNode], newNodes: [ViewNode], admission: RetainedLazyListAdoptionAdmission? = nil,
         parent: ViewNode? = nil, childrenSnapshot: ReconcileChildrenSnapshot? = nil,
-        lazyJournal: RetainedLazyListAdoptionJournal? = nil
+        lazyJournal: RetainedLazyListAdoptionJournal? = nil,
+        buttonActions: RetainedButtonActionAdoption? = nil
     ) -> [ViewNode?]? {
         let check = MatchingChildrenAdmission(
             admission, oldChildren: oldChildren, newNodes: newNodes, parent: parent,
-            childrenSnapshot: childrenSnapshot, lazyJournal: lazyJournal)
+            childrenSnapshot: childrenSnapshot, lazyJournal: lazyJournal, buttonActions: buttonActions)
         guard check.isCurrent else { return nil }
         // A single candidate has no competing claims; the same typed, tag,
         // and layout rules can be applied without constructing lookup tables.
@@ -1841,11 +1894,12 @@ public final class ComponentHost {
     private static func revokeDepartingTextInputOwnership(
         source: ViewNode, target: ViewNode, plan: PreparedChildrenPlan? = nil,
         admission: RetainedLazyListAdoptionAdmission? = nil,
-        lazyJournal: RetainedLazyListAdoptionJournal? = nil
+        lazyJournal: RetainedLazyListAdoptionJournal? = nil,
+        buttonActions: RetainedButtonActionAdoption? = nil
     ) -> Bool {
         let check = NodeReconcileAdmission(
             admission, source: source, target: target, childrenSnapshot: plan?.childrenSnapshot,
-            lazyJournal: lazyJournal)
+            lazyJournal: lazyJournal, buttonActions: buttonActions)
         guard check.isCurrent, plan?.isCurrent != false else { return false }
         guard target.canAdoptStagedLazyListAdapter(from: source) else { return false }
         if source === target, admission != nil { return true }
@@ -1862,15 +1916,16 @@ public final class ComponentHost {
         return revokeDepartingTextInputOwnership(
             oldChildren: plan?.oldChildren ?? target.children,
             newNodes: plan?.entries.map(\.source) ?? target.childrenForLazyListReconciliation(from: source),
-            plan: plan, admission: admission, lazyJournal: lazyJournal)
+            plan: plan, admission: admission, lazyJournal: lazyJournal, buttonActions: buttonActions)
     }
 
     private static func revokeDepartingTextInputOwnership(
         oldChildren: [ViewNode], newNodes: [ViewNode], plan: PreparedChildrenPlan? = nil,
         admission: RetainedLazyListAdoptionAdmission? = nil,
-        lazyJournal: RetainedLazyListAdoptionJournal? = nil
+        lazyJournal: RetainedLazyListAdoptionJournal? = nil,
+        buttonActions: RetainedButtonActionAdoption? = nil
     ) -> Bool {
-        guard admission?.isCurrent != false,
+        guard buttonActions?.isCurrent != false, admission?.isCurrent != false,
             lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false,
             plan?.isCurrent != false, plan?.stillOwnsOldChildren != false
         else {
@@ -1879,24 +1934,29 @@ public final class ComponentHost {
         guard
             let matches = plan?.entries.map(\.retained)
                 ?? matchingChildren(
-                    oldChildren: oldChildren, newNodes: newNodes, admission: admission, lazyJournal: lazyJournal)
+                    oldChildren: oldChildren, newNodes: newNodes, admission: admission, lazyJournal: lazyJournal,
+                    buttonActions: buttonActions)
         else { return false }
-        guard admission?.isCurrent != false,
+        guard buttonActions?.isCurrent != false, admission?.isCurrent != false,
             lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false,
             plan?.isCurrent != false, plan?.stillOwnsOldChildren != false
         else {
             return false
         }
         let survivors = Set(matches.compactMap { $0 }.map(ObjectIdentifier.init))
+        let departing = oldChildren.filter { !survivors.contains(ObjectIdentifier($0)) }
+        guard buttonActions?.prepareDepartures(in: departing) != false else { return false }
         for oldNode in oldChildren where !survivors.contains(ObjectIdentifier(oldNode)) {
-            guard admission?.isCurrent != false,
+            guard buttonActions?.isCurrent != false, admission?.isCurrent != false,
                 lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false,
                 plan?.isCurrent != false, plan?.stillOwnsOldChildren != false
             else {
                 return false
             }
-            oldNode.revokeTextInputOwnership()
-            guard admission?.isCurrent != false,
+            // Button admission is suspended by the native operation batch.
+            // Permanent retirement belongs to actual departure, not matching.
+            oldNode.revokeTextInputOwnership(revokesButtonActions: false)
+            guard buttonActions?.isCurrent != false, admission?.isCurrent != false,
                 lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false,
                 plan?.isCurrent != false, plan?.stillOwnsOldChildren != false
             else {
@@ -1904,7 +1964,7 @@ public final class ComponentHost {
             }
         }
         for (index, newNode) in newNodes.enumerated() {
-            guard admission?.isCurrent != false,
+            guard buttonActions?.isCurrent != false, admission?.isCurrent != false,
                 lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false,
                 plan?.isCurrent != false, plan?.stillOwnsOldChildren != false,
                 plan?.entries[index].isCurrent != false
@@ -1913,17 +1973,17 @@ public final class ComponentHost {
                 guard
                     revokeDepartingTextInputOwnership(
                         source: newNode, target: oldNode, plan: plan?.entries[index].descendants, admission: admission,
-                        lazyJournal: lazyJournal)
+                        lazyJournal: lazyJournal, buttonActions: buttonActions)
                 else { return false }
             }
-            guard admission?.isCurrent != false,
+            guard buttonActions?.isCurrent != false, admission?.isCurrent != false,
                 lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false,
                 plan?.isCurrent != false, plan?.stillOwnsOldChildren != false
             else {
                 return false
             }
         }
-        return admission?.isCurrent != false
+        return buttonActions?.isCurrent != false && admission?.isCurrent != false
             && (lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false)
             && plan?.isCurrent != false && plan?.stillOwnsOldChildren != false
     }
@@ -1934,16 +1994,18 @@ public final class ComponentHost {
         sourceParent: ViewNode? = nil,
         taskAdoption: RetainedTaskAdoptionContext? = nil,
         lazyJournal: RetainedLazyListAdoptionJournal? = nil,
-        completionSources: RetainedReconciliationSourceNodes?
+        completionSources: RetainedReconciliationSourceNodes?,
+        buttonActions: RetainedButtonActionAdoption? = nil
     ) -> Bool {
         let check = NodeReconcileAdmission(
             admission, target: parent, childrenSnapshot: plan?.childrenSnapshot,
-            lazyJournal: lazyJournal, taskAdoption: taskAdoption)
+            lazyJournal: lazyJournal, taskAdoption: taskAdoption, buttonActions: buttonActions)
         guard check.isCurrent, plan?.isCurrent != false, plan?.stillOwnsOldChildren != false else { return false }
         guard
             let matches = plan?.entries.map(\.retained)
                 ?? matchingChildren(
-                    oldChildren: oldChildren, newNodes: newNodes, admission: admission, lazyJournal: lazyJournal)
+                    oldChildren: oldChildren, newNodes: newNodes, admission: admission, lazyJournal: lazyJournal,
+                    buttonActions: buttonActions)
         else { return false }
         guard check.isCurrent else { return false }
 
@@ -1957,7 +2019,8 @@ public final class ComponentHost {
                 guard
                     prepareInsertedSubtree(
                         newNode, admission: admission, taskAdoption: taskAdoption,
-                        inheritedChildren: plan?.childrenSnapshot, lazyJournal: lazyJournal),
+                        inheritedChildren: plan?.childrenSnapshot, lazyJournal: lazyJournal,
+                        buttonActions: buttonActions),
                     check.isCurrent,
                     plan?.entries[newIndex].isCurrent != false
                 else { return false }
@@ -1979,7 +2042,7 @@ public final class ComponentHost {
             let childPlan = plan?.entries[newIndex].descendants
             let nodeCheck = NodeReconcileAdmission(
                 admission, source: newNode, target: oldNode, childrenSnapshot: childPlan?.childrenSnapshot,
-                lazyJournal: lazyJournal, taskAdoption: taskAdoption)
+                lazyJournal: lazyJournal, taskAdoption: taskAdoption, buttonActions: buttonActions)
             guard admission?.permitsMutation(of: oldNode) != false,
                 childPlan?.isCurrent != false, childPlan?.stillOwnsOldChildren != false
             else { return false }
@@ -2010,7 +2073,8 @@ public final class ComponentHost {
                     of: oldNode, oldChildren: previousChildren, newNodes: proposedChildren,
                     plan: childPlan, admission: admission,
                     preservesChildren: preservesChildren, sourceParent: newNode,
-                    taskAdoption: taskAdoption, lazyJournal: lazyJournal, completionSources: completionSources)
+                    taskAdoption: taskAdoption, lazyJournal: lazyJournal, completionSources: completionSources,
+                    buttonActions: buttonActions)
             }
             guard completed, check.isCurrent, nodeCheck.isCurrent else { return false }
             nodeCheck.recordCompletedNode(from: newNode, to: oldNode)
@@ -2022,7 +2086,7 @@ public final class ComponentHost {
         guard plan?.childrenSnapshot?.beginTransfers() != false else { return false }
         let result = parent.setChildren(
             nextChildren, admission: admission, lazyJournal: lazyJournal, taskAdoption: taskAdoption,
-            sourceParent: sourceParent, completionSources: completionSources)
+            sourceParent: sourceParent, completionSources: completionSources, buttonActions: buttonActions)
         guard result.completed, check.isCurrent else { return false }
         if let admission {
             guard let completion = result.completion, admission.recordCompletion(completion) else { return false }
@@ -2198,7 +2262,7 @@ public final class ComponentHost {
         _ keyPath: ReferenceWritableKeyPath<ViewNode, Value>, source: ViewNode, target: ViewNode,
         check: NodeReconcileAdmission
     ) -> Bool {
-        if check.admission == nil, check.lazyJournal == nil {
+        if check.admission == nil, check.lazyJournal == nil, check.buttonActions == nil {
             target[keyPath: keyPath] = source[keyPath: keyPath]
             return true
         }
@@ -2216,7 +2280,7 @@ public final class ComponentHost {
         _ keyPath: ReferenceWritableKeyPath<ViewNode, Value>, on target: ViewNode, value: Value,
         check: NodeReconcileAdmission
     ) -> Bool {
-        if check.admission == nil, check.lazyJournal == nil {
+        if check.admission == nil, check.lazyJournal == nil, check.buttonActions == nil {
             target[keyPath: keyPath] = value
             return true
         }
@@ -2240,6 +2304,7 @@ public final class ComponentHost {
     ) {
         let previous = target[keyPath: keyPath]
         target[keyPath: keyPath] = incoming
+        if keyPath == \ViewNode.retainedViewIdentity { check.buttonActions?.recordIdentityWrite(on: target) }
         if let source, let journal = check.lazyJournal {
             let accepted = journal.recordAcceptedProperty(from: source, to: target, keyPath: keyPath)
             check.associate(accepted, from: source, to: target)
@@ -2271,6 +2336,32 @@ public final class ComponentHost {
         update?(target)
     }
 
+    @inline(never)
+    private static func copyButtonActionOwner(
+        source: ViewNode, target: ViewNode, check: NodeReconcileAdmission
+    ) -> Bool {
+        guard source !== target else { return check.isCurrent }
+        guard source.buttonActionOwner != nil || target.buttonActionOwner != nil else { return check.isCurrent }
+        guard let buttonActions = check.buttonActions, check.isCurrent,
+            check.preparePropertyCopy(from: source, to: target, keyPath: \ViewNode.buttonActionOwner),
+            check.markMutationStarted()
+        else { return false }
+        let previous = target.buttonActionOwner
+        let incoming = source.buttonActionOwner
+        guard buttonActions.prepareOwnerCopy(from: source, to: target) else { return false }
+        target.buttonActionOwner = incoming
+        guard buttonActions.recordOwnerCopy(from: source, to: target) else { return false }
+        if let journal = check.lazyJournal {
+            check.associate(
+                journal.recordAcceptedProperty(from: source, to: target, keyPath: \ViewNode.buttonActionOwner),
+                from: source, to: target)
+        }
+        guard check.isCurrent, buttonActions.consumeSourceOwner(on: source, copiedTo: target) else { return false }
+        previous?.releaseRetiredPayload()
+        withExtendedLifetime(previous) {}
+        return check.isCurrent
+    }
+
     /// Copy visual / layout properties from `source` onto `target`, keeping
     /// `target`'s identity (parent, runtime, callbacks) intact.
     private static func updateNodeProperties(
@@ -2278,6 +2369,10 @@ public final class ComponentHost {
     ) -> Bool {
         guard check.isCurrent else { return false }
         source.retainedLazyListAdapter?.stageInsertionBuildTransaction(RetainedBuildTransaction())
+        guard check.isCurrent, copyButtonActionOwner(source: source, target: target, check: check), check.isCurrent
+        else {
+            return false
+        }
         // An incomplete checked update must not clear revocations installed by
         // a newer preparation. Ordinary reconciliation retains its old scope.
         defer {

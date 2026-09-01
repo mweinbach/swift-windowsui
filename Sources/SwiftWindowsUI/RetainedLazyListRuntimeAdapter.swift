@@ -292,9 +292,11 @@ package final class RetainedLazyListRuntimeAdapter {
         private var completedRows: Set<ObjectIdentifier> = []
         private var insertionCohortProofs: [CarriedRecordProof] = []
         private(set) var insertionPlan: RetainedLazyListInsertionPlan?
+        private let buttonConstruction: RetainedButtonActionConstruction
 
         fileprivate init(
             adapter: RetainedLazyListRuntimeAdapter, viewport: Viewport, records: [Record],
+            buttonConstruction: RetainedButtonActionConstruction,
             generation: RetainedLazyListGeneration,
             configuration: RetainedLazyListAdapterIdentity,
             attempt: RetainedLazyListAdapterIdentity,
@@ -305,6 +307,7 @@ package final class RetainedLazyListRuntimeAdapter {
             carriedRecordProofs: [RetainedLazyListRowToken: CarriedRecordProof] = [:]
         ) {
             self.adapter = adapter
+            self.buttonConstruction = buttonConstruction
             self.viewport = viewport
             self.records = records
             self.children = records.flatMap(\.nodes)
@@ -318,6 +321,7 @@ package final class RetainedLazyListRuntimeAdapter {
             self.virtualizedDepartureRoots = virtualizedDepartureRoots
             self.departingEmptyRows = departingEmptyRows
             self.emptyRowContinuations = emptyRowContinuations
+            buttonConstruction.permission.bindCandidate(self)
         }
 
         package var isCurrent: Bool { adapter?.isCurrent(self) == true }
@@ -450,6 +454,11 @@ package final class RetainedLazyListRuntimeAdapter {
         /// adoption and does not inspect the consumed nodes' identity proofs.
         var isOperationCurrent: Bool { adapter?.isOperationCurrent(self) == true }
 
+        // A nested construction can keep this Candidate's frame alive through
+        // its predecessor link. Candidate ownership ends here regardless of
+        // that reference count, before any retained node fields are destroyed.
+        isolated deinit { discardBuiltContent() }
+
         /// Runtime calls this under the still-active build coordinator for
         /// successful and abandoned candidates. Consume before dropping any
         /// payload so a destructor cannot reuse this candidate for adoption.
@@ -458,6 +467,9 @@ package final class RetainedLazyListRuntimeAdapter {
             guard !wasConsumed else { return }
             wasConsumed = true
             insertionPlan?.discard()
+            let buttonCleanup = buttonConstruction.closedCleanupFrame()
+            defer { buttonCleanup.finish() }
+            buttonConstruction.finish()
             insertionPlan = nil
             insertionCohortProofs = []
             releaseBuiltContent()
@@ -1377,6 +1389,11 @@ package final class RetainedLazyListRuntimeAdapter {
         }
         isPreparing = true
         defer { isPreparing = false }
+        let buttonConstruction = RetainedButtonActionConstruction(runtime: attachmentOwner?.retainedLazyListRuntime)
+        var yieldedButtonConstruction = false
+        defer {
+            if yieldedButtonConstruction { buttonConstruction.leave() } else { buttonConstruction.finish() }
+        }
         let wasIncomplete = preparationIncomplete
         preparationIncomplete = true
         unresolvedWork = true
@@ -1599,6 +1616,7 @@ package final class RetainedLazyListRuntimeAdapter {
                     remainingLeaves: remainingLeaves, isRequired: isRequired,
                     previousRoots: acceptedRoots, previousProofs: acceptedIdentityProofs,
                     budget: budget, admission: checkedAdmission, managed: managed,
+                    buttonConstruction: buttonConstruction,
                     carriedRecordProofs: originalActualProofs,
                     mayDeferForCapacity: originalProofs[token] != nil && !transitionRequiredTokens.isEmpty)
                 // In particular, optional oversized outputs and typed identity
@@ -1744,7 +1762,8 @@ package final class RetainedLazyListRuntimeAdapter {
             }
         }
         let candidate = Candidate(
-            adapter: self, viewport: viewport, records: records, generation: generation,
+            adapter: self, viewport: viewport, records: records, buttonConstruction: buttonConstruction,
+            generation: generation,
             configuration: expectedConfiguration, attempt: expectedAttempt,
             protectedTokens: nextPhysicalProtected,
             virtualizedDepartureRoots: Set(
@@ -1760,6 +1779,9 @@ package final class RetainedLazyListRuntimeAdapter {
             else { return .unsupported }
         }
         pendingCandidate = true
+        buttonConstruction.keepPendingSources(in: candidate.children)
+        guard isCurrent(candidate) else { return .obsolete }
+        yieldedButtonConstruction = true
         return .ready(candidate)
     }
 
@@ -2142,10 +2164,15 @@ package final class RetainedLazyListRuntimeAdapter {
         previousRoots: [ViewNode], previousProofs: [RetainedLazyListViewIdentityProof],
         budget: RetainedLazyListWorkBudget, admission: RetainedLazyListAdoptionAdmission?,
         managed: ManagedPreparation?,
+        buttonConstruction suppliedButtonConstruction: RetainedButtonActionConstruction? = nil,
         carriedRecordProofs: [CarriedRecordProof] = [],
         mayDeferForCapacity: Bool = false,
         probeRequestIsCurrent: (@MainActor () -> Bool)? = nil
     ) -> RecordPreparation {
+        let buttonConstruction =
+            suppliedButtonConstruction
+            ?? RetainedButtonActionConstruction(runtime: attachmentOwner?.retainedLazyListRuntime)
+        defer { if suppliedButtonConstruction == nil { buttonConstruction.finish() } }
         var existingProofs = previousProofs
         if admission != nil, let existing {
             // Preserve the reused cohort's original identity witnesses across
@@ -2202,7 +2229,8 @@ package final class RetainedLazyListRuntimeAdapter {
         } else {
             guard authorityIsCurrent(authority), request.isGenerationCurrent else { return .obsolete }
             let result = materializeSelectedRecord(
-                request, budget: budget, authority: authority, rowActivity: &rowActivity)
+                request, budget: budget, authority: authority, rowActivity: &rowActivity,
+                buttonConstruction: buttonConstruction)
             guard authorityIsCurrent(authority), request.isGenerationCurrent else { return .obsolete }
             switch result {
             case .built(let built):
@@ -2398,12 +2426,15 @@ package final class RetainedLazyListRuntimeAdapter {
     /// Reused records never enter this path or invent a new row contribution.
     private func materializeSelectedRecord(
         _ request: RetainedLazyListRowRequest, budget: RetainedLazyListWorkBudget,
-        authority: PreparationAuthority, rowActivity: inout RetainedLazyListMaterializedRowActivity?
+        authority: PreparationAuthority, rowActivity: inout RetainedLazyListMaterializedRowActivity?,
+        buttonConstruction: RetainedButtonActionConstruction
     ) -> RetainedLazyListMaterialization<[ViewNode]> {
         guard authorityIsCurrent(authority), request.isGenerationCurrent else { return .obsolete }
         guard let managed = authority.managed else {
             // The guard above proves absence, not merely an expired binding.
-            return provider.materialize(request, budget: budget)
+            let result = provider.materialize(request, budget: budget)
+            if case .built(let built) = result { buttonConstruction.registerSources(in: built.content) }
+            return result
         }
         guard budget.remainingElements > 0 else { return .budgetExhausted }
         guard let prepaidProvider = provider as? any RetainedLazyListPrepaidProvider<[ViewNode]> else {
@@ -2430,6 +2461,7 @@ package final class RetainedLazyListRuntimeAdapter {
         let result = materializeEnteredRecord(
             request, budget: budget, authority: authority, attribution: attribution, activity: managed.activity,
             provider: prepaidProvider, prepaid: prepaid)
+        if case .built(let built) = result { buttonConstruction.registerSources(in: built.content) }
         // Leave and its temporary captures have unwound before this proof.
         guard authorityIsCurrent(authority), request.isGenerationCurrent else { return .obsolete }
         if case .built(let built) = result, built.request == request,

@@ -102,11 +102,25 @@ enum RetainedRemovalTransitionResolver {
         return false
     }
 
+    /// A mounted Button source keeps its original departure receipt through
+    /// callback payload destruction. Animation publication stays inside that
+    /// payload scope so destruction cannot be followed by an obsolete write.
+    static func applyGuarded(node: ViewNode, sourceDeparture: ButtonActionSourceDeparture? = nil) -> Bool {
+        guard sourceDeparture?.owns(node) != false else { return false }
+        let result = resolveWithCallbackPayloads(
+            node: node, admission: nil, applyOrdinaryAnimations: true, sourceDeparture: sourceDeparture)
+        sourceDeparture?.observe()
+        guard sourceDeparture?.owns(node) != false else { return false }
+        if case .animated = result { return true }
+        return false
+    }
+
     @inline(never)
     private static func resolveWithCallbackPayloads(
-        node: ViewNode, admission: RetainedRemovalTransitionAdmission?, applyOrdinaryAnimations: Bool = false
+        node: ViewNode, admission: RetainedRemovalTransitionAdmission?, applyOrdinaryAnimations: Bool = false,
+        sourceDeparture: ButtonActionSourceDeparture? = nil
     ) -> RetainedRemovalTransitionResolution {
-        guard admission?.isCurrent != false else { return .rejected }
+        guard admission?.isCurrent != false, sourceDeparture?.owns(node) != false else { return .rejected }
         let removal = node.transition.removal
         guard removal.kind != .identity else { return .disabled }
 
@@ -118,12 +132,15 @@ enum RetainedRemovalTransitionResolver {
         let modifiers = node.reconcileAnimationModifiers
         defer { withExtendedLifetime(modifiers) {} }
         for modifier in modifiers.reversed() {
-            guard admission?.isCurrent != false else { return .rejected }
+            guard admission?.isCurrent != false, sourceDeparture?.owns(node) != false else { return .rejected }
             var transaction = fullTransaction ?? Transaction()
-            if modifier.apply(to: &transaction, previous: modifier, removalAdmission: admission) {
+            if modifier.apply(
+                to: &transaction, previous: modifier, removalAdmission: admission,
+                sourceDeparture: sourceDeparture, sourceDepartureNode: node)
+            {
                 fullTransaction = transaction
             }
-            guard admission?.isCurrent != false else { return .rejected }
+            guard admission?.isCurrent != false, sourceDeparture?.owns(node) != false else { return .rejected }
         }
         if let fullTransaction,
             fullTransaction.disablesAnimations || fullTransaction.animation == nil
@@ -137,9 +154,9 @@ enum RetainedRemovalTransitionResolver {
         let duration = transaction?.duration ?? 0.35
         let easing = transaction?.easing ?? .easeInOut
         guard duration > 0 else { return .disabled }
-        guard admission?.isCurrent != false else { return .rejected }
+        guard admission?.isCurrent != false, sourceDeparture?.owns(node) != false else { return .rejected }
         let now = node.animationClockNow
-        guard admission?.isCurrent != false else { return .rejected }
+        guard admission?.isCurrent != false, sourceDeparture?.owns(node) != false else { return .rejected }
 
         // The ordinary path reads its starting pose after the clock callback.
         // Retain unrelated existing animations, just as direct removal did.

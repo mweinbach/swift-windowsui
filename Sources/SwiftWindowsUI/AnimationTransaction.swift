@@ -63,8 +63,19 @@ public struct RetainedAnimationModifier {
         to transaction: inout Transaction, previous: RetainedAnimationModifier?,
         admission: RetainedLazyListAdoptionAdmission? = nil,
         nativeCheck: ComponentHost.NodeReconcileAdmission? = nil,
-        removalAdmission: RetainedRemovalTransitionAdmission? = nil
+        removalAdmission: RetainedRemovalTransitionAdmission? = nil,
+        sourceDeparture: ButtonActionSourceDeparture? = nil, sourceDepartureNode: ViewNode? = nil
     ) -> Bool {
+        if let sourceDeparture {
+            guard let sourceDepartureNode, sourceDeparture.owns(sourceDepartureNode),
+                removalAdmission?.isCurrent != false
+            else { return false }
+            let shouldTransform = triggerChanged(from: previous)
+            guard sourceDeparture.owns(sourceDepartureNode), removalAdmission?.isCurrent != false, shouldTransform
+            else { return false }
+            transform(&transaction)
+            return sourceDeparture.owns(sourceDepartureNode) && removalAdmission?.isCurrent != false
+        }
         if let removalAdmission {
             guard removalAdmission.isCurrent else { return false }
             let shouldTransform = triggerChanged(from: previous)

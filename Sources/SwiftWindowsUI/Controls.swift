@@ -1007,12 +1007,10 @@ public enum Controls {
         // The ring grows out of the edge, so it starts with no width at all.
         node.outlineWidth = 0
 
-        node.onActivate = {
-            action?()
-        }
-        node.onRepeatActivate = {
-            action?()
-        }
+        let actionOwner = RetainedButtonActionOwner(action: action, node: node, runtime: runtime)
+        node.buttonActionOwner = actionOwner
+        node.onActivate = { [weak actionOwner] in actionOwner?.invoke(repeating: false) }
+        node.onRepeatActivate = { [weak actionOwner] in actionOwner?.invoke(repeating: true) }
 
         return node
     }

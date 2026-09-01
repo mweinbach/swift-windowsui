@@ -21974,7 +21974,6 @@ public struct Button: View {
                 alertReceipt = nil
                 activate = {
                     ViewBuildContextScope.withCurrent(context) { action() }
-                    context.invalidate()
                 }
             }
             let node = Controls.button(
@@ -21998,6 +21997,7 @@ public struct Button: View {
                 children: [labelNode]
             )
             alertReceipt?.install(on: node)
+            if alertReceipt == nil { node.setButtonActionCompletion { context.invalidate() } }
             if contentMetrics.minimumHeight > 0 {
                 node.applyDefaultMinimumHeight(contentMetrics.minimumHeight)
             }

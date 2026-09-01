@@ -11318,3 +11318,56 @@ forbids forcing backlog through scheduling changes. No hold, delay, larger
 workload, predicate relaxation, or repeat attempt was introduced. The original
 native 24/27 failed result remains unchanged. Full Core/List, native, visual,
 performance, shared-platform, and release evidence remain required.
+
+
+### 2026-09-01: integrate Button action ownership without discarding ordinary cleanup
+
+All nine original completion gates remain open. The reviewed Button action
+ownership series is integrated after the ordinary handoff repair. Pending
+construction cannot expose an executable Button action before its declaration
+is accepted. Rejected construction, physical departure, replacement, and close
+retire the original action; a later physical attachment cannot revive a saved
+old handler. Reentrant activation remains closed through the original action's
+completion and payload release. Already claimed task, controller, disappearance,
+and source cleanup still drains when forward Button admission expires.
+
+Insertion completion now also remembers the original Button owner's presence,
+weak identity, and retirement state. A clock or callback that clears, replaces,
+or retires that owner cannot reuse the earlier completion to present an
+insertion. No action payload is retained as a completion witness. The original
+completion and admission are rechecked at their existing presentation boundary;
+the renderer-neutral draw-order contract is unchanged.
+
+The adapted Button-only patch is 372,876 bytes, SHA256
+`9eacfb8c6d0e707b1d300d81fc35ac4ab4ddc692160970a74106eca75243c628`,
+in `artifacts/goal-ninth-button-ordinary66-intake-v1`. It preserves every added
+and deleted line of the earlier Button input. The sole composition resolution
+keeps both original local declarations: owned departure tickets and Button
+retirement. Their original finishing paths remain in the same defer, and
+physical departures still drain before declared-marker retirements. Sixteen
+of seventeen complete Button files match the original input; Runtime additionally
+retains the three already-integrated ordinary handoff hunks.
+
+Root independently verified the complete staged diff is byte-identical to this
+adapted patch and all 619 preceding test files remain unchanged (`9e5421/0`).
+The source adds six test files with 108 methods and two ownership documents.
+Its staged tree before this append is
+`d559f66e4a48abcc52e78186d51483e808a39789`; the proof is
+`artifacts/goal-ninth-button-ordinary66-root-proof-v1.json`. Pre-edit contracts,
+strict formatting of all fifteen changed Swift files, and post-edit contracts
+passed (`0dce0b`, closed at `69539c/0`). Compilation and the Button tests have
+not run on this root source. The separate reviewed fixture amendment must still
+follow; its two additional methods are not included in the 108 count.
+
+Correction to the preceding 132-method result description: the closing-departure
+test's dismantle callback DID run exactly once, and its assertion at line 261
+passed. The failure at line 266 is the missing final retired-slot record, zero
+instead of one, after that callback revoked the host lifetime. The source review
+is investigating publication bookkeeping after close, not missing callback
+delivery. The retained raw result, five failed method IDs, and all assertions
+are unchanged. The prior wording remains only as historical ledger text; this
+line-specific clarification supersedes it. The two other new handoff failures
+also remain under review, independently of this Button integration.
+
+This source step does not establish a Button test pass, a File14 recovery,
+Table/UIA qualification, native fairness, visual parity, or release completion.

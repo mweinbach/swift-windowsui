@@ -1844,6 +1844,8 @@ private final class ViewNodeInteractionHandlers {
     var textInputCaretRectProvider: (() -> Rect?)?
     var textInputController: (any RetainedTextInputController)?
     var listNavigationOwner: RetainedListNavigationOwner?
+    var buttonActionOwner: RetainedButtonActionOwner?
+    var buttonActionFlight: RetainedButtonActionFlight?
     var keyUp: ((KeyboardEvent) -> Void)?
     var activate: (() -> Void)?
     var repeatActivate: (() -> Void)?
@@ -2547,6 +2549,7 @@ public final class ViewNode {
         if retainedSubtreeBuildLease != nil { fields.append(\.retainedSubtreeBuildLease) }
         if retainedLazyListAdapter != nil { fields.append(\.retainedLazyListAdapter) }
         if textInputController != nil { fields.append(\.textInputController) }
+        if buttonActionOwner != nil { fields.append(\.buttonActionOwner) }
         if !retainedScrollGeometryPayloads.isEmpty { fields.append(\.retainedScrollGeometryPayloads) }
         if !retainedScrollPhasePayloads.isEmpty { fields.append(\.retainedScrollPhasePayloads) }
         if !retainedScrollVisibilityPayloads.isEmpty { fields.append(\.retainedScrollVisibilityPayloads) }
@@ -4513,11 +4516,45 @@ public final class ViewNode {
     }
     public var onActivate: (() -> Void)? {
         get { interactionHandlers?.activate }
-        set { setInteractionHandler(newValue, at: \.activate) }
+        set {
+            let previous = interactionHandlers?.activate
+            let owner = buttonActionOwner
+            if newValue == nil {
+                owner?.retireIfInstalled(on: self)
+                buttonActionOwner = nil
+            }
+            setInteractionHandler(newValue, at: \.activate)
+            owner?.releaseRetiredPayload()
+            withExtendedLifetime(previous) {}
+        }
     }
     public var onRepeatActivate: (() -> Void)? {
         get { interactionHandlers?.repeatActivate }
-        set { setInteractionHandler(newValue, at: \.repeatActivate) }
+        set {
+            if newValue == nil { buttonActionOwner?.retireRepeat() }
+            setInteractionHandler(newValue, at: \.repeatActivate)
+        }
+    }
+
+    var buttonActionOwner: RetainedButtonActionOwner? {
+        get { interactionHandlers?.buttonActionOwner }
+        set {
+            let previous = interactionHandlers?.buttonActionOwner
+            if previous !== newValue { previous?.retireIfInstalled(on: self) }
+            setInteractionHandler(newValue, at: \.buttonActionOwner)
+            withExtendedLifetime(previous) {}
+        }
+    }
+
+    var existingRetainedButtonActionFlight: RetainedButtonActionFlight? {
+        interactionHandlers?.buttonActionFlight
+    }
+
+    var retainedButtonActionFlight: RetainedButtonActionFlight {
+        if let flight = interactionHandlers?.buttonActionFlight { return flight }
+        let flight = RetainedButtonActionFlight()
+        setInteractionHandler(flight, at: \.buttonActionFlight)
+        return flight
     }
     public var longPressGesture: RetainedLongPressGesture? {
         get { interactionHandlers?.longPressGesture }
@@ -6020,6 +6057,7 @@ public final class ViewNode {
         guard !isRetiringLazyListAttachment, !child.isRetiringLazyListAttachment, child.parent === self else { return }
         children.append(child)
         runtime?.registerLazyListAttachments(in: child)
+        RetainedButtonActionTree.publishStandalone(in: [child])
         invalidateRuntime(.children)
     }
 
@@ -6031,19 +6069,28 @@ public final class ViewNode {
     }
 
     public func removeFromParent() {
-        parent?.removeChild(self)
+        removeFromParent(buttonActions: nil)
+    }
+
+    /// Only a framework-owned source transfer may advance an adoption receipt.
+    /// Public removal cannot inherit that permission through callback reentry.
+    private func removeFromParent(buttonActions: RetainedButtonActionAdoption?) {
+        guard let parent, let index = parent.children.firstIndex(where: { $0 === self }) else { return }
+        parent.removeChild(at: index, buttonActions: buttonActions)
     }
 
     public func removeAllChildren() {
         guard !isRetiringLazyListAttachment, !children.contains(where: \.isRetiringLazyListAttachment) else { return }
         let interactionRuntime = runtime
+        let buttonRetirement = RetainedButtonActionRetirement(in: children)
         let groupTaskCleanup = Self.claimLazyGroupTaskDepartures(in: children)
         interactionRuntime?.beginLongPressReconciliation()
         defer {
             interactionRuntime?.endLongPressReconciliation()
             for cleanup in groupTaskCleanup { cleanup.finish() }
+            buttonRetirement.finish()
         }
-        for child in children { child.revokeTextInputOwnership() }
+        Self.revokeTextInputOwnership(in: children)
         for child in children {
             guard !isRetiringLazyListAttachment, !child.isRetiringLazyListAttachment else { return }
             child.revokeLazyListAttachmentProofs()
@@ -6085,6 +6132,7 @@ public final class ViewNode {
 
         let interactionRuntime = runtime
         let sourceRuntime = newChild.runtime
+        let buttonRetirement = RetainedButtonActionRetirement(in: [children[index]])
         let groupTaskCleanup = Self.claimLazyGroupTaskDepartures(in: [children[index]])
         interactionRuntime?.beginLongPressReconciliation()
         if sourceRuntime !== interactionRuntime { sourceRuntime?.beginLongPressReconciliation() }
@@ -6092,6 +6140,7 @@ public final class ViewNode {
             if sourceRuntime !== interactionRuntime { sourceRuntime?.endLongPressReconciliation() }
             interactionRuntime?.endLongPressReconciliation()
             for cleanup in groupTaskCleanup { cleanup.finish() }
+            buttonRetirement.finish()
         }
 
         let old = children[index]
@@ -6113,44 +6162,198 @@ public final class ViewNode {
         }
         children[index] = newChild
         runtime?.registerLazyListAttachments(in: newChild)
+        RetainedButtonActionTree.publishStandalone(in: [newChild])
         invalidateRuntime()
     }
 
     /// Remove the child at the given index.
     public func removeChild(at index: Int) {
-        guard !isRetiringLazyListAttachment else { return }
+        removeChild(at: index, buttonActions: nil)
+    }
+
+    private func removeChild(at index: Int, buttonActions: RetainedButtonActionAdoption?) {
+        guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
         guard index >= 0, index < children.count else {
             return
         }
 
         let interactionRuntime = runtime
+        // A mounted incoming source owns real departure work. Capture its
+        // original physical cohort before any child-table or attachment write;
+        // losing Button insertion permission cannot cancel that old cleanup.
+        let sourceDeparture = buttonActions.flatMap { buttonActions in
+            children[index].runtime.map { _ in
+                ButtonActionSourceDeparture(root: children[index], buttonActions: buttonActions)
+            }
+        }
+        let buttonRetirement = RetainedButtonActionRetirement(in: [children[index]])
         let groupTaskCleanup = Self.claimLazyGroupTaskDepartures(in: [children[index]])
         interactionRuntime?.beginLongPressReconciliation()
         defer {
             interactionRuntime?.endLongPressReconciliation()
             for cleanup in groupTaskCleanup { cleanup.finish() }
+            buttonRetirement.finish()
         }
 
-        guard !children[index].isRetiringLazyListAttachment else { return }
+        guard !children[index].isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
         let removed = children.remove(at: index)
-        detachRemovedChild(removed)
+        let canContinueInsertion = buttonActions?.recordChildrenWrite(on: self) != false
+        if let sourceDeparture {
+            detachButtonActionSource(sourceDeparture)
+        } else {
+            guard canContinueInsertion else { return }
+            detachRemovedChild(removed, buttonActions: buttonActions)
+        }
         invalidateRuntime()
+    }
+
+    /// This preserves legacy source-removal order. Its local attachment
+    /// receipts authorize only cleanup of the already-removed source, never
+    /// publication into the destination. Public callback reentry receives no
+    /// such receipt, and cannot refresh these original expectations.
+    private func detachButtonActionSource(_ departure: ButtonActionSourceDeparture) {
+        let removed = departure.root.node
+        guard departure.owns(removed) else { return }
+        removed.revokeLazyListAttachmentProofs()
+        departure.recordAttachmentWrite(on: removed)
+        removed.revokeTextInputOwnership()
+        departure.observe()
+        guard departure.owns(removed) else { return }
+        departure.root.dismantle?(removed)
+        departure.observe()
+        guard departure.owns(removed) else { return }
+        if runtime != nil, removed.transition.removal.kind != .identity,
+            removed.applyRemovalTransition(sourceDeparture: departure)
+        {
+            guard departure.owns(removed) else { return }
+            removed.isRemovalOverlay = true
+            removed.cachedFrameKey = nil
+            removed.cachedFrameCommandRange = nil
+            removed.cachedSceneKey = nil
+            removed.cachedScenePaintRange = nil
+            runtime?.transitionOverlays.append(removed)
+            runtime?.invalidate()
+        } else {
+            removed.disappearButtonActionSource(departure)
+        }
+        guard departure.owns(removed) else { return }
+        removed.revokeLazyListAttachmentProofs()
+        removed.parent = nil
+        departure.recordAttachmentWrite(on: removed)
+        removed.detachButtonActionSourceRuntime(departure)
+        departure.observe()
+    }
+
+    private func disappearButtonActionSource(_ departure: ButtonActionSourceDeparture) {
+        guard let entry = departure.entry(for: self), departure.owns(self) else { return }
+        lifecycleHandlers?.completedLazyTaskAppearance = nil
+        let taskState = existingRetainedTaskState === entry.taskState ? entry.taskState : nil
+        let taskDisappearance = taskState?.beginDisappearance()
+        // Snapshot old handles without removing their public cancellation
+        // route. An onDisappear hook can still cancel or replace one in its
+        // original order, before the legacy terminal cancellation phase.
+        let tasks = hasAppeared ? lifecycleTasks : [:]
+        if entry.hadAppeared {
+            entry.disappear?()
+            departure.observe()
+            entry.disappearWithNode?(self)
+            departure.observe()
+        }
+        // Hooks may launch another task while this same old attachment still
+        // owns them. Preserve the legacy cancellation point without touching
+        // a task installed after an actual reattachment.
+        for (key, task) in tasks where lifecycleTasks[key] == task { lifecycleTasks[key] = nil }
+        let remainingTasks = entry.hadAppeared && departure.owns(self) ? takeLifecycleTasks() : []
+        for task in tasks.values { task.cancel() }
+        for task in remainingTasks { task.cancel() }
+        if departure.owns(self) {
+            hasAppeared = false
+            hasPendingAppearanceCallbacks = false
+            hasPendingAppearanceNodeCallback = false
+            isInitialBuildNode = false
+            didPlayInsertionTransition = false
+        }
+        // Once begun this owns old attempts, even if either the Button batch
+        // or this physical attachment expired during an application callback.
+        if let taskDisappearance { taskState?.finishDisappearance(taskDisappearance) }
+        departure.observe()
+        for child in entry.children { child.disappearButtonActionSource(departure) }
+        withExtendedLifetime(tasks) {}
+        withExtendedLifetime(remainingTasks) {}
+    }
+
+    private func detachButtonActionSourceRuntime(_ departure: ButtonActionSourceDeparture) {
+        guard let entry = departure.entry(for: self), departure.owns(self) else { return }
+        if let previousRuntime = entry.runtime, let adapter = entry.adapter,
+            retainedLazyListAdapter === adapter, adapter.ownsAttachment(self)
+        {
+            // The existing owned-container path retains its stricter mapping
+            // gate and drains it fully. It already requires a fresh operation
+            // before attachment elsewhere; this source receipt cannot waive it.
+            detachLazyListRuntime(from: previousRuntime, adapter: adapter, hasRevokedTextInputOwnership: true)
+            departure.observe()
+            return
+        }
+        buttonActionOwner?.runtimeWillChange(from: runtime, to: nil)
+        storedAccessibilityAttachmentIdentity = nil
+        entry.taskState?.invalidateAttachment()
+        revokeLazyListAttachmentProofs()
+        departure.recordAttachmentWrite(on: self)
+        entry.runtime?.unregisterLazyListContainer(self)
+        fileDialogPresenterLease?.invalidate()
+        if let state = scrollContainerState { state.attachmentGeneration &+= 1 }
+        entry.runtime?.unregisterScrollObservationNode(self)
+        // Transfer old history out of the observer before destroying it. A
+        // destructor may install new history; no reset loop may clear that
+        // newer payload after the callback returns.
+        resetButtonActionSourceHistory(entry.observerStorage)
+        departure.observe()
+        guard departure.owns(self) else { return }
+        if entry.runtime != nil { entry.controller?.willDetach(from: self) }
+        departure.observe()
+        guard departure.owns(self) else { return }
+        entry.runtime?.releaseInteractionTargets(
+            in: self, sourceCleanup: ButtonActionSourceInteraction(departure: departure, node: self))
+        departure.observe()
+        guard departure.owns(self) else { return }
+        entry.runtime?.cancelColorAnimations(of: self)
+        entry.controller?.detach(from: self)
+        departure.observe()
+        guard departure.owns(self) else { return }
+        if !animationStates.isEmpty { entry.runtime?.unregisterAnimatingNode(self) }
+        runtime = nil
+        departure.recordAttachmentWrite(on: self)
+        for child in entry.children { child.detachButtonActionSourceRuntime(departure) }
+    }
+
+    @inline(never)
+    private func resetButtonActionSourceHistory(_ storage: RetainedScrollObserverStorage?) {
+        let history = storage?.takeLazyListRetiredHistory() ?? []
+        withExtendedLifetime(history) {}
     }
 
     /// Runs a child that has just left `children` through its removal
     /// transition (or straight to disappearance) and unparents it. The single
     /// place that decides what leaving looks like — shared by `removeChild`,
     /// `replaceChild` and `setChildren`.
-    private func detachRemovedChild(_ removed: ViewNode) {
-        guard !isRetiringLazyListAttachment, !removed.isRetiringLazyListAttachment else { return }
+    private func detachRemovedChild(_ removed: ViewNode, buttonActions: RetainedButtonActionAdoption? = nil) {
+        guard !isRetiringLazyListAttachment, !removed.isRetiringLazyListAttachment,
+            buttonActions?.isCurrent != false
+        else { return }
         removed.revokeLazyListAttachmentProofs()
+        guard buttonActions?.recordAttachmentWrite(on: removed) != false else { return }
         removed.revokeTextInputOwnership()
+        guard buttonActions?.isCurrent != false else { return }
         removed.onDismantlePlatformView?(removed)
-        guard !isRetiringLazyListAttachment, !removed.isRetiringLazyListAttachment else { return }
+        guard !isRetiringLazyListAttachment, !removed.isRetiringLazyListAttachment,
+            buttonActions?.isCurrent != false
+        else { return }
         // Adoption also removes fresh nodes from temporary construction
         // parents. Only a mounted parent can own and retire a removal overlay.
         if runtime != nil, removed.transition.removal.kind != .identity, removed.applyRemovalTransition() {
-            guard !isRetiringLazyListAttachment, !removed.isRetiringLazyListAttachment else { return }
+            guard !isRetiringLazyListAttachment, !removed.isRetiringLazyListAttachment,
+                buttonActions?.isCurrent != false
+            else { return }
             removed.isRemovalOverlay = true
             removed.cachedFrameKey = nil
             removed.cachedFrameCommandRange = nil
@@ -6160,13 +6363,18 @@ public final class ViewNode {
             runtime?.invalidate()
             removed.revokeLazyListAttachmentProofs()
             removed.parent = nil
-            removed.setRuntime(nil)
+            guard buttonActions?.recordAttachmentWrite(on: removed) != false else { return }
+            removed.setRuntime(nil, buttonActions: buttonActions)
         } else {
+            guard buttonActions?.isCurrent != false else { return }
             removed.markSubtreeDisappeared()
-            guard !isRetiringLazyListAttachment, !removed.isRetiringLazyListAttachment else { return }
+            guard !isRetiringLazyListAttachment, !removed.isRetiringLazyListAttachment,
+                buttonActions?.isCurrent != false
+            else { return }
             removed.revokeLazyListAttachmentProofs()
             removed.parent = nil
-            removed.setRuntime(nil)
+            guard buttonActions?.recordAttachmentWrite(on: removed) != false else { return }
+            removed.setRuntime(nil, buttonActions: buttonActions)
         }
     }
 
@@ -6182,9 +6390,10 @@ public final class ViewNode {
     private func setChildrenUnchecked(
         _ nextChildren: [ViewNode], lazyJournal: RetainedLazyListAdoptionJournal? = nil,
         taskAdoption: RetainedTaskAdoptionContext? = nil, sourceParent: ViewNode? = nil,
-        completionSources: RetainedReconciliationSourceNodes? = nil
+        completionSources: RetainedReconciliationSourceNodes? = nil,
+        buttonActions: RetainedButtonActionAdoption? = nil
     ) {
-        guard !isRetiringLazyListAttachment else { return }
+        guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
         // A rebuild reconciles every node in the window, and for the
         // overwhelming majority of them it hands back the same child objects
         // in the same order — the reconcile already matched them and updated
@@ -6212,6 +6421,7 @@ public final class ViewNode {
         let interactionRuntime = runtime
         var groupTaskCleanup: [RetainedLazyListAcceptedTaskCleanup] = []
         var ownedDepartures: [RetainedOrdinaryOwnedDeparture] = []
+        var buttonRetirement: RetainedButtonActionRetirement?
         interactionRuntime?.beginLongPressReconciliation()
         var sourceRuntimes: [RetainedViewRuntime] = []
         for child in nextChildren {
@@ -6227,10 +6437,13 @@ public final class ViewNode {
             for sourceRuntime in sourceRuntimes { sourceRuntime.endLongPressReconciliation() }
             interactionRuntime?.endLongPressReconciliation()
             for cleanup in groupTaskCleanup { cleanup.finish() }
+            buttonRetirement?.finish()
         }
 
         let surviving = Set(nextChildren.map(ObjectIdentifier.init))
         let departing = children.filter { !surviving.contains(ObjectIdentifier($0)) }
+        guard buttonActions?.beginDeparture(in: departing) != false else { return }
+        buttonRetirement = RetainedButtonActionRetirement(in: departing)
         groupTaskCleanup = Self.claimLazyGroupTaskDepartures(in: departing)
         if let lazyJournal {
             for cleanup in groupTaskCleanup { lazyJournal.claimTaskCleanup(cleanup) }
@@ -6243,37 +6456,46 @@ public final class ViewNode {
                 _ = lazyJournal.prepareInsertedNode(from: node)
             }
         }
-        for child in departing { child.revokeTextInputOwnership() }
+        Self.revokeTextInputOwnership(in: departing)
         var recordsEmptyDeclaration = false
         if nextChildren.isEmpty, let sourceParent, let lazyJournal {
             recordsEmptyDeclaration = lazyJournal.prepareOwnedStructuralDeclaration(from: sourceParent, to: self)
         }
         children = []
+        buttonActions?.recordChildrenWrite(on: self)
         if recordsEmptyDeclaration, let sourceParent {
             lazyJournal?.recordAcceptedOwnedStructuralDeclaration(from: sourceParent, to: self)
         }
         for child in departing {
+            // Departure has already been claimed. Its existing cleanup must
+            // drain even if a callback invalidates adoption of the survivors.
             detachRemovedChild(child)
         }
-        guard !isRetiringLazyListAttachment else { return }
+        guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
         for child in nextChildren {
             guard !child.isRetiringLazyListAttachment, child.parent?.isRetiringLazyListAttachment != true else {
                 return
             }
             if child.parent !== self {
-                child.removeFromParent()
-                guard !isRetiringLazyListAttachment, !child.isRetiringLazyListAttachment, child.parent == nil else {
+                guard buttonActions?.beginInsertion(in: [child]) != false else { return }
+                child.removeFromParent(buttonActions: buttonActions)
+                guard !isRetiringLazyListAttachment, !child.isRetiringLazyListAttachment, child.parent == nil,
+                    buttonActions?.isCurrent != false
+                else {
                     return
                 }
                 child.revokeLazyListAttachmentProofs()
                 child.parent = self
+                guard buttonActions?.recordAttachmentWrite(on: child) != false else { return }
             }
-            child.setRuntime(runtime)
-            guard !isRetiringLazyListAttachment, !child.isRetiringLazyListAttachment, child.parent === self else {
+            child.setRuntime(runtime, buttonActions: buttonActions)
+            guard !isRetiringLazyListAttachment, !child.isRetiringLazyListAttachment, child.parent === self,
+                buttonActions?.isCurrent != false
+            else {
                 return
             }
         }
-        guard !isRetiringLazyListAttachment,
+        guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false,
             !nextChildren.contains(where: \.isRetiringLazyListAttachment)
         else { return }
         var recordsDeclaration = false
@@ -6281,10 +6503,13 @@ public final class ViewNode {
             recordsDeclaration = lazyJournal.prepareOwnedStructuralDeclaration(from: sourceParent, to: self)
         }
         children = nextChildren
+        guard buttonActions?.recordChildrenWrite(on: self) != false else { return }
+        guard buttonActions?.recordInsertion(in: nextChildren) != false else { return }
         if recordsDeclaration, let sourceParent {
             lazyJournal?.recordAcceptedOwnedStructuralDeclaration(from: sourceParent, to: self)
         }
         for child in nextChildren { runtime?.registerLazyListAttachments(in: child) }
+        if buttonActions == nil { RetainedButtonActionTree.publishStandalone(in: nextChildren) }
         if let lazyJournal {
             // The legacy setter's publication point stays in its original
             // position. These are metadata facts for the ordinary epoch; the
@@ -6332,10 +6557,16 @@ public final class ViewNode {
 
     /// Ownership revocation cannot release history or invoke application
     /// callbacks. All members of a departure batch must be marked first.
-    func revokeTextInputOwnership() {
-        var pending = [self]
-        while let node = pending.popLast() {
-            pending.append(contentsOf: node.children)
+    func revokeTextInputOwnership(revokesButtonActions: Bool = true) {
+        Self.revokeTextInputOwnership(in: [self], revokesButtonActions: revokesButtonActions)
+    }
+
+    static func revokeTextInputOwnership(in roots: [ViewNode], revokesButtonActions: Bool = true) {
+        let nodes = RetainedButtonActionTree.nodes(in: roots)
+        if revokesButtonActions {
+            for node in nodes { node.buttonActionOwner?.retireForDeparture() }
+        }
+        for node in nodes {
             // File dialogs share the same departure boundary: a callback in an
             // earlier branch must not use a later departing presenter's lease.
             node.fileDialogPresenterIsDeparting = true
@@ -6390,8 +6621,13 @@ public final class ViewNode {
         fileDialogPreparedRevocations = 0
     }
 
-    fileprivate func setRuntime(_ runtime: RetainedViewRuntime?, hasRevokedTextInputOwnership: Bool = false) {
-        guard !isRetiringLazyListAttachment else { return }
+    fileprivate func setRuntime(
+        _ runtime: RetainedViewRuntime?, hasRevokedTextInputOwnership: Bool = false,
+        buttonActions: RetainedButtonActionAdoption? = nil
+    ) {
+        guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
+        buttonActionOwner?.runtimeWillChange(from: self.runtime, to: runtime)
+        guard buttonActions?.isCurrent != false else { return }
         if let previousRuntime = self.runtime, previousRuntime !== runtime,
             let adapter = retainedLazyListAdapter, adapter.ownsAttachment(self)
         {
@@ -6410,25 +6646,27 @@ public final class ViewNode {
         if isLeavingRuntime { lifecycleHandlers?.retainedTasks?.invalidateAttachment() }
         if didChangeRuntime {
             revokeLazyListAttachmentProofs()
+            guard buttonActions?.recordAttachmentWrite(on: self) != false else { return }
             self.runtime?.unregisterLazyListContainer(self)
         }
         if isLeavingRuntime, !hasRevokedTextInputOwnership {
             revokeTextInputOwnership()
         }
+        guard buttonActions?.isCurrent != false else { return }
         if didChangeRuntime {
             fileDialogPresenterLease?.invalidate()
             if let state = scrollContainerState { state.attachmentGeneration &+= 1 }
             self.runtime?.unregisterScrollObservationNode(self)
             scrollObserverStorage?.reset()
-            guard !isRetiringLazyListAttachment else { return }
+            guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
             if self.runtime != nil { textInputController?.willDetach(from: self) }
-            guard !isRetiringLazyListAttachment else { return }
+            guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
             self.runtime?.releaseInteractionTargets(in: self)
-            guard !isRetiringLazyListAttachment else { return }
+            guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
             self.runtime?.cancelColorAnimations(of: self)
             if runtime == nil {
                 textInputController?.detach(from: self)
-                guard !isRetiringLazyListAttachment else { return }
+                guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
             }
         }
 
@@ -6440,23 +6678,29 @@ public final class ViewNode {
             self.runtime?.unregisterAnimatingNode(self)
             runtime?.registerAnimatingNode(self)
         }
+        guard buttonActions?.isCurrent != false else { return }
         self.runtime = runtime
+        guard buttonActions?.recordAttachmentWrite(on: self) != false else { return }
         if let runtime { listNavigationOwner?.didAttach(to: runtime) }
         if runtime != nil, didChangeRuntime {
             fileDialogPresenterIsDeparting = false
             fileDialogPreparedRevocations = 0
         }
         if runtime != nil {
+            guard buttonActions?.isCurrent != false else { return }
             textInputController?.attach(to: self)
-            guard !isRetiringLazyListAttachment else { return }
+            guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
         }
         if scrollObserverStorage != nil {
             runtime?.registerScrollObservationNode(self)
         }
         if retainedLazyListAdapter != nil { runtime?.registerLazyListContainer(self) }
         for child in children {
+            guard buttonActions?.isCurrent != false else { return }
             child.setRuntime(
-                runtime, hasRevokedTextInputOwnership: hasRevokedTextInputOwnership || isLeavingRuntime)
+                runtime, hasRevokedTextInputOwnership: hasRevokedTextInputOwnership || isLeavingRuntime,
+                buttonActions: buttonActions)
+            guard buttonActions?.isCurrent != false else { return }
         }
     }
 
@@ -11547,6 +11791,10 @@ public final class ViewNode {
         RetainedRemovalTransitionResolver.applyOrdinary(node: self)
     }
 
+    private func applyRemovalTransition(sourceDeparture: ButtonActionSourceDeparture?) -> Bool {
+        RetainedRemovalTransitionResolver.applyGuarded(node: self, sourceDeparture: sourceDeparture)
+    }
+
 }
 private func insetConstraints(_ constraints: LayoutConstraints, by padding: EdgeInsets) -> LayoutConstraints {
     LayoutConstraints(
@@ -13445,7 +13693,10 @@ public final class RetainedViewRuntime {
     internal private(set) var lastDeferredDrawFrameReplayCount = 0
     internal private(set) var lastDeferredDrawSceneReplayCount = 0
     let textSystem: WindowTextSystem
-    private weak var hoveredNode: ViewNode?
+    private var hoverMutationIdentity = ButtonActionInteractionMutationIdentity()
+    private weak var hoveredNode: ViewNode? {
+        willSet { hoverMutationIdentity = ButtonActionInteractionMutationIdentity() }
+    }
     private weak var pressedNode: ViewNode?
     /// The node currently holding keyboard focus, if any. Read-only so
     /// presentation builders can capture and later restore focus; mutate
@@ -13459,7 +13710,10 @@ public final class RetainedViewRuntime {
     /// main actor after the focused node changes. Additive only — no effect
     /// on focus behavior itself.
     public var onAccessibilityFocusChanged: ((ViewNode?) -> Void)?
-    private weak var hoveredScrollIndicatorNode: ViewNode?
+    private var scrollIndicatorHoverMutationIdentity = ButtonActionInteractionMutationIdentity()
+    private weak var hoveredScrollIndicatorNode: ViewNode? {
+        willSet { scrollIndicatorHoverMutationIdentity = ButtonActionInteractionMutationIdentity() }
+    }
     private weak var activeScrollIndicatorNode: ViewNode?
     private var colorAnimations: [ColorAnimationKey: ViewColorAnimation] = [:]
     private var buttonRepeatState: ButtonRepeatState?
@@ -13469,6 +13723,8 @@ public final class RetainedViewRuntime {
     private var isDrainingReconciliationCallbacks = false
     private var pendingRetainedBuildCompletions: [@MainActor () -> Void] = []
     private var retainedBuildCoordinatorStorage: RetainedBuildCoordinator?
+    var buttonActionConstruction: RetainedButtonActionConstruction?
+    private var buttonActionTerminalRetirements: [RetainedButtonActionRetirement] = []
 
     var hasActiveRetainedBuild: Bool { retainedBuildCoordinatorStorage?.isBuilding == true }
 
@@ -14070,6 +14326,7 @@ public final class RetainedViewRuntime {
         self.displayScale = displayScale
         self.textSystem = WindowTextSystem()
         self.root.setRuntime(self)
+        RetainedButtonActionTree.publishStandalone(in: [self.root])
     }
 
     public func setRootSize(_ size: IntSize) {
@@ -14412,12 +14669,27 @@ public final class RetainedViewRuntime {
     /// controls leave their pressed state, repeat stops, and a dragged slider
     /// receives its editing-ended callback without activating any control.
     public func pointerCancelled() {
+        pointerCancelled(sourceCleanup: nil)
+    }
+
+    private func pointerCancelled(sourceCleanup: ButtonActionSourceInteraction?) {
+        guard sourceCleanup?.isCurrent != false else { return }
+        guard sourceCleanup == nil || sourceCleanup?.originalInteraction(in: self)?.pointerSequence == pointerSequence,
+            sourceCleanup?.permitsTarget(pressedNode) != false,
+            sourceCleanup?.permitsTarget(nodeDragState?.node) != false,
+            sourceCleanup?.permitsTarget(scrollDragState?.node) != false,
+            sourceCleanup?.permitsTarget(longPressAttempt?.node) != false,
+            sourceCleanup?.permitsTarget(activeScrollIndicatorNode) != false
+        else { return }
         pointerSequence &+= 1
         let sequence = pointerSequence
         let cancelledPressedNode = pressedNode
         let cancelledNodeDrag = nodeDragState
         let cancelledDragNode = cancelledNodeDrag?.node
         let cancelledScrollIndicatorNode = activeScrollIndicatorNode
+        let pressedAttachment = sourceCleanup?.attachment(of: cancelledPressedNode)
+        let dragAttachment = sourceCleanup?.attachment(of: cancelledDragNode)
+        let indicatorAttachment = sourceCleanup?.attachment(of: cancelledScrollIndicatorNode)
 
         pressedNode = nil
         buttonRepeatState = nil
@@ -14428,9 +14700,11 @@ public final class RetainedViewRuntime {
         if let attempt = longPressAttempt {
             finishLongPress(attempt, recognized: false)
         }
-        guard pointerSequence == sequence else { return }
+        guard pointerSequence == sequence, sourceCleanup?.isCurrent != false else { return }
 
-        if let cancelledNodeDrag, let cancelledDragNode {
+        if let cancelledNodeDrag, let cancelledDragNode, dragAttachment?.isCurrent != false,
+            sourceCleanup?.permitsTarget(cancelledDragNode) != false
+        {
             let delta = Point(
                 x: cancelledNodeDrag.lastPoint.x - cancelledNodeDrag.startPoint.x,
                 y: cancelledNodeDrag.lastPoint.y - cancelledNodeDrag.startPoint.y
@@ -14438,26 +14712,47 @@ public final class RetainedViewRuntime {
             cancelledDragNode.onDragEnd?(cancelledNodeDrag.lastPoint, delta)
         }
 
-        guard pointerSequence == sequence else { return }
+        guard pointerSequence == sequence, sourceCleanup?.isCurrent != false else { return }
 
-        updateHoverTarget(to: nil)
-        guard pointerSequence == sequence else { return }
-        updateScrollIndicatorHover(to: nil)
+        updateHoverTarget(to: nil, sourceCleanup: sourceCleanup)
+        guard pointerSequence == sequence, sourceCleanup?.isCurrent != false else { return }
+        updateScrollIndicatorHover(to: nil, sourceCleanup: sourceCleanup)
+        guard sourceCleanup?.isCurrent != false, sourceCleanup == nil || pointerSequence == sequence else { return }
 
-        if let cancelledScrollIndicatorNode {
+        if let cancelledScrollIndicatorNode, indicatorAttachment?.isCurrent != false,
+            sourceCleanup?.permitsTarget(cancelledScrollIndicatorNode) != false
+        {
             recordScrollPhase(.idle, for: cancelledScrollIndicatorNode)
-            animateColor(
-                .scrollIndicator,
-                of: cancelledScrollIndicatorNode,
-                to: cancelledScrollIndicatorNode.restingScrollIndicatorColor,
-                duration: 0.12,
-                at: clock()
-            )
+            guard sourceCleanup?.isCurrent != false, sourceCleanup == nil || pointerSequence == sequence else { return }
+            if indicatorAttachment?.isCurrent != false,
+                sourceCleanup?.permitsTarget(cancelledScrollIndicatorNode) != false
+            {
+                let restingColor = cancelledScrollIndicatorNode.restingScrollIndicatorColor
+                let timestamp = clock()
+                guard sourceCleanup?.isCurrent != false, sourceCleanup == nil || pointerSequence == sequence else {
+                    return
+                }
+                if indicatorAttachment?.isCurrent != false,
+                    sourceCleanup?.permitsTarget(cancelledScrollIndicatorNode) != false
+                {
+                    animateColor(
+                        .scrollIndicator,
+                        of: cancelledScrollIndicatorNode,
+                        to: restingColor,
+                        duration: 0.12,
+                        at: timestamp
+                    )
+                }
+            }
         }
 
+        guard pressedAttachment?.isCurrent != false, sourceCleanup?.permitsTarget(cancelledPressedNode) != false
+        else { return }
         cancelledPressedNode?.onPointerUpOutside?()
-        guard pointerSequence == sequence else { return }
-        applyInteractionChrome(to: cancelledPressedNode)
+        guard pointerSequence == sequence, sourceCleanup?.isCurrent != false,
+            pressedAttachment?.isCurrent != false
+        else { return }
+        applyInteractionChrome(to: cancelledPressedNode, sourceCleanup: sourceCleanup)
     }
 
     /// `delta` is in *lines* (the host has already multiplied the notch by
@@ -16761,8 +17056,12 @@ public final class RetainedViewRuntime {
     /// hover, repeat, or drag events merely because application code still
     /// holds one of its nodes alive. This also emits the matching focus/UIA
     /// exit while the removed node is still available to its callbacks.
-    fileprivate func releaseInteractionTargets(in subtree: ViewNode) {
-        cancelScrollAnimations(in: subtree)
+    fileprivate func releaseInteractionTargets(
+        in subtree: ViewNode, sourceCleanup: ButtonActionSourceInteraction? = nil
+    ) {
+        guard sourceCleanup?.isCurrent != false else { return }
+        cancelScrollAnimations(in: subtree, sourceCleanup: sourceCleanup)
+        guard sourceCleanup?.isCurrent != false else { return }
         let ownsPointerInteraction =
             Self.isInteractionTarget(pressedNode, within: subtree)
             || Self.isInteractionTarget(longPressAttempt?.node, within: subtree)
@@ -16770,20 +17069,38 @@ public final class RetainedViewRuntime {
             || Self.isInteractionTarget(scrollDragState?.node, within: subtree)
             || Self.isInteractionTarget(activeScrollIndicatorNode, within: subtree)
 
-        if ownsPointerInteraction {
-            pointerCancelled()
+        if ownsPointerInteraction,
+            sourceCleanup == nil || sourceCleanup?.originalInteraction(in: self)?.pointerSequence == pointerSequence
+        {
+            pointerCancelled(sourceCleanup: sourceCleanup)
         } else {
             if Self.isInteractionTarget(hoveredNode, within: subtree) {
-                updateHoverTarget(to: nil)
+                updateHoverTarget(to: nil, sourceCleanup: sourceCleanup)
             }
+            guard sourceCleanup?.isCurrent != false else { return }
             if Self.isInteractionTarget(hoveredScrollIndicatorNode, within: subtree) {
-                updateScrollIndicatorHover(to: nil)
+                updateScrollIndicatorHover(to: nil, sourceCleanup: sourceCleanup)
             }
         }
 
+        guard sourceCleanup?.isCurrent != false else { return }
         if Self.isInteractionTarget(focusedNode, within: subtree) {
             updateFocusTarget(to: nil, origin: .cleanup)
         }
+    }
+
+    /// Taken once before a mounted source begins departure. Inner cleanup
+    /// cannot acquire a pointer or hover installed by any later callback.
+    fileprivate func captureButtonActionSourceInteraction() -> ButtonActionSourceRuntimeInteraction {
+        var targets = [
+            hoveredNode, hoveredScrollIndicatorNode, pressedNode, nodeDragState?.node,
+            scrollDragState?.node, activeScrollIndicatorNode, longPressAttempt?.node, focusedNode,
+        ]
+        targets.append(contentsOf: scrollMomenta.values.map { $0.node })
+        targets.append(contentsOf: scrollPresentedTweens.values.map { $0.node })
+        return ButtonActionSourceRuntimeInteraction(
+            pointerSequence: pointerSequence, hoverIdentity: hoverMutationIdentity,
+            indicatorIdentity: scrollIndicatorHoverMutationIdentity, targets: targets.compactMap { $0 })
     }
 
     /// A changed text source invalidates a prepared selection. Queue the
@@ -17442,23 +17759,32 @@ public final class RetainedViewRuntime {
         return didCancel
     }
 
-    private func cancelScrollAnimations(in subtree: ViewNode) {
+    private func cancelScrollAnimations(in subtree: ViewNode, sourceCleanup: ButtonActionSourceInteraction? = nil) {
+        guard sourceCleanup?.isCurrent != false else { return }
         pendingPreciseScrollAlignments.removeAll {
             $0.target == nil || $0.container == nil
                 || Self.isInteractionTarget($0.target, within: subtree)
                 || Self.isInteractionTarget($0.container, within: subtree)
         }
         for state in Array(scrollMomenta.values) {
-            if let node = state.node, Self.isInteractionTarget(node, within: subtree) {
+            guard sourceCleanup?.isCurrent != false else { return }
+            if let node = state.node, Self.isInteractionTarget(node, within: subtree),
+                sourceCleanup?.permitsTarget(node) != false
+            {
                 cancelScrollMomentum(for: node)
             }
         }
         for tween in Array(scrollPresentedTweens.values) {
-            if let node = tween.node {
+            guard sourceCleanup?.isCurrent != false else { return }
+            if let node = tween.node, sourceCleanup?.permitsTarget(node) != false {
                 if Self.isInteractionTarget(node, within: subtree) {
                     cancelScrollPresentedTween(for: node)
                 } else if Self.isInteractionTarget(tween.target, within: subtree) {
+                    let attachment = sourceCleanup?.attachment(of: node)
                     cancelScrollPresentedTween(for: node, preservingPresentation: true)
+                    guard sourceCleanup?.isCurrent != false, attachment?.isCurrent != false,
+                        sourceCleanup?.permitsTarget(node) != false
+                    else { return }
                     recordScrollPhase(.idle, for: node)
                 }
             }
@@ -17937,6 +18263,8 @@ public final class RetainedViewRuntime {
     public func stopRenderLifecycleCallbacks() {
         lazyListLogicalHostLifetime.revoke()
         permitsRenderLifecycleCallbacks = false
+        buttonActionTerminalRetirements.append(
+            RetainedButtonActionRetirement(in: [root] + transitionOverlays, includingPending: true))
         retiredLazyListPaints.removeAll()
         cachedSceneSnapshot = nil
         cachedFrameSnapshot = nil
@@ -18008,6 +18336,14 @@ public final class RetainedViewRuntime {
         let reentrantNavigationRetirements = retiredPreparedListNavigationRetirements
         retiredPreparedListNavigationRetirements.removeAll()
         schedulePreparedListNavigationRetirements(navigationRetirements + reentrantNavigationRetirements)
+        // A payload destructor may call stop() without requesting another task
+        // cancellation. That native prepass can repin a later owner in this
+        // cohort, so consume every reentrant cohort in this completed phase.
+        while !buttonActionTerminalRetirements.isEmpty {
+            let buttonRetirements = buttonActionTerminalRetirements
+            buttonActionTerminalRetirements.removeAll()
+            for retirement in buttonRetirements { retirement.finish() }
+        }
     }
 
     /// An accepted rebuild can retain a node while replacing its callbacks and
@@ -19100,6 +19436,8 @@ public final class RetainedViewRuntime {
                     didRebuild = true
                 }
             } else {
+                let buttonConstruction = RetainedButtonActionConstruction(runtime: self)
+                defer { buttonConstruction.finish() }
                 guard let rebuilt = build(self, slot).first else { continue }
                 beginLongPressReconciliation()
                 adoptGeometryReader(rebuilt, into: node, slot: slot)
@@ -19395,6 +19733,8 @@ public final class RetainedViewRuntime {
         _ node: ViewNode, slot: Size, build: (RetainedViewRuntime, Size) -> [ViewNode],
         lease: any RetainedSubtreeBuildLease
     ) -> Bool {
+        let buttonConstruction = RetainedButtonActionConstruction(runtime: self)
+        defer { buttonConstruction.finish() }
         let parent = node.parent
         let nativeAdmission = GeometryDescriptorAdmission(node: node, runtime: self, lease: lease, parent: parent)
         let hasManagedNativeActivity = node.retainedLazyListActivityStorage != nil
@@ -19805,19 +20145,41 @@ public final class RetainedViewRuntime {
         }
     }
 
-    private func updateHoverTarget(to nextHoveredNode: ViewNode?) {
+    private func updateHoverTarget(
+        to nextHoveredNode: ViewNode?, sourceCleanup: ButtonActionSourceInteraction? = nil
+    ) {
+        guard sourceCleanup?.isCurrent != false else { return }
+        guard
+            sourceCleanup == nil
+                || sourceCleanup?.originalInteraction(in: self)?.hoverIdentity === hoverMutationIdentity,
+            sourceCleanup?.permitsTarget(hoveredNode) != false,
+            sourceCleanup?.permitsTarget(nextHoveredNode) != false
+        else { return }
         guard hoveredNode !== nextHoveredNode else {
             return
         }
 
         let previousNode = hoveredNode
+        let originalHover = hoverMutationIdentity
+        let previousAttachment = sourceCleanup?.attachment(of: previousNode)
+        let nextAttachment = sourceCleanup?.attachment(of: nextHoveredNode)
+        guard previousAttachment?.isCurrent != false, nextAttachment?.isCurrent != false else { return }
         previousNode?.isHovered = false
         previousNode?.onPointerExit?()
+        guard sourceCleanup?.isCurrent != false, previousAttachment?.isCurrent != false,
+            nextAttachment?.isCurrent != false, sourceCleanup == nil || hoverMutationIdentity === originalHover,
+            sourceCleanup?.permitsTarget(previousNode) != false, sourceCleanup?.permitsTarget(nextHoveredNode) != false
+        else { return }
         hoveredNode = nextHoveredNode
+        let installedHover = hoverMutationIdentity
         hoveredNode?.isHovered = true
         hoveredNode?.onPointerEnter?()
-        applyInteractionChrome(to: previousNode)
-        applyInteractionChrome(to: nextHoveredNode)
+        guard sourceCleanup?.isCurrent != false, previousAttachment?.isCurrent != false,
+            nextAttachment?.isCurrent != false, sourceCleanup == nil || hoverMutationIdentity === installedHover,
+            sourceCleanup?.permitsTarget(previousNode) != false, sourceCleanup?.permitsTarget(nextHoveredNode) != false
+        else { return }
+        applyInteractionChrome(to: previousNode, sourceCleanup: sourceCleanup)
+        applyInteractionChrome(to: nextHoveredNode, sourceCleanup: sourceCleanup)
     }
 
     // MARK: - Interaction chrome
@@ -19847,13 +20209,32 @@ public final class RetainedViewRuntime {
     /// chrome being re-applied was already on screen a frame ago, so it snaps
     /// back instead of replaying the ramp the pointer earned when it arrived.
     func applyInteractionChrome(to node: ViewNode?, animated: Bool = true, at timestamp: Double? = nil) {
+        applyInteractionChrome(to: node, animated: animated, at: timestamp, sourceCleanup: nil)
+    }
+
+    private func applyInteractionChrome(
+        to node: ViewNode?, animated: Bool = true, at timestamp: Double? = nil,
+        sourceCleanup: ButtonActionSourceInteraction?
+    ) {
+        guard sourceCleanup?.isCurrent != false, sourceCleanup?.permitsTarget(node) != false else { return }
         guard let node, let surface = node.interactionSurface else {
             return
         }
 
         let phase = interactionPhase(for: node)
         let duration = animated ? surface.duration(intoPhase: phase) : 0
+        let attachment = sourceCleanup?.attachment(of: node)
+        let originalHover = hoverMutationIdentity
+        let originalPointer = pointerSequence
+        let originalFocus = presentationFocusRevision
+        guard attachment?.isCurrent != false else { return }
         let timestamp = timestamp ?? clock()
+        guard sourceCleanup?.isCurrent != false, attachment?.isCurrent != false,
+            sourceCleanup?.permitsTarget(node) != false,
+            sourceCleanup == nil
+                || (hoverMutationIdentity === originalHover && pointerSequence == originalPointer
+                    && presentationFocusRevision == originalFocus)
+        else { return }
 
         func applyColor(_ property: AnimatedColorProperty, to color: Color) {
             if !animated, let running = colorAnimations[ColorAnimationKey(node: node, property: property)],
@@ -20005,8 +20386,22 @@ public final class RetainedViewRuntime {
             startValue: start, endValue: target, startTime: timestamp, duration: duration, easing: .easeOut)
     }
 
-    private func updateScrollIndicatorHover(to nextIndicatorHit: ScrollIndicatorHit?) {
+    private func updateScrollIndicatorHover(
+        to nextIndicatorHit: ScrollIndicatorHit?, sourceCleanup: ButtonActionSourceInteraction? = nil
+    ) {
+        guard sourceCleanup?.isCurrent != false else { return }
         let nextNode = nextIndicatorHit?.node
+        guard
+            sourceCleanup == nil
+                || sourceCleanup?.originalInteraction(in: self)?.indicatorIdentity
+                    === scrollIndicatorHoverMutationIdentity,
+            sourceCleanup?.permitsTarget(hoveredScrollIndicatorNode) != false,
+            sourceCleanup?.permitsTarget(nextNode) != false
+        else { return }
+        let originalHover = scrollIndicatorHoverMutationIdentity
+        let previousAttachment = sourceCleanup?.attachment(of: hoveredScrollIndicatorNode)
+        let nextAttachment = sourceCleanup?.attachment(of: nextNode)
+        guard previousAttachment?.isCurrent != false, nextAttachment?.isCurrent != false else { return }
         guard hoveredScrollIndicatorNode !== nextNode else {
             return
         }
@@ -20014,24 +20409,38 @@ public final class RetainedViewRuntime {
         if let previousNode = hoveredScrollIndicatorNode, previousNode !== activeScrollIndicatorNode {
             // An overlay scroller the pointer has left goes all the way out,
             // not back to a visible "idle" bar it never had.
+            let restingColor = previousNode.restingScrollIndicatorColor
+            let timestamp = clock()
+            guard sourceCleanup?.isCurrent != false, previousAttachment?.isCurrent != false,
+                nextAttachment?.isCurrent != false,
+                sourceCleanup == nil || scrollIndicatorHoverMutationIdentity === originalHover,
+                sourceCleanup?.permitsTarget(previousNode) != false, sourceCleanup?.permitsTarget(nextNode) != false
+            else { return }
             animateColor(
                 .scrollIndicator,
                 of: previousNode,
-                to: previousNode.restingScrollIndicatorColor,
+                to: restingColor,
                 duration: 0.12,
-                at: clock()
+                at: timestamp
             )
         }
 
         hoveredScrollIndicatorNode = nextNode
+        let installedHover = scrollIndicatorHoverMutationIdentity
 
         if let nextNode, nextNode !== activeScrollIndicatorNode {
+            let hoverColor = nextNode.scrollIndicatorHoverColor
+            let timestamp = clock()
+            guard sourceCleanup?.isCurrent != false, nextAttachment?.isCurrent != false,
+                sourceCleanup == nil || scrollIndicatorHoverMutationIdentity === installedHover,
+                sourceCleanup?.permitsTarget(nextNode) != false
+            else { return }
             animateColor(
                 .scrollIndicator,
                 of: nextNode,
-                to: nextNode.scrollIndicatorHoverColor,
+                to: hoverColor,
                 duration: 0.12,
-                at: clock()
+                at: timestamp
             )
         }
     }
@@ -20774,6 +21183,152 @@ public struct PropertySnapshot {
     }
 }
 
+/// A mounted source transfer has already claimed an old removal when the
+/// destination's Button admission may expire. These original native entries
+/// keep that cleanup separate from permission to insert. They never acquire
+/// a replacement child, controller, or physical attachment after a callback.
+@MainActor
+final class ButtonActionSourceDeparture {
+    @MainActor
+    final class Entry {
+        let node: ViewNode
+        let children: [ViewNode]
+        let runtime: RetainedViewRuntime?
+        let controller: (any RetainedTextInputController)?
+        let observerStorage: RetainedScrollObserverStorage?
+        let adapter: RetainedLazyListRuntimeAdapter?
+        let taskState: RetainedTaskNodeState?
+        let dismantle: ((ViewNode) -> Void)?
+        let hadAppeared: Bool
+        let disappear: (() -> Void)?
+        let disappearWithNode: ((ViewNode) -> Void)?
+        var attachment: RetainedLazyListAttachmentProof
+        weak var parent: Entry?
+
+        init(_ node: ViewNode) {
+            self.node = node
+            children = node.children
+            runtime = node.runtime
+            controller = node.textInputController
+            observerStorage = node.scrollObserverStorage
+            adapter = node.retainedLazyListAdapter
+            taskState = node.existingRetainedTaskState
+            dismantle = node.onDismantlePlatformView
+            hadAppeared = node.hasAppeared
+            disappear = node.hasAppeared ? node.onDisappear : nil
+            disappearWithNode = node.hasAppeared ? node.onDisappearWithNode : nil
+            attachment = node.captureLazyListAttachmentProof()
+        }
+    }
+
+    let root: Entry
+    private let entries: [ObjectIdentifier: Entry]
+    private let runtimeInteractions: [ObjectIdentifier: ButtonActionSourceRuntimeInteraction]
+    private let buttonActions: RetainedButtonActionAdoption
+
+    init(root: ViewNode, buttonActions: RetainedButtonActionAdoption) {
+        let nodes = RetainedButtonActionTree.nodes(in: [root])
+        let entries = Dictionary(uniqueKeysWithValues: nodes.map { (ObjectIdentifier($0), Entry($0)) })
+        self.entries = entries
+        self.root = entries[ObjectIdentifier(root)]!
+        self.buttonActions = buttonActions
+        var runtimeInteractions: [ObjectIdentifier: ButtonActionSourceRuntimeInteraction] = [:]
+        for entry in entries.values where entry.node !== root {
+            if let parent = entry.node.parent { entry.parent = entries[ObjectIdentifier(parent)] }
+        }
+        for entry in entries.values {
+            if let runtime = entry.runtime, runtimeInteractions[ObjectIdentifier(runtime)] == nil {
+                runtimeInteractions[ObjectIdentifier(runtime)] = runtime.captureButtonActionSourceInteraction()
+            }
+        }
+        self.runtimeInteractions = runtimeInteractions
+    }
+
+    func entry(for node: ViewNode) -> Entry? { entries[ObjectIdentifier(node)] }
+
+    fileprivate func interaction(in runtime: RetainedViewRuntime) -> ButtonActionSourceRuntimeInteraction? {
+        runtimeInteractions[ObjectIdentifier(runtime)]
+    }
+
+    func observe() { buttonActions.observeDepartureContinuation() }
+
+    func owns(_ node: ViewNode) -> Bool {
+        observe()
+        var entry = entries[ObjectIdentifier(node)]
+        var visited = Set<ObjectIdentifier>()
+        while let current = entry {
+            guard visited.insert(ObjectIdentifier(current)).inserted, current.attachment.isCurrent else { return false }
+            if current === root { return true }
+            entry = current.parent
+        }
+        return false
+    }
+
+    /// Called only beside an exact native write whose original entry was
+    /// still owned immediately before it. No callback may precede this update.
+    func recordAttachmentWrite(on node: ViewNode) {
+        guard let entry = entries[ObjectIdentifier(node)] else { return }
+        entry.attachment = node.captureLazyListAttachmentProof()
+        buttonActions.recordAttachmentWrite(on: node)
+    }
+}
+
+/// Slot writes, including an away-and-back hover, supersede an older cleanup
+/// continuation without relying on wrapping generation counters.
+fileprivate final class ButtonActionInteractionMutationIdentity {}
+
+/// The runtime's original interaction slots and targets, captured before the
+/// source's first departure callback. No authored payload is stored here.
+@MainActor
+fileprivate struct ButtonActionSourceRuntimeInteraction {
+    let pointerSequence: UInt64
+    let hoverIdentity: ButtonActionInteractionMutationIdentity
+    let indicatorIdentity: ButtonActionInteractionMutationIdentity
+    private let attachments: [ObjectIdentifier: RetainedLazyListAttachmentProof]
+
+    init(
+        pointerSequence: UInt64, hoverIdentity: ButtonActionInteractionMutationIdentity,
+        indicatorIdentity: ButtonActionInteractionMutationIdentity, targets: [ViewNode]
+    ) {
+        self.pointerSequence = pointerSequence
+        self.hoverIdentity = hoverIdentity
+        self.indicatorIdentity = indicatorIdentity
+        var attachments: [ObjectIdentifier: RetainedLazyListAttachmentProof] = [:]
+        for node in targets { attachments[ObjectIdentifier(node)] = node.captureLazyListAttachmentProof() }
+        self.attachments = attachments
+    }
+
+    func attachment(of node: ViewNode) -> RetainedLazyListAttachmentProof? { attachments[ObjectIdentifier(node)] }
+}
+
+/// A concrete source-cleanup receipt, not a callback that can acquire fresh
+/// authority. Inner interaction helpers must recheck it after authored exits
+/// and clocks before their trailing node or runtime writes.
+@MainActor
+fileprivate struct ButtonActionSourceInteraction {
+    let departure: ButtonActionSourceDeparture
+    let node: ViewNode
+
+    var isCurrent: Bool { departure.owns(node) }
+
+    func originalInteraction(in runtime: RetainedViewRuntime) -> ButtonActionSourceRuntimeInteraction? {
+        departure.interaction(in: runtime)
+    }
+
+    func attachment(of node: ViewNode?) -> RetainedLazyListAttachmentProof? {
+        guard let node else { return nil }
+        if let entry = departure.entry(for: node) { return entry.attachment }
+        guard let runtime = departure.entry(for: self.node)?.runtime else { return nil }
+        return departure.interaction(in: runtime)?.attachment(of: node)
+    }
+
+    func permitsTarget(_ node: ViewNode?) -> Bool {
+        guard let node else { return true }
+        if departure.entry(for: node) != nil { return departure.owns(node) }
+        return attachment(of: node)?.isCurrent == true
+    }
+}
+
 @MainActor
 private struct LazyListAttachmentEntry {
     let node: ViewNode
@@ -20956,7 +21511,7 @@ extension ViewNode {
     private func prepareLazyListRemovalPaint(
         roots: [ViewNode], admission: RetainedLazyListAdoptionAdmission?,
         removalReason: RetainedChildRemovalReason, lazyJournal: RetainedLazyListAdoptionJournal?,
-        sourceParent: ViewNode?, proposedChildren: [ViewNode]
+        sourceParent: ViewNode?, proposedChildren: [ViewNode], buttonActions: RetainedButtonActionAdoption? = nil
     ) -> [RetainedLazyListRemovalPaint]? {
         let transitioning = roots.filter { root in
             let reason: RetainedChildRemovalReason
@@ -20971,7 +21526,8 @@ extension ViewNode {
         guard lazyJournal?.isOrdinaryAdoption == false, transitioning.allSatisfy(\.hasManagedLazyListPaintAncestry),
             let nativeCheck = ComponentHost.makeRemovalTransitionCheck(
                 admission: admission, target: self, parent: self,
-                sourceParent: sourceParent, proposedChildren: proposedChildren, lazyJournal: lazyJournal),
+                sourceParent: sourceParent, proposedChildren: proposedChildren, lazyJournal: lazyJournal,
+                buttonActions: buttonActions),
             let check = RetainedRemovalTransitionAdmission(
                 nativeCheck: nativeCheck,
                 departingRoots: roots)
@@ -21069,9 +21625,10 @@ extension ViewNode {
         lazyJournal: RetainedLazyListAdoptionJournal? = nil,
         taskAdoption: RetainedTaskAdoptionContext? = nil,
         sourceParent: ViewNode? = nil,
-        completionSources: RetainedReconciliationSourceNodes? = nil
+        completionSources: RetainedReconciliationSourceNodes? = nil,
+        buttonActions: RetainedButtonActionAdoption? = nil
     ) -> RetainedLazyListAdoptionResult {
-        guard !isRetiringLazyListAttachment,
+        guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false,
             lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false
         else {
             return RetainedLazyListAdoptionResult(completed: false, didMutate: false, children: children)
@@ -21080,9 +21637,10 @@ extension ViewNode {
             let changed = !isChildListUnchanged(nextChildren)
             setChildrenUnchecked(
                 nextChildren, lazyJournal: lazyJournal, taskAdoption: taskAdoption, sourceParent: sourceParent,
-                completionSources: completionSources)
+                completionSources: completionSources, buttonActions: buttonActions)
             return RetainedLazyListAdoptionResult(
-                completed: isChildListUnchanged(nextChildren), didMutate: changed, children: children)
+                completed: isChildListUnchanged(nextChildren) && buttonActions?.isCurrent != false,
+                didMutate: changed, children: children)
         }
         guard admission?.permitsMutation(of: self) != false else {
             return lazyListChildResult(false, admission: admission, lazyJournal: lazyJournal)
@@ -21094,13 +21652,14 @@ extension ViewNode {
         let completion = setChildrenChecked(
             nextChildren, admission: admission, parentAttachment: parentAttachment, parentIdentity: parentIdentity,
             removalReason: removalReason,
-            lazyJournal: lazyJournal, taskAdoption: taskAdoption, sourceParent: sourceParent)
+            lazyJournal: lazyJournal, taskAdoption: taskAdoption, sourceParent: sourceParent,
+            buttonActions: buttonActions)
         // Do not form the result in a return followed by a defer. Ending this
         // scope can drain callbacks that change both admission and children.
         interactionRuntime?.endLongPressReconciliation()
         return lazyListChildResult(
             completion?.isCurrent == true && parentAttachment.isCurrent && parentIdentity.isCurrent
-                && admission?.permitsMutation(of: self) != false,
+                && admission?.permitsMutation(of: self) != false && buttonActions?.isCurrent != false,
             admission: admission, lazyJournal: lazyJournal, completion: completion)
     }
 
@@ -21121,9 +21680,10 @@ extension ViewNode {
         parentAttachment: RetainedLazyListAttachmentProof, parentIdentity: RetainedLazyListViewIdentityProof,
         removalReason: RetainedChildRemovalReason,
         lazyJournal: RetainedLazyListAdoptionJournal?, taskAdoption: RetainedTaskAdoptionContext?,
-        sourceParent: ViewNode?
+        sourceParent: ViewNode?, buttonActions: RetainedButtonActionAdoption?
     ) -> RetainedLazyListAdoptionCompletion? {
-        guard admission?.isCurrent != false, parentAttachment.isCurrent && parentIdentity.isCurrent,
+        guard buttonActions?.isCurrent != false, admission?.isCurrent != false,
+            parentAttachment.isCurrent && parentIdentity.isCurrent,
             lazyJournal?.canContinueAdoption != false
         else {
             return nil
@@ -21170,7 +21730,8 @@ extension ViewNode {
                 guard lazyJournal?.prepareInsertedNode(from: node) != false else { return nil }
             }
         }
-        guard admission?.isCurrent != false, parentAttachment.isCurrent && parentIdentity.isCurrent,
+        guard buttonActions?.isCurrent != false, admission?.isCurrent != false,
+            parentAttachment.isCurrent && parentIdentity.isCurrent,
             lazyJournal?.canContinueAdoption != false,
             Self.sameLazyListChildren(oldChildren, children)
         else { return nil }
@@ -21178,8 +21739,9 @@ extension ViewNode {
         guard
             let removalPaint = prepareLazyListRemovalPaint(
                 roots: departing, admission: admission, removalReason: removalReason, lazyJournal: lazyJournal,
-                sourceParent: sourceParent, proposedChildren: nextChildren),
-            admission?.isCurrent != false, parentAttachment.isCurrent && parentIdentity.isCurrent,
+                sourceParent: sourceParent, proposedChildren: nextChildren, buttonActions: buttonActions),
+            buttonActions?.isCurrent != false, admission?.isCurrent != false,
+            parentAttachment.isCurrent && parentIdentity.isCurrent,
             lazyJournal?.canContinueAdoption != false,
             incoming.values.allSatisfy({ $0.allSatisfy(\.isCurrent) }),
             retainedEntries.allSatisfy(\.isCurrent), Self.sameLazyListChildren(oldChildren, children)
@@ -21200,24 +21762,28 @@ extension ViewNode {
                 departing, nodes: departingNodes, survivingChildren: expectedChildren, admission: admission,
                 removalReason: removalReason, lazyJournal: lazyJournal,
                 deferringOwnedDeparture: sourceParent != nil && !publishesFinalSurvivors,
-                sourceParent: publishesFinalSurvivors ? sourceParent : nil, removalPaint: removalPaint)
+                sourceParent: publishesFinalSurvivors ? sourceParent : nil, removalPaint: removalPaint,
+                buttonActions: buttonActions)
         } else if !Self.sameLazyListChildren(expectedChildren, children) {
             guard lazyJournal?.markMutationStarted() != false else { return nil }
             admission?.markMutationStarted()
             children = expectedChildren
+            guard buttonActions?.recordChildrenWrite(on: self) != false else { return nil }
             if publishesFinalSurvivors, let sourceParent {
                 lazyJournal?.recordAcceptedOwnedStructuralDeclaration(from: sourceParent, to: self)
             }
             invalidateRuntime(.children)
         }
-        guard admission?.isCurrent != false, parentAttachment.isCurrent && parentIdentity.isCurrent,
+        guard buttonActions?.isCurrent != false, admission?.isCurrent != false,
+            parentAttachment.isCurrent && parentIdentity.isCurrent,
             lazyJournal?.canContinueAdoption != false,
             retainedEntries.allSatisfy(\.isCurrent),
             Self.sameLazyListChildren(expectedChildren, children)
         else { return nil }
 
         for (destinationIndex, child) in nextChildren.enumerated() {
-            guard admission?.isCurrent != false, parentAttachment.isCurrent && parentIdentity.isCurrent,
+            guard buttonActions?.isCurrent != false, admission?.isCurrent != false,
+                parentAttachment.isCurrent && parentIdentity.isCurrent,
                 lazyJournal?.canContinueAdoption != false,
                 retainedEntries.allSatisfy(\.isCurrent),
                 Self.sameLazyListChildren(expectedChildren, children)
@@ -21229,6 +21795,7 @@ extension ViewNode {
             guard var entries = incoming[ObjectIdentifier(child)], entries.allSatisfy(\.isCurrent) else {
                 return nil
             }
+            guard buttonActions?.beginInsertion(in: [child]) != false else { return nil }
             // Transfer out of a still-current temporary construction parent.
             // No runtime or appearance ownership can exist in this branch.
             if let temporaryParent = child.parent {
@@ -21240,12 +21807,15 @@ extension ViewNode {
                 temporaryParent.children.remove(at: index)
                 child.revokeLazyListAttachmentProofs()
                 child.parent = nil
+                guard buttonActions?.recordAttachmentWrite(on: child, afterChildrenWriteOf: temporaryParent) != false
+                else { return nil }
                 temporaryParent.invalidateRuntime(.children)
                 entries[0].attachment = child.captureLazyListAttachmentProof()
                 // This matches the existing move out of a temporary parent:
                 // dismantling may call application code even with runtime nil.
                 child.onDismantlePlatformView?(child)
-                guard admission?.isCurrent != false, parentAttachment.isCurrent && parentIdentity.isCurrent,
+                guard buttonActions?.isCurrent != false, admission?.isCurrent != false,
+                    parentAttachment.isCurrent && parentIdentity.isCurrent,
                     lazyJournal?.canContinueAdoption != false,
                     entries.allSatisfy(\.isCurrent),
                     retainedEntries.allSatisfy(\.isCurrent),
@@ -21265,6 +21835,9 @@ extension ViewNode {
             child.parent = self
             expectedChildren = publishedChildren
             children = expectedChildren
+            guard buttonActions?.recordAttachmentWrite(on: child, afterChildrenWriteOf: self) != false else {
+                return nil
+            }
             if publishesFinalChildren, let sourceParent {
                 lazyJournal?.recordAcceptedOwnedStructuralDeclaration(from: sourceParent, to: self)
             }
@@ -21287,8 +21860,9 @@ extension ViewNode {
             guard
                 let attachedEntries = child.attachLazyListCandidate(
                     entries: entries, to: runtime, published: published, admission: admission,
-                    lazyJournal: lazyJournal, taskAdoption: taskAdoption),
-                admission?.isCurrent != false, parentAttachment.isCurrent && parentIdentity.isCurrent,
+                    lazyJournal: lazyJournal, taskAdoption: taskAdoption, buttonActions: buttonActions),
+                buttonActions?.isCurrent != false, admission?.isCurrent != false,
+                parentAttachment.isCurrent && parentIdentity.isCurrent,
                 lazyJournal?.canContinueAdoption != false,
                 retainedEntries.allSatisfy(\.isCurrent),
                 Self.sameLazyListChildren(expectedChildren, children)
@@ -21298,7 +21872,8 @@ extension ViewNode {
             // cumulative set as the rows that survived this reconciliation.
             retainedEntries.append(contentsOf: attachedEntries)
         }
-        guard admission?.isCurrent != false, parentAttachment.isCurrent && parentIdentity.isCurrent,
+        guard buttonActions?.isCurrent != false, admission?.isCurrent != false,
+            parentAttachment.isCurrent && parentIdentity.isCurrent,
             lazyJournal?.canContinueAdoption != false,
             retainedEntries.allSatisfy(\.isCurrent),
             isChildListUnchanged(nextChildren)
@@ -21313,8 +21888,11 @@ extension ViewNode {
         admission: RetainedLazyListAdoptionAdmission?, removalReason: RetainedChildRemovalReason,
         lazyJournal: RetainedLazyListAdoptionJournal?,
         deferringOwnedDeparture: Bool,
-        sourceParent: ViewNode?, removalPaint: [RetainedLazyListRemovalPaint]
+        sourceParent: ViewNode?, removalPaint: [RetainedLazyListRemovalPaint],
+        buttonActions: RetainedButtonActionAdoption? = nil
     ) -> [ObjectIdentifier: RetainedLazyListDepartureCause] {
+        guard buttonActions?.beginDeparture(in: roots) != false else { return [:] }
+        let buttonRetirement = RetainedButtonActionRetirement(in: roots, includingPending: true)
         let interactionRuntime = runtime
         let groupTaskCleanup = Self.claimLazyGroupTaskDepartures(in: roots)
         if let lazyJournal {
@@ -21372,7 +21950,9 @@ extension ViewNode {
             interactionRuntime: interactionRuntime, admission: admission,
             scopedTaskCleanup: scopedTaskCleanup, groupTaskCleanup: groupTaskCleanup,
             lazyJournal: lazyJournal, sourceParent: sourceParent,
-            departureCauses: departureCauses, deferringOwnedDeparture: deferringOwnedDeparture)
+            departureCauses: departureCauses, deferringOwnedDeparture: deferringOwnedDeparture,
+            buttonActions: buttonActions)
+        buttonRetirement.finish()
         if let interactionRuntime {
             // Long-press terminal callbacks use the existing reconciliation
             // queue. Their captured cleanup must run before reattachment is
@@ -21393,10 +21973,14 @@ extension ViewNode {
         scopedTaskCleanup: [RetainedLazyListAcceptedTaskCleanup],
         groupTaskCleanup: [RetainedLazyListAcceptedTaskCleanup],
         lazyJournal: RetainedLazyListAdoptionJournal?, sourceParent: ViewNode?,
-        departureCauses: [ObjectIdentifier: RetainedLazyListDepartureCause], deferringOwnedDeparture: Bool
+        departureCauses: [ObjectIdentifier: RetainedLazyListDepartureCause], deferringOwnedDeparture: Bool,
+        buttonActions: RetainedButtonActionAdoption? = nil
     ) {
         let captured = nodes.map(LazyListRetiredNode.init)
         children = survivingChildren
+        // No receipt failure can skip the already-claimed retirement below.
+        // It only prevents the caller from adopting additional declarations.
+        buttonActions?.recordChildrenWrite(on: self)
         if let sourceParent {
             lazyJournal?.recordAcceptedOwnedStructuralDeclaration(from: sourceParent, to: self)
         }
@@ -21461,15 +22045,18 @@ extension ViewNode {
         entries originalEntries: [LazyListAttachmentEntry], to nextRuntime: RetainedViewRuntime?,
         published: LazyListPublishedChildrenProof,
         admission: RetainedLazyListAdoptionAdmission?,
-        lazyJournal: RetainedLazyListAdoptionJournal?, taskAdoption: RetainedTaskAdoptionContext?
+        lazyJournal: RetainedLazyListAdoptionJournal?, taskAdoption: RetainedTaskAdoptionContext?,
+        buttonActions: RetainedButtonActionAdoption?
     ) -> [LazyListAttachmentEntry]? {
         var entries = originalEntries
-        guard admission?.isCurrent != false, published.isCurrent, lazyJournal?.canContinueAdoption != false,
+        guard buttonActions?.isCurrent != false,
+            admission?.isCurrent != false, published.isCurrent, lazyJournal?.canContinueAdoption != false,
             entries.allSatisfy(\.isCurrent),
             entries.allSatisfy({ !$0.node.isRetiringLazyListAttachment && $0.node.runtime == nil }),
             nextRuntime?.permitsRetainedActionInvocation != false
         else { return nil }
         for entry in entries {
+            guard buttonActions?.isCurrent != false else { return nil }
             let node = entry.node
             if nextRuntime != nil {
                 node.storedAccessibilityAttachmentIdentity = nil
@@ -21479,7 +22066,9 @@ extension ViewNode {
                 node.fileDialogPresenterIsDeparting = false
                 node.fileDialogPreparedRevocations = 0
             }
+            node.buttonActionOwner?.runtimeWillChange(from: node.runtime, to: nextRuntime)
             node.runtime = nextRuntime
+            guard buttonActions?.recordAttachmentWrite(on: node) != false else { return nil }
             if !node.animationStates.isEmpty { nextRuntime?.registerAnimatingNode(node) }
             if entry.observerStorage != nil { nextRuntime?.registerScrollObservationNode(node) }
             if entry.adapter != nil { nextRuntime?.registerLazyListContainer(node) }
@@ -21489,6 +22078,7 @@ extension ViewNode {
         for index in entries.indices {
             entries[index].attachment = entries[index].node.captureLazyListAttachmentProof()
         }
+        guard buttonActions?.recordInsertion(in: entries.map(\.node)) != false else { return nil }
         // All native parent/runtime writes have landed, and no controller has
         // run. Publish insertion acceptance at this boundary, never by scanning
         // the final children after an attachment callback has released captures.
@@ -21515,7 +22105,8 @@ extension ViewNode {
             for entry in entries { entry.node.listNavigationOwner?.didAttach(to: nextRuntime) }
         }
         for entry in entries {
-            guard admission?.isCurrent != false, published.isCurrent, lazyJournal?.canContinueAdoption != false,
+            guard buttonActions?.isCurrent != false, admission?.isCurrent != false, published.isCurrent,
+                lazyJournal?.canContinueAdoption != false,
                 entries.allSatisfy(\.isCurrent),
                 nextRuntime?.permitsRetainedActionInvocation != false,
                 entry.node.textInputController === entry.controller,
@@ -21526,14 +22117,16 @@ extension ViewNode {
                 return nil
             }
             if nextRuntime != nil { entry.controller?.attach(to: entry.node) }
-            guard admission?.isCurrent != false, published.isCurrent, lazyJournal?.canContinueAdoption != false,
+            guard buttonActions?.isCurrent != false, admission?.isCurrent != false, published.isCurrent,
+                lazyJournal?.canContinueAdoption != false,
                 entries.allSatisfy(\.isCurrent),
                 entry.node.textInputController === entry.controller
             else { return nil }
         }
         if let lazyJournal {
             for entry in entries {
-                guard admission?.isCurrent != false, published.isCurrent, lazyJournal.canContinueAdoption,
+                guard buttonActions?.isCurrent != false, admission?.isCurrent != false, published.isCurrent,
+                    lazyJournal.canContinueAdoption,
                     entries.allSatisfy(\.isCurrent)
                 else { return nil }
                 let accepted = lazyJournal.recordCompletedNode(from: entry.node, to: entry.node)
@@ -21546,7 +22139,8 @@ extension ViewNode {
                 admission?.recordCompletedOwnedSource(from: entry.node, to: entry.node, journal: lazyJournal)
             }
         }
-        return admission?.isCurrent != false && lazyJournal?.canContinueAdoption != false
+        return buttonActions?.isCurrent != false
+            && admission?.isCurrent != false && lazyJournal?.canContinueAdoption != false
             && published.isCurrent && entries.allSatisfy(\.isCurrent) ? entries : nil
     }
 }

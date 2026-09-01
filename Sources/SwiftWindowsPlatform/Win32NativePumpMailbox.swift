@@ -236,6 +236,10 @@ final class Win32NativePumpMailbox: Sendable {
         // operation. No queued budget remains reserved and no failure path
         // completes it. N retires it at its next serial dequeue, or join.
         var executingReply: OwnedReply?
+        // Passive state used only by the explicitly observed fixture owner.
+        // The retained reply identity above is not an execution-state flag.
+        var observedNativeTurnActive = false
+        var observedNativeWorkInFlight = false
         var wakeToken: Foundation.UUID?
         var starts: [NativeWindowReply<Void>] = []
         var stop: StopReservation?
@@ -323,10 +327,12 @@ final class Win32NativePumpMailbox: Sendable {
     private let limits: Limits
     private let postWake: @Sendable (UInt) -> Result<Void, NativeWindowOwnerFailure>
     private let state: Mutex<State>
+    let smokeObservation: Win32NativeSmokeObservation?
 
     /// The injected poster and smaller limits are internal test seams. The
     /// production pump uses these same paths with the public Win32 post API.
     init(
+        observation: Win32NativeSmokeObservation? = nil,
         limits: Limits = Limits(),
         post: @escaping @Sendable (UInt) -> Result<Void, NativeWindowOwnerFailure> = {
             handle in
@@ -336,6 +342,7 @@ final class Win32NativePumpMailbox: Sendable {
         }
     ) {
         self.limits = limits
+        smokeObservation = observation
         postWake = post
         state = Mutex(State(commandLimit: limits.commands))
     }
@@ -350,6 +357,47 @@ final class Win32NativePumpMailbox: Sendable {
                 reservedCloses: stored.closes.count, startWaiters: stored.starts.count,
                 stopWaiters: stored.stop?.replies.count ?? 0, hasStopReservation: stored.stop != nil)
         }
+    }
+
+    var smokeQueueSnapshot: Win32NativeSmokePumpSnapshot {
+        state.withLock { stored in
+            Win32NativeSmokePumpSnapshot(
+                queuedWork: stored.queue.count, queuedCommands: stored.queuedCommands,
+                queuedCloseRequests: stored.queuedControlCount(.closeRequest),
+                queuedDeferredCloseWakes: stored.queuedControlCount(.deferredCloseWake),
+                storageCapacity: stored.queue.capacity, ownedWindows: stored.ownedWindows.count,
+                reservedCloses: stored.closes.count, startWaiters: stored.starts.count,
+                stopWaiters: stored.stop?.replies.count ?? 0, hasStopReservation: stored.stop != nil,
+                observationEnabled: smokeObservation != nil,
+                nativeTurnActive: stored.observedNativeTurnActive,
+                nativeWorkInFlight: stored.observedNativeWorkInFlight,
+                hasExecutingReplyPin: stored.executingReply != nil)
+        }
+    }
+
+    func observeNativeTurn(active: Bool) {
+        guard smokeObservation != nil else { return }
+        state.withLock { $0.observedNativeTurnActive = active }
+    }
+
+    func observeNativeWork(inFlight: Bool) {
+        guard smokeObservation != nil else { return }
+        state.withLock { $0.observedNativeWorkInFlight = inFlight }
+    }
+
+    /// reason: 0 = submitted work, 1 = owner/drain notification, 2 = stop.
+    /// The native poster is called once, with its original argument/result.
+    private func postObservedWake(_ route: WakeRoute, reason: UInt64) -> Result<Void, NativeWindowOwnerFailure> {
+        smokeObservation?.record(.nativeWakePostAttempt, auxiliary: reason)
+        let result = postWake(route.handle)
+        switch result {
+        case .success:
+            smokeObservation?.record(.nativeWakePostSucceeded, auxiliary: reason)
+        case .failure(let failure):
+            smokeObservation?.record(
+                .nativeWakePostFailed, value: win32NativeSmokeFailureValue(failure), auxiliary: reason)
+        }
+        return result
     }
 
     func requestStart(_ reply: NativeWindowReply<Void>) -> Bool {
@@ -561,7 +609,7 @@ final class Win32NativePumpMailbox: Sendable {
             return .rejected(failure)
         }
         guard let route = decision.route else { return .accepted }
-        switch postWake(route.handle) {
+        switch postObservedWake(route, reason: 0) {
         case .success:
             return .accepted
         case .failure(let failure):
@@ -589,7 +637,7 @@ final class Win32NativePumpMailbox: Sendable {
         case .success(let destination):
             // A drain notification must still post when ordinary work owns
             // a wake. A failed old post may reject only its own wake epoch.
-            let result = postWake(destination.handle)
+            let result = postObservedWake(destination, reason: 1)
             if case .failure(let failure) = result { _ = failWake(token: destination.token, failure: failure) }
             return result
         }
@@ -619,13 +667,16 @@ final class Win32NativePumpMailbox: Sendable {
     }
 
     func takeNext() -> Win32NativePumpWork? {
-        let taken = state.withLock { stored -> (Win32NativePumpWork?, OwnedReply?) in
+        let taken = state.withLock {
+            stored -> (Win32NativePumpWork?, OwnedReply?, NativeWindowKey?, NativeWindowRequestID?, Int64?, UInt64) in
             // N calls takeNext only after the preceding synchronous command
             // returned. Transfer this last pin outside the lock before ARC
             // can release any callback captures retained by its reply cell.
             let previousIdentity = stored.executingReply
             stored.executingReply = nil
-            guard let item = stored.queue.takeNext() else { return (nil, previousIdentity) }
+            guard let item = stored.queue.takeNext() else { return (nil, previousIdentity, nil, nil, nil, 0) }
+            let windowKey: NativeWindowKey?
+            let workKind: Int64
             switch item.work {
             case .create, .command:
                 if let control = item.control {
@@ -634,13 +685,31 @@ final class Win32NativePumpMailbox: Sendable {
                     stored.queuedCommands -= 1
                 }
                 stored.executingReply = item.ownedReply
-            case .close:
-                break
+                if case .create(let creation) = item.work {
+                    windowKey = creation.key
+                    workKind = 0
+                } else {
+                    windowKey = item.control?.windowKey
+                    workKind = 1
+                }
+            case .close(let request):
+                windowKey = request.key
+                workKind = 2
             case .stop:
                 precondition(stored.stop?.id == item.id)
                 stored.stop?.stage = .dequeued
+                windowKey = nil
+                workKind = 3
             }
-            return (item.work, previousIdentity)
+            return (
+                item.work, previousIdentity, windowKey, item.ownedReply?.requestID, workKind,
+                UInt64(stored.queue.count)
+            )
+        }
+        if let workKind = taken.4 {
+            smokeObservation?.record(
+                .nativeWorkDequeued, windowKey: taken.2, requestID: taken.3,
+                queueDepth: taken.5, value: workKind)
         }
         withExtendedLifetime(taken.1) {}
         return taken.0
@@ -703,7 +772,7 @@ final class Win32NativePumpMailbox: Sendable {
                 return (nil, stored.reserveWake(handle: handle))
             }
         decision.delivery?.deliver()
-        if let route = decision.route, case .failure(let failure) = postWake(route.handle) {
+        if let route = decision.route, case .failure(let failure) = postObservedWake(route, reason: 2) {
             _ = failWake(token: route.token, failure: failure)
         }
     }

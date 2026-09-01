@@ -1,5 +1,6 @@
 import SwiftWindowsCore
 import SwiftWindowsGraphics
+import SwiftWindowsPlatform
 
 /// Serializes the host's native presentation requests without blocking the UI
 /// actor. A request is removed only when its real native reply arrives; neither
@@ -13,12 +14,14 @@ final class NativeHostPresentationQueue {
         let surface: NativeWindowSurface
         let expectedGeneration: UInt64?
         let operation: NativePresentationOperation
+        let smokeTag: NativeOwnedSmokeFrameTag?
         let completion: Completion
     }
 
     private let sink: any NativeWindowCommandSink
     private let attachmentID: NativeWindowAttachmentID
     private let teardownStore: NativePresentationTeardownStore
+    private let smokeObservation: Win32NativeSmokeObservation?
     private var pending: [Pending] = []
     private var executing: Pending?
     private var acceptsRequests = true
@@ -28,16 +31,19 @@ final class NativeHostPresentationQueue {
 
     init(
         sink: any NativeWindowCommandSink, attachmentID: NativeWindowAttachmentID,
-        teardownStore: NativePresentationTeardownStore
+        teardownStore: NativePresentationTeardownStore,
+        smokeObservation: Win32NativeSmokeObservation? = nil
     ) {
         self.sink = sink
         self.attachmentID = attachmentID
         self.teardownStore = teardownStore
+        self.smokeObservation = smokeObservation
     }
 
     func submit(
         _ operation: NativePresentationOperation, surface: NativeWindowSurface,
-        requiresSurfaceGeneration: Bool = true, completion: @escaping Completion
+        requiresSurfaceGeneration: Bool = true, smokeTag: NativeOwnedSmokeFrameTag? = nil,
+        completion: @escaping Completion
     ) {
         guard acceptsRequests else {
             completion(.failure(.closing))
@@ -47,11 +53,16 @@ final class NativeHostPresentationQueue {
             Pending(
                 id: NativeWindowRequestID(), surface: surface,
                 expectedGeneration: requiresSurfaceGeneration ? surface.generation : nil,
-                operation: operation, completion: completion
+                operation: operation, smokeTag: smokeTag, completion: completion
             )
         )
         advance()
     }
+
+    /// A passive actor observation. It does not register a drain callback or
+    /// advance presentation; a claimed native reply is still outstanding here
+    /// until the existing completion task consumes it.
+    var smokeOutstandingRequestCount: Int { pending.count + (executing == nil ? 0 : 1) }
 
     /// Pending work has never reached the owner and can be rejected now. The
     /// executing request keeps its completion until the native operation has
@@ -88,7 +99,18 @@ final class NativeHostPresentationQueue {
         guard acceptsRequests, !isDeliveringCompletion, executing == nil, !pending.isEmpty else { return }
         let request = pending.removeFirst()
         executing = request
+        let smokeObservation = self.smokeObservation
+        if let tag = request.smokeTag {
+            smokeObservation?.record(
+                .framePrepared, windowKey: request.surface.key, requestID: request.id,
+                attachmentID: attachmentID,
+                generation: request.surface.generation, nativeSequence: request.surface.geometry.nativeSequence,
+                revision: tag.contentRevision, auxiliary: tag.phase)
+        }
         let reply = NativeWindowReply<NativePresentationReceipt> { [self] result in
+            recordNativeOwnedSmokeFrameReply(
+                smokeObservation, kind: .frameReplyReceived, requestID: request.id,
+                surface: request.surface, tag: request.smokeTag, result: result)
             Task { @MainActor in
                 complete(requestID: request.id, result: result)
             }
@@ -125,6 +147,9 @@ final class NativeHostPresentationQueue {
         } else {
             validated = result
         }
+        recordNativeOwnedSmokeFrameReply(
+            smokeObservation, kind: .frameReplyConsumed, requestID: request.id,
+            surface: request.surface, tag: request.smokeTag, result: validated)
         request.completion(validated)
         isDeliveringCompletion = false
         advance()

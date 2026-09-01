@@ -250,6 +250,35 @@ void *SWU_UIACreateElementProvider(const SWUUIACallbacks *callbacks, void *hwnd,
 void SWU_UIAAddRefProvider(void *provider);
 void SWU_UIAReleaseProvider(void *provider);
 
+// Fixed native qualification seam: arm once on a concrete provider created
+// with explicit calls. The next control-type property method takes the gate
+// before callbacks, then waits only after its final callback and successful
+// native value preparation, while its real full-method lease remains alive.
+// Other properties/providers and nested control-type queries are unaffected.
+// A failed callback does not enter the gate. No hook or actor work runs here.
+// The caller owns the returned reference; the provider/method owns another.
+// Dropping the controller reference does not open the gate. The controller
+// must run independently of the actor/native owner and always open or time out.
+// Timeouts must be finite, in 1...30000 ms. Invalid timeouts/legacy contexts
+// return E_INVALIDARG; a second arm returns UIA_E_INVALIDOPERATION. A revoked
+// owner returns UIA_E_ELEMENTNOTAVAILABLE. Failed arms leave the output null.
+typedef struct SWUUIAPublicationGate SWUUIAPublicationGate;
+int32_t SWU_UIAProviderArmControlTypePublicationGate(
+    void *provider, uint32_t holdTimeoutMilliseconds, SWUUIAPublicationGate **result);
+void SWU_UIARetainPublicationGate(SWUUIAPublicationGate *gate);
+void SWU_UIAReleasePublicationGate(SWUUIAPublicationGate *gate);
+// S_OK means the final publication point was reached, not query success. The
+// captured thread must match the fixture's intended worker; an unrelated next
+// control-type caller can otherwise claim the per-provider gate.
+int32_t SWU_UIAPublicationGateWaitUntilEntered(SWUUIAPublicationGate *gate, uint32_t timeoutMilliseconds);
+// Zero before entry; otherwise the actual native method's GetCurrentThreadId.
+uint32_t SWU_UIAPublicationGateEnteredThreadID(SWUUIAPublicationGate *gate);
+// Early/repeated opens are valid. S_OK reports the release signal only. The
+// query rechecks its owner/call status after release and clears output on any
+// failure. Revocation and recorded transport errors precede gate wait errors.
+// Wait timeouts return HRESULT_FROM_WIN32(ERROR_TIMEOUT), never success.
+int32_t SWU_UIAPublicationGateOpen(SWUUIAPublicationGate *gate);
+
 // UIA entry points (wrap uiautomationcore.lib).
 // A non-null HWND with zero parameters and a null provider forwards the
 // documented window raised-event-map cleanup request. Its zero return is not

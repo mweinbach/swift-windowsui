@@ -196,7 +196,88 @@ private:
     bool wasAdmitted = false;
 };
 
+// This gate owns only unnamed native events and primitive state. It neither
+// owns a provider/context nor invokes a callback. The provider's pending slot
+// transfers its reference to one real method before that method calls Swift.
+struct SWUUIAPublicationGate {
+    static HRESULT create(uint32_t timeoutMilliseconds, SWUUIAPublicationGate **result) {
+        *result = nullptr;
+        HANDLE entered = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        if (entered == nullptr) return HRESULT_FROM_WIN32(GetLastError());
+        HANDLE opened = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        if (opened == nullptr) {
+            HRESULT failure = HRESULT_FROM_WIN32(GetLastError());
+            CloseHandle(entered);
+            return failure;
+        }
+        auto *gate = new (std::nothrow) SWUUIAPublicationGate(timeoutMilliseconds, entered, opened);
+        if (gate == nullptr) {
+            CloseHandle(opened);
+            CloseHandle(entered);
+            return E_OUTOFMEMORY;
+        }
+        *result = gate;
+        return S_OK;
+    }
+
+    void retain() { references.fetch_add(1, std::memory_order_relaxed); }
+    void release() {
+        if (references.fetch_sub(1, std::memory_order_acq_rel) == 1) delete this;
+    }
+
+    HRESULT arriveAndWait() {
+        enteredThread.store(GetCurrentThreadId(), std::memory_order_release);
+        if (!SetEvent(enteredEvent)) return HRESULT_FROM_WIN32(GetLastError());
+        return wait(openedEvent, holdTimeoutMilliseconds);
+    }
+
+    HRESULT waitUntilEntered(uint32_t timeoutMilliseconds) {
+        return wait(enteredEvent, timeoutMilliseconds);
+    }
+
+    uint32_t enteredThreadID() const { return enteredThread.load(std::memory_order_acquire); }
+
+    HRESULT open() {
+        return SetEvent(openedEvent) ? S_OK : HRESULT_FROM_WIN32(GetLastError());
+    }
+
+private:
+    SWUUIAPublicationGate(uint32_t timeoutMilliseconds, HANDLE entered, HANDLE opened)
+        : holdTimeoutMilliseconds(timeoutMilliseconds), enteredEvent(entered), openedEvent(opened) {}
+
+    ~SWUUIAPublicationGate() {
+        CloseHandle(openedEvent);
+        CloseHandle(enteredEvent);
+    }
+
+    static HRESULT wait(HANDLE event, uint32_t timeoutMilliseconds) {
+        DWORD result = WaitForSingleObject(event, timeoutMilliseconds);
+        if (result == WAIT_OBJECT_0) return S_OK;
+        if (result == WAIT_TIMEOUT) return HRESULT_FROM_WIN32(ERROR_TIMEOUT);
+        if (result == WAIT_FAILED) return HRESULT_FROM_WIN32(GetLastError());
+        return E_UNEXPECTED;
+    }
+
+    const uint32_t holdTimeoutMilliseconds;
+    const HANDLE enteredEvent;
+    const HANDLE openedEvent;
+    std::atomic<ULONG> references{1};
+    std::atomic<uint32_t> enteredThread{0};
+};
+
 namespace {
+
+struct PublicationGateRelease {
+    void operator()(SWUUIAPublicationGate *gate) const {
+        if (gate != nullptr) gate->release();
+    }
+};
+
+using OwnedPublicationGate = std::unique_ptr<SWUUIAPublicationGate, PublicationGateRelease>;
+
+bool validPublicationGateTimeout(uint32_t timeoutMilliseconds) {
+    return timeoutMilliseconds > 0 && timeoutMilliseconds <= 30000;
+}
 
 // Keep one implementation of the existing payload mapping. These adapters
 // replace only the callback context argument; status remains out of band.
@@ -406,6 +487,18 @@ public:
     void revoke() { context_->revoke(); }
     SWUUIAProviderContext *providerContext() const { return context_; }
 
+    HRESULT armControlTypePublicationGate(SWUUIAPublicationGate *gate) {
+        if (!isAvailable()) return UIA_E_ELEMENTNOTAVAILABLE;
+        if (!context_->usesExplicitCalls) return E_INVALIDARG;
+        bool expected = false;
+        if (!hasArmedPublicationGate_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+            return UIA_E_INVALIDOPERATION;
+        }
+        gate->retain();
+        controlTypePublicationGate_.store(gate, std::memory_order_release);
+        return S_OK;
+    }
+
     IFACEMETHODIMP GetElementIdentity(SWUUIAProviderContext *context, uint64_t *element) override {
         if (element == nullptr) return E_POINTER;
         *element = SWU_UIA_NO_ELEMENT;
@@ -501,6 +594,10 @@ public:
         VariantInit(pRetVal);
         ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
         if (FAILED(call.status())) return call.status();
+        // Take the one pending reference before any callback, so synchronous
+        // actor reentry cannot consume the outer method's publication gate.
+        OwnedPublicationGate publicationGate(propertyId == UIA_ControlTypePropertyId
+            ? controlTypePublicationGate_.exchange(nullptr, std::memory_order_acq_rel) : nullptr);
 
         int32_t logicalState = SWU_UIA_LOGICAL_ITEM_ORDINARY;
         HRESULT logicalResult = logicalItemState(call, logicalState);
@@ -588,6 +685,14 @@ public:
         }
         HRESULT availability = logicalAvailability(call);
         if (FAILED(availability)) result = availability;
+        if (SUCCEEDED(result) && publicationGate) {
+            // No admission/gate lock crosses Swift or this wait. The existing
+            // ProviderCall still pins the provider and owns full-call admission.
+            HRESULT gateResult = publicationGate->arriveAndWait();
+            HRESULT status = call.status();
+            if (FAILED(status)) result = status;
+            else if (FAILED(gateResult)) result = gateResult;
+        }
         if (FAILED(result)) {
             VariantClear(&value);
             return result;
@@ -977,7 +1082,11 @@ public:
     }
 
 private:
-    ~SWUProvider() { context_->release(); }
+    ~SWUProvider() {
+        auto *pendingGate = controlTypePublicationGate_.exchange(nullptr, std::memory_order_acq_rel);
+        if (pendingGate != nullptr) pendingGate->release();
+        context_->release();
+    }
 
     const SWUUIACallbacks &callbacks() const { return context_->callbacks; }
 
@@ -1116,6 +1225,8 @@ private:
     const uint64_t element_;
     const bool isRoot_;
     std::atomic<ULONG> refCount_{1};
+    std::atomic<bool> hasArmedPublicationGate_{false};
+    std::atomic<SWUUIAPublicationGate *> controlTypePublicationGate_{nullptr};
 };
 
 SWUProvider *asProvider(void *provider) {
@@ -1269,6 +1380,45 @@ void SWU_UIAAddRefProvider(void *provider) {
 
 void SWU_UIAReleaseProvider(void *provider) {
     if (provider != nullptr) reinterpret_cast<IUnknown *>(provider)->Release();
+}
+
+int32_t SWU_UIAProviderArmControlTypePublicationGate(
+    void *provider, uint32_t holdTimeoutMilliseconds, SWUUIAPublicationGate **result) {
+    if (result == nullptr) return E_POINTER;
+    *result = nullptr;
+    if (provider == nullptr) return E_POINTER;
+    if (!validPublicationGateTimeout(holdTimeoutMilliseconds)) return E_INVALIDARG;
+    COMCallPin pin(asSimple(provider));
+    SWUUIAPublicationGate *raw = nullptr;
+    HRESULT status = SWUUIAPublicationGate::create(holdTimeoutMilliseconds, &raw);
+    OwnedPublicationGate gate(raw);
+    if (FAILED(status)) return status;
+    status = asProvider(provider)->armControlTypePublicationGate(gate.get());
+    if (FAILED(status)) return status;
+    *result = gate.release();
+    return S_OK;
+}
+
+void SWU_UIARetainPublicationGate(SWUUIAPublicationGate *gate) {
+    if (gate != nullptr) gate->retain();
+}
+
+void SWU_UIAReleasePublicationGate(SWUUIAPublicationGate *gate) {
+    if (gate != nullptr) gate->release();
+}
+
+int32_t SWU_UIAPublicationGateWaitUntilEntered(SWUUIAPublicationGate *gate, uint32_t timeoutMilliseconds) {
+    if (gate == nullptr) return E_POINTER;
+    if (!validPublicationGateTimeout(timeoutMilliseconds)) return E_INVALIDARG;
+    return gate->waitUntilEntered(timeoutMilliseconds);
+}
+
+uint32_t SWU_UIAPublicationGateEnteredThreadID(SWUUIAPublicationGate *gate) {
+    return gate != nullptr ? gate->enteredThreadID() : 0;
+}
+
+int32_t SWU_UIAPublicationGateOpen(SWUUIAPublicationGate *gate) {
+    return gate != nullptr ? gate->open() : E_POINTER;
 }
 
 intptr_t SWU_UIAReturnRawElementProvider(void *hwnd, uintptr_t wParam, intptr_t lParam, void *provider) {

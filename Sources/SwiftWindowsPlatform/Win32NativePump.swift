@@ -44,6 +44,7 @@ package enum Win32NativeWindowEvent: Sendable {
     case filesDropped(FileDropPayload)
     case closeRequested
     case deferredCloseWake(UInt)
+    case smokeProbe(Win32NativeSmokeProbe)
     case destroyed
     case ownerFailure(NativeWindowOwnerFailure)
 }
@@ -122,9 +123,19 @@ struct Win32NativeWindowCreation: Sendable {
 /// The transport owns no HWND state and no UI object. Only this mailbox and
 /// copied values cross CreateThread; Win32NativeLoop is constructed there.
 public final class Win32NativePump: NativeWindowCommandSink {
-    private let mailbox = Win32NativePumpMailbox()
+    private let mailbox: Win32NativePumpMailbox
 
-    public init() {}
+    public init() { mailbox = Win32NativePumpMailbox() }
+
+    package init(observation: Win32NativeSmokeObservation?) {
+        mailbox = Win32NativePumpMailbox(observation: observation)
+    }
+
+    package var smokeObservation: Win32NativeSmokeObservation? { mailbox.smokeObservation }
+
+    /// Passive instantaneous queue state. It never submits a native command,
+    /// flushes ingress or waits for either executor to make progress.
+    package var smokeQueueSnapshot: Win32NativeSmokePumpSnapshot { mailbox.smokeQueueSnapshot }
 
     package func start() async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
@@ -145,9 +156,12 @@ public final class Win32NativePump: NativeWindowCommandSink {
             // owner. This joins the actual thread, including its final ARC
             // releases, rather than trusting an early "about to exit" event.
             let handleValue = UInt(bitPattern: thread)
+            let ownerThreadID = threadID
             let mailbox = self.mailbox
+            let observation = mailbox.smokeObservation
             DispatchQueue.global(qos: .utility).async {
                 guard let handle = HANDLE(bitPattern: handleValue) else {
+                    observation?.record(.nativeJoinFailed, auxiliary: 0)
                     mailbox.didJoin(.failure(.unavailable))
                     return
                 }
@@ -155,19 +169,26 @@ public final class Win32NativePump: NativeWindowCommandSink {
                 if waitResult != DWORD(WAIT_OBJECT_0) {
                     let code = waitResult == DWORD(WAIT_FAILED) ? GetLastError() : waitResult
                     CloseHandle(handle)
+                    observation?.record(.nativeJoinFailed, value: Int64(code), auxiliary: 0)
                     mailbox.didJoin(.failure(.native(operation: "WaitForSingleObject", code: Int64(code))))
                     return
                 }
+                observation?.record(.nativeThreadTerminated, auxiliary: UInt64(ownerThreadID))
                 var exitCode: DWORD = 0
                 let readExit = GetExitCodeThread(handle, &exitCode)
                 let readError = readExit ? 0 : GetLastError()
                 let closedHandle = CloseHandle(handle)
                 let closeError = closedHandle ? 0 : GetLastError()
                 if !readExit {
+                    observation?.record(.nativeJoinFailed, value: Int64(readError), auxiliary: 1)
                     mailbox.didJoin(.failure(.native(operation: "GetExitCodeThread", code: Int64(readError))))
                 } else if !closedHandle {
+                    observation?.record(.nativeJoinFailed, value: Int64(closeError), auxiliary: 2)
                     mailbox.didJoin(.failure(.native(operation: "CloseHandle(thread)", code: Int64(closeError))))
                 } else {
+                    observation?.record(
+                        .nativeThreadJoined, value: Int64(Int32(bitPattern: exitCode)),
+                        auxiliary: UInt64(ownerThreadID), flags: 1)
                     mailbox.didJoin(.success(Win32NativePumpExit(exitCode: Int32(bitPattern: exitCode), joined: true)))
                 }
             }
@@ -293,6 +314,7 @@ let win32NativeWakeMessage = UINT(WM_APP + 0x121)
 private func win32NativeThreadProcedure(_ raw: UnsafeMutableRawPointer?) -> DWORD {
     guard let raw else { return DWORD(ERROR_INVALID_PARAMETER) }
     let mailbox = Unmanaged<Win32NativePumpMailbox>.fromOpaque(raw).takeRetainedValue()
+    mailbox.smokeObservation?.record(.nativeThreadEntered)
     let owner = Win32NativeLoop(mailbox: mailbox)
     return owner.run()
 }

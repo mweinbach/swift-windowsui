@@ -13,10 +13,14 @@ private final class Win32NativeAnimationGate: Sendable {
     let handleValue: UInt
     let lowWord: UInt
     let highWord: Int
+    let windowKey: NativeWindowKey
+    let observation: Win32NativeSmokeObservation?
     let outstanding = Atomic<Bool>(false)
 
-    init(handleValue: UInt) {
+    init(handleValue: UInt, windowKey: NativeWindowKey, observation: Win32NativeSmokeObservation?) {
         self.handleValue = handleValue
+        self.windowKey = windowKey
+        self.observation = observation
         let bytes = Foundation.UUID().uuid
         let low = [bytes.0, bytes.1, bytes.2, bytes.3, bytes.4, bytes.5, bytes.6, bytes.7]
         let high = [bytes.8, bytes.9, bytes.10, bytes.11, bytes.12, bytes.13, bytes.14, bytes.15]
@@ -30,15 +34,20 @@ private final class Win32NativeAnimationGate: Sendable {
 private func win32NativeAnimationCallback(_ raw: UnsafeMutableRawPointer?, _: UInt8) {
     guard let raw else { return }
     let gate = Unmanaged<Win32NativeAnimationGate>.fromOpaque(raw).takeUnretainedValue()
+    gate.observation?.record(.nativeAnimationCallback, windowKey: gate.windowKey)
     let (claimed, _) = gate.outstanding.compareExchange(
         expected: false, desired: true, ordering: .acquiringAndReleasing)
     guard claimed else { return }
-    guard let handle = HWND(bitPattern: gate.handleValue),
-        PostMessageW(handle, win32NativeAnimationMessage, WPARAM(gate.lowWord), LPARAM(gate.highWord))
-    else {
+    guard let handle = HWND(bitPattern: gate.handleValue) else {
+        gate.observation?.record(.nativeAnimationPost, windowKey: gate.windowKey)
         gate.consume()
         return
     }
+    let posted = PostMessageW(handle, win32NativeAnimationMessage, WPARAM(gate.lowWord), LPARAM(gate.highWord))
+    let error: Int64? = posted ? nil : Int64(GetLastError())
+    gate.observation?.record(
+        .nativeAnimationPost, windowKey: gate.windowKey, value: error, flags: posted ? 1 : 0)
+    if !posted { gate.consume() }
 }
 
 /// Only the native owner calls this specialization. The attachment obtains
@@ -61,6 +70,7 @@ final class Win32NativeLoop {
     private var stopping = false
     private var pendingFatalFailure: NativeWindowOwnerFailure?
     private var isWindowClassRegistered = false
+    private var observedTurnSequence: UInt64 = 0
 
     init(mailbox: Win32NativePumpMailbox) {
         self.mailbox = mailbox
@@ -76,6 +86,7 @@ final class Win32NativeLoop {
         }
         do {
             let apartmentResult = CoInitializeEx(nil, DWORD(COINIT_APARTMENTTHREADED.rawValue))
+            mailbox.smokeObservation?.record(.nativeCOMInitialized, value: Int64(apartmentResult))
             guard apartmentResult >= 0 else {
                 throw NativeWindowOwnerFailure.native(operation: "CoInitializeEx(STA)", code: Int64(apartmentResult))
             }
@@ -90,6 +101,7 @@ final class Win32NativeLoop {
             }
             guard let created else { throw nativeFailure("CreateWindowExW(control)") }
             controlWindow = created
+            mailbox.smokeObservation?.record(.nativeOwnerReady)
             mailbox.didStart(controlHandle: UInt(bitPattern: created))
 
             // The Swift BOOL overlay cannot represent GetMessage's -1. Use
@@ -125,8 +137,14 @@ final class Win32NativeLoop {
                     }
                     return exitCode
                 }
+                mailbox.smokeObservation?.record(
+                    .nativeMessageDispatched, value: Int64(message.message),
+                    flags: message.hwnd == controlWindow ? 1 : 2)
                 TranslateMessage(&message)
                 DispatchMessageW(&message)
+                mailbox.smokeObservation?.record(
+                    .nativeDispatchReturned, value: Int64(message.message),
+                    flags: message.hwnd == controlWindow ? 1 : 2)
                 finishDestructionAfterDispatch()
                 if let pendingFatalFailure { parkForFatalExit(pendingFatalFailure) }
             }
@@ -150,6 +168,7 @@ final class Win32NativeLoop {
         // Notify all actor facades and owned replies before parking. Their
         // explicit fatal path calls ExitProcess(1); this is not normal window
         // teardown and produces no fabricated destroyed/joined receipt.
+        mailbox.smokeObservation?.record(.nativeOwnerFailure, value: win32NativeSmokeFailureValue(failure))
         for window in Array(windows.values) { window.failOwner(failure) }
         mailbox.failOwner(failure)
         Sleep(INFINITE)
@@ -169,6 +188,7 @@ final class Win32NativeLoop {
     func failInputIngress(_ failure: NativeWindowOwnerFailure) {
         guard pendingFatalFailure == nil else { return }
         pendingFatalFailure = failure
+        mailbox.smokeObservation?.record(.nativeOwnerFailure, value: win32NativeSmokeFailureValue(failure))
         for window in Array(windows.values) { window.failOwner(failure) }
         mailbox.failOwner(failure)
     }
@@ -186,19 +206,43 @@ final class Win32NativeLoop {
     }
 
     private func consumeWake() {
+        mailbox.smokeObservation?.record(.nativeWakeReceived)
         mailbox.consumeWake()
         guard pendingFatalFailure == nil else { return }
         guard dispatchDepth == 1, !executingNativeWork else {
+            mailbox.smokeObservation?.record(
+                .nativeWakeDeferred, value: Int64(dispatchDepth), flags: executingNativeWork ? 1 : 0)
             needsWakeAfterUnwind = true
             return
         }
         executingNativeWork = true
-        defer { executingNativeWork = false }
+        mailbox.observeNativeTurn(active: true)
+        var handledCommands = 0
+        let observedTurn: UInt64?
+        if let observation = mailbox.smokeObservation {
+            if observedTurnSequence < UInt64.max { observedTurnSequence += 1 }
+            observedTurn = observedTurnSequence
+            let depth = mailbox.smokeQueueSnapshot.queuedWork
+            observation.record(.nativeTurnBegan, queueDepth: UInt64(depth), turnID: observedTurn)
+        } else {
+            observedTurn = nil
+        }
+        defer {
+            executingNativeWork = false
+            mailbox.observeNativeTurn(active: false)
+            if let observation = mailbox.smokeObservation {
+                let depth = mailbox.smokeQueueSnapshot.queuedWork
+                observation.record(
+                    .nativeTurnEnded, queueDepth: UInt64(depth), turnID: observedTurn,
+                    value: Int64(handledCommands), flags: needsWakeAfterUnwind ? 1 : 0)
+            }
+        }
 
         for window in Array(windows.values) { window.progressDestruction() }
-        var handledCommands = 0
         while !stopping, pendingFatalFailure == nil, handledCommands < 16, let work = mailbox.takeNext() {
             handledCommands += 1
+            mailbox.observeNativeWork(inFlight: true)
+            defer { mailbox.observeNativeWork(inFlight: false) }
             switch work {
             case .create(let creation):
                 createWindow(creation)
@@ -379,6 +423,11 @@ final class Win32NativeWindowState: NativeWindowOwnerContext {
     private var highResolutionGate: Win32NativeAnimationGate?
     private var holdsTimerResolution = false
     private var hasCloseWatchdog = false
+    private var smokeAcceptedOrdinals: UInt64 = 0
+    private var smokeActualResolutionOwned = false
+    private var smokeTimerStateUncertain = false
+    private var smokeLastTimerFlags: UInt32?
+    private var smokeLastTimerInterval: UInt32?
 
     init(owner: Win32NativeLoop, creation: Win32NativeWindowCreation) {
         self.owner = owner
@@ -479,6 +528,10 @@ final class Win32NativeWindowState: NativeWindowOwnerContext {
             throw failure
         }
         isCreated = true
+        observeTimerState(force: true)
+        owner.mailbox.smokeObservation?.record(
+            .nativeWindowCreated, windowKey: creation.key, generation: surface.generation,
+            nativeSequence: surface.geometry.nativeSequence)
         emit(.created)
     }
 
@@ -540,8 +593,10 @@ final class Win32NativeWindowState: NativeWindowOwnerContext {
         creation.snapshotSource.revoke(.closing)
         let timerFailure = stopAnimationTimer()
         if hasCloseWatchdog {
-            KillTimer(handle, Self.closeWatchdogID)
+            let removed = KillTimer(handle, Self.closeWatchdogID)
             hasCloseWatchdog = false
+            observeTimerAPI(.killCloseWatchdog, succeeded: removed ? true : false, code: nil)
+            observeTimerState()
         }
         for id in attachmentOrder { attachments[id]?.beginQuiescence() }
         if let timerFailure {
@@ -559,7 +614,14 @@ final class Win32NativeWindowState: NativeWindowOwnerContext {
             return
         }
         guard nativeModalDepth == 0, !isInSizeMove, !isInMenuLoop else { return }
-        guard attachmentOrder.allSatisfy({ attachments[$0]?.isQuiescent ?? true }) else { return }
+        guard attachmentOrder.allSatisfy({ attachments[$0]?.isQuiescent ?? true }) else {
+            owner.mailbox.smokeObservation?.record(
+                .nativeCloseAwaitingAttachments, windowKey: creation.key,
+                requestID: request.reservation?.requestID,
+                generation: currentSurface?.generation, nativeSequence: currentSurface?.geometry.nativeSequence,
+                auxiliary: UInt64(attachmentOrder.count))
+            return
+        }
         guard let handle, !observedNonClientDestroy else {
             request.complete(.failure(.closed), beforeCompletion: { self.owner.mailbox.retireClose(request) })
             return
@@ -569,6 +631,11 @@ final class Win32NativeWindowState: NativeWindowOwnerContext {
         for id in Array(attachmentOrder.reversed()) {
             guard let attachment = attachments[id] else { continue }
             let result = attachment.detach()
+            owner.mailbox.smokeObservation?.record(
+                .nativeAttachmentDetached, windowKey: creation.key, requestID: request.reservation?.requestID,
+                attachmentID: id, generation: currentSurface?.generation,
+                nativeSequence: currentSurface?.geometry.nativeSequence,
+                value: Int64(result.failures.count), flags: result.isDetached ? 1 : 0)
             guard result.isDetached else {
                 let failure = result.failures.first ?? .execution("Native attachment did not finish detaching")
                 request.complete(.failure(failure), beforeCompletion: { self.owner.mailbox.retireClose(request) })
@@ -612,11 +679,21 @@ final class Win32NativeWindowState: NativeWindowOwnerContext {
     func finishDestructionAfterDispatch() -> Bool {
         guard canFinishDestruction else { return false }
         guard highResolutionTimer == nil, !holdsTimerResolution else { return false }
+        owner.mailbox.smokeObservation?.record(
+            .nativeCloseDispatchUnwound, windowKey: creation.key,
+            requestID: pendingDestruction?.reservation?.requestID,
+            generation: currentSurface?.generation, nativeSequence: currentSurface?.geometry.nativeSequence,
+            flags: observedNonClientDestroy ? 1 : 0)
         if observedNonClientDestroy, pendingDestruction == nil, !attachments.isEmpty {
             guard attachmentOrder.allSatisfy({ attachments[$0]?.isQuiescent ?? true }) else { return false }
             for id in Array(attachmentOrder.reversed()) {
                 guard let attachment = attachments[id] else { continue }
                 let detached = attachment.detach()
+                owner.mailbox.smokeObservation?.record(
+                    .nativeAttachmentDetached, windowKey: creation.key,
+                    attachmentID: id, generation: currentSurface?.generation,
+                    nativeSequence: currentSurface?.geometry.nativeSequence,
+                    value: Int64(detached.failures.count), flags: (detached.isDetached ? 1 : 0) | 2)
                 guard detached.isDetached else {
                     reportFailure(
                         detached.failures.first ?? .execution("Unexpected destruction left a native attachment alive"))
@@ -632,12 +709,34 @@ final class Win32NativeWindowState: NativeWindowOwnerContext {
             emit(.destroyed, publish: false)
         }
         if let request = pendingDestruction {
-            request.complete(
-                .success(
-                    Win32NativeCloseDestruction(
-                        nativeResult: destructionResult ?? .succeeded,
-                        didObserveNonClientDestruction: observedNonClientDestroy, didUnwindNativeDispatch: true)),
+            let actual = Win32NativeCloseDestruction(
+                nativeResult: destructionResult ?? .succeeded,
+                didObserveNonClientDestruction: observedNonClientDestroy, didUnwindNativeDispatch: true)
+            let nativeCode: Int64
+            let nativeSucceeded: Bool
+            switch actual.nativeResult {
+            case .succeeded:
+                nativeCode = 0
+                nativeSucceeded = true
+            case .failed(let code):
+                nativeCode = Int64(code)
+                nativeSucceeded = false
+            }
+            let receiptFlags: UInt32 =
+                (actual.didObserveNonClientDestruction ? 1 : 0)
+                | (actual.didUnwindNativeDispatch ? 2 : 0)
+                | (nativeSucceeded ? 4 : 0)
+            owner.mailbox.smokeObservation?.record(
+                .nativeCloseReplyReady, windowKey: creation.key, requestID: request.reservation?.requestID,
+                generation: currentSurface?.generation, nativeSequence: currentSurface?.geometry.nativeSequence,
+                value: nativeCode, flags: receiptFlags)
+            let delivered = request.complete(
+                .success(actual),
                 beforeCompletion: { self.owner.mailbox.retireClose(request) })
+            owner.mailbox.smokeObservation?.record(
+                .nativeCloseReplyReturned, windowKey: creation.key, requestID: request.reservation?.requestID,
+                generation: currentSurface?.generation, nativeSequence: currentSurface?.geometry.nativeSequence,
+                value: nativeCode, flags: receiptFlags | (delivered ? 8 : 0))
             owner.mailbox.retireClose(request)
             pendingDestruction = nil
         }
@@ -719,18 +818,22 @@ final class Win32NativeWindowState: NativeWindowOwnerContext {
         reportFailure(failure)
     }
 
-    private func emit(_ event: Win32NativeWindowEvent, publish: Bool = true) {
-        guard isCreated, let currentSurface else { return }
+    @discardableResult
+    private func emit(
+        _ event: Win32NativeWindowEvent, publish: Bool = true
+    ) -> Result<NativeWindowSurface, NativeWindowOwnerFailure> {
+        guard isCreated, let currentSurface else { return .failure(.unavailable) }
         guard eventSequence < UInt64.max else {
-            owner.failInputIngress(.execution("Native input sequence exhausted"))
-            return
+            let failure = NativeWindowOwnerFailure.execution("Native input sequence exhausted")
+            owner.failInputIngress(failure)
+            return .failure(failure)
         }
         if lastGeometryFailure != nil {
             // Keep failure/destruction observable, but never label a new input
             // or native query with geometry whose sampling failed.
             switch event {
             case .ownerFailure, .destroyed: break
-            default: return
+            default: return .failure(lastGeometryFailure ?? .unavailable)
             }
         }
         let candidateSequence = eventSequence + 1
@@ -745,7 +848,7 @@ final class Win32NativeWindowState: NativeWindowOwnerContext {
         switch creation.ingress.enqueue(Win32NativeWindowEventRecord(observation: observation, event: event)) {
         case .failure(let failure):
             owner.failInputIngress(failure)
-            return
+            return .failure(failure)
         case .success: break
         }
         // Admission precedes every producer-side sequence/snapshot commit.
@@ -753,6 +856,36 @@ final class Win32NativeWindowState: NativeWindowOwnerContext {
         eventSequence = candidateSequence
         self.currentSurface = surface
         if publish, !hasBegunQuiescence, !observedNonClientDestroy { creation.snapshotSource.publish(surface) }
+        return .success(surface)
+    }
+
+    fileprivate func validateSmokeProbe(observation: Win32NativeSmokeObservation, ordinal: UInt32) throws {
+        guard owner.mailbox.smokeObservation === observation, creation.ingress.smokeObservation === observation else {
+            throw NativeWindowOwnerFailure.execution("Native smoke traffic requires its exact observed owner instance")
+        }
+        guard pendingDestruction == nil, !hasBegunQuiescence, !observedDestroy, !observedNonClientDestroy else {
+            throw NativeWindowOwnerFailure.closing
+        }
+        guard ordinal < 64 else {
+            throw NativeWindowOwnerFailure.execution("Native smoke ordinal exceeds the fixed 64-command workload")
+        }
+        let bit = UInt64(1) << ordinal
+        guard smokeAcceptedOrdinals & bit == 0 else {
+            throw NativeWindowOwnerFailure.execution("Native smoke ordinal was already admitted for this window")
+        }
+    }
+
+    fileprivate func emitSmokeProbe(
+        observation: Win32NativeSmokeObservation, requestID: NativeWindowRequestID, ordinal: UInt32
+    ) throws -> NativeWindowSurface {
+        try validateSmokeProbe(observation: observation, ordinal: ordinal)
+        let accepted = try emit(.smokeProbe(Win32NativeSmokeProbe(requestID: requestID, ordinal: ordinal))).get()
+        smokeAcceptedOrdinals |= UInt64(1) << ordinal
+        observation.record(
+            .smokeProbeEmitted, windowKey: accepted.key, requestID: requestID,
+            generation: accepted.generation, nativeSequence: accepted.geometry.nativeSequence,
+            value: Int64(ordinal), auxiliary: smokeAcceptedOrdinals)
+        return accepted
     }
 
     private func consumeNativeReference() -> Bool {
@@ -837,12 +970,18 @@ final class Win32NativeWindowState: NativeWindowOwnerContext {
         case UINT(WM_TIMER):
             if UINT_PTR(wParam) == Self.animationTimerID, highResolutionTimer == nil, installedAnimationInterval != nil
             {
+                owner.mailbox.smokeObservation?.record(
+                    .nativeAnimationMessage, windowKey: creation.key, auxiliary: 0)
                 emit(.animationFrame(PlatformClock.now()))
                 return 0
             }
             if UINT_PTR(wParam) == Self.closeWatchdogID, hasCloseWatchdog {
-                if let handle { KillTimer(handle, Self.closeWatchdogID) }
+                if let handle {
+                    let removed = KillTimer(handle, Self.closeWatchdogID)
+                    observeTimerAPI(.killCloseWatchdog, succeeded: removed ? true : false, code: nil)
+                }
                 hasCloseWatchdog = false
+                observeTimerState()
                 requestActorClose()
                 return 0
             }
@@ -852,6 +991,8 @@ final class Win32NativeWindowState: NativeWindowOwnerContext {
                 return 0
             }
             gate.consume()
+            owner.mailbox.smokeObservation?.record(
+                .nativeAnimationMessage, windowKey: creation.key, auxiliary: 1)
             emit(.animationFrame(PlatformClock.now()))
             return 0
         case UINT(WM_MOUSEMOVE):
@@ -1040,8 +1181,10 @@ final class Win32NativeWindowState: NativeWindowOwnerContext {
             creation.snapshotSource.revoke(.closed)
             stopAnimationTimer()
             if hasCloseWatchdog, let handle {
-                KillTimer(handle, Self.closeWatchdogID)
+                let removed = KillTimer(handle, Self.closeWatchdogID)
                 hasCloseWatchdog = false
+                observeTimerAPI(.killCloseWatchdog, succeeded: removed ? true : false, code: nil)
+                observeTimerState()
             }
             if pendingDestruction == nil {
                 reportFailure(.execution("Native window was destroyed outside its prepared close transaction"))
@@ -1063,6 +1206,10 @@ final class Win32NativeWindowState: NativeWindowOwnerContext {
             if let hwnd { SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0) }
             handle = nil
             observedNonClientDestroy = true
+            owner.mailbox.smokeObservation?.record(
+                .nativeWindowNonClientDestroyed, windowKey: creation.key,
+                requestID: pendingDestruction?.reservation?.requestID,
+                generation: currentSurface?.generation, nativeSequence: currentSurface?.geometry.nativeSequence)
             creation.snapshotSource.revoke(.closed)
             return result
         default:
@@ -1194,9 +1341,14 @@ final class Win32NativeWindowState: NativeWindowOwnerContext {
 
     @discardableResult
     private func stopAnimationTimer() -> NativeWindowOwnerFailure? {
+        defer { observeTimerState() }
         if let timer = highResolutionTimer {
-            guard DeleteTimerQueueTimer(nil, timer, INVALID_HANDLE_VALUE) else {
-                let failure = nativeFailure("DeleteTimerQueueTimer")
+            let removed = DeleteTimerQueueTimer(nil, timer, INVALID_HANDLE_VALUE)
+            let error = removed ? 0 : GetLastError()
+            observeTimerAPI(
+                .deleteHighResolution, succeeded: removed ? true : false, code: removed ? nil : Int64(error))
+            guard removed else {
+                let failure = NativeWindowOwnerFailure.native(operation: "DeleteTimerQueueTimer", code: Int64(error))
                 // The callback's context must stay alive unless the native
                 // wait actually proved that the last callback returned.
                 reportFailure(failure)
@@ -1205,7 +1357,11 @@ final class Win32NativeWindowState: NativeWindowOwnerContext {
             highResolutionTimer = nil
             highResolutionGate = nil
         } else if installedAnimationInterval != nil, let handle {
-            if !KillTimer(handle, Self.animationTimerID), !observedDestroy {
+            let removed = KillTimer(handle, Self.animationTimerID)
+            // Keep the actual Boolean result without claiming ambient
+            // last-error state as this operation's native failure code.
+            observeTimerAPI(.killWindowTimer, succeeded: removed ? true : false, code: nil)
+            if !removed, !observedDestroy {
                 let failure = NativeWindowOwnerFailure.execution("KillTimer did not remove the owned animation timer")
                 reportFailure(failure)
                 return failure
@@ -1214,18 +1370,21 @@ final class Win32NativeWindowState: NativeWindowOwnerContext {
         installedAnimationInterval = nil
         if holdsTimerResolution {
             let result = timeEndPeriod(1)
+            observeTimerAPI(.endResolution, succeeded: result == 0, code: result == 0 ? nil : Int64(result))
             guard result == 0 else {
                 let failure = NativeWindowOwnerFailure.native(operation: "timeEndPeriod", code: Int64(result))
                 reportFailure(failure)
                 return failure
             }
             holdsTimerResolution = false
+            smokeActualResolutionOwned = false
         }
         return nil
     }
 
     @discardableResult
     private func refreshAnimationTimer() -> NativeWindowOwnerFailure? {
+        defer { observeTimerState() }
         guard let requested = animationInterval, let handle, pendingDestruction == nil, !observedDestroy else {
             return stopAnimationTimer()
         }
@@ -1241,29 +1400,40 @@ final class Win32NativeWindowState: NativeWindowOwnerContext {
         holdsTimerResolution = retainedResolutionHold
         if let stopFailure { return stopFailure }
         if highResolution {
-            let gate = Win32NativeAnimationGate(handleValue: UInt(bitPattern: handle))
+            let gate = Win32NativeAnimationGate(
+                handleValue: UInt(bitPattern: handle), windowKey: creation.key,
+                observation: owner.mailbox.smokeObservation)
             var timer: HANDLE?
-            if CreateTimerQueueTimer(
+            let created = CreateTimerQueueTimer(
                 &timer, nil, win32NativeAnimationCallback,
                 Unmanaged.passUnretained(gate).toOpaque(), interval, interval, DWORD(WT_EXECUTEDEFAULT))
-            {
+            let error: Int64? = created ? nil : Int64(GetLastError())
+            observeTimerAPI(.createHighResolution, succeeded: created ? true : false, code: error)
+            if created {
                 highResolutionTimer = timer
                 highResolutionGate = gate
             } else {
                 highResolutionUnavailable = true
             }
         }
-        if highResolutionTimer == nil, SetTimer(handle, Self.animationTimerID, interval, nil) == 0 {
-            let failure = nativeFailure("SetTimer(animation)")
-            _ = stopAnimationTimer()
-            reportFailure(failure)
-            return failure
+        if highResolutionTimer == nil {
+            let timer = SetTimer(handle, Self.animationTimerID, interval, nil)
+            let error = timer == 0 ? GetLastError() : 0
+            observeTimerAPI(.setWindowTimer, succeeded: timer != 0, code: timer == 0 ? Int64(error) : nil)
+            if timer == 0 {
+                let failure = NativeWindowOwnerFailure.native(operation: "SetTimer(animation)", code: Int64(error))
+                _ = stopAnimationTimer()
+                reportFailure(failure)
+                return failure
+            }
         }
         installedAnimationInterval = interval
         if !holdsTimerResolution {
             let result = timeBeginPeriod(1)
+            observeTimerAPI(.beginResolution, succeeded: result == 0, code: result == 0 ? nil : Int64(result))
             if result == 0 {
                 holdsTimerResolution = true
+                smokeActualResolutionOwned = true
             } else {
                 let failure = NativeWindowOwnerFailure.native(operation: "timeBeginPeriod", code: Int64(result))
                 reportFailure(failure)
@@ -1271,6 +1441,46 @@ final class Win32NativeWindowState: NativeWindowOwnerContext {
             }
         }
         return nil
+    }
+
+    private func observeTimerAPI(
+        _ operation: Win32NativeSmokeTimerOperation, succeeded: Bool, code: Int64?
+    ) {
+        guard let observation = owner.mailbox.smokeObservation else { return }
+        if !succeeded {
+            switch operation {
+            case .deleteHighResolution, .killWindowTimer, .endResolution, .killCloseWatchdog:
+                smokeTimerStateUncertain = true
+            default: break
+            }
+        }
+        observation.record(
+            .nativeTimerAPIResult, windowKey: creation.key, generation: currentSurface?.generation,
+            nativeSequence: currentSurface?.geometry.nativeSequence, value: code,
+            auxiliary: operation.rawValue, flags: succeeded ? 1 : 0)
+    }
+
+    private func observeTimerState(force: Bool = false) {
+        guard let observation = owner.mailbox.smokeObservation else { return }
+        var flags: UInt32 = 0
+        if highResolutionTimer != nil { flags |= Win32NativeSmokeTimerFlags.highResolutionInstalled }
+        if installedAnimationInterval != nil, highResolutionTimer == nil {
+            flags |= Win32NativeSmokeTimerFlags.windowTimerInstalled
+        }
+        // holdsTimerResolution is temporarily cleared during a cadence change.
+        // Only successful native begin/end calls change this observed owner bit.
+        if smokeActualResolutionOwned { flags |= Win32NativeSmokeTimerFlags.resolutionOwned }
+        if hasCloseWatchdog { flags |= Win32NativeSmokeTimerFlags.closeWatchdogInstalled }
+        if smokeTimerStateUncertain { flags |= Win32NativeSmokeTimerFlags.stateUncertain }
+        guard force || smokeLastTimerFlags != flags || smokeLastTimerInterval != installedAnimationInterval else {
+            return
+        }
+        smokeLastTimerFlags = flags
+        smokeLastTimerInterval = installedAnimationInterval
+        observation.record(
+            .nativeTimerState, windowKey: creation.key, generation: currentSurface?.generation,
+            nativeSequence: currentSurface?.geometry.nativeSequence,
+            value: installedAnimationInterval.map { Int64($0) }, flags: flags)
     }
 
     func executeOperation(_ operation: Win32NativeWindowOperation) throws -> Win32NativeWindowOperationResult {
@@ -1323,10 +1533,15 @@ final class Win32NativeWindowState: NativeWindowOwnerContext {
             guard seconds.isFinite, seconds > 0, seconds * 1000 <= Double(UINT.max) else {
                 throw NativeWindowOwnerFailure.execution("Invalid native close-watchdog interval")
             }
-            if SetTimer(handle, Self.closeWatchdogID, UINT(max(1, (seconds * 1000).rounded())), nil) == 0 {
-                throw nativeFailure("SetTimer(close watchdog)")
+            let timer = SetTimer(handle, Self.closeWatchdogID, UINT(max(1, (seconds * 1000).rounded())), nil)
+            let error = timer == 0 ? GetLastError() : 0
+            observeTimerAPI(.setCloseWatchdog, succeeded: timer != 0, code: timer == 0 ? Int64(error) : nil)
+            if timer == 0 {
+                observeTimerState(force: true)
+                throw NativeWindowOwnerFailure.native(operation: "SetTimer(close watchdog)", code: Int64(error))
             }
             hasCloseWatchdog = true
+            observeTimerState()
         case .toggleFullscreen:
             try toggleFullscreen()
         case .caret(let rect, let generation):
@@ -1403,6 +1618,33 @@ final class Win32NativeWindowState: NativeWindowOwnerContext {
             }
         }
     }
+}
+
+/// Preflight before the fixture performs its real ordinal-31 provider query.
+/// This does not reserve/commit an ordinal or publish an input sequence; emit
+/// repeats the same checks and commits only after actual ingress admission.
+package func validateNativeSmokeProbe(
+    in context: any NativeWindowOwnerContext, observation: Win32NativeSmokeObservation, ordinal: UInt32
+) throws {
+    guard let native = context as? Win32NativeWindowState else {
+        throw NativeWindowOwnerFailure.execution("Native smoke traffic requires an actual Win32 owner context")
+    }
+    try native.validateSmokeProbe(observation: observation, ordinal: ordinal)
+}
+
+/// Called only from the fixture's ordinary checked-Sendable owner command.
+/// The real window context validates identity, lifetime and the ordinal before
+/// admitting a non-coalesced record through the existing native ingress path.
+package func emitNativeSmokeProbe(
+    in context: any NativeWindowOwnerContext,
+    observation: Win32NativeSmokeObservation,
+    requestID: NativeWindowRequestID,
+    ordinal: UInt32
+) throws -> NativeWindowSurface {
+    guard let native = context as? Win32NativeWindowState else {
+        throw NativeWindowOwnerFailure.execution("Native smoke traffic requires an actual Win32 owner context")
+    }
+    return try native.emitSmokeProbe(observation: observation, requestID: requestID, ordinal: ordinal)
 }
 
 enum Win32NativeWindowOperation: Sendable {

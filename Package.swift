@@ -44,6 +44,7 @@ var targets: [Target] = [
         .library(name: "SwiftWindowsDemo", targets: ["SwiftWindowsDemo"]),
         .library(name: "SwiftWindowsApp", targets: ["SwiftWindowsApp"]),
         .executable(name: "swift-windowsui", targets: ["swift-windowsui"]),
+        .executable(name: "swift-windowsui-native-smoke", targets: ["swift-windowsui-native-smoke"]),
         .executable(name: "swift-windowsui-snapshot", targets: ["swift-windowsui-snapshot"]),
         .executable(name: "swift-windowsui-gallery", targets: ["swift-windowsui-gallery"]),
         .executable(name: "swiftui-color-rgb-reference", targets: ["swiftui-color-rgb-reference"]),
@@ -128,6 +129,12 @@ var targets: [Target] = [
                 "SwiftWindowsGraphics",
                 "WinSwiftUI",
             ]
+        ),
+        // A fixed owned-process qualification fixture; it does not import
+        // demo settings or add a runtime mode to an ordinary application.
+        .executableTarget(
+            name: "swift-windowsui-native-smoke",
+            dependencies: ["SwiftWindowsRendererD3D11", "WinSwiftUI"]
         ),
         .executableTarget(
             name: "swift-windowsui-gallery",

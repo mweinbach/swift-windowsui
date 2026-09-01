@@ -2864,6 +2864,10 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
     /// a backend recovering its device can return without presenting pixels.
     var onFramePresented: ((LiveFrameSample) -> Void)?
 
+    /// Nil for ordinary hosts. The fixed qualification executable owns this
+    /// bounded value observer; it does not request frames or change pacing.
+    var nativeSmokeProbe: NativeOwnedSmokeHostProbe?
+
     /// The runtime this host drives. Exposed so a diagnostics run can read
     /// scene counters that only exist while a window is live.
     var hostedRuntime: RetainedViewRuntime {
@@ -4403,6 +4407,7 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
         // resources, cleared the backpointer and returned from WM_NCDESTROY.
         guard !didNotifyWindowClosed else { return }
         didNotifyWindowClosed = true
+        nativeSmokeProbe?.observation.record(.actorCloseConsumed, windowKey: nativeLifetimeKey)
         onWindowClosed?(self)
     }
 
@@ -4411,6 +4416,7 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
         hasTornDownWindow = true
         if usesNativePresentation {
             uiaBridge?.revokeNativeRequests()
+            nativeSmokeProbe?.observation.record(.uiARevoked, windowKey: nativeLifetimeKey)
             runtime.onAccessibilityFocusChanged = nil
         }
         documentContext?.owner.revoke()
@@ -6149,6 +6155,48 @@ extension AppIntent {
 }
 
 extension WinSwiftUIWindowHost {
+    /// Fixed-fixture access to the existing owner attachment. Acquisition is
+    /// an ordinary native command, not a UI pointer crossing to another thread.
+    func acquireNativeSmokeProvider() async throws -> Win32NativeSmokeProvider {
+        guard nativeSmokeProbe != nil, let key = window.nativeWindowKey,
+            let sink = window.nativeCommandSink, let factory = uiaBridge?.makeNativeAttachmentFactory()
+        else { throw NativeWindowOwnerFailure.unavailable }
+        let result: Result<Win32NativeSmokeProvider, NativeWindowOwnerFailure> = await withCheckedContinuation {
+            continuation in
+            let reply = NativeWindowReply<Win32NativeSmokeProvider> { continuation.resume(returning: $0) }
+            _ = sink.submit(
+                Win32NativeSmokeAcquireProviderCommand(windowKey: key, attachmentID: factory.attachmentID, reply: reply)
+            )
+        }
+        return try result.get()
+    }
+
+    func whenNativeSmokePresentationDrained(_ completion: @escaping @MainActor () -> Void) {
+        guard let nativePresentationQueue else {
+            completion()
+            return
+        }
+        nativePresentationQueue.whenDrained(completion)
+    }
+
+    /// This accessor is called only at the two declared idle boundaries.
+    /// Reading it does not flush events, prepare a scene, query native geometry,
+    /// poll timing, or schedule a timer/frame.
+    func nativeSmokeSnapshot(phase: Int) -> NativeOwnedSmokeHostSnapshot {
+        let queues = window.nativeSmokeQueueSnapshot
+        return NativeOwnedSmokeHostSnapshot(
+            phase: phase, isClosed: hasTornDownWindow, hasNativeSurface: window.nativeSurface != nil,
+            framePending: isNativeFramePending, presentationPending: pendingPresentation,
+            queuedPresentationRequests: nativePresentationQueue?.smokeOutstandingRequestCount ?? -1,
+            contentIsDirty: runtime.isDirty, hasActiveAnimations: runtime.hasActiveAnimations,
+            reloadScheduled: reloadScheduled, contentRevision: runtime.contentRevision,
+            lastPresentedRevision: lastPresentedContentRevision, surfaceGeneration: window.nativeSurface?.generation,
+            ingressQueued: queues.ingressQueued, ingressTurnScheduled: queues.ingressTurnScheduled,
+            receivedNativeSequence: queues.receivedSequence, mailboxQueued: queues.pump?.queuedWork ?? -1,
+            nativeTurnActive: queues.pump?.nativeTurnActive ?? true,
+            nativeWorkInFlight: queues.pump?.nativeWorkInFlight ?? true)
+    }
+
     /// Runs from the coordinator's independent actor task, never from a
     /// synchronous native query. The delegate callbacks themselves stay
     /// non-suspending; this operation waits for real creation and startup work.
@@ -6194,7 +6242,8 @@ extension WinSwiftUIWindowHost {
         }
         nativeLifetimeKey = created.key
         nativePresentationQueue = NativeHostPresentationQueue(
-            sink: sink, attachmentID: nativePresentationAttachmentID, teardownStore: nativePresentationTeardownStore)
+            sink: sink, attachmentID: nativePresentationAttachmentID, teardownStore: nativePresentationTeardownStore,
+            smokeObservation: nativeSmokeProbe?.observation)
         bindNativeDialogSession(NativeDialogSession(windowKey: created.key, commandSink: sink))
         guard !hasTornDownWindow else { throw WindowCoordinatorError.windowClosedDuringStartup }
 
@@ -6210,6 +6259,7 @@ extension WinSwiftUIWindowHost {
                 guard surface.generation == generation else {
                     return .failure(.staleSurface(expected: generation, actual: surface.generation))
                 }
+                self.nativeSmokeProbe?.beforeRetainedQuery(surface)
                 return .success(())
             }
         )
@@ -6368,6 +6418,9 @@ extension WinSwiftUIWindowHost {
         didConsumeNativeTeardown = true
         isNativePresentationAttachmentInstalled = !receipt.result.isDetached
         isRendererReady = false
+        nativeSmokeProbe?.observation.record(
+            .presentationDetached, windowKey: receipt.windowKey, attachmentID: receipt.attachmentID,
+            value: Int64(receipt.result.failures.count), flags: receipt.result.isDetached ? 1 : 0)
         for failure in receipt.result.failures { report("Native renderer teardown failed: \(failure)") }
     }
 
@@ -6392,6 +6445,7 @@ extension WinSwiftUIWindowHost {
     private func submitNativePresentation(
         _ operation: NativePresentationOperation, capturedSurface: NativeWindowSurface? = nil,
         requiresSurfaceGeneration: Bool = true,
+        smokeTag: NativeOwnedSmokeFrameTag? = nil,
         completion: @escaping NativeHostPresentationQueue.Completion
     ) {
         guard !hasTornDownWindow, let queue = nativePresentationQueue,
@@ -6400,7 +6454,9 @@ extension WinSwiftUIWindowHost {
             completion(.failure(hasTornDownWindow ? .closing : .unavailable))
             return
         }
-        queue.submit(operation, surface: surface, requiresSurfaceGeneration: requiresSurfaceGeneration) {
+        queue.submit(
+            operation, surface: surface, requiresSurfaceGeneration: requiresSurfaceGeneration, smokeTag: smokeTag
+        ) {
             [weak self] result in
             if let self, case .success(let receipt) = result,
                 receipt.surface.key == self.nativeLifetimeKey,
@@ -6923,13 +6979,15 @@ extension WinSwiftUIWindowHost {
         pendingReconcileSeconds = 0
         didSubmit = true
         syncAnimationDriver(for: window)
-        submitNativePresentation(operation, capturedSurface: surface) { [weak self] result in
-            self?.completeNativeFrame(result, accounting: accounting)
+        let smokeTag = nativeSmokeProbe?.frameTag(revision: accounting.contentRevision)
+        submitNativePresentation(operation, capturedSurface: surface, smokeTag: smokeTag) { [weak self] result in
+            self?.completeNativeFrame(result, accounting: accounting, smokeTag: smokeTag)
         }
     }
 
     private func completeNativeFrame(
-        _ result: Result<NativePresentationReceipt, NativeWindowOwnerFailure>, accounting: NativeFrameAccounting
+        _ result: Result<NativePresentationReceipt, NativeWindowOwnerFailure>, accounting: NativeFrameAccounting,
+        smokeTag: NativeOwnedSmokeFrameTag? = nil
     ) {
         isNativeFramePending = false
         guard !hasTornDownWindow else {
@@ -6986,6 +7044,10 @@ extension WinSwiftUIWindowHost {
             reportRepeating("Native backend returned no submission outcome.", signature: "native-outcome-unavailable")
         }
         syncAnimationDriver(for: window)
+        nativeSmokeProbe?.frameConsumed(
+            receipt, tag: smokeTag,
+            canTrackCurrentContent: disposition.canTrackSubmittedContent && !disposition.needsRepaint
+                && hasCurrentNativeSubmittedFrame && !isPerformingInitialContentBuild && !componentHost.isBuilding)
         // A diagnostics callback may request another frame. Bookkeeping is
         // finished first so that request is not overwritten. Ordinary motion
         // waits for the native timer; a fast occluded return cannot spin an

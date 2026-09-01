@@ -776,6 +776,19 @@ public final class Win32Window: PlatformWindow {
     package var nativeSnapshotSource: (any NativeWindowSnapshotSource)? { nativePublishedSource }
     package var nativeWindowKey: NativeWindowKey? { nativeLifetimeKey }
     package var nativeSurface: NativeWindowSurface? { nativeObservation?.surface ?? nativeCreatedSurface }
+
+    /// Two boundary reads used by the owned smoke fixture. This only copies
+    /// actor state and existing queue snapshots; it never flushes, wakes N,
+    /// samples an HWND or changes the animation policy.
+    package var nativeSmokeQueueSnapshot:
+        (pump: Win32NativeSmokePumpSnapshot?, ingressQueued: Int, ingressTurnScheduled: Bool, receivedSequence: UInt64)
+    {
+        let ingress = nativeIngress?.snapshot
+        return (
+            nativePump?.smokeQueueSnapshot, ingress?.queuedRecords ?? 0,
+            ingress?.hasScheduledTurn ?? false, nativeReceivedSequence
+        )
+    }
     public weak var delegate: WindowDelegate? {
         didSet {
             if oldValue !== delegate { closeControl.noteTopologyChanged() }
@@ -1376,6 +1389,7 @@ public final class Win32Window: PlatformWindow {
         let published = Win32NativeSnapshotSource()
         nativePublishedSource = published
         let ingress = Win32NativeEventIngress(
+            observation: pump.smokeObservation,
             receiveFailure: { [weak self] terminal in
                 guard let self, self.nativeLifetimeKey == terminal.windowKey else { return }
                 // A reserved failure is independent of the record queue and
@@ -1684,6 +1698,10 @@ public final class Win32Window: PlatformWindow {
             if !nativeClosePrepared { onNativeCloseRequested?(surface) }
         case .deferredCloseWake(let nonce):
             Win32DispatchScope.withWindowDispatch { closeControl.receiveDeferredWake(nonce: nonce) }
+        case .smokeProbe:
+            // The package fixture exercises the real copied-event transport.
+            // Its neutral payload never becomes authored UI input or a frame.
+            break
         case .destroyed:
             hasDeliveredWillClose = true
             nativeClosePrepared = true

@@ -10109,3 +10109,52 @@ macOS comparison or a baseline refresh. No reviewed baseline was changed.
 ContractsOnly passed again after these runs. Full validation, the two remaining
 animation repairs, the interaction timeout, hosted CI and all other original
 completion requirements remain outstanding.
+
+### 2026-09-01: Integrate the bounded native-host smoke workload
+
+The reviewed native smoke source is now integrated as a separate capability
+slice. `swift-windowsui-native-smoke` exercises an owned Win32 window through
+the existing host and main-actor application path. It observes native command
+delivery, real UIA publication-gate entry, task suspension/resumption, an
+unforced three-second idle interval, and close/unwind/join ordering. Optional
+observation records do not grant admission, reorder the ordinary mailbox, or
+turn normal application execution into the smoke workload.
+
+The fixed workload includes 64 commands and 64 probes, with the real C UIA
+query at ordinal 31, two mounted task awaits, and a publication gate retained
+across close. Its finite records distinguish successful natural process exit
+from an intended exit/result file. Failure, timeout, and insufficient fairness
+evidence cannot become a pass. The internal workload deadline is 42 seconds,
+the self-watchdog is 45 seconds, and the separately reviewed root controller
+uses a 55-second external retained-process bound. A watchdog does not replace
+verification that the owned child actually closed.
+
+The source packet's four private commits end at
+`11956185b38492f44279ff9551f293a1b5e6727e` on its documented `cdd5fd2` foundation.
+The packet was applied to root `9f689ddcf2e7b86ee2496e438d87d136008c918d` without
+changing any added or removed source line: 23 paths, 19 Swift files, two C/C++
+files, and two documentation files. Root integration proof is retained at
+`artifacts/goal-ninth-native-smoke-root-integration-proof-v1.json`; its packet
+SHA-256 is `de9b254011a7e1c0bd48dc1b27c450910cbde1cd27458170aad2ab6a1acdb57f`.
+All prior test files are unchanged. The three new files contain the reviewed
+45 async test methods: eight gate, 15 observation and 22 result-validation
+cases. Strict formatting of all 19 Swift files and ContractsOnly passed at
+root (`0f6dfd/0`). Compilation, these tests and the actual native workload
+have not yet run on this integrated source.
+
+`Package.swift` is now the reviewed 7,331-byte variant, SHA-256
+`4643f0f470cb5cf373928bf91e58cd38883f1d98210503e4f03a07647be12b69`. The separately
+reviewed Core320/List402 validation-controller successors bind that exact
+package change while preserving their original test source and workload
+checks. Later test-resource changes require separate handling; they must not
+be silently accepted by these fixed controllers.
+
+Before the native run, bind the actual same-commit build, executable, tools,
+source record and required DLL identities. The source-foundation label inside
+the workload is not a substitute for this release-source binding. The workload
+does not use desktop captures, global input, dialogs, clipboard, network or
+settings changes. It does not qualify general COM routing, Narrator, modal
+interaction, multiple windows, display timing, GPU recovery, long-session
+resource behavior, or clean-machine deployment. See
+[NativeOwnedSmoke.md](docs/NativeOwnedSmoke.md) for the concrete workload and
+remaining scope. All original goal gates remain open.

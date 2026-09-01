@@ -296,6 +296,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   additions are uncompiled and unrun at handoff. Injected scheduling and native
   posting never qualify real pump fairness, modal exhaustion, memory pressure,
   or settled idle; those require separately bounded native process evidence.
+- The separate `swift-windowsui-native-smoke` source fixture uses one owned
+  retained window, two mounted-task suspensions, 64 actual commands/ingress
+  probes, real frame receipts, an independently released full C-call gate,
+  three seconds of unforced idle, and actual close/thread-join receipts.
+  [NativeOwnedSmoke.md](NativeOwnedSmoke.md) defines its fixed workload,
+  negative/inconclusive outcomes, trace limits, watchdog, and separate future
+  build/run proposal. `Win32NativeSmokeObservationTests` (15),
+  `NativeOwnedSmokeValidationTests` (22), and `UIAPublicationGateTests` (8) add
+  45 async source cases, uncompiled and unrun at handoff. They neither run the executable
+  nor establish real-HWND qualification; existing test sources are unchanged.
 - `BindingTransactionTests` covers binding write scopes, projection propagation,
   explicit animation suppression, and state-driven intermediate animation.
   `BindingHostTransactionTests` checks that real controls preserve captured

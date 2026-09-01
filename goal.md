@@ -10389,3 +10389,26 @@ methods remain required. The separate unchanged 150-method removal/blur cohort
 also remains pending at this source. These two serial cohorts retain all 315
 planned methods while each stays below the fixed Windows command-length bound;
 their 900-second per-run limits are unchanged. All nine original gates remain open.
+
+### Keyframe factory generic inference corrected after fresh compilation (2026-09-01)
+
+The unchanged 165-method cohort on `27f43662a49fcf384e40073c0556f12fb0c294de`
+compiled past the insertion recipe but stopped in WinSwiftUI: the keyframe
+configuration factory's multi-statement closure did not infer its `Value`
+parameter. Child/controller exit codes were naturally 1/1 after 56.813 seconds
+(`e79712`, session 57318, terminal `00982e`), without timeout or observed XCTest
+starts. No method in that cohort is qualified by this attempt.
+
+The 9,752-byte raw log, source/index preservation, two distinct diagnostics, and
+process closure are retained in
+`artifacts/goal-ninth-new165-27f4366-compile-failure.json` and its referenced run
+directory. The raw log SHA256 is
+`75822bc88d553b7ad928ef228a17343ef6f4d3c0a76571bdc246282f03850744`.
+Direct child 31936, its remaining children, and Swift processes were observed
+absent (`5b4b60`, exit 0).
+
+The only production change explicitly constructs `KeyframeConfiguration<Value>`
+using the animator's existing generic parameter. No behavior, callback, test, or
+acceptance condition changed. Strict formatting and ContractsOnly passed
+(`159c38`, exit 0); recompilation and both planned focused cohorts remain pending.
+All nine original completion gates remain open.

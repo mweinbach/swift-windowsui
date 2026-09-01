@@ -579,7 +579,7 @@ where Value == KeyframePath.Value {
             let originalEpoch = context.viewIdentity.installedEpoch
             let request = context.stateMountCoordinator?.captureBuildRequest()
             let materialization = KeyframeMaterialization<Value>()
-            let configuration = KeyframeConfiguration(
+            let configuration = KeyframeConfiguration<Value>(
                 mode: mode, reduceMotion: context.accessibilityReduceMotion,
                 factory: { value, velocities, isCurrent in
                     guard isCurrent() else { return nil }

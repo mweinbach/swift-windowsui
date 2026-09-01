@@ -10641,3 +10641,30 @@ Strict formatting and ContractsOnly passed (`16caf1`, exit 0). This commit chang
 no production behavior; compilation and execution remain pending. The separate
 managed attachment-publication repair follows as its own source change. All
 nine original completion gates remain open.
+
+### Checked cold attachment publishes managed navigation ownership (2026-09-01)
+
+The checked attachment path assigns the accepted node's runtime directly instead
+of going through the ordinary runtime setter. It previously notified only
+standalone navigation owners. A managed scope created while its node had no
+runtime could therefore be physically attached yet still lack its original
+navigation runtime, causing its first prepared action to be refused.
+
+The repair from private `7ca0e67e6defdbacdf6617a25b40e01dc5849da5` changes that
+one accepted-publication notification to the existing `didAttach` method for
+each navigation owner. The original declaration/revocation guards still decide
+whether an owner may record its first actual attachment; getters do not capture
+or refresh authority. The call stays after successful native attachment
+publication and before controller callbacks. Standalone behavior is equivalent
+to the previous delegating call.
+
+Root proof `artifacts/goal-ninth-managed-navigation-publication-root-proof-v1.json`
+verifies the exact one-call substitution, the unchanged ordinary completion
+repair, and the new one-method fixture's exact postimage. Existing tests are
+unchanged. The fixture checks the actual managed adapter claim, attached scope
+and row, and preparation of the original action without a selection-binding
+read or write. Strict formatting and ContractsOnly passed (`f619bb`, exit 0).
+The original managed navigation regression, separate bounded trajectory
+diagnostic, and new fixture still require root compilation and execution.
+This source repair does not resolve the separately diagnosed zero-offset anchor
+policy or qualify any original completion gate.

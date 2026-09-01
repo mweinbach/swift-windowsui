@@ -21505,7 +21505,7 @@ extension ViewNode {
             })
         else { return nil }
         if let nextRuntime {
-            for entry in entries { entry.node.listNavigationOwner?.didPublishStandaloneAttachment(to: nextRuntime) }
+            for entry in entries { entry.node.listNavigationOwner?.didAttach(to: nextRuntime) }
         }
         for entry in entries {
             guard admission?.isCurrent != false, published.isCurrent, lazyJournal?.canContinueAdoption != false,

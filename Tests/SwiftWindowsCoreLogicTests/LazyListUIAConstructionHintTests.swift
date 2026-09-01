@@ -140,7 +140,7 @@ final class LazyListUIAConstructionHintTests: XCTestCase {
     }
 
     func testOneCandidateLocalProbeRequiresOrdinaryRetirementEvenForZeroGapPixels() async throws {
-        let fixture = try makeFixture(records: 5, leaves: 10, rows: gapRows)
+        let fixture = try makeFixture(records: 5, leaves: 10, rows: { self.gapRows($0) })
         defer { fixture.source.close() }
         let request = try beginHint(fixture)
         let factories = fixture.probe.factories.count
@@ -178,7 +178,7 @@ final class LazyListUIAConstructionHintTests: XCTestCase {
 
     func testRecordAndLeafCapsCannotBeBypassedToObtainTheRequiredBoundary() async throws {
         for records in [4, 5] {
-            let fixture = try makeFixture(records: records, leaves: 8, rows: gapRows)
+            let fixture = try makeFixture(records: records, leaves: 8, rows: { self.gapRows($0) })
             defer { fixture.source.close() }
             let request = try beginHint(fixture)
             let factories = fixture.probe.factories.count
@@ -454,7 +454,7 @@ final class LazyListUIAConstructionHintTests: XCTestCase {
     }
 
     func testChangedGapSummaryCannotBeRepairedByAReadinessReadEvenWhenPixelsMatch() async throws {
-        let fixture = try makeFixture(records: 4, leaves: 8, rows: gapRows)
+        let fixture = try makeFixture(records: 4, leaves: 8, rows: { self.gapRows($0) })
         defer { fixture.source.close() }
         let request = try beginHint(fixture, target: 0)
         let prepared = fixture.adapter.prepare(viewport: fixture.viewport, protectedRoots: [], budget: try budget(8))

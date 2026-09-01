@@ -6,6 +6,8 @@ import SwiftWindowsLayout
 
 /// Headless gapless rows exercise the Runtime continuation, actual layout,
 /// and prepaint. They do not establish native COM or public List gap budgets.
+/// These fixtures keep transforms at identity, so their captured prepaint
+/// frame and clip share coordinates for the visible-rectangle assertions.
 @MainActor
 final class LazyListUIAContinuationTests: XCTestCase {
     func testMeasuredOffscreenTargetKeepsItsOriginalNodeThroughOwnedReveal() async throws {
@@ -89,9 +91,10 @@ final class LazyListUIAContinuationTests: XCTestCase {
             let target = try XCTUnwrap(roots.first)
             let visible = try XCTUnwrap(
                 fixture.runtime.currentPrepaintState.interactions.first { $0.node === target })
+            let visibleFrame = visible.frame.intersected(with: visible.clip?.rect ?? visible.frame) ?? .zero
             XCTAssertEqual(target.resolvedFrame.height, 180)
-            XCTAssertEqual(visible.visibleFrame.height, 60, accuracy: 0.001)
-            XCTAssertLessThan(visible.visibleFrame.height, target.resolvedFrame.height)
+            XCTAssertEqual(visibleFrame.height, 60, accuracy: 0.001)
+            XCTAssertLessThan(visibleFrame.height, target.resolvedFrame.height)
             XCTAssertEqual(fixture.probe.factories.filter { $0 == 300 }.count, 1)
         }
     }
@@ -1318,8 +1321,9 @@ final class LazyListUIAContinuationTests: XCTestCase {
         XCTAssertTrue(fixture.runtime.hasCurrentAccessibilityPrepaint, file: file, line: line)
         let visible = try XCTUnwrap(
             fixture.runtime.currentPrepaintState.interactions.first { $0.node === target }, file: file, line: line)
-        XCTAssertGreaterThan(visible.visibleFrame.width, 0, file: file, line: line)
-        XCTAssertGreaterThan(visible.visibleFrame.height, 0, file: file, line: line)
+        let visibleFrame = visible.frame.intersected(with: visible.clip?.rect ?? visible.frame) ?? .zero
+        XCTAssertGreaterThan(visibleFrame.width, 0, file: file, line: line)
+        XCTAssertGreaterThan(visibleFrame.height, 0, file: file, line: line)
         _ = try settledReceipt(in: fixture.runtime, file: file, line: line)
     }
 

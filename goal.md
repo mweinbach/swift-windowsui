@@ -12059,3 +12059,42 @@ These source checks do not establish compiler acceptance or passing tests.
 The preceding ordinary152 attempt still has zero executed cases; the separate
 Table/UIA corrections and fresh combined test execution remain necessary.
 No original completion gate is closed by this fixture repair.
+
+
+### 2026-09-01 preserve clipped visibility and actor callbacks in UIA fixtures
+
+The two UIA fixture files now use contextually actor-isolated forwarding
+closures for the same three gapRows calls, instead of converting bound method
+values. The five readiness enum assertions remain unchanged; their previous
+inference diagnostics are not independently treated as resolved without a
+fresh compiler run.
+
+The continuation fixture derives a visible rectangle from its existing
+prepaint frame intersected with the existing clip rectangle. These fixtures
+use identity transforms and rectangular clipping, so both captured bounds
+share coordinates. An absent clip leaves the original frame; an empty
+intersection produces zero and fails the original positive-visibility checks.
+This is fixture geometry, not a general claim about transformed or curved
+visible-pixel bounds and not a new production visibility API.
+
+The oversized row still must measure 180 pixels while exposing 60 pixels,
+with the same tolerance, ordering and factory count. All four original
+visibility assertions remain. The preceding failure entry described three
+references from the three unique compiler locations; the source actually had
+four references, including the adjacent less-than assertion at old line 94.
+Both local calculations use the already unwrapped prepaint entry and do not
+add a query, build, callback, unwrap, or assertion.
+
+The exact frozen `715bab15` patch is 4,644 bytes, SHA256
+`14115235fd15b6ffa45ddead07a17f98d4c4c12a9ab0b09e989af38b54bef820`.
+It preserves the ordered 70 methods and 628 XCTest expressions across the
+two files, apart from the four documented assertion receiver substitutions.
+The other 639 existing test files, production sources and Package.swift are
+unchanged by this patch. Independent source review, root strict formatting,
+contracts and the complete staged-diff proof are retained separately from
+execution evidence. The packet and root proof are
+`artifacts/goal-ninth-uia-fixtures715-intake-v1` and
+`artifacts/goal-ninth-uia-fixtures715-root-proof-v1.json`.
+This correction has not yet established a test pass;
+fresh combined compilation and the original UIA/public-budget cohorts remain
+required, and all nine original goal gates remain open.

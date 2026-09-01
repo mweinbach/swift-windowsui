@@ -11930,3 +11930,34 @@ the following point-in-time CIM census is
 matching process or formatter. There were zero XCTest starts: all 152 methods
 remain NOT RUN for this attempt. No original goal gate is closed, and the
 separate mixed-roster ownership gap remains open even after compilation.
+
+
+### 2026-09-01 Table value lookup avoids invalid nonescaping forwarding
+
+The Table compile correction removes the unused currentness parameter from
+withValueLookup's callback and from its six call sites. Those callbacks read
+the collection's start/end indices, compare indices, fetch an element and its
+ID, or advance the index. None used the supplied predicate. withLookup itself
+is unchanged: the original lookup receipt, pre-call/final checks, refusal
+short-circuit, callback ordering, and cleanup scope remain in place.
+
+The wrapper still explicitly returns Optional<Value>.some(body()). An authored
+Optional.none therefore remains a successfully obtained value; it is not
+confused with failed admission. No callback becomes escaping, and no unsafe
+exclusivity or isolation override, new ownership token, or fresh receipt is
+introduced. The two typed ID erasures keep their existing withLookup scopes.
+
+Root extracted the exact frozen `6c9f1f608cd2851d223cd9f3087a877aba9feee8`
+diff, independently read all eight substitutions, and applied that 3,078-byte
+patch without adaptation. Its SHA256 is
+`a0a533a2ec7c11ad7fea714d5f000e4c1a3a14b9bd360df69644164024fce0b6`.
+The staged source tree is `eecb840213d1e710ffe5825eab679cce1903ad28` on
+parent `4d39f404e25c4f1ffc3939d18ff11a0ef8bc105b`.
+
+Root pre/post contracts, strict formatting of both Swift files, and the exact
+staged-diff proof passed. All 641 prior test files, including Table56 and
+Button110, and Package.swift are unchanged. Proof:
+`artifacts/goal-ninth-table-value-6c9f1f-root-proof-v1.json`.
+This is not compiler or XCTest qualification. The separate immutable-attempt
+access correction and a fresh combined build remain required; all original
+completion gates remain open.

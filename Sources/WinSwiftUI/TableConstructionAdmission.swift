@@ -74,8 +74,8 @@ final class TableConstructionAdmission {
     }
 
     /// The callback's own Optional result is a value, not failed admission.
-    func withValueLookup<Value>(_ body: (_ isCurrent: () -> Bool) -> Value) -> Value? {
-        withLookup { isCurrent in Optional<Value>.some(body(isCurrent)) }
+    func withValueLookup<Value>(_ body: () -> Value) -> Value? {
+        withLookup { _ in Optional<Value>.some(body()) }
     }
 
     func headerIdentities<RowValue>(

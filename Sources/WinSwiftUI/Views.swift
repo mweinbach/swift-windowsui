@@ -10760,17 +10760,17 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
 
             // Build data rows
             var dataRows: [ViewNode] = []
-            guard var index = admission.withValueLookup({ _ in data.startIndex }),
-                let endIndex = admission.withValueLookup({ _ in data.endIndex })
+            guard var index = admission.withValueLookup({ data.startIndex }),
+                let endIndex = admission.withValueLookup({ data.endIndex })
             else { return rejectedRetainedViewNode() }
             var rowOffset = 0
             while true {
-                guard let reachedEnd = admission.withValueLookup({ _ in index == endIndex }) else {
+                guard let reachedEnd = admission.withValueLookup({ index == endIndex }) else {
                     return rejectedRetainedViewNode()
                 }
                 if reachedEnd { break }
-                guard let element = admission.withValueLookup({ _ in data[index] }),
-                    let rowID = admission.withValueLookup({ _ in element.id })
+                guard let element = admission.withValueLookup({ data[index] }),
+                    let rowID = admission.withValueLookup({ element.id })
                 else { return rejectedRetainedViewNode() }
                 // Either erasure can invoke the row ID's custom AnyHashable
                 // representation. Both must retain this operation's receipt.
@@ -10839,7 +10839,7 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
 
                 guard admission.isCurrent else { return rejectedRetainedViewNode() }
                 dataRows.append(row)
-                guard let nextIndex = admission.withValueLookup({ _ in data.index(after: index) }) else {
+                guard let nextIndex = admission.withValueLookup({ data.index(after: index) }) else {
                     return rejectedRetainedViewNode()
                 }
                 index = nextIndex

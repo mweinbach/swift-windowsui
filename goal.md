@@ -11992,3 +11992,42 @@ Both newly diagnosed compile fixes are now present in source, but the failed
 ordinary152 attempt remains failed and all its selected methods remain NOT
 RUN. Fresh compilation and execution are the next evidence requirement. All
 nine original completion gates remain open.
+
+
+### 2026-09-01 production compilation advances to six fixture compile failures
+
+The next ordinary152 attempt used clean commit
+`16a0b546d2ef764dc6b9bac9ef284444b88ff578`, tree
+`64a27a73afa5c450dc7767a8f7e5984949ee03e7`, with the same 152 selected
+identifiers, 13 source files, and 900-second limit. Its retained directory is
+`artifacts/ordinary152-16a0b54-c8e324a4ea724ad3abd247358bce761b`.
+The runner and retained direct child 42376 exited naturally with 1 after
+129.078 seconds. There was no timeout or forced termination, and source/index
+endpoints matched. The raw log is 3,812,265 bytes, SHA256
+`6dfbfe02f6400d66a4e4660600cf3bb8bc401cf3bd62e5b56da4889e921461be`.
+
+Production compilation advanced past the earlier Button, Runtime, Table and
+selected-row attempt access errors. Test compilation then reported 427
+diagnostic headers containing 25 unique errors across six fixture files:
+two Button files, two Table files, and two UIA files. The errors concern
+explicit self captures, actor-isolated function conversions, generic and
+key-path type inference, two lease fixtures missing protocol requirements,
+and three test references to the nonexistent prepaint visibleFrame field.
+The UIA enum inference errors may be secondary diagnostics; that remains to
+be established by correction and compilation, not assumed to be a test pass.
+
+The repair scope is the affected fixtures. Existing identifiers, assertions,
+expected values, callback order and ownership/visibility oracles must survive.
+In particular, PrepaintInteractionState.frame is a raw absolute layout frame,
+not exact clipped visible pixels; replacing the missing name must preserve
+the partially visible target tests' meaning. Lease conformance must retain
+real fixture revocation behavior rather than substitute unconditional success.
+
+Independent reconciliation is
+`artifacts/goal-ninth-ordinary152-16a0b54-compile-failure-reconciled-v1.json`.
+The following point-in-time CIM census,
+`artifacts/goal-ninth-ordinary152-16a0b54-post-closure-v1.json`, found no
+matching process or formatter. There were zero XCTest starts or terminals:
+all 152 selected methods remain NOT RUN for this attempt. The separately
+prepared Button/Table166, UIA122, public-budget19 and native94 runners were
+not executed. All nine original goal gates remain open.

@@ -156,7 +156,7 @@ final class UIANativeProviderAttachment: Win32NativeAccessibilityAttachment {
         session.diagnostics.recordListening(listening)
         guard listening, isAvailable, let nativeContext else { return nil }
         if rootProvider == nil {
-            rootProvider = SWU_UIACreateRootProviderWithContext(nativeContext, hwnd)
+            rootProvider = makeRootProvider(context: nativeContext)
         }
         guard isAvailable, let rootProvider else { return nil }
         SWU_UIAAddRefProvider(rootProvider)
@@ -215,11 +215,20 @@ final class UIANativeProviderAttachment: Win32NativeAccessibilityAttachment {
     func retainedRootProviderForTesting() -> UnsafeMutableRawPointer? {
         guard isAvailable, let nativeContext else { return nil }
         if rootProvider == nil {
-            rootProvider = SWU_UIACreateRootProviderWithContext(nativeContext, hwnd)
+            rootProvider = makeRootProvider(context: nativeContext)
         }
         guard isAvailable, let rootProvider else { return nil }
         SWU_UIAAddRefProvider(rootProvider)
         return rootProvider
+    }
+
+    /// A native root is permanently identified by this attachment's original
+    /// HWND. Headless fixtures have no HWND and retain the generic root path.
+    private func makeRootProvider(context: OpaquePointer) -> UnsafeMutableRawPointer? {
+        if let hwnd {
+            return SWU_UIACreateOwnedHWNDRootProviderWithContext(context, hwnd)
+        }
+        return SWU_UIACreateRootProviderWithContext(context, nil)
     }
 }
 

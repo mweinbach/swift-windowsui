@@ -392,6 +392,79 @@ struct COMRelease {
 template <typename Interface>
 using COMOwned = std::unique_ptr<Interface, COMRelease<Interface>>;
 
+using HostProviderLookup = HRESULT (*)(HWND, IRawElementProviderSimple **);
+
+HRESULT nativeHostProviderLookup(HWND hwnd, IRawElementProviderSimple **result) {
+    return UiaHostProviderFromHwnd(hwnd, result);
+}
+
+// Disconnect resolves a runtime ID even after the public family is revoked.
+// Only an explicitly HWND-identified owned root may use this private identity.
+// It owns no Swift context, provider, attachment, or authored payload;
+// the original HWND value cannot refresh from a later window/surface snapshot.
+class RootShutdownIdentity final : public IRawElementProviderSimple {
+public:
+    explicit RootShutdownIdentity(HWND hwnd, HostProviderLookup hostLookup = nativeHostProviderLookup)
+        : hwnd_(hwnd), hostLookup_(hostLookup) {}
+
+    IFACEMETHODIMP QueryInterface(REFIID riid, void **result) override {
+        if (result == nullptr) return E_POINTER;
+        *result = nullptr;
+        if (riid != IID_IUnknown && riid != IID_IRawElementProviderSimple) return E_NOINTERFACE;
+        *result = static_cast<IRawElementProviderSimple *>(this);
+        AddRef();
+        return S_OK;
+    }
+
+    IFACEMETHODIMP_(ULONG) AddRef() override {
+        return references_.fetch_add(1, std::memory_order_relaxed) + 1;
+    }
+
+    IFACEMETHODIMP_(ULONG) Release() override {
+        const ULONG remaining = references_.fetch_sub(1, std::memory_order_acq_rel) - 1;
+        if (remaining == 0) delete this;
+        return remaining;
+    }
+
+    IFACEMETHODIMP get_ProviderOptions(ProviderOptions *result) override {
+        if (result == nullptr) return E_POINTER;
+        *result = static_cast<ProviderOptions>(
+            ProviderOptions_ServerSideProvider | ProviderOptions_UseComThreading);
+        return S_OK;
+    }
+
+    IFACEMETHODIMP GetPatternProvider(PATTERNID, IUnknown **result) override {
+        if (result == nullptr) return E_POINTER;
+        *result = nullptr;
+        return S_OK;
+    }
+
+    IFACEMETHODIMP GetPropertyValue(PROPERTYID, VARIANT *result) override {
+        if (result == nullptr) return E_POINTER;
+        VariantInit(result);
+        return S_OK;
+    }
+
+    IFACEMETHODIMP get_HostRawElementProvider(IRawElementProviderSimple **result) override {
+        if (result == nullptr) return E_POINTER;
+        *result = nullptr;
+        IRawElementProviderSimple *host = nullptr;
+        const HRESULT status = hostLookup_(hwnd_, &host);
+        COMOwned<IRawElementProviderSimple> owned(host);
+        if (FAILED(status)) return status;
+        *result = owned.release();
+        return status;
+    }
+
+    HWND windowHandle() const { return hwnd_; }
+
+private:
+    ~RootShutdownIdentity() = default;
+    const HWND hwnd_;
+    const HostProviderLookup hostLookup_;
+    std::atomic<ULONG> references_{1};
+};
+
 struct SafeArrayRelease {
     void operator()(SAFEARRAY *value) const {
         if (value != nullptr) SafeArrayDestroy(value);
@@ -436,8 +509,10 @@ class SWUProvider : public IRawElementProviderSimple,
                     public IItemContainerProvider,
                     public ISWUProviderIdentity {
 public:
-    SWUProvider(SWUUIAProviderContext *context, HWND hwnd, uint64_t element, bool isRoot)
-        : context_(context), hwnd_(hwnd), element_(element), isRoot_(isRoot) {
+    SWUProvider(SWUUIAProviderContext *context, HWND hwnd, uint64_t element, bool isRoot,
+                bool ownedHWNDIdentity = false)
+        : context_(context), hwnd_(hwnd), element_(element), isRoot_(isRoot),
+          ownedHWNDIdentity_(ownedHWNDIdentity) {
         context_->retain();
     }
 
@@ -486,6 +561,9 @@ public:
     bool isAvailable() const { return context_->isAvailable(); }
     void revoke() { context_->revoke(); }
     SWUUIAProviderContext *providerContext() const { return context_; }
+    HWND ownedRootWindowHandle() const {
+        return ownedHWNDIdentity_ && isRoot_ ? hwnd_ : nullptr;
+    }
 
     HRESULT armControlTypePublicationGate(SWUUIAPublicationGate *gate) {
         if (!isAvailable()) return UIA_E_ELEMENTNOTAVAILABLE;
@@ -738,6 +816,9 @@ public:
         if (pRetVal == nullptr) return E_POINTER;
         *pRetVal = nullptr;
         ProviderCall call(static_cast<IRawElementProviderSimple *>(this), context_);
+        // A top-level HWND root has no appended runtime ID. This explicit
+        // factory property also bounds the shutdown identity to the same HWND.
+        if (ownedHWNDIdentity_) return call.status();
         HRESULT availability = logicalAvailability(call, true);
         if (FAILED(availability)) return availability;
         int32_t buffer[8] = {};
@@ -1224,6 +1305,7 @@ private:
     const HWND hwnd_;
     const uint64_t element_;
     const bool isRoot_;
+    const bool ownedHWNDIdentity_;
     std::atomic<ULONG> refCount_{1};
     std::atomic<bool> hasArmedPublicationGate_{false};
     std::atomic<SWUUIAPublicationGate *> controlTypePublicationGate_{nullptr};
@@ -1243,6 +1325,30 @@ IRawElementProviderFragment *asFragment(void *provider) {
 
 IRawElementProviderFragmentRoot *asRoot(void *provider) {
     return static_cast<IRawElementProviderFragmentRoot *>(asProvider(provider));
+}
+
+struct DisconnectResult {
+    HRESULT status;
+    bool usedPrivateIdentity = false;
+    ULONG identityAfterOwnerRelease = 0;
+};
+
+template <typename CreateIdentity, typename Disconnect>
+DisconnectResult disconnectProvider(void *provider, CreateIdentity createIdentity, Disconnect disconnect) {
+    if (provider == nullptr) return {E_POINTER};
+    auto *original = asProvider(provider);
+    COMCallPin pin(asSimple(provider));
+    original->revoke();
+    const HWND hwnd = original->ownedRootWindowHandle();
+    if (hwnd == nullptr) return {disconnect(asSimple(provider))};
+    if (!original->providerContext()->isQuiescent()) return {UIA_E_INVALIDOPERATION};
+    COMOwned<RootShutdownIdentity> identity(createIdentity(hwnd));
+    if (!identity) return {E_OUTOFMEMORY};
+    const HRESULT status = disconnect(identity.get());
+    // Balance our one local reference even on a real native failure. UIA may
+    // own other references; their eventual release has no Swift/host callback.
+    const ULONG remaining = identity.release()->Release();
+    return {status, true, remaining};
 }
 
 HRESULT arrayBounds(SAFEARRAY *array, LONG &lower, LONG &upper) {
@@ -1351,6 +1457,16 @@ int32_t SWU_UIAProviderContextDrainWakeResult(SWUUIAProviderContext *context) {
 
 void *SWU_UIACreateRootProviderWithContext(SWUUIAProviderContext *context, void *hwnd) {
     return SWU_UIACreateElementProviderWithContext(context, hwnd, SWU_UIA_ROOT_ELEMENT);
+}
+
+void *SWU_UIACreateOwnedHWNDRootProviderWithContext(SWUUIAProviderContext *context, void *hwnd) {
+    if (context == nullptr || hwnd == nullptr || !context->usesExplicitCalls || !context->isAvailable()) {
+        return nullptr;
+    }
+    COMOwned<SWUProvider> provider(new (std::nothrow) SWUProvider(
+        context, static_cast<HWND>(hwnd), SWU_UIA_ROOT_ELEMENT, true, true));
+    if (!context->isAvailable()) return nullptr;
+    return provider.release();
 }
 
 void *SWU_UIACreateElementProviderWithContext(
@@ -1464,12 +1580,87 @@ void SWU_UIARaiseLiveRegionChanged(void *provider) {
 }
 
 int32_t SWU_UIATryDisconnectProvider(void *provider) {
+    return disconnectProvider(
+        provider,
+        [](HWND hwnd) { return new (std::nothrow) RootShutdownIdentity(hwnd); },
+        [](IRawElementProviderSimple *identity) { return UiaDisconnectProvider(identity); }).status;
+}
+
+int32_t SWU_UIAProbeDisconnectProvider(
+    void *provider, int32_t nativeResult, int hostFailure, int allocationFailure,
+    SWUUIADisconnectProbe *result) {
+    if (result == nullptr) return E_POINTER;
+    *result = {};
     if (provider == nullptr) return E_POINTER;
-    COMCallPin pin(asSimple(provider));
-    asProvider(provider)->revoke();
-    // The owner may already have revoked the context. Do not gate native
-    // cleanup on availability or restore it when the OS refuses disconnection.
-    return UiaDisconnectProvider(asSimple(provider));
+    // These stateless host functions keep all test observations local to this
+    // invocation. No Swift context or caller output pointer enters the identity.
+    const HostProviderLookup hostLookup = hostFailure != 0
+        ? +[](HWND, IRawElementProviderSimple **host) -> HRESULT {
+            *host = nullptr;
+            return E_ACCESSDENIED;
+        }
+        : +[](HWND hwnd, IRawElementProviderSimple **host) -> HRESULT {
+            *host = new (std::nothrow) RootShutdownIdentity(hwnd);
+            return *host != nullptr ? S_OK : E_OUTOFMEMORY;
+        };
+    const DisconnectResult observed = disconnectProvider(
+        provider,
+        [hostLookup, allocationFailure](HWND hwnd) -> RootShutdownIdentity * {
+            return allocationFailure != 0 ? nullptr : new (std::nothrow) RootShutdownIdentity(hwnd, hostLookup);
+        },
+        [provider, nativeResult, result](IRawElementProviderSimple *identity) -> HRESULT {
+            ++result->nativeCallCount;
+            result->usedPrivateIdentity = identity != asSimple(provider) ? 1 : 0;
+            auto *context = asProvider(provider)->providerContext();
+            result->contextAvailable = context->isAvailable() ? 1 : 0;
+            result->contextQuiescent = context->isQuiescent() ? 1 : 0;
+            ProviderOptions originalOptions{};
+            result->originalOptionsResult = asSimple(provider)->get_ProviderOptions(&originalOptions);
+
+            ProviderOptions options{};
+            result->optionsResult = identity->get_ProviderOptions(&options);
+            result->options = static_cast<int32_t>(options);
+            IUnknown *pattern = nullptr;
+            result->patternResult = identity->GetPatternProvider(UIA_InvokePatternId, &pattern);
+            COMOwned<IUnknown> ownedPattern(pattern);
+            result->patternIsNull = pattern == nullptr ? 1 : 0;
+            VARIANT property;
+            VariantInit(&property);
+            result->propertyResult = identity->GetPropertyValue(UIA_NamePropertyId, &property);
+            result->propertyVariantType = property.vt;
+            VariantClear(&property);
+
+            void *unknown = nullptr;
+            result->unknownResult = identity->QueryInterface(IID_IUnknown, &unknown);
+            COMOwned<IUnknown> ownedUnknown(static_cast<IUnknown *>(unknown));
+            void *simple = nullptr;
+            result->simpleResult = identity->QueryInterface(IID_IRawElementProviderSimple, &simple);
+            COMOwned<IRawElementProviderSimple> ownedSimple(static_cast<IRawElementProviderSimple *>(simple));
+            result->sameUnknownIdentity = unknown == simple && unknown == identity ? 1 : 0;
+            void *fragment = nullptr;
+            result->fragmentResult = identity->QueryInterface(IID_IRawElementProviderFragment, &fragment);
+            COMOwned<IRawElementProviderFragment> ownedFragment(static_cast<IRawElementProviderFragment *>(fragment));
+            ownedFragment.reset();
+            ownedSimple.reset();
+            ownedUnknown.reset();
+            result->identityAfterAddRef = identity->AddRef();
+            result->identityAfterRelease = identity->Release();
+
+            IRawElementProviderSimple *host = nullptr;
+            result->hostResult = identity->get_HostRawElementProvider(&host);
+            COMOwned<IRawElementProviderSimple> ownedHost(host);
+            if (host != nullptr && result->usedPrivateIdentity != 0) {
+                // This host came from this invocation's stateless fake lookup.
+                result->hostWindowHandle = reinterpret_cast<uintptr_t>(
+                    static_cast<RootShutdownIdentity *>(host)->windowHandle());
+                result->hostAfterAddRef = host->AddRef();
+                result->hostAfterRelease = host->Release();
+                result->hostAfterOwnerRelease = ownedHost.release()->Release();
+            }
+            return FAILED(result->hostResult) ? result->hostResult : nativeResult;
+        });
+    result->identityAfterOwnerRelease = observed.identityAfterOwnerRelease;
+    return observed.status;
 }
 
 void SWU_UIADisconnectProvider(void *provider) {

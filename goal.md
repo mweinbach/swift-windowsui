@@ -10974,3 +10974,43 @@ The original test selections, assertions, four-round production defaults,
 prior goal text are retained. The remaining failed methods require correction
 and fresh execution; the full Core/List cohorts, native workload, visual
 comparisons, complete release gate, and original product criteria remain due.
+
+
+### 2026-09-01: preserve revoked UIA roots while disconnecting their original HWND
+
+All nine original completion gates remain open. The earlier actual native
+run failed at UiaDisconnectProvider after the public provider had correctly
+become unavailable. Its failed trace and required-cleanup flag remain
+unchanged. The reviewed shutdown repair now gives the explicit owned-root
+factory an HWND identity and performs disconnect through a private native
+identity object for that same original HWND.
+
+The public provider remains revoked throughout shutdown. The owner pins the
+original provider, revokes its family, waits for the existing full-method call
+leases to drain, and then makes exactly one real UiaDisconnectProvider call
+with the private identity. That object implements only the necessary native
+simple-provider identity, owns no Swift callback context, tree, attachment,
+or authored payload, and releases its local reference afterward. Allocation,
+host lookup, and native HRESULT failures propagate; there is no reopen,
+retry, public-provider exception, or fallback to a guessed HWND. Child and
+generic roots retain their existing behavior.
+
+The exact reviewed source delta is
+`artifacts/goal-ninth-owned-root-ff98379-intake-v1/payload/owned-root-shutdown.diff`,
+38,164 bytes, SHA256
+`d0f2d56464582c295f171b34145434bc9a777830c10bfbf7e34941110f656ed8`.
+The root staged diff is byte-identical to the six-path source packet from
+`ff983797758543899836eecd080967f95839adb8`. The source proof
+`artifacts/goal-ninth-owned-root-ff98379-root-proof-v1.json` (`15fd04/0`)
+also verifies all 614 prior test files unchanged, no Package.swift change,
+and ten new headless shutdown methods. Their native per-invocation probes
+cover HWND identity, revocation, balanced references, quiescence, failures,
+and the child/unmarked-root exclusions without opening a real window.
+
+Independent source review found no remaining blocker. Root strict formatting
+on both changed Swift files and architecture contracts passed (`134a69/0`).
+Compilation, the ten new tests, original lifetime regressions, and a fresh
+actual native shutdown are still required. A separate actor-dispatch repair
+must also be integrated before the unchanged native workload is retried.
+This source change does not qualify actual OS disconnect success, actor
+separation, fairness, Narrator, performance, or release completion.

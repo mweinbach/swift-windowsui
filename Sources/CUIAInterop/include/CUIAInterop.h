@@ -239,6 +239,11 @@ int SWU_UIAProviderContextIsQuiescent(SWUUIAProviderContext *context);
 // signal's exact failed HRESULT. It does not replace the owner's typed failure.
 int32_t SWU_UIAProviderContextDrainWakeResult(SWUUIAProviderContext *context);
 void *SWU_UIACreateRootProviderWithContext(SWUUIAProviderContext *context, void *hwnd);
+// Owned Win32 roots explicitly use the original non-null HWND as their runtime
+// identity. Requires a full-call context. GetRuntimeId succeeds with no array
+// while available, without consulting a callback-supplied runtime ID. Revoked
+// public methods still fail. Only this factory enables private shutdown identity.
+void *SWU_UIACreateOwnedHWNDRootProviderWithContext(SWUUIAProviderContext *context, void *hwnd);
 void *SWU_UIACreateElementProviderWithContext(
     SWUUIAProviderContext *context, void *hwnd, uint64_t element);
 
@@ -291,8 +296,49 @@ void SWU_UIARaiseLiveRegionChanged(void *provider);
 void SWU_UIADisconnectProvider(void *provider);
 // Irreversibly revokes this provider's shared context before attempting native
 // disconnection. Returns the native HRESULT; failure never restores availability.
-// It still calls the OS when the owner already revoked the context.
+// For an owned HWND root, waits are the owner's responsibility: all full calls
+// must already be drained, or this returns UIA_E_INVALIDOPERATION without an OS
+// call. A private, payload-free Simple provider resolves that original HWND's
+// identity for cleanup only. It is never returned to clients. Other providers
+// keep the original native call; a child/custom identity never falls back to a
+// root identity. Neither path restores availability or retries native failures.
 int32_t SWU_UIATryDisconnectProvider(void *provider);
+
+// Headless, per-invocation peer of the same disconnect driver. It replaces only
+// the OS host lookup/disconnect functions, never publishes an interface, and
+// returns observations as values. No HWND, client, global hook, or pump is used.
+// A successful simulated host lookup returns a private data-only host object;
+// hostFailure injects E_ACCESSDENIED and allocationFailure injects a null factory.
+// nativeResult is returned verbatim after successful identity lookup. These are
+// unit-test observations, not evidence of an actual OS disconnection.
+typedef struct SWUUIADisconnectProbe {
+    int32_t nativeCallCount;
+    int32_t usedPrivateIdentity;
+    int32_t contextAvailable;
+    int32_t contextQuiescent;
+    int32_t originalOptionsResult;
+    int32_t optionsResult;
+    int32_t options;
+    int32_t patternResult;
+    int32_t patternIsNull;
+    int32_t propertyResult;
+    int32_t propertyVariantType;
+    int32_t unknownResult;
+    int32_t simpleResult;
+    int32_t fragmentResult;
+    int32_t sameUnknownIdentity;
+    int32_t hostResult;
+    uintptr_t hostWindowHandle;
+    uint32_t identityAfterAddRef;
+    uint32_t identityAfterRelease;
+    uint32_t identityAfterOwnerRelease;
+    uint32_t hostAfterAddRef;
+    uint32_t hostAfterRelease;
+    uint32_t hostAfterOwnerRelease;
+} SWUUIADisconnectProbe;
+int32_t SWU_UIAProbeDisconnectProvider(
+    void *provider, int32_t nativeResult, int hostFailure, int allocationFailure,
+    SWUUIADisconnectProbe *result);
 
 // BSTR helpers (SysAllocStringLen / SysFreeString wrappers).
 uint16_t *SWU_UIACreateBSTR(const uint16_t *chars, int32_t length);

@@ -20,6 +20,13 @@ bridge. All descendants, fragment roots, selection containers, selection
 results, focus results, and event providers use the same context as their
 originating bridge.
 
+Owned Win32 attachments explicitly mark their original HWND root as using
+HWND-derived runtime identity. This lets cleanup resolve a private identity
+after the public family is revoked, without restoring any escaped provider.
+See [Owned HWND root shutdown identity](UIAOwnedRootShutdown.md) for the
+restricted factory, full-call drain requirement, HRESULT behavior, and the
+separate source-only regression evidence.
+
 ## Callback admission and release
 
 C++ methods hold a temporary reference to their provider across callbacks and

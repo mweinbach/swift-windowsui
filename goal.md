@@ -11885,3 +11885,48 @@ together. Fresh Button/Table166, ordinary152, UIA continuation/budget/public
 accessibility, and original Core/List validation remain necessary. The
 previous compile failure remains failed evidence. All original goal gates
 remain open.
+
+
+### 2026-09-01 preserved ordinary152 selection reaches two further compile errors
+
+The source selector now handles the two XCTestCase classes in
+RetainedLazyListAcceptedMembershipTests.swift. The reviewed derivative keeps
+the existing lexer, declaration checks, donor pin, roster limits, and timeout;
+it validates the entire masked file before selecting a named top-level class.
+Malformed or duplicate unselected siblings do not disappear from validation.
+The spec's explicit sourceFile entry selects the eight-method sibling from
+that same file without splitting, renaming, or dropping either test class.
+
+The root packet is `artifacts/goal-ninth-multiclass-focused-parser-intake-v1`.
+Its preparing reviewer recorded 135 parser-only checks, and the independent
+reviewer recorded 111 overlapping parser/filename checks. Those are not
+XCTest results. Root read the derivative, exact patch, notes and review, then
+verified all 13 selected source files equal their committed 229122b versions.
+The fresh spec changes only its HEAD to `78b890b6`. Its derived runner changes
+only the donor's two class-selector literals. Root independently verified all
+132 original identifiers plus exactly 20 additions: 152 unique async methods,
+14 classes, and the unchanged 900-second budget.
+
+The actual attempt at `78b890b6aecd7c41fbfccb7fcf53be43da7162c6`, tree
+`85a278a267c5f27a0aa2bfe1f9c29d91a7d95370`, is retained at
+`artifacts/ordinary152-78b890b-bace012664724a99800896c3196fcd4a`.
+Runner and retained child 16196 exited naturally with 1 after 69.641 seconds;
+there was no timeout or termination, and source/index endpoints matched.
+The raw log is 12,779 bytes, SHA256
+`265ee95a75aac7e713b81b10d678657f99e8710b1c0165f6c2be0e3c7d3f9212`.
+
+The build advanced past the previous Button and Runtime errors, then failed
+on two unique diagnostics. TableConstructionAdmission.withValueLookup passes
+the nonescaping isCurrent parameter into another nonescaping parameter in a
+way Swift rejects for possible reentrant modification. StateMountRegistry's
+empty-membership check directly reads the preparation's fileprivate attempt
+field. That second error appears twice in the build log. The original attempt
+identity check and Table callback/admission semantics must survive their fixes.
+
+Independent reconciliation is
+`artifacts/goal-ninth-ordinary152-78b890b-compile-failure-reconciled-v1.json`;
+the following point-in-time CIM census is
+`artifacts/goal-ninth-ordinary152-78b890b-post-closure-v1.json` and found no
+matching process or formatter. There were zero XCTest starts: all 152 methods
+remain NOT RUN for this attempt. No original goal gate is closed, and the
+separate mixed-roster ownership gap remains open even after compilation.

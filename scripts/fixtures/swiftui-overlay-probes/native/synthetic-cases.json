@@ -1,0 +1,74 @@
+{
+  "evidenceKind": "SYNTHETIC-TEST-FIXTURE-NOT-NATIVE-CAPTURE",
+  "publicSourceCommit": "aa782beb23b8bd83bd16fca831532a05dd6cea39",
+  "requestId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "compilerProfileSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "candidateRecordIds": ["cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"],
+  "declaringModule": "Alpha",
+  "bystandingModule": "Beta",
+  "overlayModule": "_Alpha_Beta",
+  "sourcePath": "/SYNTHETIC/probes/probe.swift",
+  "searchPathDump": "Module import search paths:\n  [0] (system) /SYNTHETIC/runtime\n  [1] (non-system) /SYNTHETIC/probes\nFramework search paths:\n  [0] (system) /SYNTHETIC/sdk/System/Library/Frameworks\nImplicit framework search paths:\n  [0] /SYNTHETIC/sdk/System/Library/Frameworks\nRuntime library import search paths:\n  [0] /SYNTHETIC/toolchain/lib/swift\n(End of search path lists.)\n",
+  "diagnostics": {
+    "positive": "/SYNTHETIC/probes/probe.swift:4:8: remark: import of 'Alpha' and 'Beta' triggered a cross-import of '_Alpha_Beta' [cross_import_added]\nimport `Beta`\n       ^\n<unknown>:0: remark: loaded module '_Alpha_Beta'; source: '/SYNTHETIC/sdk/_Alpha_Beta.swiftinterface', loaded: '/SYNTHETIC/cache/_Alpha_Beta.swiftmodule' [module_loaded]\n",
+    "triggerOnly": "/SYNTHETIC/probes/probe.swift:4:8: remark: import of 'Alpha' and 'Beta' triggered a cross-import of '_Alpha_Beta' [cross_import_added]\n",
+    "loadOnly": "<unknown>:0: remark: loaded module '_Alpha_Beta'; source: '/SYNTHETIC/sdk/_Alpha_Beta.swiftinterface', loaded: '/SYNTHETIC/cache/_Alpha_Beta.swiftmodule' [module_loaded]\n",
+    "clangOnly": "<unknown>:0: remark: loaded module '_Alpha_Beta' (overlay for a clang dependency); source: '/SYNTHETIC/sdk/_Alpha_Beta.swiftinterface', loaded: '/SYNTHETIC/cache/_Alpha_Beta.swiftmodule' [module_loaded]\n",
+    "rejected": "/SYNTHETIC/probes/probe.swift:3:8: error: no such module 'Alpha' [no_such_module]\nimport `Alpha`\n       ^\n",
+    "quoted": "/SYNTHETIC/probes/probe.swift:3:8: error: quoted text: <unknown>:0: remark: loaded module '_Alpha_Beta'; source: '/SYNTHETIC/sdk/_Alpha_Beta.swiftinterface', loaded: '/SYNTHETIC/cache/_Alpha_Beta.swiftmodule' [module_loaded]\n",
+    "foreignTrigger": "/SYNTHETIC/sdk/Dependency.swiftinterface:4:8: remark: import of 'Alpha' and 'Beta' triggered a cross-import of '_Alpha_Beta' [cross_import_added]\n"
+  },
+  "trace": {
+    "version": 2,
+    "name": "SWUIOverlayProbe_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "arch": "arm64",
+    "languageMode": "6",
+    "enabledLanguageFeatures": [],
+    "strictMemorySafety": false,
+    "swiftmodules": [
+      "/SYNTHETIC/sdk/Alpha.swiftmodule",
+      "/SYNTHETIC/sdk/Beta.swiftmodule",
+      "/SYNTHETIC/sdk/_Alpha_Beta.swiftinterface"
+    ],
+    "swiftmodulesDetailedInfo": [
+      {
+        "name": "Alpha",
+        "path": "/SYNTHETIC/sdk/Alpha.swiftmodule",
+        "isImportedDirectly": true,
+        "supportsLibraryEvolution": true,
+        "strictMemorySafety": false
+      },
+      {
+        "name": "Beta",
+        "path": "/SYNTHETIC/sdk/Beta.swiftmodule",
+        "isImportedDirectly": true,
+        "supportsLibraryEvolution": true,
+        "strictMemorySafety": false
+      },
+      {
+        "name": "_Alpha_Beta",
+        "path": "/SYNTHETIC/sdk/_Alpha_Beta.swiftinterface",
+        "isImportedDirectly": true,
+        "supportsLibraryEvolution": true,
+        "strictMemorySafety": false
+      }
+    ],
+    "swiftmacros": []
+  },
+  "pathObservations": [
+    {
+      "path": "/SYNTHETIC/sdk/_Alpha_Beta.swiftinterface",
+      "canonicalPath": "/SYNTHETIC/sdk/_Alpha_Beta.swiftinterface",
+      "status": "recorded",
+      "bytes": 73,
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    {
+      "path": "/SYNTHETIC/cache/_Alpha_Beta.swiftmodule",
+      "canonicalPath": "/SYNTHETIC/cache/_Alpha_Beta.swiftmodule",
+      "status": "recorded",
+      "bytes": 127,
+      "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    }
+  ]
+}

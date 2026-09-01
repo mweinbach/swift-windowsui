@@ -11735,3 +11735,38 @@ filter. Existing managed streaming support may compile C# in-process through
 Add-Type; these tests do not launch an external compiler, SwiftPM, native Apple
 collector, or SDK workload. They cannot close SDK identity review, full overlay
 coverage, declaration review, or behavioral conformance.
+
+
+### 2026-09-01 root integration 94: bounded overlay collection evidence
+
+The reviewed Stage B collection slice follows input planning commit
+`3fbd8885ad4e7e385d3c59d08d1ccdbb9d348abd`. It adds separate native observation,
+supplemental graph, and final collector paths with explicit source/profile
+bindings and qualification fields. It does not establish that any Apple SDK
+workload has run, that an unselected overlay is absent, or that API compatibility
+is complete. The original scope, targets, nine streams, and gates are unchanged.
+
+The original private collection patch is 441,776 bytes, SHA-256
+`baa39abafc44728fb8c8f4ed9f07c266533f03db422794768a4a43a5eb3e13eb`.
+Root `a6c8ce/0` passed PowerShell 7 contracts before and after application and
+proved its complete staged diff byte-identical. Source proof
+`artifacts/goal-ninth-stageb2-92e23-root-proof-v1.json` binds staged tree
+`5496e5f25c212743f6b9bd5763a5bb4eb8ecf19c`. The patch adds sixteen new paths and
+appends to the existing probe documentation; all 641 existing Tests files and
+Package.swift remain exact. Together the two Stage B slices add twenty paths.
+No Swift source, XCTest assertion, compiler setting, or runtime budget changed.
+
+Root synthetic validation is still pending: intake72/427, native28/286,
+graphs71/304, collector45/501, totaling 216 cases and 1,518 assertions. These are
+the required full selections, not root pass counts. Each suite must run in its
+own fresh PowerShell 7 process with no case filter. Evidence must retain exact
+case identities, loaded dependency hashes, zero adapter/process invocation
+counters, collector fullSuite, unchanged source endpoints, false qualification
+flags, and graph nativeExecution=false. The existing nine-stream capture remains
+untouched. In-process Add-Type may compile the managed helper; no external
+compiler, SwiftPM, native SDK collector, network, or macOS workload is authorized
+by this synthetic check.
+
+The combined Swift build still requires its separately reviewed Button/Runtime
+compile corrections and a fresh run. No tests or native qualification are
+inferred from these tooling integrations. All nine original gates remain open.

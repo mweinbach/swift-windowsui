@@ -1,0 +1,13 @@
+{
+  "metadata": {"formatVersion": {"major": 0, "minor": 6, "patch": 0}, "generator": "synthetic-no-compiler"},
+  "module": {"name": "DeclaringA", "bystanders": ["BystanderB"], "platform": {"architecture": "aarch64", "operatingSystem": {"name": "macosx"}}},
+  "symbols": [
+    {"identifier": {"precise": "s:existing.shared", "interfaceLanguage": "swift"}, "kind": {"identifier": "swift.method", "displayName": "Instance Method"}, "pathComponents": ["Existing", "shared()"], "names": {"title": "shared()"}, "accessLevel": "public", "swiftGenerics": {"constraints": [{"kind": "conformance", "lhs": "T", "rhs": "FirstProtocol"}]}, "unknownSyntheticField": {"integer": 18446744073709551615, "negativeZero": -0}},
+    {"identifier": {"precise": "s:existing.shared", "interfaceLanguage": "swift"}, "kind": {"identifier": "swift.method", "displayName": "Instance Method"}, "pathComponents": ["Existing", "shared()"], "names": {"title": "shared()"}, "accessLevel": "public", "swiftGenerics": {"constraints": [{"kind": "conformance", "lhs": "T", "rhs": "SecondProtocol"}]}, "swiftExtension": {"extendedModule": "ForeignOwner"}}
+  ],
+  "relationships": [
+    {"kind": "conformsTo", "source": "s:existing.shared", "target": "s:FirstProtocol", "swiftConstraints": [{"kind": "conformance", "lhs": "T", "rhs": "FirstProtocol"}]},
+    {"kind": "conformsTo", "source": "s:existing.shared", "target": "s:SecondProtocol", "swiftConstraints": [{"kind": "conformance", "lhs": "T", "rhs": "SecondProtocol"}]}
+  ],
+  "unknownSyntheticRoot": {"format": "preserve the raw bytes", "items": [null, true, 1e+007]}
+}

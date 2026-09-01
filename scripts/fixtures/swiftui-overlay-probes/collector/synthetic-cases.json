@@ -1,0 +1,19 @@
+{
+  "evidenceKind": "SYNTHETIC-COLLECTOR-FIXTURE-NOT-NATIVE-CAPTURE",
+  "declaringModule": "Alpha",
+  "bystanderModule": "Beta",
+  "overlayNames": ["AlphaBeta", "AlphaBeta", "_AlphaBeta"],
+  "targets": ["arm64-apple-macosx26.5", "x86_64-apple-macosx26.5"],
+  "cxxModes": ["off", "default"],
+  "layout": {
+    "developer": "/SYNTHETIC-Xcode.app/Contents/Developer",
+    "sdk": "/SYNTHETIC-Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+    "toolchain": "/SYNTHETIC-Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain"
+  },
+  "qualification": {
+    "reviewedIdentity": false,
+    "declarationCompleteness": false,
+    "overlayCompleteness": false,
+    "behaviorConformance": false
+  }
+}

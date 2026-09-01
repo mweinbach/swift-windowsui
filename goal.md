@@ -10668,3 +10668,29 @@ The original managed navigation regression, separate bounded trajectory
 diagnostic, and new fixture still require root compilation and execution.
 This source repair does not resolve the separately diagnosed zero-offset anchor
 policy or qualify any original completion gate.
+
+### Insertion boundary fixtures distinguish one attempt from the default four rounds (2026-09-01)
+
+The two insertion boundary failures at `26390ef2` came from fixtures whose
+attachment callback invalidates every fresh candidate while their callback-count
+oracle describes one attempt. Both now explicitly select the existing
+128-element, one-round policy before starting that operation. All their original
+assertions remain unchanged; production behavior and the default four-round
+policy are unchanged.
+
+A separate new test retains the default policy and requires four distinct native
+journal and descriptor-attempt identities, four consumed elements, and only the
+first controller of each rejected attempt. It then checks a separately requested
+fifth attempt, shared by both completed controllers, while the original physical
+first node and consumed insertion event remain unchanged. No clock or insertion
+animation may replay. Diagnostic controller storage holds only the native attempt
+IDs and its existing weak test probe, not an owner, epoch, lease, or authored
+payload that could change retirement timing.
+
+The root patch matches private `1010f70187621fae491926d60bb6bb953a331ec1`, apart
+from Git's index-hash display width; the ten existing method identities remain
+and the class now has eleven methods. The proof is
+`artifacts/goal-ninth-insertion-fixture-root-proof-v1.json`. Strict formatting and
+ContractsOnly passed (`352053`, exit 0). The corrected fixtures and new default
+policy regression still require execution; the earlier failures remain recorded.
+No original goal criterion was changed or marked complete.

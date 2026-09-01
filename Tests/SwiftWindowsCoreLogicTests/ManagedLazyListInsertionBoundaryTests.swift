@@ -37,6 +37,9 @@ final class ManagedLazyListInsertionBoundaryTests: XCTestCase {
     func testAllPublishedLeavesConsumeArrivalBeforeTheFirstControllerCanRejectCompletion() async throws {
         let fixture = ManagedInsertionBoundaryFixture(nestedChild: true)
         defer { fixture.close() }
+        // Inspect one admitted attempt; a normal query permits four fresh
+        // attempts when an attachment callback keeps invalidating completion.
+        XCTAssertTrue(fixture.host.runtime.configureLazyListResolutionBudget(elementLimit: 128, roundLimit: 1))
         var observedClaim = false
         var observedConsumedLeaves = false
         fixture.probe.onAttach = { row, leaf, node in
@@ -106,6 +109,9 @@ final class ManagedLazyListInsertionBoundaryTests: XCTestCase {
     func testAcceptedFirstRootConsumesTheUnpublishedSiblingArrivalOnRetry() async throws {
         let fixture = ManagedInsertionBoundaryFixture()
         defer { fixture.close() }
+        // This assertion sequence observes one rejected attempt, then the
+        // explicitly requested successor, without changing the shared default.
+        XCTAssertTrue(fixture.host.runtime.configureLazyListResolutionBudget(elementLimit: 128, roundLimit: 1))
         fixture.probe.onAttach = { row, leaf, node in
             guard row == 1, leaf == 0 else { return }
             let identity = node.retainedViewIdentity
@@ -134,6 +140,68 @@ final class ManagedLazyListInsertionBoundaryTests: XCTestCase {
         // sibling attaches. Neither controller attachment is a row arrival.
         XCTAssertEqual(fixture.probe.attachCalls, [0, 0, 1])
         XCTAssertEqual(fixture.clockReads, 0, "A new candidate cannot replay an accepted part of the logical event")
+    }
+
+    func testDefaultBudgetRetriesUseFreshAttemptsWithoutReplayingConsumedArrival() async throws {
+        let fixture = ManagedInsertionBoundaryFixture()
+        defer { fixture.close() }
+        fixture.probe.onAttach = { row, leaf, node in
+            XCTAssertTrue(fixture.host.runtime.hasActiveRetainedBuild)
+            XCTAssertEqual(row, 1)
+            XCTAssertEqual(leaf, 0, "A rejected attempt cannot continue to the second controller")
+            XCTAssertEqual(fixture.probe.events[1]?.isPending, false)
+            XCTAssertTrue(node.didPlayInsertionTransition)
+            XCTAssertNil(node.animationStates[.opacity])
+            let identity = node.retainedViewIdentity
+            node.retainedViewIdentity = identity
+        }
+        try fixture.introduce([1])
+
+        _ = fixture.host.layout()
+
+        let event = try XCTUnwrap(fixture.probe.events[1])
+        let first = try fixture.actual(row: 1, leaf: 0)
+        let attempts = fixture.probe.attachAttempts.compactMap { $0 }
+        let descriptorAttempts = fixture.probe.attachDescriptorAttempts.compactMap { $0 }
+        XCTAssertEqual(fixture.host.runtime.lastLazyListConsumedRounds, 4)
+        XCTAssertEqual(fixture.host.runtime.lastLazyListConsumedElements, 4)
+        XCTAssertEqual(fixture.probe.attachCalls, [0, 0, 0, 0])
+        XCTAssertEqual(attempts.count, 4)
+        XCTAssertEqual(descriptorAttempts.count, 4)
+        XCTAssertEqual(Set(attempts.map(ObjectIdentifier.init)).count, 4)
+        XCTAssertEqual(Set(descriptorAttempts.map(ObjectIdentifier.init)).count, 4)
+        XCTAssertFalse(fixture.host.runtime.hasActiveRetainedBuild)
+        XCTAssertFalse(event.isPending)
+        XCTAssertEqual(fixture.probe.events.count, 1)
+        XCTAssertNil(fixture.host.find(managedInsertionBoundaryIdentifier(1, 1)))
+        assertUnanimated(first)
+        XCTAssertEqual(fixture.clockReads, 0)
+
+        fixture.probe.onAttach = nil
+        withAnimation(.linear(duration: 9)) { fixture.host.reload() }
+        XCTAssertNotNil(fixture.host.layout())
+
+        XCTAssertEqual(fixture.probe.attachCalls, [0, 0, 0, 0, 0, 1])
+        let completedAttempts = fixture.probe.attachAttempts.compactMap { $0 }
+        let completedDescriptorAttempts = fixture.probe.attachDescriptorAttempts.compactMap { $0 }
+        XCTAssertEqual(completedAttempts.count, 6)
+        XCTAssertEqual(completedDescriptorAttempts.count, 6)
+        XCTAssertEqual(Set(completedAttempts.map(ObjectIdentifier.init)).count, 5)
+        XCTAssertEqual(Set(completedDescriptorAttempts.map(ObjectIdentifier.init)).count, 5)
+        XCTAssertEqual(
+            completedAttempts.suffix(2).map(ObjectIdentifier.init).first,
+            completedAttempts.suffix(2).map(ObjectIdentifier.init).last)
+        XCTAssertEqual(
+            completedDescriptorAttempts.suffix(2).map(ObjectIdentifier.init).first,
+            completedDescriptorAttempts.suffix(2).map(ObjectIdentifier.init).last)
+        XCTAssertTrue(try fixture.actual(row: 1, leaf: 0) === first)
+        assertUnanimated(first)
+        assertUnanimated(try fixture.actual(row: 1, leaf: 1))
+        XCTAssertTrue(fixture.probe.events[1] === event)
+        XCTAssertFalse(event.isPending)
+        XCTAssertEqual(fixture.clockReads, 0)
+        XCTAssertEqual(try fixture.host.list().retainedLazyListAdapter?.mountedRecordCount, 1)
+        try fixture.host.assertCommittedDescriptor()
     }
 
     func testMatchedPropertyPublicationClaimsBeforeItsOutgoingModifierCaptureIsDestroyed() async throws {
@@ -323,6 +391,8 @@ private final class ManagedInsertionBoundaryProbe {
     var seedOutlineAnimation = false
     var modifierCalls = 0
     var attachCalls: [Int] = []
+    var attachAttempts: [RetainedLazyListAttemptID?] = []
+    var attachDescriptorAttempts: [RetainedLazyListAttemptID?] = []
     weak var adapter: RetainedLazyListRuntimeAdapter?
     var events: [Int: RetainedLazyListInsertionEvent] = [:]
     var onAttach: ((Int, Int, ViewNode) -> Void)?
@@ -354,7 +424,9 @@ private final class ManagedInsertionBoundaryProbe {
             node.animationStates[.outlineWidth] = AnimationState(
                 startValue: 2, endValue: 6, startTime: 1, duration: 100, easing: .linear)
         }
-        node.textInputController = ManagedInsertionBoundaryController(probe: self, row: row, leaf: leaf)
+        node.textInputController = ManagedInsertionBoundaryController(
+            probe: self, row: row, leaf: leaf, attempt: context.viewIdentity.lazyList?.native.attempt,
+            descriptorAttempt: context.viewIdentity.lazyList?.native.descriptorBuildAttemptID)
         if nestedChild, leaf == 0 {
             node.frame.size.height = 40
             node.addChild(makeNode(row: row, leaf: 1, context: context))
@@ -381,15 +453,24 @@ private final class ManagedInsertionBoundaryController: RetainedTextInputControl
     private weak var probe: ManagedInsertionBoundaryProbe?
     private let row: Int
     private let leaf: Int
+    private let attempt: RetainedLazyListAttemptID?
+    private let descriptorAttempt: RetainedLazyListAttemptID?
 
-    init(probe: ManagedInsertionBoundaryProbe, row: Int, leaf: Int) {
+    init(
+        probe: ManagedInsertionBoundaryProbe, row: Int, leaf: Int,
+        attempt: RetainedLazyListAttemptID?, descriptorAttempt: RetainedLazyListAttemptID?
+    ) {
         self.probe = probe
         self.row = row
         self.leaf = leaf
+        self.attempt = attempt
+        self.descriptorAttempt = descriptorAttempt
     }
 
     func attach(to node: ViewNode) {
         probe?.attachCalls.append(leaf)
+        probe?.attachAttempts.append(attempt)
+        probe?.attachDescriptorAttempts.append(descriptorAttempt)
         probe?.onAttach?(row, leaf, node)
     }
     func reconcile(from previous: (any RetainedTextInputController)?, onto node: ViewNode) {}

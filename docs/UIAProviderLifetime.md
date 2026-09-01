@@ -36,11 +36,17 @@ therefore also rejects a held pattern interface; rejecting only new pattern
 lookups would leave already acquired interfaces callable.
 
 Swift C trampolines retain the box without reading its actor-isolated state.
-The existing synchronous main dispatch runs before weak bridge promotion. A
+For the legacy callback table, synchronous main dispatch runs before weak bridge promotion. A
 successful promotion pins the bridge until that source callback finishes. Only
 Sendable values cross this dispatch; C buffer decoding and output copying stay
 in the nonisolated marshalling code. If weak promotion fails before the
 bridge's isolated destructor runs, the trampoline revokes the native family.
+
+The owned native callback table instead uses an ordinary queued actor request
+and an owned reply cell. A synchronous inline receive requires an explicit
+lexical actor-to-C entry scope; queue identity alone is not sufficient. See
+[Owned native UIA actor dispatch](UIANativeActorDispatch.md) for call ownership,
+scope boundaries, nested failures, and the unchanged fixture workload.
 
 Native availability changes at that explicit revocation, not at Swift weak
 zeroing. Before a deferred isolated destructor runs, callback-free metadata

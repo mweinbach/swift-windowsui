@@ -333,9 +333,21 @@ enum UIANativeRequestDispatch {
             return nil
         }
         let envelope = UIAProviderRequestEnvelope(surface: surface, request: request)
-        return UIAProviderBridge.onMain {
-            context.receive(envelope, lease: lease)
+        if UIANativeActorEntry.isActive {
+            return MainActor.assumeIsolated {
+                context.receive(envelope, lease: lease)
+            }
         }
+        let reply = UIANativeActorReplyCell()
+        Task { @MainActor [context, envelope, lease, reply] in
+            let value = UIANativeActorEntry.withScope {
+                context.receive(envelope, lease: lease)
+            }
+            // Both receive's transaction defer and the native entry scope have
+            // finished before publishing. The task still owns the full C lease.
+            reply.complete(value)
+        }
+        return reply.wait()
     }
 
     static func unexpectedReply(_ call: OpaquePointer?) {

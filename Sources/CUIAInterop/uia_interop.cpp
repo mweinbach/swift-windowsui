@@ -267,6 +267,23 @@ private:
 
 namespace {
 
+class ActorEntryScope;
+thread_local const ActorEntryScope *currentActorEntry = nullptr;
+
+class ActorEntryScope final {
+public:
+    ActorEntryScope() : previous_(currentActorEntry) { currentActorEntry = this; }
+    ~ActorEntryScope() {
+        assert(currentActorEntry == this);
+        currentActorEntry = previous_;
+    }
+    ActorEntryScope(const ActorEntryScope &) = delete;
+    ActorEntryScope &operator=(const ActorEntryScope &) = delete;
+
+private:
+    const ActorEntryScope *const previous_;
+};
+
 struct PublicationGateRelease {
     void operator()(SWUUIAPublicationGate *gate) const {
         if (gate != nullptr) gate->release();
@@ -1393,6 +1410,16 @@ const IID &interfaceID(int32_t kind) {
 }  // namespace
 
 extern "C" {
+
+void SWU_UIAWithActorEntry(void *context, void (*body)(void *context)) {
+    if (body == nullptr) return;
+    ActorEntryScope scope;
+    body(context);
+}
+
+int SWU_UIAHasActorEntry(void) {
+    return currentActorEntry != nullptr ? 1 : 0;
+}
 
 void SWU_UIARetainCall(SWUUIACall *call) {
     if (call != nullptr) call->retain();

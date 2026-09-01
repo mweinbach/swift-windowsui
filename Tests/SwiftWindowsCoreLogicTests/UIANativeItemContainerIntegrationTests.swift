@@ -236,47 +236,58 @@ private final class NativeItemFixture {
     }
 }
 
+@MainActor
 private func nativeItemFind(
     _ pattern: UnsafeMutableRawPointer?, after: UnsafeMutableRawPointer? = nil,
     property: Int32 = Int32(SWU_UIA_ITEM_PROPERTY_ANY)
 ) -> (status: Int32, provider: UnsafeMutableRawPointer?) {
     var result: UnsafeMutableRawPointer?
-    let status = SWU_UIAItemContainerProviderFindItemResult(pattern, after, property, nil, 0, &result)
+    let status = UIANativeActorEntry.withScope {
+        SWU_UIAItemContainerProviderFindItemResult(pattern, after, property, nil, 0, &result)
+    }
     return (status, result)
 }
 
+@MainActor
 private func nativeItemRuntimeID(_ provider: UnsafeMutableRawPointer?) -> (status: Int32, values: [Int32]) {
     var values = [Int32](repeating: 0, count: 8)
     var count: Int32 = 0
-    let status = values.withUnsafeMutableBufferPointer {
-        SWU_UIAProviderGetRuntimeIdResult(provider, $0.baseAddress, Int32($0.count), &count)
+    let status = UIANativeActorEntry.withScope {
+        values.withUnsafeMutableBufferPointer {
+            SWU_UIAProviderGetRuntimeIdResult(provider, $0.baseAddress, Int32($0.count), &count)
+        }
     }
     return (status, Array(values.prefix(Int(max(0, count)))))
 }
 
+@MainActor
 private func nativeItemName(_ provider: UnsafeMutableRawPointer?) -> (status: Int32, name: String?) {
     var text: UnsafeMutablePointer<UInt16>?
-    let status = SWU_UIAProviderGetNameResult(provider, &text)
+    let status = UIANativeActorEntry.withScope { SWU_UIAProviderGetNameResult(provider, &text) }
     guard let text else { return (status, nil) }
     defer { SWU_UIAFreeString(text) }
     return (status, String(decodingCString: text, as: UTF16.self))
 }
 
+@MainActor
 private func nativeItemNavigate(
     _ provider: UnsafeMutableRawPointer, direction: Int32, firstFailure: inout String?
 ) -> UnsafeMutableRawPointer? {
     var result: UnsafeMutableRawPointer?
-    let status = SWU_UIAProviderNavigateResult(provider, direction, &result)
+    let status = UIANativeActorEntry.withScope { SWU_UIAProviderNavigateResult(provider, direction, &result) }
     if status < 0, firstFailure == nil { firstFailure = "Navigate(\(direction)) HRESULT \(status)" }
     return result
 }
 
+@MainActor
 private func nativeItemFindPattern(
     in provider: UnsafeMutableRawPointer?, firstFailure: inout String?
 ) -> UnsafeMutableRawPointer? {
     guard let provider else { return nil }
     var pattern: UnsafeMutableRawPointer?
-    let status = SWU_UIAProviderGetPatternResult(provider, Int32(SWU_UIA_PATTERN_ITEM_CONTAINER), &pattern)
+    let status = UIANativeActorEntry.withScope {
+        SWU_UIAProviderGetPatternResult(provider, Int32(SWU_UIA_PATTERN_ITEM_CONTAINER), &pattern)
+    }
     if status < 0, firstFailure == nil { firstFailure = "GetPatternProvider(ItemContainer) HRESULT \(status)" }
     if let pattern { return pattern }
     var next = nativeItemNavigate(provider, direction: Int32(SWU_UIA_NAV_FIRST_CHILD), firstFailure: &firstFailure)
@@ -406,7 +417,8 @@ final class UIANativeItemContainerIntegrationTests: XCTestCase {
         let source = NativeItemSource()
         let fixture = try NativeItemFixture(source: source)
         defer { fixture.close() }
-        let pattern = try XCTUnwrap(SWU_UIAProviderGetItemContainerPattern(fixture.root))
+        let pattern = try XCTUnwrap(
+            UIANativeActorEntry.withScope { SWU_UIAProviderGetItemContainerPattern(fixture.root) })
         defer { SWU_UIAReleaseProvider(pattern) }
         let found = nativeItemFind(pattern)
         defer { SWU_UIAReleaseProvider(found.provider) }
@@ -435,7 +447,8 @@ final class UIANativeItemContainerIntegrationTests: XCTestCase {
         let source = NativeItemSource()
         let fixture = try NativeItemFixture(source: source)
         defer { fixture.close() }
-        let pattern = try XCTUnwrap(SWU_UIAProviderGetItemContainerPattern(fixture.root))
+        let pattern = try XCTUnwrap(
+            UIANativeActorEntry.withScope { SWU_UIAProviderGetItemContainerPattern(fixture.root) })
         defer { SWU_UIAReleaseProvider(pattern) }
         source.lookupResult = .unavailable
         fixture.beforeRequest = { geometry in
@@ -473,7 +486,8 @@ final class UIANativeItemContainerIntegrationTests: XCTestCase {
         let source = NativeItemSource()
         let fixture = try NativeItemFixture(source: source)
         defer { fixture.close() }
-        let pattern = try XCTUnwrap(SWU_UIAProviderGetItemContainerPattern(fixture.root))
+        let pattern = try XCTUnwrap(
+            UIANativeActorEntry.withScope { SWU_UIAProviderGetItemContainerPattern(fixture.root) })
         defer { SWU_UIAReleaseProvider(pattern) }
         let projections = source.snapshotGeometries.count
         for property in [SWU_UIA_ITEM_PROPERTY_NAME, SWU_UIA_ITEM_PROPERTY_AUTOMATION_ID] {
@@ -491,7 +505,8 @@ final class UIANativeItemContainerIntegrationTests: XCTestCase {
         let source = NativeItemSource()
         let fixture = try NativeItemFixture(source: source)
         defer { fixture.close() }
-        let pattern = try XCTUnwrap(SWU_UIAProviderGetItemContainerPattern(fixture.root))
+        let pattern = try XCTUnwrap(
+            UIANativeActorEntry.withScope { SWU_UIAProviderGetItemContainerPattern(fixture.root) })
         defer { SWU_UIAReleaseProvider(pattern) }
         var nested: (status: Int32, provider: UnsafeMutableRawPointer?)?
         source.onLookup = { nested = nativeItemFind(pattern) }
@@ -522,7 +537,8 @@ final class UIANativeItemContainerIntegrationTests: XCTestCase {
         let source = NativeItemSource()
         let fixture = try NativeItemFixture(source: source)
         defer { fixture.close() }
-        let pattern = try XCTUnwrap(SWU_UIAProviderGetItemContainerPattern(fixture.root))
+        let pattern = try XCTUnwrap(
+            UIANativeActorEntry.withScope { SWU_UIAProviderGetItemContainerPattern(fixture.root) })
         defer { SWU_UIAReleaseProvider(pattern) }
         var quiescentInside: Bool?
         source.onLookup = { [weak fixture] in
@@ -543,7 +559,8 @@ final class UIANativeItemContainerIntegrationTests: XCTestCase {
         let source = NativeItemLegacySource()
         let fixture = try NativeItemFixture(source: source)
         defer { fixture.close() }
-        let pattern = try XCTUnwrap(SWU_UIAProviderGetItemContainerPattern(fixture.root))
+        let pattern = try XCTUnwrap(
+            UIANativeActorEntry.withScope { SWU_UIAProviderGetItemContainerPattern(fixture.root) })
         defer { SWU_UIAReleaseProvider(pattern) }
         let result = nativeItemFind(pattern)
         defer { SWU_UIAReleaseProvider(result.provider) }
@@ -586,7 +603,7 @@ final class UIANativeItemContainerIntegrationTests: XCTestCase {
         XCTAssertEqual(identity.status, 0)
         XCTAssertEqual(identity.values.count, 3)
         let element = try fixture.elementID(row)
-        let pattern = try XCTUnwrap(SWU_UIAProviderGetVirtualizedItemPattern(row))
+        let pattern = try XCTUnwrap(UIANativeActorEntry.withScope { SWU_UIAProviderGetVirtualizedItemPattern(row) })
         defer { SWU_UIAReleaseProvider(pattern) }
         let witness = try XCTUnwrap(fixture.host.runtime.lazyListAccessibilityItem(in: try fixture.host.list()))
 
@@ -598,7 +615,7 @@ final class UIANativeItemContainerIntegrationTests: XCTestCase {
         XCTAssertEqual(fixture.rows.factories, factories)
         XCTAssertNil(fixture.host.runtime.lazyListAccessibilityGeneration(for: witness))
 
-        XCTAssertEqual(SWU_UIAVirtualizedItemProviderRealizeResult(pattern), 0)
+        XCTAssertEqual(UIANativeActorEntry.withScope { SWU_UIAVirtualizedItemProviderRealizeResult(pattern) }, 0)
         XCTAssertTrue(fixture.rows.factories.contains(300))
         XCTAssertLessThan(fixture.rows.factories.count - factories.count, 128)
         XCTAssertEqual(fixture.source.uiaLogicalItemState(elementID: element), .ordinary)
@@ -615,7 +632,7 @@ final class UIANativeItemContainerIntegrationTests: XCTestCase {
         let row = try fixture.item(at: 300)
         defer { SWU_UIAReleaseProvider(row) }
         let element = try fixture.elementID(row)
-        let pattern = try XCTUnwrap(SWU_UIAProviderGetVirtualizedItemPattern(row))
+        let pattern = try XCTUnwrap(UIANativeActorEntry.withScope { SWU_UIAProviderGetVirtualizedItemPattern(row) })
         defer { SWU_UIAReleaseProvider(pattern) }
         let witness = try XCTUnwrap(fixture.host.runtime.lazyListAccessibilityItem(in: try fixture.host.list()))
         fixture.rows.rows.removeAll { $0 == 300 }
@@ -626,7 +643,9 @@ final class UIANativeItemContainerIntegrationTests: XCTestCase {
         let identity = nativeItemRuntimeID(row)
         XCTAssertEqual(identity.status, UIANativeHRESULT.elementNotAvailable)
         XCTAssertTrue(identity.values.isEmpty)
-        XCTAssertEqual(SWU_UIAVirtualizedItemProviderRealizeResult(pattern), UIANativeHRESULT.elementNotAvailable)
+        XCTAssertEqual(
+            UIANativeActorEntry.withScope { SWU_UIAVirtualizedItemProviderRealizeResult(pattern) },
+            UIANativeHRESULT.elementNotAvailable)
         XCTAssertEqual(fixture.rows.factories, factories)
         XCTAssertEqual(fixture.rows.legacyMappings, 0)
         XCTAssertEqual(fixture.native.commands.count, 0)

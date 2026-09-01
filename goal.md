@@ -11014,3 +11014,62 @@ actual native shutdown are still required. A separate actor-dispatch repair
 must also be integrated before the unchanged native workload is retried.
 This source change does not qualify actual OS disconnect success, actor
 separation, fairness, Narrator, performance, or release completion.
+
+
+### 2026-09-01: queue owned UIA requests on the actor and preserve synchronous nesting
+
+All nine original completion gates remain open. The second reviewed native
+repair replaces borrowed-main-queue execution in the owned-provider dispatch
+path with an ordinary MainActor Task. A foreign query keeps its original
+copied envelope, callback context, and full call lease while waiting for one
+actor result. It does not refresh source geometry, pump the native owner,
+or execute an authored source callback on the waiting thread.
+
+A private lexical native entry scope marks only an already-established,
+synchronous actor stack. Its RAII object restores the exact predecessor
+before returning. The synchronous nonescaping Swift wrapper owns its temporary
+invocation box through that call. Only the queued production receive creates
+this scope; no thread-ID observation, queue label, worker wrapper, TaskLocal,
+or cached availability grants it. An already-scoped nested query runs the
+existing receive immediately, preserving the original global nested-request
+failure guard for both the same and a different provider family.
+
+The reply cell distinguishes pending from completed nil. It claims its first
+result under a short mutex and signals only after unlocking and after receive
+and scope unwinding. No timeout or cancellation path can release the call
+lease while the queued body can still execute. The original C method lease
+continues through output publication and provider release; revocation does
+not reopen availability. Legacy provider dispatch remains unchanged.
+
+The source packet
+`artifacts/goal-ninth-native-actor-aafecd8-intake-v1/payload/owned-actor-dispatch.diff`
+is 54,385 bytes, SHA256
+`f88cdbe0cd0570fad294aa78335966d27c0794000f7140807e72378b62102bc9`.
+It includes the separate one-line correction in the new tests at
+`aafecd82f502c6d8a4ad4c534176c0565131c0be`; the inaccessible redundant
+observation was removed without changing the following real C success check.
+The root proof `artifacts/goal-ninth-native-actor-aafecd8-root-proof-v1.json`
+(`5b23e3/0`) verifies the complete staged diff equals the nine-path packet,
+ten new methods, and 613 other existing test files unchanged. The only two
+modified old test files are the existing owned request and item-container
+fixtures, whose direct actor calls now enter explicit synchronous scopes.
+
+The independent review packet is retained at
+`artifacts/goal-ninth-native-actor-aafecd8-peer-intake-v1`. It reconstructed
+the two original fixture token sequences after only those approved wrappers
+and helper annotations, preserving all 63 C calls, 210 assertions/unwraps,
+eight loops, 26 methods, and all raw-worker blocks. Its eight original critical
+lifetime, admission, nested-request, and legacy bodies are byte-identical.
+This is a source preservation proof, not compilation or execution. The
+PublicLazyListAccessibility fixture uses the unchanged legacy provider factory,
+so it does not require a new owned-entry scope for its existing raw calls.
+
+Root strict formatting on all five changed Swift files and contracts passed
+(`fa63d7/0`). The original 45 native-smoke regressions, 27 actual-native
+predicates, workload, timeouts, and earlier failed native trace are unchanged.
+Next qualification requires fresh compilation, the original 45 plus twenty
+new native repair tests, original owned lifetime fixtures, a new immutable
+binary binding, and the unchanged actual-native workload. Arbitrary raw-C
+actor interop still needs a genuine explicit scope; direct-vtable tests do
+not establish cross-apartment COM behavior. Actor separation, shutdown,
+fairness, routed accessibility, and release completion remain unqualified.

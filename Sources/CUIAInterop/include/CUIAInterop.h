@@ -164,6 +164,14 @@ typedef struct SWUUIACallbacks {
 // not a stack address. Retain it before queuing actor work and release it after
 // that work's final access, including cancellation before actor admission.
 typedef struct SWUUIACall SWUUIACall;
+// Internal Swift actor-to-C bridge support. The caller must already be in an
+// explicitly established MainActor context. This invokes body synchronously
+// within a native thread-local lexical scope and restores its predecessor on
+// return. It does not establish actor isolation, retain context, dispatch work,
+// propagate across threads/tasks, or grant provider-family availability.
+// Never call it from a queue-label/Thread.isMainThread inference or span await.
+void SWU_UIAWithActorEntry(void *context, void (*body)(void *context));
+int SWU_UIAHasActorEntry(void);
 typedef struct SWUUIACallCallbacks {
     void *context;
     uint64_t (*navigate)(SWUUIACall *call, uint64_t element, int32_t direction);

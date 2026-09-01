@@ -250,6 +250,11 @@ private func nativeRequestName(_ provider: UnsafeMutableRawPointer?) -> (Int32, 
     return (result, String(decoding: UnsafeBufferPointer(start: string, count: count), as: UTF16.self))
 }
 
+@MainActor
+private func nativeActorRequestName(_ provider: UnsafeMutableRawPointer?) -> (Int32, String?) {
+    UIANativeActorEntry.withScope { nativeRequestName(provider) }
+}
+
 /// A non-owning capability for this fixture's atomically retained C provider.
 /// Copying it does not AddRef; NativeRequestProviderHandle explicitly owns and
 /// balances the permanent reference and each temporary query reference.
@@ -375,7 +380,7 @@ final class UIANativeRequestTests: XCTestCase {
             fixture?.source.elements[0].name = "Flushed"
             return .success(())
         }
-        let first = nativeRequestName(fixture.root)
+        let first = nativeActorRequestName(fixture.root)
         XCTAssertEqual(first.0, 0)
         XCTAssertEqual(first.1, "Flushed")
         XCTAssertEqual(fixture.sequences, [19])
@@ -385,7 +390,7 @@ final class UIANativeRequestTests: XCTestCase {
         fixture.beforeRequest = nil
         fixture.source.elements[0].name = "Fresh"
         fixture.snapshots.publish(nativeRequestSurface(key: fixture.surface.key, revision: 8, sequence: 21))
-        XCTAssertEqual(nativeRequestName(fixture.root).1, "Fresh")
+        XCTAssertEqual(nativeActorRequestName(fixture.root).1, "Fresh")
         XCTAssertEqual(fixture.source.geometries.map(\.revision), [7, 8])
     }
 
@@ -403,13 +408,14 @@ final class UIANativeRequestTests: XCTestCase {
     func testCOMActionFailureIsNotTransportSuccessAndVoidInvokeStaysVoid() async throws {
         let fixture = try NativeRequestFixture()
         defer { fixture.close() }
-        let toggle = try XCTUnwrap(SWU_UIAProviderGetTogglePattern(fixture.root))
+        let toggle = try XCTUnwrap(UIANativeActorEntry.withScope { SWU_UIAProviderGetTogglePattern(fixture.root) })
         defer { SWU_UIAReleaseProvider(toggle) }
-        XCTAssertEqual(SWU_UIAToggleProviderToggleResult(toggle), Int32(bitPattern: 0x8013_1509))
-        let invoke = try XCTUnwrap(SWU_UIAProviderGetInvokePattern(fixture.root))
+        XCTAssertEqual(
+            UIANativeActorEntry.withScope { SWU_UIAToggleProviderToggleResult(toggle) }, Int32(bitPattern: 0x8013_1509))
+        let invoke = try XCTUnwrap(UIANativeActorEntry.withScope { SWU_UIAProviderGetInvokePattern(fixture.root) })
         defer { SWU_UIAReleaseProvider(invoke) }
-        XCTAssertEqual(SWU_UIAProviderInvokeResult(invoke), 0)
-        XCTAssertEqual(SWU_UIAProviderSetFocusResult(fixture.root), 0)
+        XCTAssertEqual(UIANativeActorEntry.withScope { SWU_UIAProviderInvokeResult(invoke) }, 0)
+        XCTAssertEqual(UIANativeActorEntry.withScope { SWU_UIAProviderSetFocusResult(fixture.root) }, 0)
         XCTAssertEqual(fixture.source.actions, ["toggle", "invoke", "focus"])
     }
 
@@ -421,7 +427,7 @@ final class UIANativeRequestTests: XCTestCase {
             fixture?.bridge?.revokeNativeRequests()
             quiescentInsideCallback = fixture?.attachment?.isQuiescent
         }
-        let result = nativeRequestName(fixture.root)
+        let result = nativeActorRequestName(fixture.root)
         XCTAssertEqual(result.0, UIANativeHRESULT.elementNotAvailable)
         XCTAssertNil(result.1)
         XCTAssertEqual(quiescentInsideCallback, false)
@@ -434,30 +440,30 @@ final class UIANativeRequestTests: XCTestCase {
         let fixture = try NativeRequestFixture()
         defer { fixture.close() }
         var nested: (Int32, String?)?
-        fixture.source.onSnapshot = { [weak fixture] in nested = nativeRequestName(fixture?.root) }
-        XCTAssertEqual(nativeRequestName(fixture.root).0, 0)
+        fixture.source.onSnapshot = { [weak fixture] in nested = nativeActorRequestName(fixture?.root) }
+        XCTAssertEqual(nativeActorRequestName(fixture.root).0, 0)
         XCTAssertEqual(nested?.0, UIANativeHRESULT.failed)
         XCTAssertNil(nested?.1)
         XCTAssertEqual(fixture.source.reads, 1)
         XCTAssertEqual(fixture.sequences, [19])
         fixture.source.onSnapshot = nil
-        XCTAssertEqual(nativeRequestName(fixture.root).0, 0)
+        XCTAssertEqual(nativeActorRequestName(fixture.root).0, 0)
     }
 
     func testBeforeRequestFailureDoesNotReadSourceOrRevokeFamily() async throws {
         let fixture = try NativeRequestFixture()
         defer { fixture.close() }
         fixture.beforeRequest = { _ in .failure(.execution("Uncommitted actor input")) }
-        XCTAssertEqual(nativeRequestName(fixture.root).0, UIANativeHRESULT.failed)
+        XCTAssertEqual(nativeActorRequestName(fixture.root).0, UIANativeHRESULT.failed)
         XCTAssertEqual(fixture.source.reads, 0)
         fixture.beforeRequest = nil
-        XCTAssertEqual(nativeRequestName(fixture.root).0, 0)
+        XCTAssertEqual(nativeActorRequestName(fixture.root).0, 0)
     }
 
     func testIngressOverflowRejectsOlderCommittedQueriesAndActionsWithTheActualFailure() async throws {
         let fixture = try NativeRequestFixture()
         defer { fixture.close() }
-        let toggle = try XCTUnwrap(SWU_UIAProviderGetTogglePattern(fixture.root))
+        let toggle = try XCTUnwrap(UIANativeActorEntry.withScope { SWU_UIAProviderGetTogglePattern(fixture.root) })
         defer { SWU_UIAReleaseProvider(toggle) }
         let ingress = Win32NativeEventIngress(limits: Win32NativeIngressLimits(maximumRecords: 1)) { _ in }
         func record(_ sequence: UInt64) -> Win32NativeWindowEventRecord {
@@ -481,10 +487,11 @@ final class UIANativeRequestTests: XCTestCase {
         let readsBefore = fixture.source.reads
         // The published fixture still carries the older, already committed
         // sequence 19. A terminal ingress cannot use that fast success path.
-        let name = nativeRequestName(fixture.root)
+        let name = nativeActorRequestName(fixture.root)
         XCTAssertEqual(name.0, UIANativeHRESULT.failed)
         XCTAssertNil(name.1)
-        XCTAssertEqual(SWU_UIAToggleProviderToggleResult(toggle), UIANativeHRESULT.failed)
+        XCTAssertEqual(
+            UIANativeActorEntry.withScope { SWU_UIAToggleProviderToggleResult(toggle) }, UIANativeHRESULT.failed)
         XCTAssertEqual(fixture.source.reads, readsBefore)
         XCTAssertTrue(fixture.source.actions.isEmpty)
         XCTAssertEqual(fixture.bridge?.lastNativeFailure, failure)
@@ -496,22 +503,23 @@ final class UIANativeRequestTests: XCTestCase {
         let fixture = try NativeRequestFixture()
         defer { fixture.close() }
         fixture.actorSurface = nativeRequestSurface(key: fixture.surface.key, generation: 4)
-        XCTAssertEqual(nativeRequestName(fixture.root).0, UIANativeHRESULT.failed)
+        XCTAssertEqual(nativeActorRequestName(fixture.root).0, UIANativeHRESULT.failed)
         XCTAssertEqual(fixture.source.reads, 0)
         XCTAssertTrue(fixture.source.actions.isEmpty)
         XCTAssertEqual(fixture.bridge?.lastNativeFailure, .staleSurface(expected: 3, actual: 4))
         fixture.snapshots.publish(nativeRequestSurface(key: fixture.surface.key, generation: 4))
-        XCTAssertEqual(nativeRequestName(fixture.root).0, 0)
+        XCTAssertEqual(nativeActorRequestName(fixture.root).0, 0)
         XCTAssertEqual(fixture.source.reads, 1)
     }
 
     func testNativeEventsAreNotAwaitedOrDiscardedWhenActionReturnsFalse() async throws {
         let fixture = try NativeRequestFixture()
         defer { fixture.close() }
-        let toggle = try XCTUnwrap(SWU_UIAProviderGetTogglePattern(fixture.root))
+        let toggle = try XCTUnwrap(UIANativeActorEntry.withScope { SWU_UIAProviderGetTogglePattern(fixture.root) })
         defer { SWU_UIAReleaseProvider(toggle) }
         fixture.source.onAction = { [weak fixture] in fixture?.bridge?.raiseFocusChanged(elementID: 0) }
-        XCTAssertEqual(SWU_UIAToggleProviderToggleResult(toggle), Int32(bitPattern: 0x8013_1509))
+        XCTAssertEqual(
+            UIANativeActorEntry.withScope { SWU_UIAToggleProviderToggleResult(toggle) }, Int32(bitPattern: 0x8013_1509))
         XCTAssertEqual(fixture.effects.events, 0)
         XCTAssertEqual(fixture.commands.count, 1)
         fixture.commands.drain(in: fixture.context)
@@ -523,20 +531,23 @@ final class UIANativeRequestTests: XCTestCase {
         let fixture = try NativeRequestFixture()
         defer { fixture.close() }
         fixture.source.elements = nativeSelectionElements([12, 13])
-        let selection = try XCTUnwrap(SWU_UIAProviderGetSelectionPattern(fixture.root))
+        let selection = try XCTUnwrap(
+            UIANativeActorEntry.withScope { SWU_UIAProviderGetSelectionPattern(fixture.root) })
         defer { SWU_UIAReleaseProvider(selection) }
         fixture.source.reads = 0
         fixture.source.nextSnapshots = [nativeSelectionElements([12, 13]), nativeSelectionElements([13])]
         var selected: UnsafeMutableRawPointer?
-        XCTAssertEqual(SWU_UIASelectionProviderGetSelectedAtResult(selection, 0, &selected), 0)
+        XCTAssertEqual(
+            UIANativeActorEntry.withScope { SWU_UIASelectionProviderGetSelectedAtResult(selection, 0, &selected) }, 0)
         defer { SWU_UIAReleaseProvider(selected) }
         XCTAssertEqual(fixture.source.reads, 2)
-        XCTAssertEqual(nativeRequestName(selected).1, "Second")
+        XCTAssertEqual(nativeActorRequestName(selected).1, "Second")
         fixture.source.reads = 0
         fixture.source.nextSnapshots = [nativeSelectionElements([12]), nativeSelectionElements([12, 13])]
         var count: Int32 = -1
         XCTAssertEqual(
-            SWU_UIASelectionProviderGetSelectedCountResult(selection, &count), Int32(bitPattern: 0x8013_1509))
+            UIANativeActorEntry.withScope { SWU_UIASelectionProviderGetSelectedCountResult(selection, &count) },
+            Int32(bitPattern: 0x8013_1509))
         XCTAssertEqual(count, 0)
         XCTAssertEqual(fixture.source.reads, 2)
     }
@@ -548,7 +559,7 @@ final class UIANativeRequestTests: XCTestCase {
         fixture.bridge?.disconnect()
         XCTAssertNil(fixture.bridge?.lastDisconnectResult)
         XCTAssertEqual(fixture.effects.disconnects, 0)
-        XCTAssertEqual(nativeRequestName(fixture.root).0, UIANativeHRESULT.elementNotAvailable)
+        XCTAssertEqual(nativeActorRequestName(fixture.root).0, UIANativeHRESULT.elementNotAvailable)
         fixture.commands.drain(in: fixture.context)
         XCTAssertEqual(fixture.bridge?.lastDisconnectResult, UIANativeHRESULT.failed)
         XCTAssertEqual(fixture.effects.disconnects, 1)
@@ -560,12 +571,12 @@ final class UIANativeRequestTests: XCTestCase {
         let fixture = try NativeRequestFixture()
         defer { fixture.close() }
         fixture.source.snapshotFailure = .invalidGeometry
-        let failed = nativeRequestName(fixture.root)
+        let failed = nativeActorRequestName(fixture.root)
         XCTAssertEqual(failed.0, UIANativeHRESULT.failed)
         XCTAssertNil(failed.1)
         fixture.source.snapshotFailure = nil
         fixture.source.elements[0].name = "Recovered"
-        XCTAssertEqual(nativeRequestName(fixture.root).1, "Recovered")
+        XCTAssertEqual(nativeActorRequestName(fixture.root).1, "Recovered")
         XCTAssertEqual(fixture.source.reads, 2)
     }
 

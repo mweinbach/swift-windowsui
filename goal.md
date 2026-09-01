@@ -11235,3 +11235,33 @@ run for this source change yet. The original keyframe, Tab, removal, and empty-r
 assertions remain required, alongside all twenty-six new methods. This does not
 qualify the unresolved File14 run, broad Core/List cohorts, native fairness,
 visual parity, performance, or any release gate.
+
+
+### 2026-09-01: observe the accepted empty-row boundary before changing membership publication
+
+All nine original completion gates remain open. A separate diagnostic XCTest is
+added beside, without changing, the failing original accepted-zero-root-row
+insertion test. It uses the same two layouts, one reload, one List query, one
+row lookup, and the original animated-node and descriptor assertions with the
+existing default budgets. Its test-local factory/body counters and four printed
+boundary snapshots do not add a layout, query, journal, completion, lease, or
+build permission. Native identities are retained to prevent address reuse from
+confusing the diagnostic; physical nodes and original activity receipts remain
+weak. The test closes the host and releases its captured binding afterward.
+
+Source inspection suggests that a genuinely empty accepted row reaches the
+native completed-row table without an owned component or effect group, but its
+membership is omitted from the facade disposition. This is a hypothesis until
+the diagnostic executes. The proposed production repair remains separate and
+unapplied so the original failure and new observation can first run against the
+same source. No synthetic owner, effect, task, or extra retry is introduced.
+
+The diagnostic packet is `d62bc148302efd2f4b17d5b39e3e3a2b2c9e241e`;
+its exact 9,881-byte source patch has SHA256
+`5525870155f47641d7772538ef43953d2a93dc6836492f0c93238a5c0a38eac3`.
+Root comparison verifies the complete staged diff is byte-identical to that
+patch and all 618 preceding test files remain unchanged. The root proof is
+`artifacts/goal-ninth-empty-arrival-d62bc14-root-proof-v1.json`. Strict formatting
+of the single new Swift file and contracts passed (`2c0a8d/0`). No production
+source, Package.swift, old fixture, timeout, or predicate changed. The new method
+has not executed yet and provides no compatibility or release qualification.

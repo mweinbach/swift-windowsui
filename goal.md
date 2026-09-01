@@ -12098,3 +12098,38 @@ execution evidence. The packet and root proof are
 This correction has not yet established a test pass;
 fresh combined compilation and the original UIA/public-budget cohorts remain
 required, and all nine original goal gates remain open.
+
+
+### 2026-09-01 bind Table fixture types and leases to their original builds
+
+Three AnyTableColumn expressions now specify the row types already supplied
+by their collections, and one TableColumn key path names its existing root
+type. Builder bodies, capture lists, identity values, selection bindings and
+statement order are unchanged. The four following inference diagnostics do
+not justify edits to their unwraps or keyed-identity assertion; those remain
+unchanged pending an actual compiler result.
+
+Both fixture leases now implement the required beginBuild method. Each keeps
+a weak reference to the real epoch that the fixture already owns and installs.
+Its canBuild result follows that original epoch's canAdopt value; it cannot
+find a replacement epoch or keep the original alive. beginBuild returns nil
+because the manual fixture cannot supply a second build. It neither hands
+out the already installed epoch twice nor constructs a synthetic success.
+The existing coordinator, adapter, admission, journal and close/abandon/finish
+sequence still provide the fixture's real construction and revocation.
+
+The exact `513c38ab` patch changes only two test files, with 26 additions and
+eight deletions. It is 5,476 bytes, SHA256
+`ebba86a032663d98ea4c3b90fb94cc4ee61cf11d80b3f21f0872c4fe86712abb`.
+All 26 methods and 175 complete XCTest expressions in those files remain;
+the complete 56-method Table roster also remains unchanged. Independent
+source review, complete-file/tree inverses, root strict formatting, contracts
+and the staged-diff proof cover the correction. The other 639 existing test
+files, production code and Package.swift are unchanged by this patch. Root
+extracted the frozen Git diff directly and verified its exact staged bytes;
+the proof is `artifacts/goal-ninth-table-fixtures513-root-proof-v1.json`.
+
+This completes the planned six-file fixture repair in source. It does not
+convert the previous failed compilation into passing tests. Fresh combined
+compilation and the ordinary, Button/Table, UIA and original Core/List
+qualification remain required. All nine original completion gates stay open.

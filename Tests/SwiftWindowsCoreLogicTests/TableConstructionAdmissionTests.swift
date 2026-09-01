@@ -143,7 +143,7 @@ final class TableConstructionAdmissionTests: XCTestCase {
             TableConstructionTestOptionalRow(id: 7, name: "Number identity"),
         ]
         let table = Table(rows, selection: Optional<Binding<Int??>>.none) {
-            TableColumn("Name", value: \.name)
+            TableColumn("Name", value: \TableConstructionTestOptionalRow.name)
         }
         let output = makeViewComponent(table, context: fixture.context).makeNode(runtime: fixture.runtime)
 
@@ -172,7 +172,7 @@ final class TableConstructionAdmissionTests: XCTestCase {
                     return TableConstructionTestKey(label: "selected", value: 1, probe: probe)
                 }, set: { _ in XCTFail("Construction must not write selection", file: file, line: line) })
             let table = Table([TableConstructionTestKeyedRow(id: key)], selection: selection) {
-                AnyTableColumn(
+                AnyTableColumn<TableConstructionTestKeyedRow>(
                     title: "Header", cellBuilder: { _ in [probe.builtValue("cell")] },
                     headerBuilder: { [probe.builtValue("header")] })
             }
@@ -350,7 +350,7 @@ private final class TableConstructionTestProbe {
             selection: Optional<Binding<Int?>>.none, sort: sort, onSort: onSort
         ) {
             for (index, key) in keys.enumerated() {
-                AnyTableColumn(
+                AnyTableColumn<TableConstructionTestRow>(
                     title: "Column \(index)", width: .fixed(100), sortKey: AnyHashable(key), isSortable: true,
                     cellBuilder: { [self] row in [builtValue("cell.\(index).\(row.id)")] },
                     headerBuilder: { [self] in [builtValue("header.\(index)")] })
@@ -538,7 +538,7 @@ private final class TableConstructionTestLazyRow {
                 provider: provider, estimatedExtent: 20, prefetchExtent: 0,
                 maximumMountedRecords: 2, maximumMountedLeaves: 2, maximumProtectedRecords: 1))
         XCTAssertTrue(adapter.installManagedLogicalDescriptor(binding))
-        let lease = TableConstructionTestLease()
+        let lease = TableConstructionTestLease(build: fixture.build)
         fixture.runtime.root.retainedSubtreeBuildLease = lease
         fixture.runtime.root.retainedLazyListAdapter = adapter
         XCTAssertTrue(adapter.claimAttachment(to: fixture.runtime.root))
@@ -586,5 +586,14 @@ private final class TableConstructionTestLazyRow {
 
 @MainActor
 private final class TableConstructionTestLease: RetainedSubtreeBuildLease {
-    var canBuild: Bool { true }
+    private weak var originalBuild: (any RetainedBuildEpoch)?
+
+    init(build: any RetainedBuildEpoch) {
+        originalBuild = build
+    }
+
+    var canBuild: Bool { originalBuild?.canAdopt == true }
+
+    // The fixture installs its original epoch directly and cannot supply another build.
+    func beginBuild() -> (any RetainedBuildEpoch)? { nil }
 }

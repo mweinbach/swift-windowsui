@@ -252,7 +252,7 @@ final class TableAnyHashableAdmissionTests: XCTestCase {
         rows: [TableErasureRow<ID>], selection: Binding<ID?>?, probe: TableErasureProbe
     ) -> Table<TableErasureCollection<ID>> {
         Table(TableErasureCollection(rows: rows, probe: probe), selection: selection) {
-            AnyTableColumn(
+            AnyTableColumn<TableErasureRow<ID>>(
                 title: "Value", cellBuilder: { row in [probe.built("cell.\(row.name)")] },
                 headerBuilder: { [probe.built("header")] })
         }
@@ -657,7 +657,7 @@ private final class TableErasureFixture {
                     provider: provider, estimatedExtent: 20, prefetchExtent: 0,
                     maximumMountedRecords: 2, maximumMountedLeaves: 2, maximumProtectedRecords: 1))
             XCTAssertTrue(adapter.installManagedLogicalDescriptor(binding))
-            root.retainedSubtreeBuildLease = TableErasureLease()
+            root.retainedSubtreeBuildLease = TableErasureLease(build: build)
             root.retainedLazyListAdapter = adapter
             XCTAssertTrue(adapter.claimAttachment(to: root))
             let nativeCoordinator = RetainedBuildCoordinator()
@@ -717,5 +717,14 @@ private final class TableErasureFixture {
 
 @MainActor
 private final class TableErasureLease: RetainedSubtreeBuildLease {
-    var canBuild: Bool { true }
+    private weak var originalBuild: (any RetainedBuildEpoch)?
+
+    init(build: any RetainedBuildEpoch) {
+        originalBuild = build
+    }
+
+    var canBuild: Bool { originalBuild?.canAdopt == true }
+
+    // The fixture installs its original epoch directly and cannot supply another build.
+    func beginBuild() -> (any RetainedBuildEpoch)? { nil }
 }

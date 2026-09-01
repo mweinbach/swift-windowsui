@@ -1358,7 +1358,7 @@ DisconnectResult disconnectProvider(void *provider, CreateIdentity createIdentit
     original->revoke();
     const HWND hwnd = original->ownedRootWindowHandle();
     if (hwnd == nullptr) return {disconnect(asSimple(provider))};
-    if (!original->providerContext()->isQuiescent()) return {UIA_E_INVALIDOPERATION};
+    if (!original->providerContext()->isQuiescent()) return {static_cast<HRESULT>(UIA_E_INVALIDOPERATION)};
     COMOwned<RootShutdownIdentity> identity(createIdentity(hwnd));
     if (!identity) return {E_OUTOFMEMORY};
     const HRESULT status = disconnect(identity.get());

@@ -11073,3 +11073,40 @@ binary binding, and the unchanged actual-native workload. Arbitrary raw-C
 actor interop still needs a genuine explicit scope; direct-vtable tests do
 not establish cross-apartment COM behavior. Actor separation, shutdown,
 fairness, routed accessibility, and release completion remain unqualified.
+
+
+### 2026-09-01: retain the native compile failure and make the HRESULT conversion explicit
+
+All nine original completion gates remain open. The first 65-method native
+repair attempt at `bb9337db43bd996831efd24e28e437f1ab09c517` failed during
+C++ compilation before XCTest started. One aggregate initializer used the
+unsigned UIA_E_INVALIDOPERATION constant where HRESULT is a signed Windows
+long. C++ list initialization rejects that implicit narrowing. The same
+location produced three diagnostics through the two template instantiations;
+these are not three distinct defects or failed test methods.
+
+The immutable attempt is
+`artifacts/goal-ninth-native65-bb9337d-df3faf5bfbe9488a82b556e83710125b`.
+Launch `548527/session2924` closed at `13b907/1`; retained child 40252 and
+runner both exited naturally with 1 after 7.531 seconds, without timeout or
+termination. The log is 5,951 bytes, SHA256
+`96fcaa5d80c2715f0a024231a45c1d2f4e0cb0f434e0c4540d572ded14de87dc`.
+The independent compile-failure reconciliation verifies unchanged source and
+index endpoints and all 65 methods not run. It is not a successful compile
+receipt and cannot bind an actual native run.
+
+The correction adds only `static_cast<HRESULT>` around that existing error
+constant. The branch, signed HRESULT value, quiescence requirement, all tests,
+and all other source bytes are unchanged. The inverse source proof is
+`artifacts/goal-ninth-native-hresult-cast-root-proof-v1.json` (`660d4f/0`).
+Architecture contracts passed before and after this one-line C++ edit. The
+same five classes, 65 methods, and 900-second budget will be rerun.
+
+Two initial process censuses conservatively matched unrelated swift-format
+processes and remain recorded as unsuccessful absence observations. The
+separately derived census excludes only unrelated formatter name matches,
+still includes any descendant of the retained PID, and reports formatters
+separately. Its fresh third observation found no relevant process or formatter
+(`3678ab/0`); no process was killed and no earlier receipt was rewritten.
+This is a point-in-time closure observation, not continuous descendant proof.
+Actual native execution and all broader qualifications remain pending.

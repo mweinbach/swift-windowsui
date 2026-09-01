@@ -1347,7 +1347,8 @@ public final class ComponentHost {
                 return false
             }
             guard !transfersHaveStarted else { return true }
-            return retained.matchesOrder && source?.matchesOrder != false && preparedSubtrees.allSatisfy(\.isCurrent)
+            return retained.matchesOrder && source?.matchesOrder != false
+                && preparedSubtrees.allSatisfy { $0.isCurrent }
         }
 
         /// Matching identifies fresh roots before property or insertion
@@ -1415,9 +1416,9 @@ public final class ComponentHost {
         }
 
         var isCurrent: Bool {
-            parentAttachment.isCurrent && parentIdentity.isCurrent && oldAttachments.allSatisfy(\.isCurrent)
-                && oldIdentities.allSatisfy(\.isCurrent) && childrenSnapshot?.isCurrent != false
-                && entries.allSatisfy(\.isCurrent)
+            parentAttachment.isCurrent && parentIdentity.isCurrent && oldAttachments.allSatisfy { $0.isCurrent }
+                && oldIdentities.allSatisfy { $0.isCurrent } && childrenSnapshot?.isCurrent != false
+                && entries.allSatisfy { $0.isCurrent }
         }
 
         var stillOwnsOldChildren: Bool {
@@ -1465,8 +1466,8 @@ public final class ComponentHost {
                 childrenSnapshot: childrenSnapshot, lazyJournal: lazyJournal),
             admission?.isCurrent != false, lazyJournal?.canContinueAdoption != false,
             parentAttachment.isCurrent, parentIdentity.isCurrent,
-            oldAttachments.allSatisfy(\.isCurrent), sourceAttachments.allSatisfy(\.isCurrent),
-            oldIdentities.allSatisfy(\.isCurrent), sourceIdentities.allSatisfy(\.isCurrent),
+            oldAttachments.allSatisfy({ $0.isCurrent }), sourceAttachments.allSatisfy({ $0.isCurrent }),
+            oldIdentities.allSatisfy({ $0.isCurrent }), sourceIdentities.allSatisfy({ $0.isCurrent }),
             sameChildren(parent.children, oldChildren)
         else { return nil }
         for (index, source) in newNodes.enumerated() where matches[index] == nil {
@@ -1717,7 +1718,7 @@ public final class ComponentHost {
 
         var isCurrent: Bool {
             guard admission?.isCurrent != false, parentCheck?.isCurrent != false,
-                attachments.allSatisfy(\.isCurrent), identities.allSatisfy(\.isCurrent),
+                attachments.allSatisfy({ $0.isCurrent }), identities.allSatisfy({ $0.isCurrent }),
                 childrenSnapshot?.isCurrent != false,
                 lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false
             else { return false }

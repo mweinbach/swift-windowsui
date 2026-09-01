@@ -10252,3 +10252,35 @@ compiled or run. This slice does not fix or qualify the separately identified
 deferred keyboard controller retaining a discarded construction container after
 GeometryReader adoption; that requires its own repair and fresh-action tests.
 No original completion criterion or gate changed.
+
+### Direct native adoption predicates integrated; FileBrowser timeout remains open (2026-09-01)
+
+The source candidate from private commit
+`12cb845c518345bf070d5c6bfad08691673b875a` is now integrated on root parent
+`3b202273d63e206cf06c23e398670066e3488338`. Ten native `allSatisfy` key-path
+predicates in ComponentHost now use direct typed closures. Arrays, guard order,
+fresh witness reads, scope and journal checks, payload lifetime pins, and
+postchecks are preserved. No permission is memoized or deduplicated, and no
+witness is recaptured to revive an old operation. General Boolean caching was
+rejected because weak-owner promotion and release can reach authored cleanup.
+The syntax change alone does not establish compiled ARC timing equivalence or
+a measured performance improvement.
+
+Six new async `RetainedAdoptionProofPredicateTests` cases cover actual attachment
+and identity ABA, completion snapshots and short-circuit ordering, authored hash
+reentry, outgoing payload cleanup, and prepared insertion invalidation by a
+later sibling callback. Root audit
+`artifacts/goal-ninth-adoption-predicate-root-integration-proof-v1.json` confirms
+that every added and removed source line matches the sealed packet, all existing
+test files are unchanged, and the 7,331-byte Package.swift is unchanged. Root
+strict formatting and ContractsOnly both passed (`93abc3`, exit 0). Compilation
+and execution of the six tests remain pending.
+
+The separate source cost model still gives two admission visits for a checked
+node and its journal, three top-scope visits in the nested publication prefix,
+and `(h + 1) * (h + 2) / 2` staging visits for a fully declared chain with `h`
+parent rows. These counts are not reduced by this change. The actual depth,
+compiled cost, and active case of the buffered File14 workload remain unknown.
+Its previous 900.016-second timeout and unknown individual outcomes remain
+failures to obtain evidence; neither the timeout nor workload has been relaxed.
+All nine original completion gates remain open.

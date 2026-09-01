@@ -11961,3 +11961,34 @@ Button110, and Package.swift are unchanged. Proof:
 This is not compiler or XCTest qualification. The separate immutable-attempt
 access correction and a fresh combined build remain required; all original
 completion gates remain open.
+
+
+### 2026-09-01 expose the original selected-row attempt within the package
+
+RetainedLazyListSelectedRowPreparation.attempt now has package read access
+instead of fileprivate access. It remains an immutable let of the existing
+package-scoped native ID type. Its initializer and sole journal construction
+site are unchanged. This allows WinSwiftUI's sparse empty-membership guard,
+and the existing stale-reservation regression, to compare the exact original
+selected-row attempt without changing either consumer.
+
+The selected-row attempt is not the descriptor-build attempt. Replacing that
+comparison with descriptorBuildAttemptID or with a live construction query
+would change its authority and is not part of this fix. No public API, setter,
+constructor, receipt refresh, acceptance rule, or lifecycle behavior changes.
+StateMountRegistry.swift remains byte-identical.
+
+Root applied the exact sealed 897-byte `22b392bd` patch, SHA256
+`cd120befa62d95819780246d85fa9afd62ec8abe823264e93a7523f183032e9c`.
+On parent `a69b9f00a63f860b2248769715a7771f44054c5b`, the staged source tree
+is `5c29ba7f60cff22135a00147a977f6b7f05fd997`. Independent source review,
+root pre/post contracts, one-file strict formatting, and the complete staged
+diff proof passed. All 641 existing test files and Package.swift are unchanged.
+The retained packet and proof are
+`artifacts/goal-ninth-attempt-access-22b392-intake-v1` and
+`artifacts/goal-ninth-attempt-access-22b392-root-proof-v1.json`.
+
+Both newly diagnosed compile fixes are now present in source, but the failed
+ordinary152 attempt remains failed and all its selected methods remain NOT
+RUN. Fresh compilation and execution are the next evidence requirement. All
+nine original completion gates remain open.

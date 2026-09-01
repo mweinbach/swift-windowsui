@@ -1297,7 +1297,7 @@ package final class RetainedLazyListSelectedRowPreparation {
     package let request: RetainedLazyListRowRequest
     package let descriptorBuildAttempt: RetainedLazyListAttemptID?
     package var descriptorBuildAttemptID: RetainedLazyListAttemptID? { descriptorBuildAttempt }
-    fileprivate let attempt: RetainedLazyListAttemptID
+    package let attempt: RetainedLazyListAttemptID
     fileprivate weak var admission: RetainedLazyListAdoptionAdmission?
     fileprivate var wasConsumed = false
     private var wasRevoked = false

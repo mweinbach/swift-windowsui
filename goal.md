@@ -10622,3 +10622,22 @@ Strict formatting for three Swift files and ContractsOnly passed (`5a20a1`,
 session 56581, terminal `b885f7`, exit 0). Compilation and the unchanged 62
 keyframe tests plus these nine new tests still remain required. No other mounted
 keyframe failure, native failure, or original completion gate is marked resolved.
+
+### Managed deferred-navigation failure now has an unchanged-budget trajectory test (2026-09-01)
+
+The separately committed diagnostic from private `f2a310a4093fbdc28c8a3e5f2d754d6fe0f48965`
+adds one new `ManagedDeferredNavigationTrajectoryTests` method. It repeats the
+existing managed keyboard-continuation oracle with the same eight-element,
+eight-round, and 24-pass limits, and records native settlement, mounted ordinals,
+focus, ownership identities, and the test probe's existing counters at the
+original action/render boundaries. It does not add layout, realization, binding
+reads, action preparation, or production instrumentation.
+
+The original transport test and all its assertions remain unchanged. The new
+diagnostic also retains the original behavior assertions; it is not a reduced
+workload or a replacement test. Its exact staged patch matches the sealed
+`artifacts/goal-ninth-managed-navigation-7ca0e67-intake-v1/diagnostic.patch`.
+Strict formatting and ContractsOnly passed (`16caf1`, exit 0). This commit changes
+no production behavior; compilation and execution remain pending. The separate
+managed attachment-publication repair follows as its own source change. All
+nine original completion gates remain open.

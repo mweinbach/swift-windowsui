@@ -10902,3 +10902,75 @@ counterexample is currently established at the native API level, not as an
 executed public callback reproduction. Its original sealed source packet is
 retained; a corrective successor and additional regressions are being reviewed.
 This does not excuse the remaining keyframe failures or close a goal gate.
+
+
+### 2026-09-01: fresh List, navigation, ownership, and keyframe regression results
+
+All nine original completion gates remain open. Two serial fixed selections
+ran on `10188a1dd1142482a70fd3f35b46726dc82dd353`, tree
+`901ad2ae13c1cc68fd69a755bc964ebd8efe9f6d`, without source or index changes
+between them. Compilation succeeded. Together they started 288 distinct
+XCTest methods: 275 passed, 13 failed, and none were skipped. Both invocations
+also emitted the separate zero-test Swift Testing footer. These are focused
+regression results, not a full-suite or native-window qualification.
+
+| Fixed selection | Passed methods | Failed methods | Retained child / runner exit | Retained wait and cleanup |
+| --- | ---: | ---: | --- | ---: |
+| Original new165 plus the added default-budget insertion boundary | 162 | 4 | 46652 / 1 / 1 | 281.984 seconds |
+| New repair controls and original anchor/removal/accessibility controls | 113 | 9 | 54052 / 1 / 1 | 149.781 seconds |
+
+The first run is
+`artifacts/goal-ninth-new166-10188a1-aed3743f3442436ea9885c2210b3fbfb`.
+Its combined log is 86,452 bytes, SHA256
+`9995be5163a24c723150c8aa3003f4bbe845bc0eef2afeade45197595d10bf36`.
+Launch `b0339e/session58168` closed naturally at `c8d5c0/1`.
+Independent reconciliation `2700d4/0` recorded one start and one terminal
+outcome for every selected method; the nine assertion errors belong to four
+failed methods, not nine failed methods.
+
+Navigation transport passed all nine methods, insertion boundaries all eleven,
+and the original nested-List insertion regression now passed. The four failed
+methods are the original accepted-zero-root insertion at its missing ViewNode
+unwrap, plus the three mounted keyframe factory/identity ownership regressions
+listed in `artifacts/goal-ninth-new166-10188a1-reconciled.json`. The original
+keyframe reordering regression passed. The separate delayed ordinary cleanup
+repair remains held for its same-permission facet successor review; this run
+does not qualify that unintegrated proposal.
+
+The second run is
+`artifacts/goal-ninth-repairs122-10188a1-58a54e506385449588763f93ff351471`.
+Its log is 54,375 bytes, SHA256
+`05bf788740b4a7c40472b2b1af59e1c1b61636e4b697363e3578d078998f1ec2`.
+Launch `89308c/session28695` closed naturally at `5c8ef0/1`.
+Independent reconciliation `eeac0b/0` retained all 122 method outcomes. The
+45 assertion errors, including eight reported unexpected unwrap errors,
+belong to nine failed methods in PublicLazyListAccessibilityTests. That class
+passed six of fifteen methods. Its realization, logical-ID, replacement,
+anchor-preparation, and zero/multiple-leaf failures remain open; the pending
+UIA proposal has not yet been integrated or tested against them.
+
+Every other class in that second run passed: four leading-edge anchor tests,
+seven terminal-checkpoint controls, one deferred-navigation trajectory, five
+accepted-empty-row window tests, nine original managed removal transitions,
+one managed navigation publication test, three mounted Tab handoff tests,
+eight original mounted List state tests, two nested lease provenance tests,
+nine ordinary source completion tests, eleven native declared-marker handoff
+tests, four deferred lease source tests, twenty-three retained List runtime
+integration tests, and twenty programmatic-scroll controls. In particular,
+the original Tab return and both original keyed List state failures passed.
+Passing the five new empty-window controls does not excuse the remaining
+original zero-root descendant insertion failure.
+
+Neither run timed out or terminated a process. Both retained original
+source/index endpoints. The post-closure CIM records
+`artifacts/goal-ninth-new166-10188a1-post-closure.json` (`ac174e/0`) and
+`artifacts/goal-ninth-repairs122-10188a1-post-closure.json` (`65a5d7/0`)
+observed the recorded PIDs and Swift/native processes absent. They are
+point-in-time observations, not continuous descendant attestations.
+Architecture contracts passed again after both runs (`65a5d7/0`).
+
+The original test selections, assertions, four-round production defaults,
+900-second execution budgets, earlier failed compilation evidence, and all
+prior goal text are retained. The remaining failed methods require correction
+and fresh execution; the full Core/List cohorts, native workload, visual
+comparisons, complete release gate, and original product criteria remain due.

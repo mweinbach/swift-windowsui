@@ -9943,3 +9943,30 @@ Only this fixture and its documentation change; production code does not.
 Independent source review, parent contracts, and strict formatting passed.
 The revised assertions still require execution and do not count as passing
 evidence yet. All original completion gates remain open.
+
+### Ninth batch: checked identity preserves erased-key equivalence
+
+Conditional casts in checked identity hashing/equality could unwrap
+`Optional.some` and treat an erased optional framework value as its nonoptional
+counterpart. Ordinary `AnyHashable` equality distinguishes those shapes, so the
+checked path could disagree with the original identity equivalence relation.
+
+Recursive checked dispatch now requires the exact erased dynamic type of a
+framework Identity, Key, or Segment. Equality checks both operands before
+recursing. The original declared-type discriminator, ordinary erased fallback,
+numeric canonicalization, and post-callout currentness check remain. Optional
+and arbitrary composite payloads are one entered erased operation; this adds
+no recursive introspection or promise to interrupt application code inside it.
+
+The independent prerequisite is private commit
+`92b747e60dae901ae71b53f84efc0a6eeb3962ec`, preserved in
+`artifacts/goal-ninth-core-erasure-intake-v1`. Its 17,044-byte source patch has
+SHA256 `6103d2cc0f26ff6ed01773d98d5af03569d37b059c48289f57c195b6698f5f0a`.
+The parent applied only the Core change and a new seven-method test file; no
+existing test source or assertion changed. Tests compare ordinary equality
+against checked results for erased/reboxed framework values, optional/nil
+shapes, equivalence laws, equal checked hashes, typed numeric controls, and
+revocation at exact framework versus opaque callback boundaries. Source review,
+parent contracts, and strict formatting passed. Compilation and serial
+execution remain required. The separate UIA reader/phase changes are not part
+of this commit, and no accessibility or original completion gate is closed.

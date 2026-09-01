@@ -63,13 +63,18 @@ public struct RetainedViewIdentity: Hashable {
         public func checkedHash(into hasher: inout Hasher, isCurrent: () -> Bool) -> Bool {
             guard isCurrent() else { return false }
             hasher.combine(typeIdentifier)
-            if let identity = value.base as? RetainedViewIdentity {
+            // Conditional casts can unwrap Optional.some. Only the exact
+            // framework box may use recursive checks; other erased values
+            // keep AnyHashable's equality and hashing as one entered call.
+            let base = value.base
+            let baseType = ObjectIdentifier(Swift.type(of: base))
+            if baseType == ObjectIdentifier(RetainedViewIdentity.self), let identity = base as? RetainedViewIdentity {
                 return identity.checkedHash(into: &hasher, isCurrent: isCurrent)
             }
-            if let key = value.base as? Key {
+            if baseType == ObjectIdentifier(Key.self), let key = base as? Key {
                 return key.checkedHash(into: &hasher, isCurrent: isCurrent)
             }
-            if let segment = value.base as? Segment {
+            if baseType == ObjectIdentifier(Segment.self), let segment = base as? Segment {
                 return segment.checkedHash(into: &hasher, isCurrent: isCurrent)
             }
             value.hash(into: &hasher)
@@ -79,15 +84,23 @@ public struct RetainedViewIdentity: Hashable {
         public func checkedEquals(_ other: Key, isCurrent: () -> Bool) -> Bool? {
             guard isCurrent() else { return nil }
             guard typeIdentifier == other.typeIdentifier else { return false }
-            if let identity = value.base as? RetainedViewIdentity,
-                let otherIdentity = other.value.base as? RetainedViewIdentity
+            let base = value.base
+            let otherBase = other.value.base
+            let baseType = ObjectIdentifier(Swift.type(of: base))
+            let otherBaseType = ObjectIdentifier(Swift.type(of: otherBase))
+            if baseType == ObjectIdentifier(RetainedViewIdentity.self), otherBaseType == baseType,
+                let identity = base as? RetainedViewIdentity, let otherIdentity = otherBase as? RetainedViewIdentity
             {
                 return identity.checkedEquals(otherIdentity, isCurrent: isCurrent)
             }
-            if let key = value.base as? Key, let otherKey = other.value.base as? Key {
+            if baseType == ObjectIdentifier(Key.self), otherBaseType == baseType,
+                let key = base as? Key, let otherKey = otherBase as? Key
+            {
                 return key.checkedEquals(otherKey, isCurrent: isCurrent)
             }
-            if let segment = value.base as? Segment, let otherSegment = other.value.base as? Segment {
+            if baseType == ObjectIdentifier(Segment.self), otherBaseType == baseType,
+                let segment = base as? Segment, let otherSegment = otherBase as? Segment
+            {
                 return segment.checkedEquals(otherSegment, isCurrent: isCurrent)
             }
             let equal = value == other.value

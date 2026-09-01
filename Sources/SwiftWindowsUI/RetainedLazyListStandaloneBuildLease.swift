@@ -46,6 +46,21 @@ final class RetainedLazyListStandaloneBuildLease: RetainedSubtreeBuildLease {
         return true
     }
 
+    /// Existing physical row actions do not construct content. They may keep
+    /// working after plain weak runtime expiry, but never after lease/adapter
+    /// revocation or an actual attachment change. Build authority stays live.
+    var hasCurrentNavigationAttachment: Bool {
+        guard !wasRevoked, let adapter, let attachment,
+            attachment.hasCurrentStandaloneNavigationIdentity, let node = attachment.node,
+            adapter.ownsAttachment(node), node.retainedLazyListAdapter === adapter,
+            node.retainedSubtreeBuildLease === self
+        else { return false }
+        if let runtime {
+            return runtime.permitsRetainedActionInvocation && attachment.isAttached
+        }
+        return true
+    }
+
     var canBuild: Bool { hasCurrentAttachment }
 
     func beginBuild() -> (any RetainedBuildEpoch)? {

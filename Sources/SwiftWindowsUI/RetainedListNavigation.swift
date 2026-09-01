@@ -6,6 +6,17 @@ import SwiftWindowsCore
 @MainActor
 package final class RetainedListNavigationOwner {
     @MainActor
+    fileprivate final class StandaloneOrigin {
+        weak var runtime: RetainedViewRuntime?
+        let closeWitness: RetainedLazyListLogicalHostLifetime.CloseWitness
+
+        init(runtime: RetainedViewRuntime) {
+            self.runtime = runtime
+            closeWitness = runtime.lazyListLogicalHostLifetime.captureNavigationCloseWitness()
+        }
+    }
+
+    @MainActor
     fileprivate final class Attachment {
         weak var node: ViewNode?
         weak var runtime: RetainedViewRuntime?
@@ -14,9 +25,27 @@ package final class RetainedListNavigationOwner {
         var hasPreparedAction = false
         var isRevoked = false
         let permitsStandaloneConstruction: Bool
+        let standaloneOrigin: StandaloneOrigin?
+        var actualAttachment: RetainedLazyListActualAttachment?
 
-        init(permitsStandaloneConstruction: Bool) {
+        init(permitsStandaloneConstruction: Bool, standaloneOrigin: StandaloneOrigin?) {
             self.permitsStandaloneConstruction = permitsStandaloneConstruction
+            self.standaloneOrigin = standaloneOrigin
+        }
+
+        func hasSameOriginalHost(as other: Attachment) -> Bool {
+            switch (standaloneOrigin, other.standaloneOrigin) {
+            case (nil, nil): true
+            case (.some(let lhs), .some(let rhs)): lhs.closeWitness === rhs.closeWitness
+            default: false
+            }
+        }
+
+        var canTransport: Bool {
+            guard !isRevoked else { return false }
+            guard let standaloneOrigin else { return true }
+            guard standaloneOrigin.closeWitness.isOpen else { return false }
+            return !hasMounted || actualAttachment?.hasCurrentStandaloneNavigationIdentity == true
         }
     }
 
@@ -25,14 +54,18 @@ package final class RetainedListNavigationOwner {
     fileprivate var isCurrentDeclaration = true
     private var isAdopting = false
 
-    package init(runtime: RetainedViewRuntime) {
+    package init(runtime: RetainedViewRuntime, standalone: Bool = false) {
         scope = nil
-        attachment = Attachment(permitsStandaloneConstruction: runtime.presentationActionsAreAvailable)
+        attachment = Attachment(
+            permitsStandaloneConstruction: runtime.presentationActionsAreAvailable,
+            standaloneOrigin: standalone ? StandaloneOrigin(runtime: runtime) : nil)
     }
 
     private init(row: ViewNode, scope: RetainedListNavigationOwner) {
         self.scope = scope
-        attachment = Attachment(permitsStandaloneConstruction: scope.attachment.permitsStandaloneConstruction)
+        attachment = Attachment(
+            permitsStandaloneConstruction: scope.attachment.permitsStandaloneConstruction,
+            standaloneOrigin: scope.attachment.standaloneOrigin)
         install(on: row)
     }
 
@@ -63,7 +96,42 @@ package final class RetainedListNavigationOwner {
     /// The departure prepass runs before any disappearing payload or callback.
     /// Temporary construction parents do not establish a mounted lifetime.
     func revokeForDeparture() {
+        if !attachment.hasMounted, let origin = attachment.standaloneOrigin,
+            let runtime = attachment.node?.retainedLazyListRuntime, origin.runtime !== runtime
+        {
+            // A failed foreign candidate can cancel an old construction
+            // action, but has never owned this declaration's first mount.
+            revokeCurrentActionForDeparture()
+            return
+        }
         if attachment.hasMounted || attachment.hasPreparedAction { revoke() }
+    }
+
+    func revokeForHostClose(in runtime: RetainedViewRuntime) {
+        if let origin = attachment.standaloneOrigin, origin.runtime !== runtime { return }
+        revoke()
+    }
+
+    func revokeForStandaloneAdapterReplacement() {
+        if attachment.standaloneOrigin != nil { revoke() }
+    }
+
+    var standaloneRetirementRuntime: RetainedViewRuntime? {
+        attachment.standaloneOrigin == nil ? nil : attachment.runtime
+    }
+
+    func retirementRuntimeWhenReplaced(
+        on node: ViewNode, by incoming: RetainedListNavigationOwner?
+    ) -> RetainedViewRuntime? {
+        guard attachment.node === node, incoming?.attachment !== attachment else { return nil }
+        return standaloneRetirementRuntime
+    }
+
+    func revokeIfReplaced(on node: ViewNode, by incoming: RetainedListNavigationOwner?) {
+        guard attachment.standaloneOrigin != nil, attachment.node === node,
+            incoming?.attachment !== attachment
+        else { return }
+        revoke()
     }
 
     func revoke() {
@@ -91,6 +159,7 @@ package final class RetainedListNavigationOwner {
         isCurrentDeclaration = false
         if incoming == nil || (incoming?.scope == nil) != (scope == nil)
             || incoming?.isCurrentDeclaration != true || (scope != nil && incoming?.hasRowRole != true)
+            || incoming?.attachment.hasSameOriginalHost(as: attachment) != true || !attachment.canTransport
         {
             attachment.isRevoked = true
             revokeCurrentActionForDeparture()
@@ -101,12 +170,17 @@ package final class RetainedListNavigationOwner {
         guard isCurrentDeclaration else { return }
         isAdopting = true
         if let previous, (previous.scope == nil) == (scope == nil),
-            !previous.attachment.isRevoked, previous.attachment.node === node
+            previous.attachment.canTransport, previous.attachment.node === node,
+            previous.attachment.hasSameOriginalHost(as: attachment)
         {
             // A receipt for the discarded fresh node cannot follow its
             // declaration onto a different physical node.
             attachment.isRevoked = true
             attachment = previous.attachment
+        }
+        if attachment.standaloneOrigin != nil, attachment.hasMounted, attachment.node !== node {
+            revoke()
+            return
         }
         attachment.node = node
         if let runtime { didAttach(to: runtime) }
@@ -119,12 +193,37 @@ package final class RetainedListNavigationOwner {
 
     func didAttach(to runtime: RetainedViewRuntime) {
         guard isCurrentDeclaration, !attachment.isRevoked else { return }
+        if let origin = attachment.standaloneOrigin {
+            guard origin.closeWitness.isOpen else {
+                revoke()
+                return
+            }
+            guard origin.runtime === runtime else {
+                if attachment.hasMounted { revoke() } else { revokeCurrentActionForDeparture() }
+                return
+            }
+            guard let node = attachment.node, node.listNavigationOwner === self,
+                node.isRetainedLazyListAttached(in: runtime)
+            else { return }
+            // Repeated registration during in-place child publication must
+            // neither refresh a stale proof nor retire an unchanged one.
+            if attachment.hasMounted { return }
+            let actual = node.lazyListActivityStorage().captureActualAttachment(of: node, in: runtime)
+            guard actual.isAttached else { return }
+            attachment.actualAttachment = actual
+        }
         if attachment.hasMounted, attachment.runtime !== runtime {
             revoke()
             return
         }
         attachment.runtime = runtime
         attachment.hasMounted = true
+    }
+
+    /// Called beside native membership/owner publication, never by a getter.
+    /// Managed/default owners keep their existing attachment path unchanged.
+    func didPublishStandaloneAttachment(to runtime: RetainedViewRuntime) {
+        if attachment.standaloneOrigin != nil { didAttach(to: runtime) }
     }
 
     fileprivate var hasRowRole: Bool {
@@ -141,14 +240,64 @@ package final class RetainedListNavigationOwner {
             !owner.isAdopting,
             owner.attachment === attachment, node.hasListNavigationRuntime(runtime)
         else { return nil }
+        if let origin = attachment.standaloneOrigin {
+            guard origin.closeWitness.isOpen else { return nil }
+            if let runtime {
+                guard origin.runtime === runtime, attachment.hasMounted,
+                    attachment.actualAttachment?.isAttached == true
+                else { return nil }
+            } else {
+                guard hasNoRuntimeInAncestry(node) else { return nil }
+                if attachment.hasMounted {
+                    guard origin.runtime == nil,
+                        attachment.actualAttachment?.hasCurrentStandaloneNavigationIdentity == true
+                    else { return nil }
+                } else {
+                    guard attachment.permitsStandaloneConstruction,
+                        origin.runtime?.presentationActionsAreAvailable != false
+                    else { return nil }
+                }
+            }
+        }
         if let scope {
             guard owner.scope?.attachment === scope, owner.hasRowRole,
                 let scopeNode = scope.node, contains(node, in: scopeNode)
             else { return nil }
+            if attachment.standaloneOrigin != nil,
+                !hasCurrentStandaloneAdapters(from: node, through: scopeNode)
+            {
+                return nil
+            }
         } else {
             guard owner.scope == nil, node.scrollAxis == .vertical else { return nil }
         }
         return node
+    }
+
+    private static func hasNoRuntimeInAncestry(_ node: ViewNode) -> Bool {
+        var current = node
+        var depth = 0
+        while depth < ViewNode.maximumTraversalDepth {
+            guard current.hasListNavigationRuntime(nil) else { return false }
+            guard let parent = current.parent else { return true }
+            guard parent.children.contains(where: { $0 === current }) else { return false }
+            current = parent
+            depth += 1
+        }
+        return false
+    }
+
+    private static func hasCurrentStandaloneAdapters(from node: ViewNode, through scope: ViewNode) -> Bool {
+        var current = node
+        var depth = 0
+        while depth < ViewNode.maximumTraversalDepth {
+            guard current.retainedLazyListAdapter?.permitsStandaloneNavigation != false else { return false }
+            if current === scope { return true }
+            guard let parent = current.parent, parent.children.contains(where: { $0 === current }) else { return false }
+            current = parent
+            depth += 1
+        }
+        return false
     }
 
     fileprivate static func contains(_ node: ViewNode, in ancestor: ViewNode) -> Bool {

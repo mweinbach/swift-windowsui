@@ -1046,6 +1046,10 @@ package final class RetainedLazyListRuntimeAdapter {
     /// Replacing that lease cannot reopen an opted-in standalone row factory.
     var permitsStandaloneBuild: Bool { standaloneBuildLease?.hasCurrentAttachment != false }
 
+    /// A concrete native read for already realized navigation only. It does
+    /// not invoke the installed protocol lease or grant factory permission.
+    var permitsStandaloneNavigation: Bool { standaloneBuildLease?.hasCurrentNavigationAttachment != false }
+
     /// Ordinary direct View construction has no managed descriptor owner.
     /// Its native lease is armed only by the first actual Runtime attachment,
     /// which can be a retained target instead of the temporary source node.

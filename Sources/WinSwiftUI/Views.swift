@@ -9657,8 +9657,8 @@ final class ListKeyboardNavigationState {
     private var entriesByTag = ManagedKeyedMap<RetainedViewIdentity.Key, RetainedListNavigationOwner>()
     private var indicesByTag = ManagedKeyedMap<RetainedViewIdentity.Key, Int>()
 
-    init(runtime: RetainedViewRuntime) {
-        scope = RetainedListNavigationOwner(runtime: runtime)
+    init(runtime: RetainedViewRuntime, standalone: Bool) {
+        scope = RetainedListNavigationOwner(runtime: runtime, standalone: standalone)
         self.runtime = runtime
     }
 
@@ -10016,7 +10016,8 @@ public struct List: View {
             let listChrome = context.listStyle.retainedChrome(palette: context.controlPalette)
             let alignmentAnchor = context.defaultScrollAnchor(for: .alignment)
             let isEditing = context.environmentValues.editMode?.wrappedValue.isEditing == true
-            let navigationState = ListKeyboardNavigationState(runtime: runtime)
+            let navigationState = ListKeyboardNavigationState(
+                runtime: runtime, standalone: context.stateMountCoordinator == nil)
             let node = Controls.scrollPanel(
                 axis: .vertical,
                 backgroundColor: listChrome.backgroundColor,

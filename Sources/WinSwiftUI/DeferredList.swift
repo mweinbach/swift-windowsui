@@ -53,7 +53,7 @@ func makeDeferredListComponent(
         let maximumLeaves = maximumRecords * 8
         let prefetch = min(256, max(64, estimate * 3))
         let reference = DeferredListDescriptorReference()
-        let navigation = ListKeyboardNavigationState(runtime: runtime)
+        let navigation = ListKeyboardNavigationState(runtime: runtime, standalone: coordinator == nil)
         let records = projection.elements.enumerated().map { ordinal, element in
             DeferredListRecord(ordinal: ordinal, identity: element.identity, implicitTag: element.implicitSelectionTag)
         }

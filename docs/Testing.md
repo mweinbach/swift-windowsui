@@ -1336,6 +1336,21 @@ evidence. These wide sample fixtures do not qualify actual file I/O, dialogs,
 native interaction, narrow layouts, DPI variants, macOS rendering, or the full
 media-browser goal. See [FileBrowserTemplate.md](FileBrowserTemplate.md#retained-gallery-samples).
 
+`StandaloneListNavigationLifetimeTests` adds fourteen source-only regression
+cases for public eager/data List selection and keyboard navigation after a
+rejected foreign runtime attempt, foreign host closure, and a prior construction
+action. It distinguishes a never observed accepted attachment, permanent
+departure/owner/adapter/lease/identity revocation, raw-setter cancellation
+publication, explicit close before mount, ordinary weak runtime expiry, distinct
+expired original hosts, and valid same-node declaration transport. These new
+cases have not executed yet; the existing test files and original thirteen
+standalone/render oracles are unchanged. Run the new class serially with
+`ListFormQualityTests`, `ListVirtualizationTests`, `WinSwiftUITests`,
+`ListDeferredKeyboardFocusTests`, `PublicLazyListNavigationTests`,
+`PublicLazyListNavigationLifetimeTests`, `RetainedListNavigationInputTests`, and
+`RetainedLazyListActivityTests` after integration. These checks do not qualify
+keyboard navigation after rebuilt deferred-controller transport or native UIA.
+
 `DemoBitmapResourceTests` adds eight async cases for the real demo module's
 named PNG lookup, decoded pattern pixels, cap/tile geometry and sampling,
 finite aspect fit, accessibility labels, search terms, and an explicitly

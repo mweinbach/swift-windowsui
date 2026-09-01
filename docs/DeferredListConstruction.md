@@ -89,6 +89,28 @@ layout pass still supplies all geometry and build authority.
 
 ## Navigation, scrolling and accessibility
 
+Standalone public Lists explicitly capture their original runtime weakly for
+navigation. Native owner publication records one actual attachment after real
+membership, including the accepted target of an in-place declaration copy.
+A rejected foreign runtime cannot arm that proof or consume the first accepted
+navigation lifetime; it can cancel an old in-flight construction action.
+Removing or replacing an accepted owner, adapter, lease, or identity invalidates
+the old actions permanently. Raw owner and adapter setters finish publication
+before delivering deferred navigation cancellation, so a cancellation callback's
+newer replacement cannot be overwritten by the old setter.
+
+Ordinary weak runtime expiry is distinct from explicit host closure. Existing
+returned-tree activation and navigation among already realized rows remain
+available after plain expiry, without creating rows or acquiring focus authority.
+The navigation-only check uses the original native attachment and identity
+tokens. A lazily allocated scalar close witness preserves terminal host closure
+without retaining the runtime or its outer logical-host lifetime; descriptor
+scopes still expire normally. Two expired runtimes cannot share a navigation
+attachment merely because both weak references are nil. Managed/default native
+owners keep their existing path, and standalone build permission still requires
+a live runtime. These navigation changes have source checks only until the new
+`StandaloneListNavigationLifetimeTests` and existing regression suites execute.
+
 Direct data initializers preserve element-ID selection precedence. Builder rows
 preserve their explicit `.tag` values. Keyboard movement realizes a real target,
 protects the prepared source and target through the accepted action, and uses

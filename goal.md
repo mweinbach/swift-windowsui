@@ -10207,3 +10207,48 @@ point in the ledger. Generated registration, real test terminals, wider
 preservation checks, rendered motion and hardware pacing still need evidence.
 See [KeyframeAnimations.md](docs/KeyframeAnimations.md) for the supported API,
 local policies and limits. All nine original completion gates remain open.
+
+### 2026-09-01: Preserve standalone List navigation ownership
+
+Standalone List navigation now distinguishes a rejected foreign runtime attempt
+from its first accepted attachment. Both public List construction paths select
+this mode only without a State coordinator. The owner retains a weak original
+runtime and a scalar close witness; native membership/owner publication captures
+the actual attachment once. Getters cannot arm or refresh it. A failed foreign
+attempt may cancel a prepared construction action but cannot consume the
+never-accepted owner's future original attachment, and foreign close cannot
+revoke another origin.
+
+Explicit close, real departure, owner/adapter/lease replacement and identity ABA
+remain terminal. Ordinary weak runtime expiry preserves existing returned-tree
+navigation without retaining the outer logical-host lifetime or granting new
+row construction. The additional physical-proof predicate is navigation-only;
+ordinary attachment/build/descriptor authority is unchanged. Compatible
+same-node declaration transport can retain an already valid original physical
+attachment but cannot revive an old proof after identity or ownership changes.
+
+Raw owner/adapter replacement captures the affected original runtimes before
+revocation, defers navigation cancellation until the property is published,
+and then drains it. A cancellation callback may install a newer declaration
+without the older setter subsequently overwriting it. This follows the original
+runtime even when checked retirement has already cleared the node's runtime;
+that fallback is source-reviewed but has no direct new executable oracle yet.
+
+The exact source delta from private `4003bf99` to
+`b782b3a1afc66b449f058126efca8a94fbd6bf81`, tree
+`61daf1549624351f90ff6f7c80b6505278fa468c`, was applied to root
+`90eea0e6f7304f7dfda1adc03c65d81cc40454a2`. The 53,487-byte patch has SHA-256
+`a23e701659edbf665823f0810578e0850dc1c893f2f8640f57a616574b466107`. All
+added/removed packet lines and all pre-existing test files remain unchanged;
+the separate cached-layout prerequisite was not reapplied. Root integration
+proof is `artifacts/goal-ninth-standalone-navigation-root-integration-proof-v1.json`.
+
+Fourteen new async tests cover foreign attempts and close, prepared actions,
+actual attachment revocation before first observation, cancellation publication,
+same-node transport, weak expiry and native identity/adapter/lease ABA. Strict
+formatting of eight Swift files and ContractsOnly passed at root
+(`06bd61/session77370` through `012454/0`). The new tests have not yet been
+compiled or run. This slice does not fix or qualify the separately identified
+deferred keyboard controller retaining a discarded construction container after
+GeometryReader adoption; that requires its own repair and fresh-action tests.
+No original completion criterion or gate changed.

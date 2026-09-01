@@ -51,9 +51,32 @@ package enum RetainedLazyListDescriptorBuildOrigin: Equatable, Sendable {
 
 @MainActor
 final class RetainedLazyListLogicalHostLifetime {
+    /// Navigation may outlive a plain weak runtime without keeping descriptor
+    /// scopes alive. This scalar witness records only an explicit host close.
+    @MainActor
+    final class CloseWitness {
+        private var wasRevoked: Bool
+
+        init(wasRevoked: Bool) { self.wasRevoked = wasRevoked }
+        var isOpen: Bool { !wasRevoked }
+        func revoke() { wasRevoked = true }
+    }
+
     private var wasRevoked = false
+    private var navigationCloseWitness: CloseWitness?
     var isOpen: Bool { !wasRevoked }
-    func revoke() { wasRevoked = true }
+
+    func captureNavigationCloseWitness() -> CloseWitness {
+        if let navigationCloseWitness { return navigationCloseWitness }
+        let witness = CloseWitness(wasRevoked: wasRevoked)
+        navigationCloseWitness = witness
+        return witness
+    }
+
+    func revoke() {
+        wasRevoked = true
+        navigationCloseWitness?.revoke()
+    }
 }
 
 @MainActor
@@ -631,6 +654,17 @@ package final class RetainedLazyListActualAttachment {
     func isAttached(using query: inout RetainedLazyListAttachmentQuery) -> Bool {
         guard let node, let runtime, query.isAttached(node, in: runtime) else { return false }
         return matchesCurrentAttachment(on: node)
+    }
+
+    /// A returned standalone tree may keep using its existing physical rows
+    /// after an otherwise open runtime expires. This is not build, attachment,
+    /// focus, or descriptor authority, and never captures replacement tokens.
+    var hasCurrentStandaloneNavigationIdentity: Bool {
+        guard let node, let storage = node.retainedLazyListActivityStorage,
+            storage.targetID === target, storage.attachmentID === attachment, identity.isCurrent
+        else { return false }
+        if runtime != nil { return proof.isCurrent }
+        return proof.isCurrentForStandaloneNavigationAfterRuntimeRelease
     }
 
     private func matchesCurrentAttachment(on node: ViewNode) -> Bool {

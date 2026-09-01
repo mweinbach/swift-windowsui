@@ -2037,6 +2037,19 @@ final class RetainedLazyListAttachmentProof {
         return true
     }
 
+    /// Only the original physical standalone navigation may survive ordinary
+    /// weak expiry. Explicit detach still changes the captured native token.
+    var isCurrentForStandaloneNavigationAfterRuntimeRelease: Bool {
+        guard hadRuntime, runtime == nil, let node, node.runtime == nil,
+            node.lazyListAttachmentIdentity === identity, !node.isRetiringLazyListAttachment
+        else { return false }
+        if let parent {
+            return node.parent === parent && parent.children.contains(where: { $0 === node })
+        }
+        // The original parent may itself have expired with the runtime root.
+        return node.parent == nil
+    }
+
     /// Equivalent captures must reject every later attachment change alike.
     /// Never compare proof-wrapper allocations or refresh their native tokens.
     func hasSameCapture(as other: RetainedLazyListAttachmentProof) -> Bool {
@@ -4410,7 +4423,14 @@ public final class ViewNode {
     /// captures this declaration; adoption redirects it to the retained node.
     package var listNavigationOwner: RetainedListNavigationOwner? {
         get { interactionHandlers?.listNavigationOwner }
-        set { setInteractionHandler(newValue, at: \.listNavigationOwner) }
+        set {
+            let previous = interactionHandlers?.listNavigationOwner
+            let retirementRuntime = previous?.retirementRuntimeWhenReplaced(on: self, by: newValue)
+            retirementRuntime?.beginLongPressReconciliation()
+            defer { retirementRuntime?.endLongPressReconciliation() }
+            if previous !== newValue { previous?.revokeIfReplaced(on: self, by: newValue) }
+            setInteractionHandler(newValue, at: \.listNavigationOwner)
+        }
     }
 
     func installListNavigationOwner(_ owner: RetainedListNavigationOwner) {
@@ -4428,6 +4448,7 @@ public final class ViewNode {
         let incoming = source.listNavigationOwner
         incoming?.adopt(from: listNavigationOwner, onto: self, runtime: runtime)
         listNavigationOwner = incoming
+        if let runtime { incoming?.didPublishStandaloneAttachment(to: runtime) }
         // Disposing the fresh build must not revoke the retained attachment.
         source.listNavigationOwner = nil
         return incoming
@@ -4733,6 +4754,32 @@ public final class ViewNode {
         // A staged successor is a conditional continuation, not permission to
         // replace the List if its original predecessor proof has expired.
         if runtime != nil, incoming?.hasStagedPredecessor == true, !inheritsMountedRecords { return }
+        var navigationRetirementRuntimes: [RetainedViewRuntime] = []
+        defer {
+            for runtime in navigationRetirementRuntimes.reversed() { runtime.endLongPressReconciliation() }
+        }
+        if source == nil, previous != nil {
+            // Raw replacement has no declaration transport. Retire physical
+            // standalone actions before releasing any old mapped payload,
+            // but deliver cancellation only after the property is published.
+            var owners: [RetainedListNavigationOwner] = []
+            var runtimeIDs = Set<ObjectIdentifier>()
+            var work: [(ViewNode, Int)] = [(self, 0)]
+            while let (node, depth) = work.popLast() {
+                guard depth < Self.maximumTraversalDepth else { continue }
+                if let owner = node.listNavigationOwner {
+                    owners.append(owner)
+                    if let runtime = owner.standaloneRetirementRuntime,
+                        runtimeIDs.insert(ObjectIdentifier(runtime)).inserted
+                    {
+                        navigationRetirementRuntimes.append(runtime)
+                    }
+                }
+                for child in node.children { work.append((child, depth + 1)) }
+            }
+            for runtime in navigationRetirementRuntimes { runtime.beginLongPressReconciliation() }
+            for owner in owners { owner.revokeForStandaloneAdapterReplacement() }
+        }
         if !inheritsMountedRecords { previous?.revokePendingCandidate() }
         runtime?.unregisterLazyListContainer(self, revokingAdapter: !inheritsMountedRecords)
         setLifecycleHandler(incoming, at: \.retainedLazyListAdapter)
@@ -12993,6 +13040,7 @@ public final class RetainedViewRuntime {
         while let (node, depth) = work.popLast() {
             guard depth < ViewNode.maximumTraversalDepth, node.runtime === self else { continue }
             if node.retainedLazyListAdapter != nil { registerLazyListContainer(node) }
+            node.listNavigationOwner?.didPublishStandaloneAttachment(to: self)
             for child in node.children { work.append((child, depth + 1)) }
         }
     }
@@ -17826,7 +17874,7 @@ public final class RetainedViewRuntime {
         while let node = nodes.popLast() {
             guard visited.insert(ObjectIdentifier(node)).inserted else { continue }
             nodes.append(contentsOf: node.children)
-            node.listNavigationOwner?.revoke()
+            node.listNavigationOwner?.revokeForHostClose(in: self)
             node.retainedLazyListPresentedPaint = nil
         }
         // Also retire a slot already removed from an ordinary queue for
@@ -21373,6 +21421,9 @@ extension ViewNode {
                 nextRuntime == nil || entry.adapter == nil || entry.adapter?.ownsAttachment(entry.node) == true
             })
         else { return nil }
+        if let nextRuntime {
+            for entry in entries { entry.node.listNavigationOwner?.didPublishStandaloneAttachment(to: nextRuntime) }
+        }
         for entry in entries {
             guard admission?.isCurrent != false, published.isCurrent, lazyJournal?.canContinueAdoption != false,
                 entries.allSatisfy(\.isCurrent),

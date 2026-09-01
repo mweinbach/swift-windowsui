@@ -92,13 +92,13 @@ final class OrdinaryOwnedFacetRepublishTests: XCTestCase {
         let next = OwnedFacetRepublishEpoch(fixture.runtime)
         _ = try next.component(nodes: [incoming], slots: [fixture.slot], continuing: fixture.owned)
         XCTAssertTrue(next.journal.beginOrdinaryAdoption())
-        let ticket = try XCTUnwrap(
-            next.journal.recordOrdinaryPhysicalDeparture(of: fixture.old, cause: .acceptedReplacement))
         let declarationSource = republishNode(3)
         let intervening = OwnedFacetRepublishEpoch(fixture.runtime)
         let declared = try intervening.component(
             nodes: [declarationSource], slots: [fixture.slot], continuing: fixture.owned, declarationOnly: true)
         XCTAssertTrue(intervening.journal.beginOrdinaryAdoption())
+        let ticket = try XCTUnwrap(
+            next.journal.recordOrdinaryPhysicalDeparture(of: fixture.old, cause: .acceptedReplacement))
         XCTAssertTrue(declarationSource.children.isEmpty)
         XCTAssertTrue(fixture.old.children.isEmpty)
         XCTAssertTrue(
@@ -123,7 +123,7 @@ final class OrdinaryOwnedFacetRepublishTests: XCTestCase {
     }
 
     func testPayloadPreservationRequiresTheExactRepublishedField() async throws {
-        let fixture = try OwnedFacetRepublishFixture(includeDisappear: true)
+        let fixture = try OwnedFacetRepublishFixture(includeDisappear: true, includeIdentityPayload: false)
         let incoming = republishNode(2)
         let next = OwnedFacetRepublishEpoch(fixture.runtime)
         _ = try next.component(nodes: [incoming], slots: [fixture.slot], continuing: fixture.owned)
@@ -403,7 +403,8 @@ private final class OwnedFacetRepublishFixture {
     let slot = RetainedOwnedSlotGenerationID()
     let owned: RetainedOwnedComponentReceipt
 
-    init(includeDisappear: Bool = false) throws {
+    init(includeDisappear: Bool = false, includeIdentityPayload: Bool = true) throws {
+        if !includeIdentityPayload { old.retainedViewIdentity = nil }
         old.onAppear = {}
         if includeDisappear { old.onDisappear = {} }
         let first = OwnedFacetRepublishEpoch(runtime)

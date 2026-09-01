@@ -11574,3 +11574,35 @@ is unchanged. The separately reviewed fixture corrections will follow before
 the combined regression run. Analogous property/declared-path observations are
 a separate source audit, not part of this bounded correction or a claimed pass.
 All nine original completion gates remain open and unchanged.
+
+
+### 2026-09-01 root integration 90: preserve the ordinary fixture premises
+
+The separately reviewed ordinary fixture patch follows production repair
+`524172375cb9cc0208318a3144f3a3599139ea5a`. It changes only the original fixture
+setup, not any assertion, method identifier, budget, or expected result. The
+three previously failed ordinary cases still require fresh execution.
+
+The declared-marker case now registers and prepares its original declaration-only
+continuation before capturing the departure that suspends its slot. Acceptance
+still occurs after that departure, and the suspended-write assertion is unchanged.
+The exact-payload case removes an unintended identity payload before its first
+publication, using an opt-out whose default remains true for all other fixtures.
+It does not clear identity mid-test, which would revoke a different proof and
+obscure the intended onAppear/onDisappear distinction.
+
+The 2,559-byte sealed fixture patch, SHA-256
+`d6e697af0da792e667bedc75bdc6be13c1ca94833b642d48d669c0d6aede3fc4`,
+is composed byte-identically on root. Strict formatting, contracts, and root
+source proof completed in `226114/0`. The proof is retained in
+`artifacts/goal-ninth-ordinary-fixture-e1e753f-root-proof-v1.json`, binding staged
+tree `7cb25468f3f9628c61a72e136b14569097e34c21`. Of 640 existing test files,
+639 are unchanged and the sole amended file has exactly the three approved hunks.
+The independent whole-file inverse and assertion proof preserves all 26 original
+methods and all 249 complete XCTest calls across the two ordinary test files.
+OrdinaryOwnedHandoffTests, including the entire closing-callback test and final
+retirement assertion, remains byte-identical. Package.swift is unchanged.
+
+No compiler or XCTest run has qualified these amendments yet. The next combined
+selection retains all original 132 identifiers and appends the 20 empty-membership
+regressions. All nine original completion gates remain open and unchanged.

@@ -15105,3 +15105,48 @@ ETW/provider decoding and loss evidence, lifetime/clock normalization, actual
 display disposition, input effects, demanded deadlines, sustained 60/120/144 Hz
 results, long-session resources and release validation remain owed.
 **All nine original completion gates remain open.**
+
+
+### 2026-09-02: withdraw final omitted native references before the ordinary child assignment
+
+The six existing `OrdinaryFinalChildrenWithdrawalTests` failed in the completed
+`63fd6dd` selection. Their assertions remain unchanged. The joined runtime now
+checks the actual omitted children immediately before the ordinary setter's
+final field assignment, after its existing structural preparation. Earlier
+removal callbacks can install accepted children that were not in the original
+outgoing forest; those later children need their own physical-reference cut.
+
+The helper first validates every omitted root and its complete bounded physical
+walk. Mounted omissions must still belong to the operation's already retained
+original runtime. A malformed or over-depth forest, or a changed mounted runtime
+with omissions, refuses this final cut before any new withdrawal. An empty
+omission set and a currently detached receiver preserve their existing paths.
+The cut uses only existing native physical-reference storage, never a newly
+acquired operation permission, and does not repeat lifecycle or task cleanup.
+Its temporary node arrays end before the unchanged children assignment.
+
+A private refusal flag survives the existing deferred callback drain. If a
+later callback independently installs the requested children, that later success
+cannot make the refused original operation report completion. Earlier structural
+work and original cleanup are not rolled back; the existing final-children and
+`didMutate` reporting remain in place.
+
+Eight additive boundary tests cover field-owned payload release, deferred repair,
+atomic refusal after a valid sibling precedes malformed or over-depth children,
+runtime replacement, detached-to-mounted replacement, the detached exemption,
+and the no-omission control. Their private test-first commit preceded production
+edits. Root applied only the contextual two-file patch, preserving all 714
+previous Test paths, including the six failing methods and the recently added
+mounted-successor and native-acquisition tests. There are now 715 Test paths.
+The source and formatting inverse patches restore the complete preceding
+`37a2268` tree, including its mounted-state and native-acquisition changes.
+
+Strict formatting and architecture contracts pass for the two changed Swift
+files. Compilation and all fourteen final-child tests remain pending. The next
+joined ownership selection contains 196 distinct methods: the original 94
+publication and 46 collateral methods, 42 mounted-successor methods, and these
+six existing plus eight new final-child methods. Complete-class partitions of
+108 and 88 keep the existing fixed filter-size limit and 900-second runner
+limit; neither partition has run at this checkpoint. Wider tests, native flows,
+visual comparisons, and the original performance requirements remain separate.
+**All nine original completion gates remain open.**

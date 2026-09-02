@@ -128,6 +128,34 @@ These counts exclude slot and region processing, hash-table implementation
 details, and the rest of preparation. They do not establish measured latency,
 resolution of an interaction-test timeout, or a change to any workload budget.
 
+The ordinary child setter claims and starts removing its original outgoing
+forest. An outgoing callback can install another accepted child before the final
+children assignment. Those later omitted children need physical-reference
+withdrawal at that actual field write; temporarily publishing an empty table
+does not retire unchanged survivors.
+
+After existing structural preparation, the final-cut helper validates all
+current omitted roots and their complete bounded physical walk before any new
+withdrawal. Mounted omissions must still belong to the operation's retained
+original runtime. Malformed or over-depth forests and changed mounted runtimes
+with omissions refuse the final cut. No omissions and a currently detached
+receiver preserve their existing paths. Earlier structural work and original
+cleanup are not rolled back.
+
+A valid cut withdraws only existing native physical references. It does not
+repeat lifecycle, task, appearance, or button cleanup, acquire a newer operation
+permission, or keep a copied UI forest across the unchanged children assignment.
+A local refusal flag survives the existing deferred cleanup so a later nested
+operation cannot retroactively complete the refused original operation. The
+existing final-children and didMutate reporting remain intact.
+
+Eight new OrdinaryFinalChildrenCutBoundaryTests cover payload release, deferred
+repair, complete-forest refusal, runtime changes, detached metadata, and no
+omission. The six original OrdinaryFinalChildrenWithdrawalTests remain unchanged.
+Both classes still require execution against this joined source. The separate
+mounted-successor and native-acquisition changes coexist with this cut; source
+review, formatting, and contracts do not establish their behavioral results.
+
 The following qualification work remains open in this source checkpoint:
 
 - The new checked-bucket, collision, nested-identity, and cleanup regressions

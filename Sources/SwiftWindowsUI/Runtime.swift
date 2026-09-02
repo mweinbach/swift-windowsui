@@ -7167,7 +7167,8 @@ public final class ViewNode {
         _ nextChildren: [ViewNode], lazyJournal: RetainedLazyListAdoptionJournal? = nil,
         taskAdoption: RetainedTaskAdoptionContext? = nil, sourceParent: ViewNode? = nil,
         completionSources: RetainedReconciliationSourceNodes? = nil,
-        buttonActions: RetainedButtonActionAdoption? = nil
+        buttonActions: RetainedButtonActionAdoption? = nil,
+        finalChildrenCutWasRefused: inout Bool
     ) {
         guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
         // A rebuild reconciles every node in the window, and for the
@@ -7290,6 +7291,13 @@ public final class ViewNode {
         if !nextChildren.isEmpty, let sourceParent, let lazyJournal {
             recordsDeclaration = lazyJournal.prepareOwnedStructuralDeclaration(from: sourceParent, to: self)
         }
+        guard
+            withdrawOwnedPhysicalReferencesForFinalChildrenCut(
+                surviving: surviving, originalRuntime: interactionRuntime)
+        else {
+            finalChildrenCutWasRefused = true
+            return
+        }
         children = nextChildren
         guard buttonActions?.recordChildrenWrite(on: self) != false else { return }
         guard buttonActions?.recordInsertion(in: nextChildren) != false else { return }
@@ -7323,6 +7331,30 @@ public final class ViewNode {
             }
         }
         invalidateRuntime(.children)
+    }
+
+    // Outgoing callbacks can install other children before the final field
+    // write. Retire only native physical references for the current omissions.
+    // Keep the temporary node arrays inside this helper so they cannot extend
+    // UI payload lifetime across the caller's children assignment.
+    @inline(never)
+    private func withdrawOwnedPhysicalReferencesForFinalChildrenCut(
+        surviving: Set<ObjectIdentifier>, originalRuntime: RetainedViewRuntime?
+    ) -> Bool {
+        guard children.contains(where: { !surviving.contains(ObjectIdentifier($0)) }) else { return true }
+        guard let currentRuntime = runtime else { return true }
+        guard let originalRuntime, currentRuntime === originalRuntime else { return false }
+
+        let omitted = children.filter { !surviving.contains(ObjectIdentifier($0)) }
+        guard omitted.allSatisfy({ $0.parent === self && $0.runtime === originalRuntime }),
+            let nodes = Self.lazyListNodes(in: omitted)
+        else { return false }
+
+        // Validate the whole forest before withdrawing even its first member.
+        for node in nodes {
+            node.retainedLazyListActivityStorage?.withdrawOwnedPhysicalReferences()
+        }
+        return true
     }
 
     /// Whether `nextChildren` is the list this node already has: same objects,
@@ -24401,11 +24433,15 @@ extension ViewNode {
         }
         if admission == nil, uiaAuthority == nil, lazyJournal?.isOrdinaryAdoption != false {
             let changed = !isChildListUnchanged(nextChildren)
+            var finalChildrenCutWasRefused = false
             setChildrenUnchecked(
                 nextChildren, lazyJournal: lazyJournal, taskAdoption: taskAdoption, sourceParent: sourceParent,
-                completionSources: completionSources, buttonActions: buttonActions)
+                completionSources: completionSources, buttonActions: buttonActions,
+                finalChildrenCutWasRefused: &finalChildrenCutWasRefused)
             return RetainedLazyListAdoptionResult(
-                completed: isChildListUnchanged(nextChildren) && buttonActions?.isCurrent != false,
+                completed:
+                    !finalChildrenCutWasRefused && isChildListUnchanged(nextChildren)
+                    && buttonActions?.isCurrent != false,
                 didMutate: changed, children: children)
         }
         guard admission?.permitsMutation(of: self) != false else {

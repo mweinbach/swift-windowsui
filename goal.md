@@ -16232,3 +16232,37 @@ The immutable packet is `artifacts/goal-ninth-menu-primary-intake-v1`.
 Fresh compilation and the new and existing Menu regressions remain next;
 source review does not substitute for those results.
 **All nine original completion gates remain open.**
+
+### Ninth batch: add internal Unicode-safe text-range values
+
+The original text-accessibility requirement needs a range representation that
+cannot split a Swift Character or misinterpret UTF-16 offsets. A new
+package-scoped Core helper supplies immutable text snapshots, validated and
+clamped spans, exact Character/UTF-16 boundary conversion, bounded text
+extraction, literal search and movement through explicitly supplied unit
+boundaries. Invalid interior UTF-16 positions are refused. Whole-Character
+extraction may underfill a UTF-16 limit; embedded NUL and original code units
+are preserved. Movement handles extreme integer counts without negating
+`Int.min`, and crossing endpoints collapse the range.
+
+These are local value policies, not a second text shaper or a claim about native
+TextUnit behavior. `docs/TextRangeValues.md` specifies the search, end-of-file
+and movement policies and the remaining adapter obligations. No editor selection,
+document revision, actor access, layout geometry, COM provider, native event,
+TextPattern advertisement or Narrator path is connected by this change. Those
+parts remain required by the unchanged goal.
+
+Twenty-five portable tests were frozen before implementation. They cover
+combining sequences, surrogate pairs, joined emoji, CRLF, bidirectional text,
+NUL, search bounds and overlaps, clamping, supplied unit boundaries and extreme
+movement counts. Root read all 286 source lines, 348 test lines and 95 document
+lines; independent reviews covered the Unicode and future adapter boundaries.
+The change adds exactly three files and preserves every existing file. Its
+staged inverse restores the whole `b99395d` tree in
+`artifacts/goal-ninth-text-range-values-staged-inverse-v1.json`.
+Formatting and architecture checks passed in
+`artifacts/goal-ninth-text-range-values-lint-contracts-v1.log`.
+The immutable packet is `artifacts/goal-ninth-text-range-values-intake-v1`.
+Fresh compilation and all twenty-five tests remain to be run alongside the
+selected control and ownership regressions. **All nine original completion
+gates remain open.**

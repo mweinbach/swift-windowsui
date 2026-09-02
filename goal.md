@@ -14619,3 +14619,75 @@ schema, event provenance, capture loss/drain/finalization, display observations,
 input timestamps and visible effects, demanded deadlines, percentile workloads,
 high-refresh hardware and long sessions still need real evidence. Neither this
 checker nor supplied synthetic facts close any native or timing gate.
+
+
+### Ninth integration: MultiDatePicker source and unchanged qualification gates
+
+The next control slice keeps the three existing unbounded public initializers
+and replaces their current-month primitive construction with private retained
+calendar content. Root read the entire source, all 32 new methods and support,
+and the independent source/inverse review before applying the frozen packet.
+The packet was based on `03007df`; root applied it to `a80cf6b`, preserving all
+701 existing tracked Test entries in both Git identities and raw bytes.
+No existing assertion, acceptance threshold, public range contract, or original
+completion criterion was removed or relaxed.
+
+The implemented source reuses `DatePickerCalendarModel` and the inherited
+calendar, explicit time zone, locale, first weekday, and layout direction.
+Previous/next month buttons browse independently of selection. A lazy mounted
+initial-date object samples the clock once per occurrence; ordinary State
+stores an absolute browse anchor. Selection changes do not reset browsing,
+while environment changes reinterpret that anchor without rewriting supplied
+selection values. Surviving mounted occurrences preserve state across rebuilds
+and keyed reordering; removed and replaced occurrences do not share a global
+month cache.
+
+Date-only matching creates at most sixteen exact representations per visible
+day and requires an exact calendar round-trip to its start. Activation removes
+supported aliases or inserts an unambiguous year/month/day value, qualifying
+calendar, era and leap-month information when needed. Values carrying another
+calendar or time zone, extra components, or unsupported representations remain
+untouched. This bounds generated aliases, not the user's selection set or the
+cost of copying it. The 28/35/42-cell bound is a calendar-grid limit and is not
+a newly imposed product selection limit.
+
+Retained day/navigation buttons supply pointer, Tab, Enter/Space and default
+accessibility actions, with selected and disabled metadata. Their construction
+receipt must still occur on an accepted visible surface before actions can
+write; runtime and mounted-owner references remain weak. The receipt is
+checked around authored binding getters and before writes. The accessible
+label regression retains a visible node's own name before ignoring children,
+but rejects hidden and accessibility-hidden nodes before either name or child
+inspection. Neither mechanism claims complete native calendar focus or
+assistive-technology parity.
+
+The frozen seven-file source tree was
+`74de8652afe10cb1d19a56d6a02991f541593111`. Strict lint first reported formatting
+errors in four new files. Root formatted only those four, read the complete
+367-line format diff, and verified only wrapping/indentation changed. The
+19,789-byte format patch has SHA-256
+`485e8d51c66d4c20ac9bad29d483d1a2306f1a3db4498be311a9a9524be221dc`.
+Its separately generated reverse restores the frozen tree, and the original
+source inverse then restores all of `a80cf6b`'s tree
+`0a9c77a9d753b529c8cecf229be26ffe899f28dc`. The formatted source tree is
+`3e9b38b6ac6418da55b2ad3345579cffe9d5a076`;
+`artifacts/goal-ninth-multi-date-picker-format-proof-v1.json` records each
+formatted postimage. Strict seven-file lint and architecture contracts passed
+in the naturally completed run recorded by
+`artifacts/goal-ninth-multi-date-picker-lint-v2.log`.
+
+Compilation and execution remain pending. Required first validation is all
+32 new methods (7 selection, 13 controls, 11 mounted, 1 accessible label) plus
+all 35 existing DatePicker calendar/control/mounted methods: 67 total. No
+selected method has yet passed merely because the source or contracts passed.
+`docs/MultiDatePicker.md`, the compatibility table and the WinSwiftUI mapping
+now describe the exact supported policy and this qualification boundary.
+
+Range overloads, unrestricted input normalization, grid arrow navigation,
+roving focus, native style and pixel behavior, complete navigation-action
+localization, Narrator operation, and pinned reference-platform API
+availability remain open. This Windows implementation does not establish that
+the same API is available in macOS SwiftUI; no unsupported shared-source demo
+was added. Retained screenshots, broader regression coverage and native
+comparison remain required. All nine original goal gates remain open and
+unchanged; this entry adds implementation and evidence detail only.

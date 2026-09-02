@@ -17863,71 +17863,9 @@ public struct MultiDatePicker: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        let label = label
-        let selection = selection
-        let isEnabled = context.isEnabled
-        let invalidate = context.invalidate
-        let calendar = context.environmentValues.calendar
-
-        let daySymbols = calendar.shortWeekdaySymbols
-        let today = Date()
-        let todayComponents = calendar.dateComponents([.year, .month, .day], from: today)
-        let currentMonth = todayComponents.month ?? 1
-        let currentYear = todayComponents.year ?? 2026
-        let dateComponents = DateComponents(year: currentYear, month: currentMonth, day: 1)
-        let firstOfMonth = calendar.date(from: dateComponents)!
-        let daysInMonth = calendar.range(of: .day, in: .month, for: firstOfMonth)!.count
-        let firstWeekday = calendar.component(.weekday, from: firstOfMonth) - 1
-
-        return VStack(alignment: .leading, spacing: 8) {
-            label
-            VStack(spacing: 4) {
-                HStack(spacing: 0) {
-                    ForEach(daySymbols, id: \.self) { symbol in
-                        Text(symbol)
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                            .frame(width: 32, height: 24)
-                    }
-                }
-                let totalCells = ((firstWeekday + daysInMonth + 6) / 7) * 7
-                let rows = totalCells / 7
-                ForEach(0..<rows, id: \.self) { row in
-                    HStack(spacing: 0) {
-                        ForEach(0..<7, id: \.self) { col in
-                            let index = row * 7 + col
-                            let day = index - firstWeekday + 1
-                            if day >= 1 && day <= daysInMonth {
-                                let dc = DateComponents(year: currentYear, month: currentMonth, day: day)
-                                let isSelected = selection.wrappedValue.contains(dc)
-                                Text("\(day)")
-                                    .font(.body)
-                                    .foregroundColor(isSelected ? .white : .primary)
-                                    .frame(width: 32, height: 32)
-                                    .background(
-                                        Circle()
-                                            .fill(isSelected ? Color.accentColor : Color.clear)
-                                    )
-                                    .onTapGesture {
-                                        guard isEnabled else { return }
-                                        var newSelection = selection.wrappedValue
-                                        if newSelection.contains(dc) {
-                                            newSelection.remove(dc)
-                                        } else {
-                                            newSelection.insert(dc)
-                                        }
-                                        selection.wrappedValue = newSelection
-                                        invalidate()
-                                    }
-                            } else {
-                                Spacer().frame(width: 32, height: 32)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        .makeComponent(context: context)
+        makeViewComponent(
+            MultiDatePickerContent(selection: selection, label: label),
+            context: context.withViewIdentityRole(.content))
     }
 }
 @MainActor

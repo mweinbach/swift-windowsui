@@ -35,7 +35,10 @@ final class DeferredListKeyboardNavigation {
         let direction: Int
         var ordinal: Int
         var leaf: Int?
+        var ordinaryDestinationLeaf: Int?
         var item: RetainedLazyListAccessibilityItem?
+        var keyboardPreparation: RetainedLazyListKeyboardPreparation?
+        var attemptedKeyboardPreparation = false
         var requiresRevealBeforeFocus = false
         var needsSelectionSearch = false
         var needsImplicitSelectionValidation = false
@@ -198,7 +201,9 @@ final class DeferredListKeyboardNavigation {
                 if request.item == nil {
                     request.item = runtime.lazyListTarget(in: container, key: row.providerKey)
                     if let item = request.item {
-                        request.requiresRevealBeforeFocus = runtime.realizedLazyListAccessibilityNodes(for: item) == nil
+                        request.requiresRevealBeforeFocus =
+                            request.keyboardPreparation?.originalRequiresRevealBeforeFocus(for: item.token)
+                            ?? (runtime.realizedLazyListAccessibilityNodes(for: item) == nil)
                     }
                 }
                 guard isCurrent(request) else {
@@ -209,18 +214,39 @@ final class DeferredListKeyboardNavigation {
                     cancel(request)
                     return
                 }
-                let resolution = runtime.resolveLazyListTarget(item)
+                if request.needsImplicitSelectionValidation, !request.attemptedKeyboardPreparation {
+                    request.attemptedKeyboardPreparation = true
+                    let adjacent = request.source.row(at: request.ordinal + request.direction).flatMap {
+                        runtime.lazyListTarget(in: container, key: $0.providerKey)
+                    }
+                    guard isCurrent(request) else {
+                        cancel(request)
+                        return
+                    }
+                    request.keyboardPreparation = runtime.beginLazyListKeyboardPreparation(
+                        from: item, toward: adjacent, receipt: request.receipt)
+                    if let originalPolicy = request.keyboardPreparation?.originalRequiresRevealBeforeFocus(
+                        for: item.token)
+                    {
+                        request.requiresRevealBeforeFocus = originalPolicy
+                    }
+                }
+                let resolution = resolvePhysicalRows(item, request: request, runtime: runtime)
                 guard isCurrent(request) else {
                     cancel(request)
                     return
                 }
                 switch resolution {
-                case .ready(let roots):
+                case .accepted(let roots):
                     nodes = roots
                 case .pending:
                     schedule(request)
                     return
                 case .empty:
+                    guard request.ordinaryDestinationLeaf == nil else {
+                        cancel(request)
+                        return
+                    }
                     if request.needsImplicitSelectionValidation {
                         useUnmatchedSelectionBoundary(request)
                     } else {
@@ -262,7 +288,9 @@ final class DeferredListKeyboardNavigation {
                 request.leaf = first.1.leaf + request.direction
             }
             let target: (ViewNode, DeferredListRowNavigation)?
-            if let leaf = request.leaf {
+            if let leaf = request.ordinaryDestinationLeaf {
+                target = rows.first(where: { $0.1.leaf == leaf })
+            } else if let leaf = request.leaf {
                 target =
                     request.direction > 0
                     ? rows.first(where: { $0.1.leaf >= leaf })
@@ -271,6 +299,10 @@ final class DeferredListKeyboardNavigation {
                 target = request.direction > 0 ? rows.first : rows.last
             }
             guard let (node, metadata) = target, let owner = node.listNavigationOwner else {
+                guard request.ordinaryDestinationLeaf == nil else {
+                    cancel(request)
+                    return
+                }
                 advance(request)
                 continue
             }
@@ -293,12 +325,35 @@ final class DeferredListKeyboardNavigation {
                 schedule(request, afterLayout: false)
                 return
             }
+            if let preparation = request.keyboardPreparation, !request.requiresRevealBeforeFocus {
+                guard isCurrent(request), let runtime, let item = request.item,
+                    runtime.canResumeOrdinaryLazyListKeyboardTarget(item, using: preparation)
+                else {
+                    cancel(request)
+                    return
+                }
+                // Only the actual destination can leave this construction
+                // plan. Keep its exact leaf while the ordinary resolver earns
+                // readiness; unwind these row/tag captures before that query.
+                request.ordinaryDestinationLeaf = metadata.leaf
+                request.leaf = metadata.leaf
+                finishKeyboardPreparation(request)
+                continue
+            }
             guard isCurrent(request),
                 request.receipt.prepareTarget(owner, requiresRevealBeforeFocus: request.requiresRevealBeforeFocus),
                 isCurrent(request)
             else {
                 cancel(request)
                 return
+            }
+            if let preparation = request.keyboardPreparation {
+                guard let runtime, let item = request.item,
+                    runtime.prepareLazyListKeyboardSelection(item, using: preparation), isCurrent(request)
+                else {
+                    cancel(request)
+                    return
+                }
             }
             // A setter may replace this declaration or admit a newer action.
             // Its one accepted invalidation still runs; only the original
@@ -334,6 +389,7 @@ final class DeferredListKeyboardNavigation {
                 }
                 self.request = nil
                 request.receipt.finishNavigation()
+                finishKeyboardPreparation(request)
                 releaseItem(request)
             case .pending:
                 schedule(request)
@@ -439,19 +495,59 @@ final class DeferredListKeyboardNavigation {
     }
 
     private func releaseItem(_ request: Request) {
-        if let item = request.item { runtime?.releaseLazyListTarget(item) }
+        if request.keyboardPreparation == nil, let item = request.item { runtime?.releaseLazyListTarget(item) }
         request.item = nil
+    }
+
+    private func finishKeyboardPreparation(_ request: Request) {
+        if let preparation = request.keyboardPreparation { runtime?.endLazyListKeyboardPreparation(preparation) }
+        request.keyboardPreparation = nil
+    }
+
+    /// The new result describes physical eligibility only. Ordinary callers
+    /// still obtain the stronger ready result from the unchanged resolver.
+    private func resolvePhysicalRows(
+        _ item: RetainedLazyListAccessibilityItem, request: Request, runtime: RetainedViewRuntime
+    ) -> RetainedLazyListKeyboardEligibility {
+        if let preparation = request.keyboardPreparation {
+            let result = runtime.prepareLazyListKeyboardItem(item, using: preparation)
+            if case .unsupported = result {
+                // An accepted skip can leave the finite cohort. Release its
+                // owed protection and continue the existing walk, under the
+                // same original binding and event budget. Obsolete/pending
+                // preparation never reaches this fallback or another batch.
+                finishKeyboardPreparation(request)
+                guard isCurrent(request), runtime.isLazyListAccessibilityItemCurrent(item) else { return .obsolete }
+            } else {
+                return result
+            }
+        }
+        switch runtime.resolveLazyListTarget(item) {
+        case .ready(let roots): return .accepted(roots)
+        case .empty: return .empty
+        case .pending: return .pending
+        case .obsolete: return .obsolete
+        case .unsupported: return .unsupported
+        }
     }
 
     private func cancel(_ request: Request) {
         if self.request === request { self.request = nil }
         request.receipt.cancelPreparedNavigation()
+        finishKeyboardPreparation(request)
         releaseItem(request)
         request.selectionCursor = nil
         request.selectionWitness = nil
     }
 
     private func schedule(_ request: Request, afterLayout: Bool = true) {
+        // The inside-cohort warm handoff may use only its original operation's
+        // remaining budget. Pending ordinary work cannot create a later replay;
+        // any already accepted binding write still keeps its normal cleanup.
+        guard request.ordinaryDestinationLeaf == nil else {
+            cancel(request)
+            return
+        }
         guard isCurrent(request), request.bindingWasWritten || request.source.row(at: request.ordinal) != nil
         else {
             cancel(request)
@@ -462,7 +558,7 @@ final class DeferredListKeyboardNavigation {
         // departure removes that slot; neither object owns the runtime or nodes.
         guard
             request.receipt.schedulePreparedNavigationReplay(
-                afterLayout: afterLayout,
+                afterLayout: afterLayout, keyboardPreparation: request.keyboardPreparation,
                 perform: { [self, request] in
                     guard self.isCurrent(request) else {
                         self.cancel(request)

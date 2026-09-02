@@ -998,6 +998,7 @@ package final class RetainedLazyListRuntimeAdapter {
     /// the one final gap from the content extent. Empty records add no gap.
     package let interLeafSpacing: Double
     private let maximumMountedRecords: Int
+    weak var keyboardPreparation: RetainedLazyListKeyboardPreparation?
     private let maximumMountedLeaves: Int
     private let maximumProtectedRecords: Int
     private var configuration = RetainedLazyListAdapterIdentity()
@@ -1280,6 +1281,8 @@ package final class RetainedLazyListRuntimeAdapter {
         predecessor.transitionAwaitingMeasurements = []
         logicalRealization = predecessor.logicalRealization
         predecessor.logicalRealization = nil
+        keyboardPreparation = predecessor.keyboardPreparation
+        predecessor.keyboardPreparation = nil
         logicalMembershipIdentity = predecessor.logicalMembershipIdentity
         stagedPredecessor = nil
         // The old records' configuration and requests are intentionally stale.
@@ -1416,6 +1419,94 @@ package final class RetainedLazyListRuntimeAdapter {
         realization.revoke()
         guard logicalRealization === realization else { return }
         logicalRealization = nil
+    }
+
+    /// Reserve a finite native cohort before any keyboard factory. The current
+    /// actual rows and requirements keep priority; estimates choose the future
+    /// ordinary expanded window for construction only. Its existing prefetch
+    /// remains owed after scrolling; it is not suppressed by the final query.
+    /// Estimated coordinates never become reveal or focus authority.
+    func keyboardConstructionCohort(
+        from first: RetainedLazyListRowToken, toward next: RetainedLazyListRowToken?, viewport: Viewport
+    ) -> [RetainedLazyListRowToken]? {
+        guard keyboardPreparation == nil, logicalRealization?.isActive != true, uiaConstructionHint == nil,
+            hasCurrentLogicalSnapshot, snapshotIsCurrent(for: viewport), !pendingCandidate, !preparationIncomplete,
+            stagedPredecessor == nil, pendingScalarGeometry == nil, transitionRequiredTokens.isEmpty,
+            transitionAwaitingMeasurements.isEmpty, containsLogicalToken(first),
+            next.map(containsLogicalToken) != false, viewport.extent > 0,
+            let selection = windowSelection(viewport, protecting: protectedTokens), !selection.exceedsRecordLimit,
+            let bounds = logicalBounds(for: next ?? first), bounds.extent > 0
+        else { return nil }
+        var selected = Set(mounted.keys).union(selection.requiredTokens).union([first])
+        if let next { selected.insert(next) }
+        guard selected.count < maximumMountedRecords else { return nil }
+        let end = bounds.origin + bounds.extent
+        let requested =
+            bounds.origin < viewport.offset
+            ? bounds.origin
+            : end > viewport.offset + viewport.extent ? end - viewport.extent : viewport.offset
+        guard requested.isFinite,
+            let window = extentIndex?.window(
+                offset: min(max(0, requested), max(0, contentExtent - viewport.extent)),
+                viewportExtent: viewport.extent, prefetchExtent: prefetchExtent),
+            let windowEnd = extentIndex?.prefixOffset(before: window.upperBound)
+        else { return nil }
+        var position = window.lowerBound
+        while position < window.upperBound, selected.count < maximumMountedRecords - 1 {
+            guard let record = coordinateRecord(at: position) else { return nil }
+            selected.insert(record.token)
+            if record.end >= windowEnd { break }
+            guard let following = followingRecord(from: record.end, through: windowEnd), following.position > position
+            else { return nil }
+            position = following.position
+        }
+        return selected.sorted { positions[$0, default: Int.max] < positions[$1, default: Int.max] }
+    }
+
+    func hasKeyboardRealization(_ realization: RetainedLazyListLogicalRealization) -> Bool {
+        !isReleasing && logicalRealization === realization && realization.isActive
+    }
+
+    /// Read only the bounded reserved identities, including during checked
+    /// prepare where ordinary snapshot lookup intentionally refuses entry.
+    func containsKeyboardCohort(_ preparation: RetainedLazyListKeyboardPreparation) -> Bool {
+        keyboardPreparation === preparation && !isReleasing
+            && preparation.cohort.count <= maximumMountedRecords
+    }
+
+    func keyboardCohortHasCurrentMembership(_ preparation: RetainedLazyListKeyboardPreparation) -> Bool {
+        containsKeyboardCohort(preparation) && preparation.cohort.allSatisfy { positions[$0] != nil }
+    }
+
+    func keyboardCohortIsAccepted(_ preparation: RetainedLazyListKeyboardPreparation) -> Bool {
+        guard keyboardCohortHasCurrentMembership(preparation), hasCurrentLogicalSnapshot,
+            !pendingCandidate, !preparationIncomplete
+        else { return false }
+        return preparation.cohort.allSatisfy { token in
+            guard let record = mounted[token] else { return false }
+            return recordIsCurrent(record)
+        }
+    }
+
+    /// A pre-offset proof uses the actual measured index and the ordinary
+    /// viewport requirements, never the construction window's estimates.
+    func keyboardViewportIsCovered(
+        _ viewport: Viewport, by preparation: RetainedLazyListKeyboardPreparation
+    ) -> Bool {
+        guard preparation.permitsPlanning(in: self), hasCurrentLogicalSnapshot,
+            let selection = windowSelection(viewport, protecting: protectedTokens, includingKeyboard: false),
+            !selection.exceedsRecordLimit, selection.requiredTokens.isSubset(of: Set(preparation.cohort))
+        else { return false }
+        return selection.requiredTokens.allSatisfy { token in
+            guard let record = mounted[token] else { return false }
+            return recordIsCurrent(record) && record.extents != nil && !hasUnresolvedLeadingGap(record)
+        }
+    }
+
+    func endKeyboardPreparation(_ preparation: RetainedLazyListKeyboardPreparation) {
+        guard keyboardPreparation === preparation else { return }
+        keyboardPreparation = nil
+        unresolvedWork = true
     }
 
     /// Capture before Runtime enters a lease getter. Cold eligibility is checked
@@ -1875,6 +1966,10 @@ package final class RetainedLazyListRuntimeAdapter {
         discardRevokedLogicalRealization()
         let expectedConstructionHint = uiaConstructionHint
         let ordinaryConstructionRequest = checkedAdmission?.ordinaryConstructionRequest
+        let keyboard = checkedAdmission?.keyboardPreparation
+        guard keyboard.map({ $0.permitsPlanning(in: self) && keyboardPreparation === $0 }) != false else {
+            return .obsolete
+        }
         guard
             ordinaryConstructionRequest.map({
                 managed != nil && expectedConstructionHint == nil && $0.viewport == viewport && $0.isCurrent
@@ -2057,7 +2152,8 @@ package final class RetainedLazyListRuntimeAdapter {
             plannedWindow = UIAPlannedWindow(tokens: [], exceedsRecordLimit: false)
         }
         let plannedTokens = Set(plannedWindow.tokens)
-        let preparesCandidateProbe = expectedConstructionHint != nil || ordinaryConstructionRequest != nil
+        let preparesCandidateProbe =
+            expectedConstructionHint != nil || ordinaryConstructionRequest != nil || keyboard != nil
         var boundaryProbe =
             preparesCandidateProbe ? nil : nextGapBoundaryProbe(required: selection.requiredTokens)
         var selectedTokens = nextProtected
@@ -2160,7 +2256,9 @@ package final class RetainedLazyListRuntimeAdapter {
         while cursor < orderedTokens.count || !appendedProbeAndPrefetch {
             if cursor == orderedTokens.count {
                 appendedProbeAndPrefetch = true
-                guard expectedConstructionHint?.isCurrent == true || ordinaryConstructionRequest?.isCurrent == true,
+                guard
+                    expectedConstructionHint?.isCurrent == true || ordinaryConstructionRequest?.isCurrent == true
+                        || keyboard?.isCurrent == true,
                     operationIsCurrent(
                         expectedAttempt, configuration: expectedConfiguration, admission: checkedAdmission,
                         identityProofs: acceptedIdentityProofs, constructionHint: expectedConstructionHint)
@@ -2199,7 +2297,7 @@ package final class RetainedLazyListRuntimeAdapter {
                     orderedTokens.append(boundaryProbe)
                     reservedRecords += 1
                 }
-                for token in selection.tokens where !selectedTokens.contains(token) {
+                for token in selection.tokens where keyboard == nil && !selectedTokens.contains(token) {
                     guard reservedRecords < maximumMountedRecords else { break }
                     guard !requiresOriginalInsertionOrigins || originalInsertionOrigins?.origin(for: token) != nil
                     else {
@@ -3516,7 +3614,8 @@ package final class RetainedLazyListRuntimeAdapter {
     /// viewport. Each cursor jumps over zero-coordinate runs in O(log N).
     /// No plan scans all IDs or copies the extent index.
     private func windowSelection(
-        _ viewport: Viewport, protecting requestedProtected: Set<RetainedLazyListRowToken>
+        _ viewport: Viewport, protecting requestedProtected: Set<RetainedLazyListRowToken>,
+        includingKeyboard: Bool = true
     ) -> WindowSelection? {
         guard
             let expanded = extentIndex?.window(
@@ -3527,8 +3626,16 @@ package final class RetainedLazyListRuntimeAdapter {
         if let token = logicalRealizationTokenForSelection { protected.insert(token) }
         guard protected.count <= maximumProtectedRecords else { return nil }
         guard protected.count <= maximumMountedRecords else { return nil }
+        let keyboardTokens: Set<RetainedLazyListRowToken>
+        if includingKeyboard, let keyboardPreparation, keyboardPreparation.permitsPlanning(in: self) {
+            guard keyboardCohortHasCurrentMembership(keyboardPreparation) else { return nil }
+            keyboardTokens = Set(keyboardPreparation.cohort)
+        } else {
+            keyboardTokens = []
+        }
         if !transitionRequiredTokens.isEmpty {
-            let required = protected.union(transitionRequiredTokens.filter { positions[$0] != nil })
+            let required = protected.union(transitionRequiredTokens.filter { positions[$0] != nil }).union(
+                keyboardTokens)
             guard required.count <= maximumMountedRecords else { return nil }
             // Refresh the previous actual viewport before selecting a second
             // estimated window. Two disjoint windows must not demand twice the
@@ -3537,7 +3644,8 @@ package final class RetainedLazyListRuntimeAdapter {
                 tokens: required.sorted { positions[$0, default: Int.max] < positions[$1, default: Int.max] },
                 requiredTokens: required, exceedsRecordLimit: false)
         }
-        var selected = protected
+        var selected = protected.union(keyboardTokens)
+        guard selected.count <= maximumMountedRecords else { return nil }
         var priority: [RetainedLazyListRowToken] = []
         if !visible.isEmpty {
             guard let visibleEnd = extentIndex?.prefixOffset(before: visible.upperBound) else { return nil }
@@ -3579,6 +3687,10 @@ package final class RetainedLazyListRuntimeAdapter {
                 selected.insert(record.request.token)
                 priority.append(record.request.token)
             }
+        }
+        for token in keyboardTokens.sorted(by: { positions[$0, default: Int.max] < positions[$1, default: Int.max] })
+        where !priority.contains(token) {
+            priority.append(token)
         }
         let required = selected
         guard prefetchExtent > 0, !expanded.isEmpty, selected.count < maximumMountedRecords else {

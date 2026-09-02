@@ -5,6 +5,8 @@ import SwiftWindowsCore
 /// prepared for the same retained row. No application bindings live here.
 @MainActor
 package final class RetainedListNavigationOwner {
+    fileprivate final class RoleLossIdentity {}
+
     @MainActor
     fileprivate final class StandaloneOrigin {
         weak var runtime: RetainedViewRuntime?
@@ -24,6 +26,7 @@ package final class RetainedListNavigationOwner {
         var hasMounted = false
         var hasPreparedAction = false
         var isRevoked = false
+        var roleLossIdentity = RoleLossIdentity()
         let permitsStandaloneConstruction: Bool
         let standaloneOrigin: StandaloneOrigin?
         var actualAttachment: RetainedLazyListActualAttachment?
@@ -146,7 +149,16 @@ package final class RetainedListNavigationOwner {
     }
 
     func revokeIfRoleIsUnavailable() {
-        guard !isAdopting else { return }
+        if isAdopting {
+            // Ordinary adoption still defers revocation until its final role
+            // is installed. A prepared keyboard action also remembers a real
+            // loss inside an authored callback; restoring the bit is not the
+            // original action's permission to continue.
+            if (scope != nil && !hasRowRole) || (scope == nil && attachment.node?.scrollAxis != .vertical) {
+                attachment.roleLossIdentity = RoleLossIdentity()
+            }
+            return
+        }
         if scope != nil {
             if !hasRowRole { revoke() }
         } else if attachment.node?.scrollAxis != .vertical {
@@ -348,7 +360,11 @@ package final class RetainedListNavigationReceipt {
     private let sourceDeclaration: RetainedListNavigationOwner
     private let scope: RetainedListNavigationOwner.Attachment
     private let source: RetainedListNavigationOwner.Attachment
+    private let originalScopeRoleIdentity: RetainedListNavigationOwner.RoleLossIdentity
+    private let originalSourceRoleIdentity: RetainedListNavigationOwner.RoleLossIdentity
     private var target: RetainedListNavigationOwner.Attachment?
+    private var originalTargetRoleIdentity: RetainedListNavigationOwner.RoleLossIdentity?
+    private var preservesKeyboardRoleHistory = false
     private var targetRequiresRevealBeforeFocus = false
     private weak var runtime: RetainedViewRuntime?
     private weak var root: ViewNode?
@@ -358,6 +374,7 @@ package final class RetainedListNavigationReceipt {
     private let originalFocusRevision: UInt64?
     private var revealFocusRevision: UInt64?
     private var preparedLayoutSettlement: RetainedLayoutSettlementReceipt?
+    private var keyboardPreparation: RetainedLazyListKeyboardPreparation?
     private var terminalRevealSettlement: RetainedLayoutSettlementReceipt?
     private weak var revealContinuation: RetainedListNavigationRevealContinuation?
     private var hasAcceptedRevealContinuation = false
@@ -394,6 +411,8 @@ package final class RetainedListNavigationReceipt {
         sourceDeclaration = source
         self.scope = scopeAttachment
         self.source = sourceAttachment
+        originalScopeRoleIdentity = scopeAttachment.roleLossIdentity
+        originalSourceRoleIdentity = sourceAttachment.roleLossIdentity
         self.runtime = runtime
         self.root = root
         hasRuntime = runtime != nil
@@ -421,12 +440,66 @@ package final class RetainedListNavigationReceipt {
     package func prepareTarget(
         _ owner: RetainedListNavigationOwner, requiresRevealBeforeFocus: Bool = false
     ) -> Bool {
-        guard permitsBindingWrite, owner.isCurrentDeclaration, owner.scope === scopeDeclaration,
+        guard !preservesKeyboardRoleHistory, permitsBindingWrite, owner.isCurrentDeclaration,
+            owner.scope === scopeDeclaration,
             RetainedListNavigationOwner.currentNode(for: owner.attachment, runtime: runtime, scope: scope) != nil
         else { return false }
         owner.attachment.hasPreparedAction = true
         target = owner.attachment
+        originalTargetRoleIdentity = owner.attachment.roleLossIdentity
         targetRequiresRevealBeforeFocus = requiresRevealBeforeFocus
+        return true
+    }
+
+    var keyboardPreparedTarget: ViewNode? {
+        permitsBindingWrite ? target?.node : nil
+    }
+
+    func keyboardConstructionEndpoints(
+        in runtime: RetainedViewRuntime
+    ) -> (scope: RetainedAccessibilityTarget, source: RetainedAccessibilityTarget)? {
+        guard self.runtime === runtime, permitsBindingWrite,
+            let scopeNode = scope.node, let sourceNode = source.node,
+            let scope = runtime.accessibilityTarget(for: scopeNode),
+            let source = runtime.accessibilityTarget(for: sourceNode)
+        else { return nil }
+        return (scope, source)
+    }
+
+    func installKeyboardPreparation(_ preparation: RetainedLazyListKeyboardPreparation, for node: ViewNode) -> Bool {
+        guard permitsBindingWrite, target?.node === node, keyboardPreparation == nil,
+            !preservesKeyboardRoleHistory, hasOriginalKeyboardRoles
+        else { return false }
+        // Keep this history after the construction plan is consumed. The
+        // original reveal and focus must reject the same loss, too.
+        preservesKeyboardRoleHistory = true
+        keyboardPreparation = preparation
+        return true
+    }
+
+    private var hasOriginalKeyboardRoles: Bool {
+        guard let target, let originalTargetRoleIdentity else { return false }
+        return scope.roleLossIdentity === originalScopeRoleIdentity
+            && source.roleLossIdentity === originalSourceRoleIdentity
+            && target.roleLossIdentity === originalTargetRoleIdentity
+    }
+
+    /// A post-setter build can transport the original physical attachments
+    /// while declaration fields are between prepareForAdoption/finishAdoption.
+    /// This grants no setter, idle continuation, geometry, reveal or focus.
+    /// Runtime additionally checks its original weak endpoint paths, and the
+    /// existing build admission owns the exact coordinator/epoch throughout.
+    func permitsKeyboardConstruction(in runtime: RetainedViewRuntime) -> Bool {
+        guard phase == .prepared, keyboardPreparation != nil, !isRevealCancelled,
+            preservesKeyboardRoleHistory, hasOriginalKeyboardRoles,
+            hasRuntime, self.runtime === runtime, root === runtime.root, runtime.hasActiveRetainedBuild,
+            scope.currentAction === self, !scope.isRevoked, !source.isRevoked,
+            target?.isRevoked == false, scope.canTransport, source.canTransport, target?.canTransport == true,
+            runtime.permitsRetainedActionInvocation,
+            runtime.presentationFocusRevision == originalFocusRevision, runtime.presentationFocusRevision != UInt64.max,
+            runtime.focusedNode.map(ObjectIdentifier.init) == originalFocus,
+            runtime.presentationModalSnapshot.map(ObjectIdentifier.init) == originalModal
+        else { return false }
         return true
     }
 
@@ -453,6 +526,9 @@ package final class RetainedListNavigationReceipt {
         guard phase == .prepared, permitsContinuation, let node = target?.node else { return .obsolete }
         guard hasRuntime else { return .ready }
         guard let runtime else { return .obsolete }
+        if let keyboardPreparation {
+            return runtime.settleLazyListKeyboardSelection(keyboardPreparation, target: node, receipt: self)
+        }
         return runtime.settlePreparedListNavigationTarget(node, receipt: self)
     }
 
@@ -472,15 +548,16 @@ package final class RetainedListNavigationReceipt {
     /// revocation; moving this receipt between the two queues does not cancel it.
     @discardableResult
     package func schedulePreparedNavigationReplay(
-        afterLayout: Bool, perform action: @escaping @MainActor () -> Void,
+        afterLayout: Bool, keyboardPreparation: RetainedLazyListKeyboardPreparation? = nil,
+        perform action: @escaping @MainActor () -> Void,
         onCancel: @escaping @MainActor () -> Void
     ) -> Bool {
         guard permitsPreparedNavigationReplay, let runtime else { return false }
-        runtime.schedulePreparedListNavigationReplay(
-            owner: scope, receipt: self, afterLayout: afterLayout, perform: action, onCancel: onCancel)
         // Registration may deliver immediately when already idle. Completion
         // or supersession after that is not permission to repeat the action.
-        return true
+        return runtime.schedulePreparedListNavigationReplay(
+            owner: scope, receipt: self, afterLayout: afterLayout, keyboardPreparation: keyboardPreparation,
+            perform: action, onCancel: onCancel)
     }
 
     var permitsPreparedNavigationReplay: Bool { phase == .prepared && permitsContinuation }
@@ -495,7 +572,8 @@ package final class RetainedListNavigationReceipt {
     }
 
     private var hasCurrentNodes: Bool {
-        guard scope.currentAction === self, let root, !hasRuntime || runtime != nil,
+        guard !preservesKeyboardRoleHistory || hasOriginalKeyboardRoles,
+            scope.currentAction === self, let root, !hasRuntime || runtime != nil,
             !hasRuntime || runtime?.root === root,
             let scopeNode = RetainedListNavigationOwner.currentNode(for: scope, runtime: runtime),
             RetainedListNavigationOwner.contains(scopeNode, in: root),
@@ -546,7 +624,10 @@ package final class RetainedListNavigationReceipt {
         guard phase == .prepared else { return false }
         phase = .preparingLayout
         defer {
-            if phase != .focused && phase != .awaitingRevealLayout { phase = .finished }
+            if phase != .focused && phase != .awaitingRevealLayout {
+                phase = .finished
+                releaseKeyboardPreparation()
+            }
         }
         guard permitsContinuation, let targetNode = target?.node else { return false }
         guard hasRuntime else {
@@ -555,9 +636,16 @@ package final class RetainedListNavigationReceipt {
             return targetNode.scrollIntoView()
         }
         guard let runtime, let revision = originalFocusRevision else { return false }
-        // One exact-target query accepts normal setter rebuilds and refreshes
-        // modal admission. Refusal never searches for another row or retries.
-        guard runtime.prepareListNavigationTarget(targetNode, receipt: self), permitsContinuation else { return false }
+        // Ordinary callers query the exact target. Keyboard preparation already
+        // holds its one post-setter settlement. Refusal never searches for
+        // another row, substitutes a later receipt, or retries.
+        let prepared: Bool
+        if let keyboardPreparation {
+            prepared = runtime.prepareLazyListKeyboardHandoff(keyboardPreparation, target: targetNode, receipt: self)
+        } else {
+            prepared = runtime.prepareListNavigationTarget(targetNode, receipt: self)
+        }
+        guard prepared, permitsContinuation else { return false }
         let (nextRevision, overflow) = revision.addingReportingOverflow(1)
         // At max the private checked focus authority may already be exhausted
         // without its numeric value changing again. Equality is not proof.
@@ -700,6 +788,22 @@ package final class RetainedListNavigationReceipt {
 
     func consumePreparedLayoutSettlement() {
         preparedLayoutSettlement = nil
+        if let keyboardPreparation {
+            runtime?.consumeLazyListKeyboardPreparation(keyboardPreparation)
+            self.keyboardPreparation = nil
+        }
+    }
+
+    func permitsKeyboardViewport(in runtime: RetainedViewRuntime, scroll: ViewNode, offset: Double) -> Bool {
+        guard let keyboardPreparation else { return true }
+        return runtime.lazyListKeyboardViewportIsCovered(keyboardPreparation, scroll: scroll, offset: offset)
+    }
+
+    private func releaseKeyboardPreparation() {
+        if let keyboardPreparation {
+            runtime?.endLazyListKeyboardPreparation(keyboardPreparation)
+            self.keyboardPreparation = nil
+        }
     }
 
     func cancelReveal() {
@@ -707,6 +811,7 @@ package final class RetainedListNavigationReceipt {
         revealFocusRevision = nil
         preparedLayoutSettlement = nil
         terminalRevealSettlement = nil
+        releaseKeyboardPreparation()
         if let revealContinuation { runtime?.cancelListNavigationReveal(revealContinuation) }
     }
 

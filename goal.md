@@ -16434,3 +16434,50 @@ tests have not yet run. The upcoming fixed 155-case selection retains the
 restoration diagnostic, all relevant existing ownership checks, the original
 54 keyboard cases, and the separately reviewed keyboard candidate's 23 tests.
 No behavioral pass or release-gate completion is inferred from source review.
+
+### Ninth integration: bounded keyboard preparation joins (2026-09-02)
+
+The keyboard candidate is integrated after descriptor-owner renewal commit
+`0cbff69d779993fe19ba9bce7c7b2840ba9bcb86`, with all earlier source changes
+preserved. The four production preimages were still byte-identical to `02bfca8`;
+the separately reviewed formatted afterimages and 23-case test file were
+copied exactly (`2f5676/0`). The Runtime afterimage is 1,332,535 bytes with SHA256
+`fde8e5186ac711ef73a4b6efb206d0953b95c6cebf0e92fa74b40f316eae8436`.
+
+Native cohort eligibility is separate from ordinary layout readiness. The
+original action, physical scope/source and bounded construction demand are
+captured before factories; post-factory or post-setter callbacks cannot create
+a replacement authority. Ordinary realized rows are captured before factory
+execution, and absent versus empty capture remains distinct. A physical row-role
+loss is sticky for the original receipt even if the same node regains its role.
+Accepted declaration adoption without role loss remains available.
+
+The existing 128-element and four-round limits are unchanged. One post-setter
+settlement stays inside the original callback scope and budget, and the existing
+post-reveal/focus checks still apply. Selection is written at most once. Actual
+ordinary GeometryReader child publication and state commit are preserved even
+if later keyboard admission fails. Weak pending replay entries are drained only
+after outer callbacks and retirement cleanup, before budget release; no generic
+UIA admission rule, new render pump, or reconciliation-defer dispatch was added.
+
+The new handoff to an originally realized selected leaf retains that exact leaf
+and the existing budget. Pending or rescheduled layout within this cohort
+handoff refuses before another queue registration. Completing the mixed pending
+case remains open; this integration does not claim full keyboard, animation,
+native input, accessibility, or performance completion.
+
+All 23 frozen test identities and assertions were preserved. Formatting changed
+wrapping/indentation and removed one redundant outer condition-parenthesis pair;
+root and an independent reviewer read the full formatting delta. The formatter
+also moved an unrelated existing Runtime header in its first output; that header
+was restored byte-for-byte in the final copy before integration. Final strict
+staged formatting and architecture checks passed (`8ea295` / `7bfa63/0`).
+`docs/ListKeyboardNavigation.md` now describes the actual source boundaries.
+
+The fixed upcoming run contains 155 exact async XCTest identifiers in fourteen
+classes: five new owner-renewal cases, 23 new keyboard cases, the unchanged
+restoration diagnostic, the original 54 keyboard cases, and existing ownership
+and physical-reference regressions. The original approved 140 and later approved
+fifteen physical-reference cases remain disjoint. These tests have not yet run
+on the combined source. Their historical failures remain failures until fresh
+execution establishes otherwise. All nine original goal gates stay open.

@@ -30,6 +30,46 @@ claimed here. The previous specification is retained below as the historical
 physical-layout foundation; its dormant-construction and missing-completion
 statements describe that earlier checkpoint.
 
+## Bounded cohort preparation in the current source
+
+A cold keyboard request captures its original action, scope, source, and native
+construction cohort before invoking row factories. Cohort acceptance permits
+bounded construction; it does not make a row ordinarily ready for geometry,
+focus, or scrolling. Those operations still require an actual current layout
+settlement and the original request's physical ownership. The query retains
+the existing 128-element and four-round limits.
+
+The runtime snapshots the ordinarily realized rows before factories run. An
+absent snapshot and an empty snapshot are different states. A factory cannot
+turn a newly constructed row into a previously realized destination by changing
+the adapter during construction. Physical loss of a row's navigation role also
+retires the original receipt, even if the same node regains that role before a
+later continuation. Ordinary declaration adoption without role loss is preserved.
+
+Selection is written at most once. The post-setter check uses the same bounded
+settlement while the original callback scope still exists, followed by the
+existing post-reveal settlement and focus checks. Already accepted selection
+writes and scroll offsets are not rolled back on later refusal. A successful
+ordinary GeometryReader publication retains its real child mutation and state
+commit even when later keyboard admission fails; keyboard cancellation does not
+erase a publication that already occurred.
+
+Pending ordinary work marks only the exact weak replay entry. The finite replay
+queue runs after outer callbacks and retiring captures finish, before releasing
+the shared query budget. It does not dispatch from a reconciliation defer or
+obtain a new budget. The cohort's handoff to an already realized selected leaf
+keeps that same leaf and budget; pending or rescheduled layout on this new
+handoff route cancels the action before registering another queue entry.
+Completing a mixed pending request to an originally realized row remains open.
+The existing all-realized and cold pending routes are not replaced by this rule.
+
+`LazyListKeyboardPreparationTests` adds 23 finite cases for these boundaries,
+including factory/setter/focus reentrancy, ownership loss, same-node removal and
+reinsertion, GeometryReader publication, budget exhaustion, and pending handoff.
+They require the fixed combined regression run after integration. Formatting
+and source review do not establish a behavioral pass, native input or Narrator
+correctness, animation completion, or the performance targets in `goal.md`.
+
 ## Physical-layout foundation from the earlier checkpoint
 
 Keyboard selection can name a row whose retained node exists but whose subtree

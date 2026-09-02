@@ -2701,6 +2701,7 @@ final class RetainedLazyListAdoptionAdmission {
     private weak var uiaPreparation: RetainedLazyListAccessibilityPreparation?
     private let requiresUIAPreparation: Bool
     let ordinaryConstructionRequest: RetainedLazyListOrdinaryConstructionRequest?
+    let keyboardPreparation: RetainedLazyListKeyboardPreparation?
     private var completedSubtrees: [RetainedLazyListAdoptionCompletion] = []
     private var wasRevoked = false
     private var isFinishingCandidate = false
@@ -2711,7 +2712,8 @@ final class RetainedLazyListAdoptionAdmission {
         candidate: RetainedLazyListRuntimeAdapter.Candidate? = nil,
         container: ViewNode, runtime: RetainedViewRuntime,
         coordinator: RetainedBuildCoordinator, sequence: UInt64,
-        ordinaryConstructionRequest: RetainedLazyListOrdinaryConstructionRequest? = nil
+        ordinaryConstructionRequest: RetainedLazyListOrdinaryConstructionRequest? = nil,
+        keyboardPreparation: RetainedLazyListKeyboardPreparation? = nil
     ) {
         self.adapter = adapter
         self.candidate = candidate
@@ -2722,6 +2724,7 @@ final class RetainedLazyListAdoptionAdmission {
         self.coordinator = coordinator
         self.sequence = sequence
         self.ordinaryConstructionRequest = ordinaryConstructionRequest
+        self.keyboardPreparation = keyboardPreparation
         self.expectedDisplayScale = runtime.displayScale
         self.expectedLayoutPassID = runtime.layoutPassID
         let preparation = runtime.lazyListUIAConstructionPreparation
@@ -2751,6 +2754,7 @@ final class RetainedLazyListAdoptionAdmission {
         guard !wasRevoked, candidateCurrent != false, attachment.isCurrent,
             let container, let runtime, let adapter, let lease,
             ordinaryConstructionRequest?.isCurrent != false,
+            keyboardPreparation?.isCurrent != false,
             !requiresUIAPreparation
                 || uiaPreparation.map({ runtime.isLazyListUIAConstructionCurrent($0) }) == true,
             runtime.permitsRetainedActionInvocation,
@@ -13789,6 +13793,117 @@ package enum RetainedLazyListTargetResolution {
     case obsolete
     case unsupported
 }
+
+/// A keyboard action may inspect accepted physical output before unrelated
+/// first measurements finish. This is not ordinary target readiness and grants
+/// neither an offset write nor focus. Only the original action owns this plan.
+@MainActor
+package enum RetainedLazyListKeyboardEligibility {
+    case accepted([ViewNode])
+    case empty
+    case pending
+    case obsolete
+    case unsupported
+}
+
+@MainActor
+package final class RetainedLazyListKeyboardPreparation {
+    fileprivate enum Phase { case eligibility, selected, settling, released }
+
+    fileprivate weak var runtime: RetainedViewRuntime?
+    fileprivate weak var receipt: RetainedListNavigationReceipt?
+    fileprivate let original: RetainedLazyListAccessibilityItem
+    fileprivate let realization: RetainedLazyListLogicalRealization
+    fileprivate let budget: RetainedLazyListWorkBudget
+    fileprivate let openedBudget: Bool
+    fileprivate let scopeAttachment: RetainedAccessibilityTarget
+    fileprivate let sourceAttachment: RetainedAccessibilityTarget
+    fileprivate weak var adapter: RetainedLazyListRuntimeAdapter?
+    fileprivate var descriptor: RetainedLazyListManagedLogicalDescriptorBinding
+    fileprivate weak var scroll: ViewNode?
+    fileprivate let scrollAttachment: RetainedAccessibilityTarget
+    fileprivate let scrollEpoch: RetainedScrollSourceEpoch?
+    fileprivate let scrollIntent: RetainedLazyListAttachmentIdentity
+    fileprivate let pointerSequence: UInt64
+    fileprivate let displayScaleIdentity: RetainedLazyListAttachmentIdentity
+    let cohort: [RetainedLazyListRowToken]
+    fileprivate let originallyRealizedTokens: Set<RetainedLazyListRowToken>
+    let context: RetainedLazyListMeasurementContext
+    fileprivate var phase = Phase.eligibility
+    fileprivate var wasRevoked = false
+    fileprivate var queriedEligibility = false
+    fileprivate var queriedSettlement = false
+    fileprivate var querySequence: UInt64?
+    fileprivate var attemptedMeasurementCorrection = false
+    fileprivate var target: RetainedAccessibilityTarget?
+    fileprivate var targetIdentity: RetainedLazyListViewIdentityProof?
+    fileprivate var targetToken: RetainedLazyListRowToken?
+    fileprivate var eligibilityPass: RetainedLazyListKeyboardEligibilityPass?
+    fileprivate var settlement: RetainedLayoutSettlementReceipt?
+
+    fileprivate init(
+        runtime: RetainedViewRuntime, receipt: RetainedListNavigationReceipt,
+        original: RetainedLazyListAccessibilityItem, realization: RetainedLazyListLogicalRealization,
+        budget: RetainedLazyListWorkBudget, openedBudget: Bool,
+        scopeAttachment: RetainedAccessibilityTarget, sourceAttachment: RetainedAccessibilityTarget,
+        adapter: RetainedLazyListRuntimeAdapter, descriptor: RetainedLazyListManagedLogicalDescriptorBinding,
+        scroll: ViewNode, scrollAttachment: RetainedAccessibilityTarget,
+        pointerSequence: UInt64, displayScaleIdentity: RetainedLazyListAttachmentIdentity,
+        cohort: [RetainedLazyListRowToken], originallyRealizedTokens: Set<RetainedLazyListRowToken>,
+        context: RetainedLazyListMeasurementContext
+    ) {
+        self.runtime = runtime
+        self.receipt = receipt
+        self.original = original
+        self.realization = realization
+        self.budget = budget
+        self.openedBudget = openedBudget
+        self.scopeAttachment = scopeAttachment
+        self.sourceAttachment = sourceAttachment
+        self.adapter = adapter
+        self.descriptor = descriptor
+        self.scroll = scroll
+        self.scrollAttachment = scrollAttachment
+        scrollEpoch = scroll.scrollSourceEpoch
+        scrollIntent = scroll.captureLazyListScrollIntentIdentity()
+        self.pointerSequence = pointerSequence
+        self.displayScaleIdentity = displayScaleIdentity
+        self.cohort = cohort
+        self.originallyRealizedTokens = originallyRealizedTokens
+        self.context = context
+    }
+
+    var isCurrent: Bool {
+        guard !wasRevoked, phase != .released else { return false }
+        guard runtime?.isLazyListKeyboardPreparationCurrent(self) == true else {
+            wasRevoked = true
+            return false
+        }
+        return true
+    }
+
+    func permitsPlanning(in adapter: RetainedLazyListRuntimeAdapter) -> Bool {
+        phase != .selected && isCurrent && self.adapter === adapter
+    }
+
+    package func originalRequiresRevealBeforeFocus(for token: RetainedLazyListRowToken) -> Bool? {
+        guard cohort.contains(token) else { return nil }
+        return !originallyRealizedTokens.contains(token)
+    }
+}
+
+/// Weak accepted-row and actual-pass evidence, captured before the query's
+/// ordinary epilogues. A later callback cannot replace it with another pass.
+@MainActor
+fileprivate struct RetainedLazyListKeyboardEligibilityPass {
+    let records: RetainedLazyListRuntimeAdapter.UIAActualRecordsProof
+    let tree: RetainedLazyListAdoptionCompletion
+    let pass: UInt64
+    let sequence: UInt64
+    let geometry: UInt64
+    let mutation: UInt64
+}
+
 @MainActor
 private final class RetainedAccessibilityScrollContinuation {
     let mutation: RetainedAccessibilityMutation
@@ -14356,6 +14471,8 @@ public final class RetainedViewRuntime {
     private var pendingAfterLayoutActions: [String: @MainActor () -> Void] = [:]
     private var pendingAfterLayoutActionKeys: [String] = []
     private var preparedListNavigationReplays: [ObjectIdentifier: PreparedListNavigationReplay] = [:]
+    private var readyPreparedKeyboardNavigationReplays: [WeakPreparedListNavigationReplay] = []
+    private var isDrainingPreparedKeyboardNavigationReplays = false
     private var retiredPreparedListNavigationRetirements: [@MainActor () -> Void] = []
     private var hasFinishedRenderLifecycleTaskCancellation = false
     private var renderLifecycleTaskCancellationDepth = 0
@@ -15011,6 +15128,26 @@ public final class RetainedViewRuntime {
         case ineligible, invalidated, saved, remainingPhases
     }
 
+    /// Input-only evidence across the one owed keyboard measurement pass.
+    /// Reuse the existing weak node/list records; no body, lease or row payload
+    /// is retained, and changed resolved output is not treated as new authority.
+    private struct LazyListKeyboardMeasurementCorrection {
+        let expectedPass: UInt64
+        let sequence: UInt64
+        let geometry: UInt64
+        let mutation: UInt64
+        let prepaint: PrepaintSnapshotIdentity
+        let overflowCount: Int
+        let scrollWorkDepth: Int
+        let remainingElements: Int
+        let remainingRounds: Int
+        let order: [ObjectIdentifier]
+        let lists: [LazyListUIAMeasurementCorrection.ListInput]
+        let readers: [WeakViewNodeRef]
+        let inputs: [LazyListUIAMeasurementCorrection.NodeInput]
+        let tree: RetainedLazyListAdoptionCompletion
+    }
+
     private struct LazyListLeafMeasurement {
         let token: RetainedLazyListRowToken
         let leafIndex: Int
@@ -15056,6 +15193,7 @@ public final class RetainedViewRuntime {
     private var lazyListScrollSearchNeedsMoreWork = false
     private var isResolvingLazyListLogicalTarget = false
     private var ordinaryLazyListResolution: RetainedLazyListOrdinaryResolution?
+    private var activeLazyListKeyboardPreparation: RetainedLazyListKeyboardPreparation?
     private weak var lazyListLogicalRevealScroll: ViewNode?
     private weak var lazyListAccessibilityPreparation: RetainedLazyListAccessibilityPreparation?
     private weak var lazyListUIARequest: RetainedLazyListUIARequest?
@@ -17444,8 +17582,10 @@ public final class RetainedViewRuntime {
             drainPresentationFocusRestorations(layoutIsFresh: true)
             retainedBuildCoordinatorStorage?.retainedCallbacksDidDrain()
             drainListNavigationReveal(reveal)
+            drainPreparedKeyboardNavigationReplays()
         }
         updateResolvedLayout(resuming: phase)
+        captureLazyListKeyboardQuerySettlement()
     }
 
     /// Uses the existing settlement queue, not an independent scheduler.
@@ -17469,15 +17609,23 @@ public final class RetainedViewRuntime {
     private final class PreparedListNavigationReplay {
         let owner: AnyObject
         weak var receipt: RetainedListNavigationReceipt?
+        weak var keyboardPreparation: RetainedLazyListKeyboardPreparation?
+        weak var keyboardBudget: RetainedLazyListWorkBudget?
+        let isKeyboardPreparationReplay: Bool
+        var isReadyForKeyboardDelivery = false
         var action: (@MainActor () -> Void)?
         private var onCancel: (@MainActor () -> Void)?
 
         init(
             owner: AnyObject, receipt: RetainedListNavigationReceipt,
+            keyboardPreparation: RetainedLazyListKeyboardPreparation?,
             action: @escaping @MainActor () -> Void, onCancel: @escaping @MainActor () -> Void
         ) {
             self.owner = owner
             self.receipt = receipt
+            self.keyboardPreparation = keyboardPreparation
+            keyboardBudget = keyboardPreparation?.budget
+            isKeyboardPreparationReplay = keyboardPreparation != nil
             self.action = action
             self.onCancel = onCancel
         }
@@ -17486,6 +17634,7 @@ public final class RetainedViewRuntime {
         /// application payload can be released. Locals retain both payloads
         /// until the returned retirement reaches ordinary safe cleanup.
         func takeRetirement(notifyingCancellation: Bool) -> (@MainActor () -> Void)? {
+            isReadyForKeyboardDelivery = false
             guard let action, let onCancel else { return nil }
             self.action = nil
             self.onCancel = nil
@@ -17496,13 +17645,23 @@ public final class RetainedViewRuntime {
         }
     }
 
+    private struct WeakPreparedListNavigationReplay {
+        weak var replay: PreparedListNavigationReplay?
+    }
+
     func schedulePreparedListNavigationReplay(
         owner: AnyObject, receipt: RetainedListNavigationReceipt, afterLayout: Bool,
+        keyboardPreparation: RetainedLazyListKeyboardPreparation?,
         perform action: @escaping @MainActor () -> Void, onCancel: @escaping @MainActor () -> Void
-    ) {
+    ) -> Bool {
+        if let keyboardPreparation {
+            guard keyboardPreparation.runtime === self, keyboardPreparation.receipt === receipt else { return false }
+        }
         beginLongPressReconciliation()
         defer { endLongPressReconciliation() }
-        let replay = PreparedListNavigationReplay(owner: owner, receipt: receipt, action: action, onCancel: onCancel)
+        let replay = PreparedListNavigationReplay(
+            owner: owner, receipt: receipt, keyboardPreparation: keyboardPreparation, action: action, onCancel: onCancel
+        )
         let previous = preparedListNavigationReplays.updateValue(replay, forKey: ObjectIdentifier(owner))
         var retirements: [@MainActor () -> Void] = []
         if let previous,
@@ -17513,6 +17672,7 @@ public final class RetainedViewRuntime {
             // an existing delivery snapshot or still executing below it.
             retirements.append(retirement)
         }
+        prunePreparedKeyboardNavigationReplays()
         let delivery: @MainActor () -> Void = { [weak self, replay] in
             self?.deliverPreparedListNavigationReplay(replay)
         }
@@ -17528,6 +17688,7 @@ public final class RetainedViewRuntime {
         }
         if let displaced { retirements.append { withExtendedLifetime(displaced) {} } }
         schedulePreparedListNavigationRetirements(retirements)
+        return true
     }
 
     private func deliverPreparedListNavigationReplay(_ replay: PreparedListNavigationReplay) {
@@ -17537,6 +17698,22 @@ public final class RetainedViewRuntime {
             cancelPreparedListNavigationReplay(owner: replay.owner)
             return
         }
+        if replay.isKeyboardPreparationReplay {
+            // The ordinary queue has delivered this exact slot, but still owns
+            // its callback snapshot and cleanup scope. Mark only native
+            // readiness here; the outer layout/render epilogue owns delivery.
+            if !replay.isReadyForKeyboardDelivery {
+                replay.isReadyForKeyboardDelivery = true
+                readyPreparedKeyboardNavigationReplays.append(WeakPreparedListNavigationReplay(replay: replay))
+            }
+            return
+        }
+        performPreparedListNavigationReplay(replay)
+    }
+
+    @inline(never)
+    private func performPreparedListNavigationReplay(_ replay: PreparedListNavigationReplay) {
+        let identifier = ObjectIdentifier(replay.owner)
         guard let action = replay.action else { return }
         action()
         // Keep the native record during the call so supersession, departure,
@@ -17545,16 +17722,73 @@ public final class RetainedViewRuntime {
         if preparedListNavigationReplays[identifier] === replay {
             preparedListNavigationReplays.removeValue(forKey: identifier)
             if let retirement = replay.takeRetirement(notifyingCancellation: false) {
+                prunePreparedKeyboardNavigationReplays()
                 schedulePreparedListNavigationRetirements([retirement])
             }
         }
         withExtendedLifetime(action) {}
     }
 
+    private func prunePreparedKeyboardNavigationReplays() {
+        readyPreparedKeyboardNavigationReplays.removeAll { entry in
+            guard let replay = entry.replay else { return true }
+            return !replay.isReadyForKeyboardDelivery
+                || preparedListNavigationReplays[ObjectIdentifier(replay.owner)] !== replay
+        }
+    }
+
+    private var canDeliverPreparedKeyboardNavigationReplay: Bool {
+        lazyListResolutionBudget != nil && canPrepareLayoutSettlement && !hasActiveRetainedBuild
+            && !isResolvingLazyListLogicalTarget && activeLazyListKeyboardPreparation == nil
+            && activeAccessibilityMutation == nil && lazyListAccessibilityPreparation == nil
+            && lazyListUIARequest == nil
+            && !hasPendingLazyListUIACallbackWork
+    }
+
+    /// Called only after an outer layout/render epilogue has returned from its
+    /// existing callbacks, while that operation still owns its original budget.
+    /// This weak snapshot cannot retain retired action payloads or admit a slot
+    /// created by an earlier entry in the same delivery.
+    private func drainPreparedKeyboardNavigationReplays() {
+        guard !isDrainingPreparedKeyboardNavigationReplays, !readyPreparedKeyboardNavigationReplays.isEmpty,
+            canDeliverPreparedKeyboardNavigationReplay
+        else { return }
+        prunePreparedKeyboardNavigationReplays()
+        guard !readyPreparedKeyboardNavigationReplays.isEmpty else { return }
+        isDrainingPreparedKeyboardNavigationReplays = true
+        defer { isDrainingPreparedKeyboardNavigationReplays = false }
+        let ready = readyPreparedKeyboardNavigationReplays
+        for entry in ready {
+            guard canDeliverPreparedKeyboardNavigationReplay else { return }
+            deliverPreparedKeyboardNavigationReplay(entry)
+        }
+    }
+
+    @inline(never)
+    private func deliverPreparedKeyboardNavigationReplay(_ entry: WeakPreparedListNavigationReplay) {
+        guard canDeliverPreparedKeyboardNavigationReplay, let replay = entry.replay,
+            replay.isReadyForKeyboardDelivery,
+            preparedListNavigationReplays[ObjectIdentifier(replay.owner)] === replay
+        else { return }
+        guard let receipt = replay.receipt, receipt.permitsPreparedNavigationReplay,
+            let preparation = replay.keyboardPreparation, preparation.receipt === receipt,
+            preparation.budget === replay.keyboardBudget, preparation.isCurrent
+        else {
+            cancelPreparedListNavigationReplay(owner: replay.owner)
+            return
+        }
+        replay.isReadyForKeyboardDelivery = false
+        prunePreparedKeyboardNavigationReplays()
+        // Return through this scope before the next entry rechecks authority.
+        // The action and its retirement captures cannot be kept by the snapshot.
+        performPreparedListNavigationReplay(replay)
+    }
+
     func cancelPreparedListNavigationReplay(owner: AnyObject) {
         let replay = preparedListNavigationReplays.removeValue(forKey: ObjectIdentifier(owner))
         var retirements: [@MainActor () -> Void] = []
         if let retirement = replay?.takeRetirement(notifyingCancellation: true) { retirements.append(retirement) }
+        prunePreparedKeyboardNavigationReplays()
         let key = preparedListNavigationReplayKey(for: owner)
         let afterLayout = pendingAfterLayoutActions.removeValue(forKey: key)
         pendingAfterLayoutActionKeys.removeAll { $0 == key }
@@ -19021,6 +19255,7 @@ public final class RetainedViewRuntime {
     private func deliverListNavigationSettlementCallbacks() {
         drainPresentationFocusRestorations(layoutIsFresh: true)
         retainedBuildCoordinatorStorage?.retainedCallbacksDidDrain()
+        drainPreparedKeyboardNavigationReplays()
     }
 
     /// A setter may synchronously rebuild the List. Query the actual retained
@@ -19320,6 +19555,13 @@ public final class RetainedViewRuntime {
                 visibleOffset: scrollContainer.effectiveScrollOffset
             )
         else {
+            return false
+        }
+
+        if let listNavigation,
+            !listNavigation.permitsKeyboardViewport(in: self, scroll: scrollContainer, offset: requestedOffset)
+        {
+            listNavigation.cancelReveal()
             return false
         }
 
@@ -20947,6 +21189,7 @@ public final class RetainedViewRuntime {
         drainPresentationFocusRestorations(layoutIsFresh: true)
         retainedBuildCoordinatorStorage?.retainedCallbacksDidDrain()
         drainListNavigationReveal(reveal, afterRender: true)
+        drainPreparedKeyboardNavigationReplays()
     }
 
     /// Number of nested render passes observed since process start. Diagnostic
@@ -21554,6 +21797,7 @@ public final class RetainedViewRuntime {
             if !wasUpdatingLayout { drainPresentationFocusRestorations(layoutIsFresh: true) }
             if !wasUpdatingLayout, !isRendering { retainedBuildCoordinatorStorage?.retainedCallbacksDidDrain() }
             drainListNavigationReveal(reveal)
+            drainPreparedKeyboardNavigationReplays()
             // Keep the budget through nested queries and focus restoration's
             // ordinary settle passes. Only the outermost scope releases it.
             lazyListResolutionDepth -= 1
@@ -21749,8 +21993,10 @@ public final class RetainedViewRuntime {
 
     private func convergeResolvedSubtrees() {
         let uiaPreparation = lazyListUIAConstructionPreparation
+        let keyboardPreparation = activeLazyListKeyboardPreparation
         var legacyRounds = 0
         while true {
+            if keyboardPreparation?.isCurrent == false { return }
             if let preparation = uiaPreparation,
                 !isLazyListUIAConstructionCurrent(preparation)
             {
@@ -21792,6 +22038,21 @@ public final class RetainedViewRuntime {
                         measurementCorrectionPassID = layoutPassID
                         changed = false
                     }
+                } else if changed, let chargedBudget, let keyboardPreparation,
+                    let correction = captureLazyListKeyboardMeasurementCorrection(
+                        keyboardPreparation, chargedTo: chargedBudget, during: resolutionSequence)
+                {
+                    keyboardPreparation.attemptedMeasurementCorrection = true
+                    runLayoutPass()
+                    guard
+                        lazyListKeyboardMeasurementCorrectionIsCurrent(
+                            correction, for: keyboardPreparation, chargedTo: chargedBudget)
+                    else {
+                        keyboardPreparation.wasRevoked = true
+                        return
+                    }
+                    measurementCorrectionPassID = layoutPassID
+                    changed = false
                 } else if !changed, let chargedBudget, saveUnusedLazyListUIAProviderPhase(chargedTo: chargedBudget) {
                     return
                 }
@@ -21805,10 +22066,23 @@ public final class RetainedViewRuntime {
                 {
                     return
                 }
+                if !changed, let keyboardPreparation, keyboardPreparation.phase == .eligibility,
+                    keyboardPreparation.eligibilityPass == nil,
+                    let pass = captureLazyListKeyboardEligibilityPass(keyboardPreparation)
+                {
+                    // An already accepted cohort needs no unchanged build.
+                    // This still consumes the round and its measurement/reader
+                    // phases, and grants physical inspection only.
+                    keyboardPreparation.eligibilityPass = pass
+                    return
+                }
                 recordLazyListUIAPhase(.providerPhase)
                 if let budget = lazyListResolutionBudget, resolveLazyListContainers(budget: budget) { changed = true }
             }
             guard changed || measurementCorrectionPassID != nil else {
+                if let keyboardPreparation, keyboardPreparation.eligibilityPass == nil {
+                    keyboardPreparation.eligibilityPass = captureLazyListKeyboardEligibilityPass(keyboardPreparation)
+                }
                 if let chargedBudget { _ = captureLazyListUIATargetPass(chargedTo: chargedBudget) }
                 return
             }
@@ -21817,9 +22091,11 @@ public final class RetainedViewRuntime {
                 guard layoutPassID == measurementCorrectionPassID,
                     chargedBudget === lazyListResolutionBudget,
                     resolutionSequence == layoutSettlementResolutionSequence,
-                    let preparation = uiaPreparation, isLazyListUIAConstructionCurrent(preparation)
+                    uiaPreparation.map(isLazyListUIAConstructionCurrent) == true
+                        || keyboardPreparation?.isCurrent == true
                 else {
                     uiaPreparation?.isActive = false
+                    keyboardPreparation?.wasRevoked = true
                     return
                 }
             }
@@ -21831,6 +22107,13 @@ public final class RetainedViewRuntime {
                 || lastUnmutatedLayoutPassRevision != layoutSettlementGeometryRevision
             {
                 runLayoutPass()
+            }
+            if let keyboardPreparation, keyboardPreparation.phase == .eligibility,
+                keyboardPreparation.eligibilityPass == nil,
+                let pass = captureLazyListKeyboardEligibilityPass(keyboardPreparation)
+            {
+                keyboardPreparation.eligibilityPass = pass
+                return
             }
             if let chargedBudget, chargedBudget === lazyListResolutionBudget,
                 resolutionSequence == layoutSettlementResolutionSequence,
@@ -21968,8 +22251,10 @@ public final class RetainedViewRuntime {
         }
 
         let uiaPreparation = lazyListUIAConstructionPreparation
+        let keyboardPreparation = activeLazyListKeyboardPreparation
         var didRebuild = false
         for reference in pendingGeometryReaderNodes {
+            if keyboardPreparation?.isCurrent == false { break }
             if hasLazyListLayoutScope, !permitsRetainedActionInvocation { break }
             if let preparation = uiaPreparation,
                 !isLazyListUIAConstructionCurrent(preparation)
@@ -22000,9 +22285,11 @@ public final class RetainedViewRuntime {
             // back into an ordinary, unchecked reader build.
             let uiaAuthority = uiaPreparation.map { lazyListUIAContinuationAuthority(for: $0) }
             guard uiaAuthority?.isCurrent != false else { break }
-            let readerWitness = uiaAuthority.map {
-                GeometryReaderRebuildWitness(node: node, runtime: self, uiaAuthority: $0)
-            }
+            let readerWitness =
+                uiaAuthority != nil || keyboardPreparation != nil
+                ? GeometryReaderRebuildWitness(
+                    node: node, runtime: self, uiaAuthority: uiaAuthority, keyboardPreparation: keyboardPreparation)
+                : nil
 
             if let budget = lazyListResolutionBudget, !budget.consumeElement() { break }
 
@@ -22016,7 +22303,8 @@ public final class RetainedViewRuntime {
             // Their capture destruction cannot supply a completed UIA pass.
             let readerIsCurrent = readerWitness?.auditAfterScope() != false
             if let uiaAuthority, !rebuilt || !readerIsCurrent { uiaAuthority.revoke() }
-            guard uiaAuthority?.isCurrent != false else { break }
+            if let keyboardPreparation, !rebuilt || !readerIsCurrent { keyboardPreparation.wasRevoked = true }
+            guard uiaAuthority?.isCurrent != false, keyboardPreparation?.isCurrent != false else { break }
             if rebuilt { didRebuild = true }
         }
 
@@ -22051,9 +22339,10 @@ public final class RetainedViewRuntime {
         let rebuilt = build(self, slot).first
         guard admission?.isCurrent != false, let rebuilt else { return false }
         beginLongPressReconciliation()
+        var didMutate = false
         let didAdopt = adoptGeometryReader(
             rebuilt, into: node, slot: slot, uiaAuthority: uiaAuthority, nativeAdmission: admission,
-            readerWitness: readerWitness)
+            readerWitness: readerWitness, didMutate: &didMutate)
         endLongPressReconciliation()
         return didAdopt && uiaAuthority?.isCurrent != false
     }
@@ -22105,11 +22394,13 @@ public final class RetainedViewRuntime {
 
     private func resolveLazyListContainers(budget: RetainedLazyListWorkBudget) -> Bool {
         let uiaPreparation = lazyListUIAConstructionPreparation
+        let keyboardPreparation = activeLazyListKeyboardPreparation
         var changed = false
         // Copy only the native order. A callback can replace the pass registry;
         // each visit is admitted again before its first protocol call.
         let order = pendingLazyListOrder
         for key in order {
+            if keyboardPreparation?.isCurrent == false { break }
             if let preparation = uiaPreparation, !isLazyListUIAConstructionCurrent(preparation) { break }
             guard let visit = pendingLazyListVisits[key], lazyListVisitIsCurrent(visit),
                 let node = visit.node, let adapter = visit.adapter, let viewport = visit.viewport,
@@ -22128,6 +22419,8 @@ public final class RetainedViewRuntime {
         budget: RetainedLazyListWorkBudget, resuming phase: LazyListUIAUnusedProviderPhase? = nil
     ) -> Bool {
         let uiaPreparation = lazyListUIAConstructionPreparation
+        let keyboardPreparation = adapter.keyboardPreparation
+        guard keyboardPreparation.map({ $0.permitsPlanning(in: adapter) }) != false else { return false }
         if let preparation = uiaPreparation,
             !isLazyListUIAConstructionCurrent(preparation)
         {
@@ -22160,7 +22453,7 @@ public final class RetainedViewRuntime {
         }()
         let ordinaryConstructionRequest = captureOrdinaryLazyListConstructionRequest(
             in: node, adapter: adapter, viewport: viewport)
-        guard ordinaryConstructionRequest?.isCurrent != false,
+        guard ordinaryConstructionRequest?.isCurrent != false, keyboardPreparation?.isCurrent != false,
             lazyListRebuildVisitIsCurrent(visit, resuming: phase), adapter.permitsStandaloneBuild,
             let lease = node.retainedSubtreeBuildLease
         else { return false }
@@ -22174,7 +22467,8 @@ public final class RetainedViewRuntime {
         }
         if let preparation = uiaPreparation, !isLazyListUIAConstructionCurrent(preparation) { return false }
         guard canBuild, lazyListRebuildVisitIsCurrent(visit, resuming: phase), node.retainedSubtreeBuildLease === lease,
-            managedIdentity?.isCurrent != false, ordinaryConstructionRequest?.isCurrent != false
+            managedIdentity?.isCurrent != false, ordinaryConstructionRequest?.isCurrent != false,
+            keyboardPreparation?.isCurrent != false
         else { return false }
         let coordinator = retainedBuildCoordinator
         // Pending is explicit. This adapter adds no retry queue or scheduler;
@@ -22201,6 +22495,7 @@ public final class RetainedViewRuntime {
             guard !buildStartGeometryRevision.overflow,
                 lazyListVisitIsCurrent(visit, expectedGeometryRevision: buildStartGeometryRevision.partialValue),
                 managedIdentity?.isCurrent == true, ordinaryConstructionRequest?.isCurrent != false,
+                keyboardPreparation?.isCurrent != false,
                 node.retainedSubtreeBuildLease === lease
             else {
                 coordinator.finishBuild()
@@ -22209,7 +22504,7 @@ public final class RetainedViewRuntime {
         }
         let admission = RetainedLazyListAdoptionAdmission(
             adapter: adapter, container: node, runtime: self, coordinator: coordinator, sequence: sequence,
-            ordinaryConstructionRequest: ordinaryConstructionRequest)
+            ordinaryConstructionRequest: ordinaryConstructionRequest, keyboardPreparation: keyboardPreparation)
         let transaction =
             managedDescriptor == nil
             ? RetainedBuildTransaction()
@@ -22430,12 +22725,18 @@ public final class RetainedViewRuntime {
         let nativeAdmission =
             readerWitness?.original
             ?? GeometryDescriptorAdmission(
-                node: node, runtime: self, lease: lease, parent: parent, uiaAuthority: uiaAuthority)
+                node: node, runtime: self, lease: lease, parent: parent, uiaAuthority: uiaAuthority,
+                keyboardPreparation: activeLazyListKeyboardPreparation)
         let hasManagedNativeActivity = node.retainedLazyListActivityStorage != nil
-        let requiresNativeAdmission = hasManagedNativeActivity || uiaAuthority != nil
-        guard uiaAuthority == nil || nativeAdmission.isCurrent else { return false }
+        let requiresNativeAdmission =
+            hasManagedNativeActivity || uiaAuthority != nil || nativeAdmission.keyboardPreparation != nil
+        guard uiaAuthority == nil && nativeAdmission.keyboardPreparation == nil || nativeAdmission.isCurrent else {
+            return false
+        }
         let leaseCanBuild = lease.canBuild
-        guard uiaAuthority == nil || nativeAdmission.isCurrent else { return false }
+        guard uiaAuthority == nil && nativeAdmission.keyboardPreparation == nil || nativeAdmission.isCurrent else {
+            return false
+        }
         guard leaseCanBuild else {
             // Cleanup can render while the adopted reader's lease is still
             // provisional. Preserve its unresolved path through this render;
@@ -22509,7 +22810,10 @@ public final class RetainedViewRuntime {
                             descriptorBuild.journal.revokeBeforeAbandon()
                             epoch.abandon()
                         }
-                    } else if didAdopt || (uiaAuthority != nil && descriptorBuild.didAcceptPublication) {
+                    } else if didAdopt
+                        || ((uiaAuthority != nil || nativeAdmission.keyboardPreparation != nil)
+                            && descriptorBuild.didAcceptPublication)
+                    {
                         epoch.commit()
                     } else {
                         descriptorBuild.journal.revokeBeforeAbandon()
@@ -22522,15 +22826,19 @@ public final class RetainedViewRuntime {
             }
         } else {
             if let epoch {
+                var didMutate = false
                 didAdopt = buildAndAdoptLeasedGeometryReader(
                     on: node, parent: parent, slot: slot, build: build, lease: lease, epoch: epoch,
                     sequence: sequence, transaction: transaction, admission: nativeAdmission,
-                    requiresNativeAdmission: uiaAuthority != nil, readerWitness: readerWitness)
+                    requiresNativeAdmission: uiaAuthority != nil || nativeAdmission.keyboardPreparation != nil,
+                    readerWitness: readerWitness, didMutate: &didMutate)
                 let readerIsCurrent = readerWitness?.auditAfterScope() != false
                 didAdopt = didAdopt && readerIsCurrent
-                // A revoked UIA request cannot authorize another write, but
+                // A revoked request cannot authorize another write, but
                 // accepted output still owns the ordinary epoch publication.
-                if didAdopt || (uiaAuthority?.didMutate == true) {
+                if didAdopt || (uiaAuthority?.didMutate == true)
+                    || (nativeAdmission.keyboardPreparation != nil && didMutate)
+                {
                     epoch.commit()
                 } else {
                     epoch.abandon()
@@ -22555,7 +22863,7 @@ public final class RetainedViewRuntime {
         on node: ViewNode, parent: ViewNode?, slot: Size, build: (RetainedViewRuntime, Size) -> [ViewNode],
         lease: any RetainedSubtreeBuildLease, epoch: any RetainedBuildEpoch,
         sequence: UInt64, transaction: RetainedBuildTransaction, admission: GeometryDescriptorAdmission,
-        requiresNativeAdmission: Bool, readerWitness: GeometryReaderRebuildWitness?
+        requiresNativeAdmission: Bool, readerWitness: GeometryReaderRebuildWitness?, didMutate: inout Bool
     ) -> Bool {
         func isCurrent() -> Bool { !requiresNativeAdmission || admission.isCurrent }
         guard isCurrent() else { return false }
@@ -22576,7 +22884,7 @@ public final class RetainedViewRuntime {
         return adoptGeometryReader(
             rebuilt, into: node, slot: slot, taskAdoption: taskAdoption,
             uiaAuthority: admission.uiaAuthority, nativeAdmission: requiresNativeAdmission ? admission : nil,
-            readerWitness: readerWitness)
+            readerWitness: readerWitness, didMutate: &didMutate)
     }
 
     /// Original physical and lease identity captured before any deferred-build
@@ -22585,6 +22893,7 @@ public final class RetainedViewRuntime {
     private final class GeometryDescriptorAdmission {
         weak var node: ViewNode?
         let uiaAuthority: RetainedLazyListUIAContinuationAuthority?
+        let keyboardPreparation: RetainedLazyListKeyboardPreparation?
         private weak var runtime: RetainedViewRuntime?
         private weak var lease: (any RetainedSubtreeBuildLease)?
         private let hadLease: Bool
@@ -22597,10 +22906,12 @@ public final class RetainedViewRuntime {
 
         init(
             node: ViewNode, runtime: RetainedViewRuntime, lease: (any RetainedSubtreeBuildLease)?, parent: ViewNode?,
-            uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil
+            uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil,
+            keyboardPreparation: RetainedLazyListKeyboardPreparation? = nil
         ) {
             self.node = node
             self.uiaAuthority = uiaAuthority
+            self.keyboardPreparation = keyboardPreparation
             self.runtime = runtime
             self.lease = lease
             hadLease = lease != nil
@@ -22608,32 +22919,40 @@ public final class RetainedViewRuntime {
             hadParent = parent != nil
             attachment = node.captureLazyListAttachmentProof()
             identity = node.captureLazyListIdentityProof()
-            constructionLayout = uiaAuthority.map { _ in node.captureLazyListLocalLayoutProof() }
-            constructionIdentity = uiaAuthority.map { _ in node.captureGeometryReaderConstructionIdentity() }
+            let checksConstruction = uiaAuthority != nil || keyboardPreparation != nil
+            constructionLayout = checksConstruction ? node.captureLazyListLocalLayoutProof() : nil
+            constructionIdentity = checksConstruction ? node.captureGeometryReaderConstructionIdentity() : nil
+        }
+
+        func revoke() {
+            uiaAuthority?.revoke()
+            keyboardPreparation?.wasRevoked = true
         }
 
         var isPhysicallyCurrent: Bool {
-            guard uiaAuthority?.isCurrent != false, let node, let runtime, !hadParent || parent != nil else {
-                uiaAuthority?.revoke()
+            guard uiaAuthority?.isCurrent != false, keyboardPreparation?.isCurrent != false,
+                let node, let runtime, !hadParent || parent != nil
+            else {
+                revoke()
                 return false
             }
             let current =
                 attachment.isCurrent && identity.isCurrent && node.parent === parent
                 && node.isRetainedLazyListAttached(in: runtime)
-            if !current { uiaAuthority?.revoke() }
+            if !current { revoke() }
             return current
         }
 
         var isCurrent: Bool {
             guard let node, !hadLease || lease != nil else {
-                uiaAuthority?.revoke()
+                revoke()
                 return false
             }
             let current =
                 isPhysicallyCurrent && node.retainedSubtreeBuildLease === lease
                 && constructionLayout?.isCurrent != false
                 && (constructionIdentity == nil || node.geometryReaderConstructionIdentity === constructionIdentity)
-            if !current { uiaAuthority?.revoke() }
+            if !current { revoke() }
             return current
         }
     }
@@ -22647,28 +22966,32 @@ public final class RetainedViewRuntime {
         private var accepted: GeometryDescriptorAdmission?
         private var acceptedSubtree: RetainedLazyListAdoptionCompletion?
 
-        init(node: ViewNode, runtime: RetainedViewRuntime, uiaAuthority: RetainedLazyListUIAContinuationAuthority) {
+        init(
+            node: ViewNode, runtime: RetainedViewRuntime, uiaAuthority: RetainedLazyListUIAContinuationAuthority?,
+            keyboardPreparation: RetainedLazyListKeyboardPreparation? = nil
+        ) {
             original = GeometryDescriptorAdmission(
                 node: node, runtime: runtime, lease: node.retainedSubtreeBuildLease,
-                parent: node.parent, uiaAuthority: uiaAuthority)
+                parent: node.parent, uiaAuthority: uiaAuthority, keyboardPreparation: keyboardPreparation)
         }
 
         func recordAccepted(on node: ViewNode, in runtime: RetainedViewRuntime) {
             guard original.isPhysicallyCurrent, let completion = RetainedLazyListAdoptionCompletion(of: node),
                 completion.isCurrent
             else {
-                original.uiaAuthority?.revoke()
+                original.revoke()
                 return
             }
             accepted = GeometryDescriptorAdmission(
                 node: node, runtime: runtime, lease: node.retainedSubtreeBuildLease,
-                parent: node.parent, uiaAuthority: original.uiaAuthority)
+                parent: node.parent, uiaAuthority: original.uiaAuthority,
+                keyboardPreparation: original.keyboardPreparation)
             acceptedSubtree = completion
         }
 
         func auditAfterScope() -> Bool {
             let current = (accepted ?? original).isCurrent && acceptedSubtree?.isCurrent != false
-            if !current { original.uiaAuthority?.revoke() }
+            if !current { original.revoke() }
             return current
         }
     }
@@ -22697,8 +23020,12 @@ public final class RetainedViewRuntime {
         }
 
         var permitsCompletion: Bool {
-            guard admission.uiaAuthority?.isCurrent != false else { return false }
-            guard usesManagedPublication || admission.uiaAuthority != nil else { return true }
+            guard admission.uiaAuthority?.isCurrent != false, admission.keyboardPreparation?.isCurrent != false else {
+                return false
+            }
+            guard usesManagedPublication || admission.uiaAuthority != nil || admission.keyboardPreparation != nil else {
+                return true
+            }
             guard admission.isPhysicallyCurrent, completion?.isCurrent == true,
                 let node = admission.node, !acceptedHadLease || acceptedLease != nil
             else { return false }
@@ -22778,6 +23105,7 @@ public final class RetainedViewRuntime {
                 && !retainedBuildCoordinator.wasSuperseded(since: sequence)
         }
         guard nativeAdmission.uiaAuthority == nil || nativeConstructionIsCurrent() else { return false }
+        guard nativeAdmission.keyboardPreparation == nil || nativeConstructionIsCurrent() else { return false }
         let canAdoptBeforeBody = epoch.canAdopt
         guard nativeConstructionIsCurrent(), canAdoptBeforeBody else { return false }
         let trace = constructionTrace
@@ -22804,8 +23132,10 @@ public final class RetainedViewRuntime {
         } else {
             let preparedEpoch = epoch.willAdopt()
             guard nativeAdmission.uiaAuthority == nil || nativeAdmission.isCurrent, preparedEpoch else { return false }
+            guard nativeAdmission.keyboardPreparation == nil || nativeAdmission.isCurrent else { return false }
             let prepared = journal.beginOrdinaryAdoption()
             guard nativeAdmission.uiaAuthority == nil || prepared else { return false }
+            guard nativeAdmission.keyboardPreparation == nil || prepared else { return false }
         }
         let taskAdoption = RetainedTaskAdoptionContext(runtime: self, epoch: epoch, transaction: transaction)
         let expectedLease = rebuilt.retainedSubtreeBuildLease
@@ -22815,11 +23145,14 @@ public final class RetainedViewRuntime {
             uiaAuthority: nativeAdmission.uiaAuthority)
         trace?.record("geometry.adopt.returned", span: adoptionSpan, node: UInt(bitPattern: ObjectIdentifier(node)))
         descriptorBuild.didAcceptPublication = result.didMutate || journal.hasAcceptedContributions
-        if !journal.isOrdinaryAdoption || nativeAdmission.uiaAuthority != nil {
+        if !journal.isOrdinaryAdoption || nativeAdmission.uiaAuthority != nil
+            || nativeAdmission.keyboardPreparation != nil
+        {
             guard result.completed, nativeAdmission.isPhysicallyCurrent,
                 node.retainedSubtreeBuildLease === expectedLease,
                 journal.isOrdinaryAdoption || journal.canContinueAdoption,
-                nativeAdmission.uiaAuthority?.isCurrent != false
+                nativeAdmission.uiaAuthority?.isCurrent != false,
+                nativeAdmission.keyboardPreparation?.isCurrent != false
             else { return false }
         }
         descriptorBuild.completion =
@@ -22879,11 +23212,13 @@ public final class RetainedViewRuntime {
     private func adoptGeometryReader(
         _ rebuilt: ViewNode, into node: ViewNode, slot: Size, taskAdoption: RetainedTaskAdoptionContext? = nil,
         uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil,
-        nativeAdmission: GeometryDescriptorAdmission? = nil, readerWitness: GeometryReaderRebuildWitness? = nil
+        nativeAdmission: GeometryDescriptorAdmission? = nil, readerWitness: GeometryReaderRebuildWitness? = nil,
+        didMutate: inout Bool
     ) -> Bool {
         let expectedLease = rebuilt.retainedSubtreeBuildLease
         let result = ComponentHost.adopt(
             source: rebuilt, into: node, taskAdoption: taskAdoption, uiaAuthority: uiaAuthority)
+        didMutate = result.didMutate
         guard
             uiaAuthority == nil
                 || (result.completed && uiaAuthority?.isCurrent == true
@@ -22891,6 +23226,14 @@ public final class RetainedViewRuntime {
         else {
             uiaAuthority?.revoke()
             return false
+        }
+        if nativeAdmission?.keyboardPreparation != nil {
+            guard result.completed, nativeAdmission?.isPhysicallyCurrent == true,
+                node.retainedSubtreeBuildLease === expectedLease
+            else {
+                nativeAdmission?.revoke()
+                return false
+            }
         }
         // The builder and its resolved size travel together during adoption.
         // This explicit assignment also bounds convergence for custom readers.
@@ -27027,6 +27370,461 @@ extension RetainedViewRuntime {
             })
         else { return nil }
         return nodes
+    }
+
+    @inline(never)
+    private func captureOriginallyRealizedKeyboardTokens(
+        for original: RetainedLazyListAccessibilityItem, cohort: [RetainedLazyListRowToken]
+    ) -> Set<RetainedLazyListRowToken> {
+        guard let container = original.container else { return [] }
+        var result: Set<RetainedLazyListRowToken> = []
+        for token in cohort {
+            if let item = lazyListTarget(in: container, token: token),
+                realizedLazyListAccessibilityNodes(for: item) != nil
+            {
+                result.insert(token)
+            }
+        }
+        return result
+    }
+
+    /// A single original keyboard receipt may inspect a bounded cohort of
+    /// accepted physical rows before unrelated measurements settle. The cohort
+    /// is frozen before the first factory; estimates grant construction only.
+    package func beginLazyListKeyboardPreparation(
+        from first: RetainedLazyListAccessibilityItem,
+        toward next: RetainedLazyListAccessibilityItem?, receipt: RetainedListNavigationReceipt
+    ) -> RetainedLazyListKeyboardPreparation? {
+        guard receipt.permitsBindingWrite, canPrepareLayoutSettlement, !hasActiveRetainedBuild,
+            !isResolvingLazyListLogicalTarget, activeLazyListKeyboardPreparation == nil,
+            activeAccessibilityMutation == nil, lazyListAccessibilityPreparation == nil,
+            !hasPendingLazyListUIACallbackWork, lazyListResolutionBudget.map({ $0.remainingRounds > 0 }) != false,
+            isLazyListAccessibilityItemCurrent(first), first.realization == nil,
+            let content = first.content, let adapter = first.adapter,
+            let descriptor = adapter.managedLogicalDescriptorBinding, descriptor.isCurrent,
+            let (viewport, scroll, _) = content.readOnlyLazyListViewport(displayScale: displayScale),
+            isQuietLazyListUIAScroll(scroll), let scrollAttachment = accessibilityTarget(for: scroll),
+            let endpoints = receipt.keyboardConstructionEndpoints(in: self)
+        else { return nil }
+        if let next {
+            guard isLazyListAccessibilityItemCurrent(next), next.content === content, next.adapter === adapter,
+                next.membership === first.membership
+            else { return nil }
+        }
+        if let next, realizedLazyListAccessibilityNodes(for: first) != nil,
+            realizedLazyListAccessibilityNodes(for: next) != nil
+        {
+            // The original settled pair needs no construction plan. Preserve
+            // its ordinary focus-first route and that route's own-focus proof.
+            return nil
+        }
+        guard
+            let cohort = adapter.keyboardConstructionCohort(from: first.token, toward: next?.token, viewport: viewport),
+            receipt.permitsBindingWrite, isLazyListAccessibilityItemCurrent(first)
+        else { return nil }
+        // Only native tokens survive this scope. Later ordinary frames may
+        // settle a cold candidate, but cannot change its original focus order.
+        let originallyRealizedTokens = captureOriginallyRealizedKeyboardTokens(for: first, cohort: cohort)
+        // Native callers may prepare before entering the public event wrapper.
+        // Open its one ordinary budget here; never replace an existing budget,
+        // and every later query must borrow this exact captured object.
+        let openedBudget = lazyListResolutionBudget == nil
+        ensureLazyListResolutionBudget()
+        guard let budget = lazyListResolutionBudget, budget.remainingRounds > 0,
+            let realization = adapter.beginLogicalRealization(of: first.token, owner: first.realizationOwner)
+        else {
+            if openedBudget { finishLazyListResolutionBudgetIfIdle() }
+            return nil
+        }
+        first.realization = realization
+        let preparation = RetainedLazyListKeyboardPreparation(
+            runtime: self, receipt: receipt, original: first, realization: realization, budget: budget,
+            openedBudget: openedBudget,
+            scopeAttachment: endpoints.scope, sourceAttachment: endpoints.source,
+            adapter: adapter, descriptor: descriptor, scroll: scroll, scrollAttachment: scrollAttachment,
+            pointerSequence: pointerSequence, displayScaleIdentity: displayScaleIdentity,
+            cohort: cohort, originallyRealizedTokens: originallyRealizedTokens, context: viewport.context)
+        adapter.keyboardPreparation = preparation
+        content.markDirty(.layout)
+        invalidate(.layout, from: content)
+        // Invalidation can retire authored captures. Return the same, possibly
+        // revoked preparation, never nil permission to start an ordinary retry.
+        _ = preparation.isCurrent
+        return preparation
+    }
+
+    fileprivate func isLazyListKeyboardPreparationCurrent(_ preparation: RetainedLazyListKeyboardPreparation) -> Bool {
+        guard preparation.runtime === self, !preparation.wasRevoked, preparation.phase != .released,
+            permitsRetainedActionInvocation, !layoutSettlementGenerationsExhausted,
+            activeAccessibilityMutation == nil, lazyListAccessibilityPreparation == nil,
+            preparation.original.realization === preparation.realization, preparation.realization.isActive,
+            let receipt = preparation.receipt,
+            preparation.phase == .eligibility
+                ? receipt.permitsBindingWrite
+                : receipt.permitsContinuation
+                    || (preparation.phase == .settling && receipt.permitsKeyboardConstruction(in: self)),
+            preparation.scopeAttachment.isCurrent(in: self), preparation.sourceAttachment.isCurrent(in: self),
+            isLazyListAccessibilityContainerCurrent(preparation.original),
+            let content = preparation.original.content, let current = content.retainedLazyListAdapter,
+            current.containsKeyboardCohort(preparation), current.hasKeyboardRealization(preparation.realization),
+            let scroll = preparation.scroll, preparation.scrollAttachment.isCurrent(in: self),
+            scroll.scrollAxis == .vertical, scroll.scrollSourceEpoch == preparation.scrollEpoch,
+            scroll.lazyListScrollIntentIdentity === preparation.scrollIntent,
+            content.nearestScrollTarget()?.container === scroll, isQuietLazyListUIAScroll(scroll),
+            pointerSequence == preparation.pointerSequence, displayScaleIdentity === preparation.displayScaleIdentity,
+            preparation.target?.isCurrent(in: self) != false, preparation.targetIdentity?.isCurrent != false
+        else { return false }
+        // The setter alone may install an accepted successor. It supplies no
+        // construction authority until settle freezes that one successor below.
+        if preparation.phase == .selected { return true }
+        return current === preparation.adapter && current.managedLogicalDescriptorBinding === preparation.descriptor
+            && preparation.descriptor.isCurrent && preparation.descriptor.sourceGeneration.isCurrent
+            && current.keyboardCohortHasCurrentMembership(preparation)
+    }
+
+    package func prepareLazyListKeyboardItem(
+        _ item: RetainedLazyListAccessibilityItem, using preparation: RetainedLazyListKeyboardPreparation
+    ) -> RetainedLazyListKeyboardEligibility {
+        guard preparation.phase == .eligibility, preparation.isCurrent,
+            item.content === preparation.original.content, item.adapter === preparation.adapter,
+            item.membership === preparation.original.membership, isLazyListAccessibilityItemCurrent(item)
+        else { return .obsolete }
+        guard preparation.cohort.contains(item.token) else { return .unsupported }
+        if !preparation.queriedEligibility {
+            let sequence = layoutSettlementResolutionSequence.addingReportingOverflow(1)
+            guard !sequence.overflow else {
+                preparation.wasRevoked = true
+                return .obsolete
+            }
+            guard lazyListResolutionBudget === preparation.budget, preparation.budget.remainingRounds > 0,
+                canPrepareLayoutSettlement, !hasActiveRetainedBuild, let content = item.content,
+                beginLazyListTargetResolution(during: nil)
+            else { return .pending }
+            preparation.queriedEligibility = true
+            preparation.querySequence = sequence.partialValue
+            activeLazyListKeyboardPreparation = preparation
+            _ = resolvedLayoutFrame(of: content)
+            activeLazyListKeyboardPreparation = nil
+            finishLazyListTargetResolution()
+            if layoutSettlementResolutionSequence != sequence.partialValue { preparation.wasRevoked = true }
+        }
+        guard preparation.isCurrent else { return .obsolete }
+        if preparation.eligibilityPass == nil {
+            // A partial first query keeps its one demand for existing ordinary
+            // layout opportunities. This reads their first accepted table; it
+            // performs no second query and never replaces a rejected proof.
+            guard canPrepareLayoutSettlement, !hasActiveRetainedBuild else { return .pending }
+            preparation.eligibilityPass = captureLazyListKeyboardEligibilityPass(preparation)
+        }
+        guard let pass = preparation.eligibilityPass else { return .pending }
+        guard lazyListKeyboardEligibilityPassIsCurrent(pass, for: preparation) else {
+            preparation.wasRevoked = true
+            return .obsolete
+        }
+        guard let adapter = preparation.adapter, let roots = adapter.mountedNodes(for: item.token) else {
+            return .pending
+        }
+        if roots.isEmpty { return adapter.knownLeafCount(for: item.token) == 0 ? .empty : .pending }
+        return .accepted(roots)
+    }
+
+    /// Recheck an already accepted destination after authored tag comparisons.
+    /// This neither captures another pass nor borrows a later frame's budget.
+    package func canResumeOrdinaryLazyListKeyboardTarget(
+        _ item: RetainedLazyListAccessibilityItem, using preparation: RetainedLazyListKeyboardPreparation
+    ) -> Bool {
+        guard preparation.phase == .eligibility, preparation.isCurrent,
+            lazyListResolutionBudget === preparation.budget,
+            preparation.originalRequiresRevealBeforeFocus(for: item.token) == false,
+            item.content === preparation.original.content, item.adapter === preparation.adapter,
+            item.membership === preparation.original.membership, isLazyListAccessibilityItemCurrent(item),
+            let pass = preparation.eligibilityPass
+        else { return false }
+        return lazyListKeyboardEligibilityPassIsCurrent(pass, for: preparation)
+    }
+
+    /// Freeze the original actual destination before the only binding write.
+    /// The receipt still owns its old declaration and setter at this boundary.
+    package func prepareLazyListKeyboardSelection(
+        _ item: RetainedLazyListAccessibilityItem, using preparation: RetainedLazyListKeyboardPreparation
+    ) -> Bool {
+        guard preparation.phase == .eligibility, preparation.isCurrent,
+            let receipt = preparation.receipt, receipt.permitsBindingWrite,
+            let pass = preparation.eligibilityPass, lazyListKeyboardEligibilityPassIsCurrent(pass, for: preparation),
+            item.content === preparation.original.content, item.adapter === preparation.adapter,
+            isLazyListAccessibilityItemCurrent(item), preparation.cohort.contains(item.token),
+            let node = receipt.keyboardPreparedTarget, let adapter = preparation.adapter,
+            adapter.mountedNodes(for: item.token)?.contains(where: { $0 === node }) == true,
+            let target = accessibilityTarget(for: node),
+            receipt.installKeyboardPreparation(preparation, for: node)
+        else { return false }
+        preparation.target = target
+        preparation.targetIdentity = node.captureLazyListIdentityProof()
+        preparation.targetToken = item.token
+        preparation.eligibilityPass = nil
+        preparation.phase = .selected
+        return preparation.isCurrent
+    }
+
+    private func captureLazyListKeyboardEligibilityPass(
+        _ preparation: RetainedLazyListKeyboardPreparation
+    ) -> RetainedLazyListKeyboardEligibilityPass? {
+        guard preparation.phase == .eligibility, preparation.isCurrent, !hasActiveRetainedBuild,
+            !isLayoutInProgress, !hasPendingLazyListUIACallbackWork,
+            !layoutSettlementGenerationsExhausted, lastUnmutatedLayoutPassRevision == layoutSettlementGeometryRevision,
+            let content = preparation.original.content, let adapter = preparation.adapter,
+            adapter.keyboardCohortIsAccepted(preparation),
+            let visit = pendingLazyListVisits[ObjectIdentifier(content)], lazyListVisitIsCurrent(visit),
+            content.lastLayoutVisitPassID == layoutPassID,
+            let records = adapter.captureUIAActualRecordsProof(),
+            let tree = RetainedLazyListAdoptionCompletion(of: root)
+        else { return nil }
+        return RetainedLazyListKeyboardEligibilityPass(
+            records: records, tree: tree, pass: layoutPassID, sequence: layoutSettlementResolutionSequence,
+            geometry: layoutSettlementGeometryRevision, mutation: presentationMutationRevision)
+    }
+
+    @inline(never)
+    private func captureLazyListKeyboardMeasurementCorrection(
+        _ preparation: RetainedLazyListKeyboardPreparation,
+        chargedTo budget: RetainedLazyListWorkBudget, during sequence: UInt64
+    ) -> LazyListKeyboardMeasurementCorrection? {
+        let nextPass = layoutPassID.addingReportingOverflow(1)
+        guard activeLazyListKeyboardPreparation === preparation, preparation.phase == .settling,
+            !preparation.attemptedMeasurementCorrection, preparation.isCurrent,
+            lazyListResolutionBudget === budget, preparation.budget === budget,
+            sequence == layoutSettlementResolutionSequence, !nextPass.overflow,
+            isResolvingLayoutFrame, isUpdatingResolvedLayout, isResolvingLayoutSettlement,
+            !isRendering, !isLayoutInProgress, lazyListResolutionDepth == 1, !hasPendingLazyListUIACallbackWork,
+            !pendingLazyListOrder.isEmpty, pendingLazyListOrder.count == pendingLazyListVisits.count,
+            Set(pendingLazyListOrder).count == pendingLazyListOrder.count,
+            pendingLazyListVisits.count == lazyListRegistrations.count,
+            pendingLazyListMeasurements.keys.allSatisfy({ pendingLazyListVisits[$0] != nil })
+        else { return nil }
+        var lists: [LazyListUIAMeasurementCorrection.ListInput] = []
+        for key in pendingLazyListOrder {
+            guard let visit = pendingLazyListVisits[key], visit.passID == layoutPassID,
+                visit.attachment.isCurrent, visit.scrollAttachment?.isCurrent == true,
+                let node = visit.node, let adapter = visit.adapter, let scroll = visit.scrollContainer,
+                node.runtime === self, scroll.runtime === self, node.retainedLazyListAdapter === adapter,
+                node.lastLayoutVisitPassID == layoutPassID, scroll.lastLayoutVisitPassID == layoutPassID,
+                node.retainedSubtreeBuildLease != nil, adapter.permitsStandaloneBuild, adapter.ownsAttachment(node),
+                lazyListRegistrations[key]?.node === node, lazyListRegistrations[key]?.adapter === adapter,
+                let layout = adapter.captureLayoutProof(), let records = adapter.captureUIAActualRecordsProof()
+            else { return nil }
+            lists.append(
+                .init(
+                    node: node, adapter: adapter, scroll: scroll, layout: layout, records: records,
+                    scrollEpoch: scroll.scrollSourceEpoch, scrollIntent: scroll.captureLazyListScrollIntentIdentity()))
+        }
+        guard lists.contains(where: { $0.node === preparation.original.content }),
+            let tree = RetainedLazyListAdoptionCompletion(of: root)
+        else { return nil }
+        var pending = [(node: root, depth: 0)]
+        var visited: Set<ObjectIdentifier> = []
+        var inputs: [LazyListUIAMeasurementCorrection.NodeInput] = []
+        while let entry = pending.popLast() {
+            guard entry.depth < ViewNode.maximumTraversalDepth, entry.node.runtime === self,
+                !entry.node.isRetiringLazyListAttachment,
+                visited.insert(ObjectIdentifier(entry.node)).inserted
+            else { return nil }
+            inputs.append(.init(entry.node))
+            for child in entry.node.children {
+                guard child.parent === entry.node else { return nil }
+                pending.append((node: child, depth: entry.depth + 1))
+            }
+        }
+        guard tree.isCurrent, inputs.allSatisfy({ $0.isCurrent }),
+            pendingGeometryReaderNodes.allSatisfy({
+                guard let node = $0.node else { return false }
+                return visited.contains(ObjectIdentifier(node)) && node.geometryReaderBuild != nil
+            })
+        else { return nil }
+        return LazyListKeyboardMeasurementCorrection(
+            expectedPass: nextPass.partialValue, sequence: sequence, geometry: layoutSettlementGeometryRevision,
+            mutation: presentationMutationRevision, prepaint: prepaintState.generation,
+            overflowCount: ViewNode.traversalDepthOverflowCount, scrollWorkDepth: lazyListScrollWorkDepth,
+            remainingElements: budget.remainingElements, remainingRounds: budget.remainingRounds,
+            order: pendingLazyListOrder, lists: lists, readers: pendingGeometryReaderNodes, inputs: inputs, tree: tree)
+    }
+
+    private func lazyListKeyboardMeasurementCorrectionIsCurrent(
+        _ correction: LazyListKeyboardMeasurementCorrection, for preparation: RetainedLazyListKeyboardPreparation,
+        chargedTo budget: RetainedLazyListWorkBudget
+    ) -> Bool {
+        guard activeLazyListKeyboardPreparation === preparation, preparation.phase == .settling,
+            preparation.attemptedMeasurementCorrection, preparation.isCurrent,
+            lazyListResolutionBudget === budget, preparation.budget === budget,
+            budget.remainingElements == correction.remainingElements,
+            budget.remainingRounds == correction.remainingRounds,
+            layoutPassID == correction.expectedPass, layoutSettlementResolutionSequence == correction.sequence,
+            layoutSettlementGeometryRevision == correction.geometry,
+            lastUnmutatedLayoutPassRevision == correction.geometry, presentationMutationRevision == correction.mutation,
+            prepaintState.generation === correction.prepaint,
+            ViewNode.traversalDepthOverflowCount == correction.overflowCount,
+            isResolvingLayoutFrame, isUpdatingResolvedLayout, isResolvingLayoutSettlement,
+            !isRendering, !isLayoutInProgress, lazyListResolutionDepth == 1,
+            lazyListScrollWorkDepth == correction.scrollWorkDepth,
+            !lazyListUnsupportedThisPass, pendingLazyListAnchorClamps.isEmpty, !lazyListAnchorNeedsLayout,
+            !lazyListScrollSearchNeedsMoreWork, !isProbingLazyListScrollTarget,
+            retainedBuildCoordinatorStorage?.hasPendingNativeWork != true,
+            longPressReconciliationDepth == 0, !isDrainingReconciliationCallbacks,
+            pendingLongPressCallbacks.isEmpty, pendingRetainedBuildCompletions.isEmpty,
+            !isDeliveringRenderLifecycleCallbacks, renderLifecycleTaskCancellationDepth == 0,
+            retiredPreparedListNavigationRetirements.isEmpty,
+            !isDrainingAfterLayoutActions, pendingAfterLayoutActionKeys.isEmpty, pendingAfterLayoutActions.isEmpty,
+            pendingPreciseScrollAlignments.isEmpty,
+            !isDrainingPresentationFocusRequests, pendingPresentationFocusRequests.isEmpty,
+            scrollObserverRegistry?.isDelivering != true,
+            !isDrainingListNavigationReveal, pendingListNavigationReveal == nil, consumingListNavigationReveal == nil,
+            pendingLazyListOrder == correction.order, pendingLazyListVisits.count == correction.lists.count,
+            lazyListRegistrations.count == correction.lists.count,
+            pendingGeometryReaderNodes.count == correction.readers.count,
+            zip(pendingGeometryReaderNodes, correction.readers).allSatisfy({ pair in pair.0.node === pair.1.node }),
+            correction.tree.isCurrent, correction.inputs.allSatisfy({ $0.isCurrent })
+        else { return false }
+        for (key, list) in zip(correction.order, correction.lists) {
+            guard let node = list.node, let adapter = list.adapter, let scroll = list.scroll,
+                list.layout.isCurrent, list.records.isCurrent, adapter.permitsStandaloneBuild,
+                node.retainedLazyListAdapter === adapter, adapter.ownsAttachment(node),
+                lazyListRegistrations[key]?.node === node, lazyListRegistrations[key]?.adapter === adapter,
+                let visit = pendingLazyListVisits[key], lazyListVisitIsCurrent(visit),
+                visit.node === node, visit.adapter === adapter, visit.scrollContainer === scroll,
+                scroll.scrollSourceEpoch == list.scrollEpoch, scroll.lazyListScrollIntentIdentity === list.scrollIntent
+            else { return false }
+        }
+        return true
+    }
+
+    private func lazyListKeyboardEligibilityPassIsCurrent(
+        _ pass: RetainedLazyListKeyboardEligibilityPass, for preparation: RetainedLazyListKeyboardPreparation
+    ) -> Bool {
+        preparation.isCurrent && !hasActiveRetainedBuild && !isLayoutInProgress && !hasPendingLazyListUIACallbackWork
+            && pass.records.isCurrent && pass.tree.isCurrent && pass.pass == layoutPassID
+            && pass.sequence == layoutSettlementResolutionSequence && pass.geometry == layoutSettlementGeometryRevision
+            && pass.geometry == lastUnmutatedLayoutPassRevision && pass.mutation == presentationMutationRevision
+    }
+
+    func settleLazyListKeyboardSelection(
+        _ preparation: RetainedLazyListKeyboardPreparation, target: ViewNode, receipt: RetainedListNavigationReceipt
+    ) -> RetainedListNavigationReadiness {
+        guard preparation.receipt === receipt, preparation.target?.node === target, preparation.isCurrent else {
+            return .obsolete
+        }
+        guard canPrepareLayoutSettlement, !hasActiveRetainedBuild,
+            !isResolvingLazyListLogicalTarget, !isProbingLazyListScrollTarget, !hasPendingLazyListUIACallbackWork
+        else { return .pending }
+        if preparation.phase == .selected {
+            guard let adapter = preparation.original.content?.retainedLazyListAdapter,
+                let descriptor = adapter.managedLogicalDescriptorBinding, descriptor.isCurrent,
+                let token = preparation.targetToken, adapter.containsAcceptedLogicalToken(token),
+                adapter.containsAcceptedLogicalToken(preparation.original.token)
+            else {
+                preparation.wasRevoked = true
+                return .obsolete
+            }
+            preparation.adapter = adapter
+            preparation.descriptor = descriptor
+            preparation.phase = .settling
+        }
+        guard preparation.phase == .settling, preparation.isCurrent else { return .obsolete }
+        if !preparation.queriedSettlement, lazyListResolutionBudget === preparation.budget,
+            preparation.budget.remainingRounds > 0
+        {
+            let sequence = layoutSettlementResolutionSequence.addingReportingOverflow(1)
+            guard !sequence.overflow else {
+                preparation.wasRevoked = true
+                return .obsolete
+            }
+            guard beginLazyListTargetResolution(during: nil) else { return .pending }
+            preparation.queriedSettlement = true
+            preparation.querySequence = sequence.partialValue
+            activeLazyListKeyboardPreparation = preparation
+            _ = resolvedLayoutFrame(of: target)
+            activeLazyListKeyboardPreparation = nil
+            finishLazyListTargetResolution()
+            if layoutSettlementResolutionSequence != sequence.partialValue { preparation.wasRevoked = true }
+        } else if preparation.settlement == nil, case .settled(let settlement) = layoutSettlementStatus {
+            // A pending action can finish after an ordinary render, but it may
+            // not start another explicit query or acquire another successor.
+            preparation.settlement = settlement
+        }
+        guard preparation.isCurrent else { return .obsolete }
+        guard let settlement = preparation.settlement else { return .pending }
+        guard isLayoutSettlementReceiptCurrent(settlement), !hasPendingLazyListUIACallbackWork,
+            !isListNavigationTargetDeferred(target)
+        else {
+            preparation.wasRevoked = true
+            return .obsolete
+        }
+        return .ready
+    }
+
+    /// Called before a query releases its reentrancy flag and drains callbacks.
+    /// The later finish consumes this exact receipt, never a post-callback reread.
+    private func captureLazyListKeyboardQuerySettlement() {
+        guard let preparation = activeLazyListKeyboardPreparation, preparation.phase == .settling,
+            preparation.settlement == nil, preparation.isCurrent,
+            case .settled(let settlement) = recordedLayoutSettlement,
+            settlement.resolutionSequence == preparation.querySequence,
+            layoutSettlementResolutionSequence == preparation.querySequence
+        else { return }
+        preparation.settlement = settlement
+    }
+
+    func prepareLazyListKeyboardHandoff(
+        _ preparation: RetainedLazyListKeyboardPreparation, target: ViewNode, receipt: RetainedListNavigationReceipt
+    ) -> Bool {
+        guard preparation.receipt === receipt, preparation.phase == .settling,
+            preparation.target?.node === target, preparation.isCurrent, canPrepareLayoutSettlement,
+            !hasActiveRetainedBuild, !hasPendingLazyListUIACallbackWork,
+            let settlement = preparation.settlement, isLayoutSettlementReceiptCurrent(settlement),
+            !isListNavigationTargetDeferred(target), receipt.recordPreparedLayoutSettlement(settlement)
+        else { return false }
+        receipt.recordGeometryRevision(layoutSettlementGeometryRevision)
+        return true
+    }
+
+    func lazyListKeyboardViewportIsCovered(
+        _ preparation: RetainedLazyListKeyboardPreparation, scroll: ViewNode, offset: Double
+    ) -> Bool {
+        guard preparation.phase == .settling, preparation.isCurrent, preparation.scroll === scroll,
+            let settlement = preparation.settlement, isLayoutSettlementReceiptCurrent(settlement),
+            let content = preparation.original.content, let adapter = preparation.adapter,
+            let (actual, actualScroll, _) = content.readOnlyLazyListViewport(displayScale: displayScale),
+            actualScroll === scroll, actual.context == preparation.context,
+            let requested = RetainedLazyListRuntimeAdapter.Viewport(
+                context: actual.context, offset: actual.offset + offset - scroll.resolvedScrollOffset,
+                extent: actual.extent)
+        else { return false }
+        return adapter.keyboardViewportIsCovered(requested, by: preparation)
+    }
+
+    package func endLazyListKeyboardPreparation(_ preparation: RetainedLazyListKeyboardPreparation) {
+        endLazyListKeyboardPreparation(preparation, invalidatingLayout: true)
+    }
+
+    func consumeLazyListKeyboardPreparation(_ preparation: RetainedLazyListKeyboardPreparation) {
+        // The immediately following original offset write owns invalidation.
+        // There are no callbacks or physical retirements in this native release.
+        endLazyListKeyboardPreparation(preparation, invalidatingLayout: false)
+    }
+
+    private func endLazyListKeyboardPreparation(
+        _ preparation: RetainedLazyListKeyboardPreparation, invalidatingLayout: Bool
+    ) {
+        guard preparation.runtime === self, preparation.phase != .released else { return }
+        preparation.phase = .released
+        preparation.eligibilityPass = nil
+        preparation.settlement = nil
+        let current = preparation.original.content?.retainedLazyListAdapter
+        preparation.adapter?.endKeyboardPreparation(preparation)
+        if current !== preparation.adapter { current?.endKeyboardPreparation(preparation) }
+        current?.endLogicalRealization(preparation.realization)
+        releaseLazyListTarget(preparation.original, invalidatingLayout: invalidatingLayout)
+        if preparation.openedBudget, lazyListResolutionBudget === preparation.budget {
+            finishLazyListResolutionBudgetIfIdle()
+        }
     }
 
     /// Ends only this native logical protection. After navigation focuses the

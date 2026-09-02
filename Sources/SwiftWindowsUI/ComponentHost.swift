@@ -2794,6 +2794,11 @@ public final class ComponentHost {
                 return false
             }
         }
+        if target.cornerRadii != source.cornerRadii {
+            guard copyNodeProperty(\.cornerRadii, source: source, target: target, check: check), check.isCurrent else {
+                return false
+            }
+        }
         if target.clipsToBounds != source.clipsToBounds {
             guard copyNodeProperty(\.clipsToBounds, source: source, target: target, check: check), check.isCurrent
             else { return false }

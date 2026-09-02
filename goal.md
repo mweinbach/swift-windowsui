@@ -14152,3 +14152,87 @@ Evidence is retained in
 `artifacts/goal-ninth-clip-sequence-assertions-lint-v1.log`. All nine original
 completion gates remain open; this correction provides no runtime, gallery,
 macOS parity, native display timing, or release qualification.
+
+
+### Retained corner updates and six clipping group results (2026-09-02)
+
+The six unchanged selections were executed serially against
+`03007df0de9ef4dd66ac76e76cd8fe237f926178`, tree
+`9d6eef862f5a94fa5a96f0602e43fbc17c76d870`. The complete planned set remains
+95 classes / 1,265 distinct methods; no case was removed after a failure.
+
+| Group | Planned | Passed | Failed | No terminal | Unrun |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| C01 | 222 | 222 | 0 | 0 | 0 |
+| C02 | 215 | 214 | 1 | 0 | 0 |
+| C03 | 225 | 225 | 0 | 0 | 0 |
+| C04 | 182 | 178 | 4 | 0 | 0 |
+| C05 | 209 | 208 | 1 | 0 | 0 |
+| C06 | 212 | 20 | 0 | 1 | 191 |
+| Total | 1,265 | 1,067 | 6 | 1 | 191 |
+
+There were no skips. All 74 newly added clipping methods started: 70 passed
+and four failed. The other two completed failures are existing list tests.
+C01 through C05 have complete per-case start/terminal reconciliation. C06
+started 21 methods, passed 20, and exited with child status 1 without an
+XCTest terminal for
+`CanvasSymbolMixedDepthTests.testMaximumSymbolDepthWithBlurAndGroupsAtEveryLevelKeepsBlueCoverage`.
+Its remaining 191 methods are unrun. The successful zero-test Swift Testing
+footer cannot substitute for the missing XCTest results. The original
+complete-group reconciler rejected that incomplete log; a separate partial
+receipt preserves the distinction rather than weakening the original helper.
+
+A bounded Windows Application Error lookup found event 1000 / record 8475
+at 12:14:34.4856774 UTC for the same XCTest executable path during C06.
+It records native PID 60152, creation at 12:14:33.4846552 UTC, exception
+`c00000fd`, and `swiftCore.dll`. This corroborates a native stack-overflow
+exception in the run window. The controller did not retain that native PID's
+parent chain, and the record does not establish the responsible Swift frame
+or which of the method's two branches was active. Its missing test terminal
+remains unknown; depth limits and assertions are unchanged.
+
+Every direct PowerShell child closed naturally. Recorded source/index
+endpoints matched, and six separate post-closure process censuses found no
+remaining Swift/XCTest/formatter processes. These are endpoint observations,
+not continuous descendant or loaded-binary attestations. The recorded direct
+wait/cleanup durations were 704.125, 13.516, 13.234, 86.547, 31.875, and 9.360
+seconds. These are validation durations, not frame-time measurements. Separate
+stock-script obligations still retain 682 XCTest methods and 116 Swift Testing
+declarations and have not been executed at this head.
+
+The C02 failure identifies a production reconciliation omission:
+`WinSwiftUIOriginalAnchorClipTests.testLiveRebuildUpdatesClipGeometryOnTheSameWrapper`
+rebuilt the same wrapper correctly, but `ComponentHost` copied only the scalar
+corner radius and retained the old optional four-corner value. This increment
+adds one independent guarded `cornerRadii` copy beside the existing scalar
+copy. It uses the unchanged admission, pinned replacement, postwrite validity,
+and paint invalidation machinery. Equal-maximum corner changes and clearing
+back to the scalar fallback are no longer omitted by that copy condition.
+
+Two new regression methods were frozen before the five-line production edit.
+They preserve retained owner/child identity and verify exported geometry and
+CPU alpha for equal-maximum changes and nonnil-to-nil clearing. All 692
+previously tracked test paths, including every original clipping assertion,
+remain unchanged. The complete source patch and alternate-index inverse
+restore the prior tree exactly. Fresh strict lint of both changed Swift files
+and architecture contracts pass. The planned 41-method complete-class run
+(new regressions, original public clipping tests, and ComponentHostTests) is
+still pending; source review is not a runtime pass.
+
+The other failures remain explicit work: C04 has two retained pixel comparisons
+and two existing ListVirtualizationTests failures (public scroll settlement
+and immediate keyboard reveal); C05's new source-effects/blur fixture violates
+the existing isolated-backdrop input contract; C06 needs a stack-lifetime
+repair and full remaining selection. A separately reviewed crop fixture fix
+and exact-image-sampling investigation must preserve their pixel oracles.
+No validation rule, case, or original goal threshold is weakened here.
+
+Evidence is retained in
+`artifacts/goal-ninth-clip-six-cohort-03007df-results-v1.json`, the six individual
+complete/partial receipts, `goal-ninth-clip-c06-application-error-8475-v1.json`,
+`goal-ninth-corner-radii-reconciliation-intake-v1`,
+`goal-ninth-corner-radii-apply-v1.json`, and
+`goal-ninth-corner-radii-lint-v1.log`. The gallery remains 151 fixtures / 85
+reviewed baselines. All nine original completion gates remain open, including
+full current-source validation, native display timing, macOS behavior, and
+release qualification.

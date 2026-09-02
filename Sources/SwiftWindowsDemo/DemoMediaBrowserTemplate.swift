@@ -1,4 +1,7 @@
-import Foundation
+// Keep Foundation geometry names out of the facade's CGFloat lookup.
+import class Foundation.NSLock
+import struct Foundation.URL
+import struct Foundation.UUID
 
 #if canImport(SwiftUI)
     import SwiftUI

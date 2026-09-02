@@ -3380,15 +3380,14 @@ public final class ViewNode {
         didSet { invalidateRuntime(.layout) }
     }
 
+    private var storedScrollObserverStorage: RetainedScrollObserverStorage?
+
     /// Allocated only on views carrying scroll observation callbacks. Kept
     /// separately from diagnostic metadata so reconciliation can retain values.
     internal var scrollObserverStorage: RetainedScrollObserverStorage? {
-        willSet {
-            // A new payload can reuse the existing membership. Retire only
-            // recorded cleanup permission before the old payload is released.
-            runtime?.revokeRecordedScrollObservationInsertion(self)
-        }
-        didSet {
+        get { storedScrollObserverStorage }
+        set {
+            publishScrollObserverStorage(newValue)
             if scrollObserverStorage != nil {
                 runtime?.registerScrollObservationNode(self)
             } else {
@@ -3396,6 +3395,19 @@ public final class ViewNode {
             }
             invalidateRuntime(.paint)
         }
+    }
+
+    @inline(never)
+    private func publishScrollObserverStorage(_ storage: RetainedScrollObserverStorage?) {
+        let previous = storedScrollObserverStorage
+        // A new payload can reuse the existing membership. Retire only
+        // recorded cleanup permission before the old payload is released.
+        runtime?.revokeRecordedScrollObservationInsertion(self)
+        storedScrollObserverStorage = storage
+        // Captured objects can republish this property during destruction.
+        // End the field write before release, and release before the caller
+        // registers whichever storage and runtime survived that callback.
+        withExtendedLifetime(previous) {}
     }
 
     internal var scrollContainerState: RetainedScrollContainerState?

@@ -35,7 +35,7 @@ final class MultiDatePickerSelectionTests: XCTestCase {
         XCTAssertEqual(selection.toggling(in: original), [nextMonth, previousYear])
         XCTAssertEqual(original, [legacy, calendarBearing, nextMonth, previousYear])
 
-        var expectedAliases: Set<DateComponents> = []
+        var expectedAliases: [DateComponents] = []
         for includesCalendar in [false, true] {
             for includesTimeZone in [false, true] {
                 for includesEra in [false, true] {
@@ -46,14 +46,21 @@ final class MultiDatePickerSelectionTests: XCTestCase {
                             era: includesEra ? 1 : nil, year: 2024, month: 2, day: 15)
                         if includesLeapMarker { alias.isLeapMonth = false }
                         XCTAssertEqual(calendar.date(from: alias), day.start)
-                        expectedAliases.insert(alias)
+                        expectedAliases.append(alias)
                         XCTAssertTrue(selection.isSelected(in: [alias]))
                         XCTAssertEqual(selection.toggling(in: [alias, nextMonth]), [nextMonth])
                     }
                 }
             }
         }
-        XCTAssertEqual(selection.aliases, expectedAliases)
+        XCTAssertEqual(selection.aliases.count, expectedAliases.count)
+        var remaining = expectedAliases
+        for actual in selection.aliases {
+            let index = try XCTUnwrap(
+                remaining.firstIndex { $0 == actual && $0.isLeapMonth == actual.isLeapMonth })
+            remaining.remove(at: index)
+        }
+        XCTAssertTrue(remaining.isEmpty)
     }
 
     func testInvalidForeignAndAdditionalComponentsRemainUntouched() async throws {

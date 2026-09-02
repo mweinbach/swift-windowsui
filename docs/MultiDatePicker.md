@@ -1,9 +1,11 @@
 # MultiDatePicker
 
 The existing unbounded `MultiDatePicker` initializers now use retained month
-browsing and day buttons. The source compiles at `bb755b5`, but the first new
-control test terminates with a fatal `DateComponents` set error during calendar
-construction. This remains an unqualified partial Windows implementation. The
+browsing and day buttons. The source compiled at `bb755b5`, but the first new
+control test terminated with a fatal `DateComponents` set error during calendar
+construction. A follow-up preserves the internal alias candidates in an array;
+its fresh compilation and complete 69-method cohort remain pending. This remains
+an unqualified partial Windows implementation. The
 policies below describe its source, not a passing interaction or parity result.
 Its presence in WinSwiftUI does not establish availability in the pinned macOS
 SwiftUI API or qualify a shared-source example on that platform.
@@ -39,6 +41,10 @@ For each day the control constructs at most sixteen possible aliases: the
 current calendar or no calendar, its time zone or no explicit time zone, the
 current era or no era, and an explicit leap-month marker or no marker. Each
 candidate must round-trip through that calendar to the exact day start.
+The internal candidate array preserves both absent and explicit false leap-month
+markers without inserting them into the same internal set. The public selection
+remains `Set<DateComponents>`; this does not repair an invalid set supplied by a
+caller or broaden the supported representations.
 
 Activation reads the current set. If a supported alias is present, it removes
 all supported aliases for that day. Otherwise it inserts year/month/day alone
@@ -78,7 +84,7 @@ hit testing, clipping, focus, or accessibility dispatch.
 
 ## Validation and remaining work
 
-The source adds 32 XCTest methods: seven selection tests, thirteen control
+The original source slice adds 32 XCTest methods: seven selection tests, thirteen control
 tests, eleven mounted tests, and one accessible-label regression. The focused
 preservation selection adds all 35 existing calendar/graphical DatePicker
 methods, for 67 methods total. All 701 existing tracked test entries at the
@@ -97,10 +103,17 @@ not identify an exact source line or independently prove the cause.
 
 No new MultiDatePicker test has a passing result from this attempt. All seven
 selection, thirteen control, and eleven mounted methods remain unrun, and the
-accessible-label result is unknown. The internal alias set and its test oracle
-are being reviewed for equal date components with different optional leap-month
-representations. Both supported representations remain in scope; no selection
-policy or original assertion may be dropped to make the run pass.
+accessible-label result is unknown. The follow-up replaces the internal alias
+set with an array using three production substitutions. Both leap-month
+representations, every round-trip check, and the insertion and removal policies
+remain unchanged. One selection test's expected set is likewise replaced by an
+array with one-to-one matching that separately compares the raw optional marker;
+every original per-alias behavior assertion remains. Two new tests check all
+sixteen stored candidates and toggling each independently with unrelated values
+preserved. The complete follow-up roster is 69 methods across eight classes.
+Strict formatting and architecture checks pass; no compilation or runtime result
+for this correction is claimed yet. The separate graphical DatePicker failure
+also remains open.
 
 Range overloads, unrestricted alias normalization, native calendar focus and
 style behavior, complete action localization, platform API availability,

@@ -6,7 +6,7 @@ import SwiftWindowsUI
 /// Other calendar settings, time zones and additional components stay untouched.
 struct MultiDatePickerDaySelection {
     let insertion: DateComponents
-    let aliases: Set<DateComponents>
+    let aliases: [DateComponents]
 
     init?(day: DatePickerCalendarModel.Day, calendar: Calendar) {
         guard day.start.timeIntervalSinceReferenceDate.isFinite, day.end.timeIntervalSinceReferenceDate.isFinite,
@@ -27,7 +27,7 @@ struct MultiDatePickerDaySelection {
         // Preserve the existing Windows click value whenever YMD is sufficient.
         // Historical eras and leap months can require the qualified value.
         let insertion = calendar.date(from: bare) == day.start ? bare : qualified
-        var aliases: Set<DateComponents> = []
+        var aliases: [DateComponents] = []
         for includesCalendar in [false, true] {
             for includesTimeZone in [false, true] {
                 for includesEra in [false, true] {
@@ -37,7 +37,7 @@ struct MultiDatePickerDaySelection {
                             timeZone: includesTimeZone ? calendar.timeZone : nil,
                             era: includesEra ? era : nil, year: year, month: month, day: number)
                         if includesLeapMarker { candidate.isLeapMonth = isLeapMonth }
-                        if calendar.date(from: candidate) == day.start { aliases.insert(candidate) }
+                        if calendar.date(from: candidate) == day.start { aliases.append(candidate) }
                     }
                 }
             }

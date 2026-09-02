@@ -6,6 +6,50 @@ import SwiftWindowsCore
 /// cohort before the first such call, without retiring unchanged declarations.
 @MainActor
 final class RetainedButtonActionAdoption {
+    /// Scalar evidence only. A snapshot retains no node, action owner, or
+    /// executable payload and never authorizes a later operation.
+    struct ValidationSnapshot: Sendable {
+        let checkCount: UInt64
+        let witnessVisitCount: UInt64
+        let witnessCount: Int
+        let didOverflow: Bool
+    }
+
+    struct ValidationCounters {
+        private var checkCount: UInt64
+        private var witnessVisitCount: UInt64
+        private let witnessCount: Int
+        private var didOverflow = false
+
+        init(witnessCount: Int, checkCount: UInt64 = 0, witnessVisitCount: UInt64 = 0) {
+            self.witnessCount = witnessCount
+            self.checkCount = checkCount
+            self.witnessVisitCount = witnessVisitCount
+        }
+
+        mutating func recordCheck() {
+            if checkCount == .max {
+                didOverflow = true
+            } else {
+                checkCount += 1
+            }
+        }
+
+        mutating func recordVisit() {
+            if witnessVisitCount == .max {
+                didOverflow = true
+            } else {
+                witnessVisitCount += 1
+            }
+        }
+
+        var snapshot: ValidationSnapshot {
+            ValidationSnapshot(
+                checkCount: checkCount, witnessVisitCount: witnessVisitCount,
+                witnessCount: witnessCount, didOverflow: didOverflow)
+        }
+    }
+
     private enum Phase {
         case stable
         case departureScheduled
@@ -86,8 +130,12 @@ final class RetainedButtonActionAdoption {
     private var constructions: [RetainedButtonActionConstruction] = []
     private var isFinished = false
     private var isValid = true
+    private var validationCounters: ValidationCounters?
 
-    init?(retainedRoots: [ViewNode], sourceRoots: [ViewNode]) {
+    init?(
+        retainedRoots: [ViewNode], sourceRoots: [ViewNode],
+        collectValidationDiagnostics: Bool = false
+    ) {
         let oldNodes = RetainedButtonActionTree.nodes(in: retainedRoots)
         let newNodes = RetainedButtonActionTree.nodes(in: sourceRoots)
         guard
@@ -136,6 +184,9 @@ final class RetainedButtonActionAdoption {
             }
             sources.append(owner)
         }
+        if collectValidationDiagnostics {
+            validationCounters = ValidationCounters(witnessCount: witnesses.count)
+        }
     }
 
     private func suspend(_ flight: RetainedButtonActionFlight) {
@@ -149,8 +200,16 @@ final class RetainedButtonActionAdoption {
             && runtimes.allSatisfy { $0.runtime?.permitsRetainedActionInvocation == true }
     }
 
+    var validationSnapshot: ValidationSnapshot? { validationCounters?.snapshot }
+
     var isCurrent: Bool {
-        operationIsCurrent && witnesses.values.allSatisfy(\.isCurrent)
+        validationCounters?.recordCheck()
+        guard operationIsCurrent else { return false }
+        for witness in witnesses.values {
+            validationCounters?.recordVisit()
+            guard witness.matchesCurrent() else { return false }
+        }
+        return true
     }
 
     /// A source departure may still owe cleanup after insertion is refused.

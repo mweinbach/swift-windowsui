@@ -15672,3 +15672,122 @@ three tests, original keyboard and scroll settlement cases, and UIA/default
 regressions still require fresh execution at the combined commit. No test pass,
 performance qualification or completion-gate closure is claimed by this source
 change. **All nine original completion gates remain open.**
+
+### Ninth batch: fresh combined focused validation at 6f3d70d
+
+The combined source commit `6f3d70dcef238af429d6d49974bfda67c54cb7cd`
+(tree `55e7b405a73761e8141aa0e01da5cd3f5092ff3e`) now has complete
+outcomes for the fixed focused selections below. Every completed run used the
+same clean source revision, ran serially, closed naturally, and preserved its
+recorded source and index endpoints. Root independently reconciled the exact
+selected identifiers against one start and one terminal result per method,
+the raw-log hash, and the actual child/controller exits. An empty process
+census after each closure is a point observation, not continuous proof of
+every descendant's lifetime.
+
+| Fixed selection | Started | Passed | Failed | Skipped |
+| --- | ---: | ---: | ---: | ---: |
+| Publication and removal, fresh retry | 108 | 108 | 0 | 0 |
+| Mounted lifetimes and task attempts | 96 | 96 | 0 | 0 |
+| Keyboard, ordinary target readiness, and public scrolling | 54 | 51 | 3 | 0 |
+| Native measurement and startup diagnostics | 121 | 121 | 0 | 0 |
+| Complete native display acquisition class, including its two extension methods | 33 | 33 | 0 | 0 |
+| Accessibility and calendar selections | 127 | 122 | 5 | 0 |
+| Complete modal accessibility action class, including its two extension methods | 32 | 32 | 0 | 0 |
+| **Distinct methods in these seven selections** | **571** | **563** | **8** | **0** |
+
+The new implicit-action diagnostic also ran separately and failed. It is the
+same method included in accessibility127, so there were 572 case executions
+but only 571 distinct methods; its duplicate is not an extra regression or
+extra coverage. Each invocation reported zero Swift Testing tests after the
+selected XCTest cases. None of these figures is a complete package test pass.
+The exact identifiers, outcomes, run directories, source definitions and raw
+hashes are recorded in
+`artifacts/goal-ninth-6f3d70d-closed-focused-validation-ledger-v1.json`.
+Its constituent `goal-ninth-*-6f3d70d-reconciled-v1.json` receipts retain the
+failure locations and original per-method outcomes.
+
+The first publication108 attempt was interrupted during test discovery. Its
+saved prefix has no test starts or terminals and no final exit, end, or
+preservation record; those outcomes remain unknown. The tool session was no
+longer available after interruption. A subsequently observed `swift run
+swift-windowsui` belonged to the user's preview, which the user closed. Root
+did not terminate it or any original worker. After a fresh empty census, the
+separate publication108 retry compiled and passed all 108 cases. The abandoned
+attempt's original 900-second bound and partial evidence remain unchanged in
+`goal-ninth-publication-removal108-6f3d70d-interrupted-v1`; it contributes no
+test outcome to the table.
+
+The publication retry passes all eight ordinary final-children boundary tests,
+including the case that previously trapped on Swift exclusivity. Mounted96
+passes the earlier-root-clock/later-root cancellation regression and all eight
+new launched-task ledger cases. All 25 new startup-probe cases and all three
+new ordinary-target readiness cases also pass. These are semantic/fake-operation
+checks: they do not launch or qualify a live application window or establish
+hardware presentation behavior. The 37 added methods preserve all 718 earlier
+test files; the standalone diagnostic's reproduced failure remains evidence
+of an unresolved behavior, not a passing diagnostic milestone.
+
+The remaining keyboard failure has moved to a later boundary. Actual row 899
+now reaches the original ready contract. The unchanged keyboard action then
+releases its demand and advances to row 900 with no settlement rounds left.
+The new target's initial settled-root preflight fails before its own demand or
+factory begins. The observed phase trace consumes four rounds and two elements:
+initial root preparation; construction of 899 and its predecessor 898; actual
+measurement correction with refusal of a stale provider visit; then owed
+predecessor retirement and completion of 899. A final root pass is attempted
+without another paid round. This ordinal/guard attribution combines the trace
+with source inspection; it is not an additional runtime observation. The
+unchanged three original tests still require immediate selection of 900, its
+actual row, reveal, focus and reverse navigation. No new budget, retry, stale
+authority, partial-readiness shortcut or relaxed assertion is accepted.
+The frozen causal report and independently checked source/evidence pins are
+in `artifacts/goal-ninth-keyboard-6f3d70d-diagnosis-intake-v1`.
+
+Two of accessibility127's failing methods are the original implicit-default
+action test and its new diagnostic. The diagnostic identifies `removed`,
+`restored-after-render`, original caller line 324: the retained root has zero
+children and projection contains only the root pane. The fresh declaration is
+present in the test source, but the available record does not show whether
+construction or physical adoption refused it. Ordinary `buildAndAdopt` can
+return success despite incomplete reconciliation, so a returned render or
+reload-completion callback is not an acceptance oracle. There is no proven
+old-Button-owner poisoning cause and no justification for weakening retirement
+guards. A separate test-only content/reload observation is being prepared.
+The bounded source review is retained in
+`artifacts/goal-ninth-implicit-default-removed-6f3d70d-source-intake-v1`.
+
+The three other accessibility failures are unchanged calendar regressions.
+The graphical test and its diagnostic still observe January where February is
+required, then cannot find the required node. The multi-date mounted test
+still observes February where March is required and cannot find March 20.
+Other selected calendar, projected-action, current-element and disabled-action
+cases pass, but those passes do not waive the failing candidate/lifetime paths.
+The private calendar/namespace work is not integrated or claimed complete.
+
+Three additional managed-target cleanup tests have been source-reviewed and
+preserved separately in
+`artifacts/goal-ninth-managed-target-cleanup-boundary-intake-v1`. They cover
+cancellation from initial onChange delivery, release of its action payload,
+and host closure inside the required row's actual body. Late cancellation must
+refuse completion while preserving already accepted effects and finishing owed
+cleanup. These tests are not in the table and have not yet been compiled or
+executed; no new production getter hook or callback was introduced.
+
+The earlier UI11 timeout is also unchanged. Its final naturally closed trace
+contains eleven callback intervals but no XCTest terminal outcomes, and cannot
+retroactively turn the 900-second timeout into a pass. The final prefix review
+is retained at `artifacts/goal-ninth-ui11-f419123-final330-review-intake-v1`.
+The recommended next UI execution is the original isolated keyboard Refresh
+method, with its original assertions and time bounds, only after its separate
+owned-process supervision and current-source binding are reviewed. The full
+eleven-method selection is not being relaunched. The prior ordinary-native
+capture timeout and its cleanup-required record also remain unchanged; no
+native-window or performance retry occurred in this batch.
+
+Formatting and architecture checks passed for the integrated source commits,
+but Quick, Full, reviewed current visual output, live native fault/IME/dialog/
+accessibility checks, macOS behavior, hardware timing, hosted release CI and
+clean-machine deployment remain separate outstanding evidence. The original
+goal text and all prior ledger bytes remain intact. **All nine original
+completion gates remain open.**

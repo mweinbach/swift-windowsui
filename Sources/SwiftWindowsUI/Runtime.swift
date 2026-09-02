@@ -20533,6 +20533,19 @@ public final class RetainedViewRuntime {
         {
             return false
         }
+        // This attempt may omit only optional final-query prefetch. Capture a
+        // scalar before lease callbacks; existing admission still owns every
+        // provider, adoption, measurement, and cleanup decision.
+        let omitsOptionalPrefetch: Bool = {
+            guard let preparation = uiaPreparation, let request = lazyListUIARequest,
+                request.preparation === preparation, isLazyListUIARequestCurrent(request),
+                request.phase == .finalQuery, request.hint == nil, !request.queryIsSealed,
+                request.querySequence == layoutSettlementResolutionSequence,
+                request.item.content === node, request.item.adapter === adapter,
+                request.budget === budget, lazyListResolutionBudget === budget
+            else { return false }
+            return true
+        }()
         guard lazyListRebuildVisitIsCurrent(visit, resuming: phase), adapter.permitsStandaloneBuild,
             let lease = node.retainedSubtreeBuildLease
         else { return false }
@@ -20617,7 +20630,8 @@ public final class RetainedViewRuntime {
                         node, adapter: adapter, viewport: viewport, budget: budget,
                         protectedRoots: protectedLazyListRoots(in: node), epoch: epoch, admission: admission,
                         lazyJournal: lazyJournal, lazyActivity: lazyActivity, transaction: transaction,
-                        preservingAnchor: visit.scrollContainer.map(lazyListAnchorMayControl) == true ? anchor : nil)
+                        preservingAnchor: visit.scrollContainer.map(lazyListAnchorMayControl) == true ? anchor : nil,
+                        omitsOptionalPrefetch: omitsOptionalPrefetch)
                 } else {
                     // A present binding that failed its exact refinement or scope
                     // cannot enter the ordinary raw provider path.
@@ -20725,7 +20739,8 @@ public final class RetainedViewRuntime {
         protectedRoots: Set<ObjectIdentifier>, epoch: any RetainedBuildEpoch,
         admission: RetainedLazyListAdoptionAdmission,
         lazyJournal: RetainedLazyListAdoptionJournal?, lazyActivity: (any RetainedLazyListBuildActivity)?,
-        transaction: RetainedBuildTransaction, preservingAnchor: RetainedLazyListAnchor?
+        transaction: RetainedBuildTransaction, preservingAnchor: RetainedLazyListAnchor?,
+        omitsOptionalPrefetch: Bool
     ) -> LazyListAdoptedCandidate? {
         let mayPrepare = epoch.canAdopt
         guard mayPrepare, admission.isBuildCurrent else { return nil }
@@ -20733,7 +20748,8 @@ public final class RetainedViewRuntime {
         lazyJournal?.seedExistingRowActivities(adapter.materializedRowActivities)
         let preparation = adapter.prepare(
             viewport: viewport, protectedRoots: protectedRoots, budget: budget, admission: admission,
-            activity: lazyActivity, journal: lazyJournal, preserving: preservingAnchor)
+            activity: lazyActivity, journal: lazyJournal, preserving: preservingAnchor,
+            omitsOptionalPrefetch: omitsOptionalPrefetch)
         guard admission.isBuildCurrent else { return nil }
         guard case .ready(let candidate) = preparation, candidate.viewport == viewport,
             admission.installCandidate(candidate)

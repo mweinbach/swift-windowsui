@@ -312,9 +312,21 @@ be a pointer hit-test target. The original query, settlement, root, pass and
 mutation checks still run first. The existing visibility helper checks the
 physical surface and ancestor clips; this is not a new occlusion or rounded-clip
 algorithm. Six new tests isolate visible framed rows and hidden, list-clipped,
-off-surface and zero-paint-area rejection. Their larger explicit fixture budget
+off-surface and zero-paint-area rejection. Their larger explicit round allowance
 does not change the default query limits or establish a default-budget pass;
 fresh execution remains pending.
+
+During the original typed final UIA query, the runtime can omit only optional
+prefetch from its own target adapter. It captures this decision before lease
+callbacks, under the original preparation, request, sequence and shared budget.
+The flag carries no authority: existing admission and epoch checks still reject
+expiry or replacement. Required/protected rows, anchor support, gap probes and
+the complete measurement checks remain. Other adapters and ordinary preparation
+retain prefetch. Missing optional rows do not themselves trigger another visit;
+prefetch returns on the next actual ordinary build. The unchanged default is
+128 elements and four rounds, including an already paid final round whose
+remaining-round count is zero. Thirteen new tests cover this policy and its
+limits, but integrated execution remains pending.
 
 The native host source now shares this construction path. Logical item-state
 and property-zero ItemContainer lookup use typed native requests with copied

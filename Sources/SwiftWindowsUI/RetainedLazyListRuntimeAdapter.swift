@@ -1730,7 +1730,7 @@ package final class RetainedLazyListRuntimeAdapter {
         budget: RetainedLazyListWorkBudget, admission: RetainedLazyListAdoptionAdmission,
         activity: (any RetainedLazyListBuildActivity)? = nil,
         journal: RetainedLazyListAdoptionJournal? = nil,
-        preserving anchor: RetainedLazyListAnchor? = nil
+        preserving anchor: RetainedLazyListAnchor? = nil, omitsOptionalPrefetch: Bool = false
     ) -> Preparation {
         guard admission.isBuildCurrent(for: self) else { return .obsolete }
         let managed: ManagedPreparation?
@@ -1744,7 +1744,8 @@ package final class RetainedLazyListRuntimeAdapter {
         }
         let result = prepare(
             viewport: viewport, protectedRoots: protectedRoots, budget: budget,
-            checkedAdmission: admission, managed: managed, preserving: anchor)
+            checkedAdmission: admission, managed: managed, preserving: anchor,
+            omitsOptionalPrefetch: omitsOptionalPrefetch)
         // The shared helper's temporary payloads have finished unwinding.
         guard admission.isBuildCurrent(for: self), managedPreparationIsCurrent(managed) else { return .obsolete }
         return result
@@ -1755,7 +1756,8 @@ package final class RetainedLazyListRuntimeAdapter {
     private func prepare(
         viewport: Viewport, protectedRoots: Set<ObjectIdentifier>,
         budget: RetainedLazyListWorkBudget, checkedAdmission: RetainedLazyListAdoptionAdmission?,
-        managed: ManagedPreparation?, preserving anchor: RetainedLazyListAnchor? = nil
+        managed: ManagedPreparation?, preserving anchor: RetainedLazyListAnchor? = nil,
+        omitsOptionalPrefetch: Bool = false
     ) -> Preparation {
         discardRevokedLogicalRealization()
         let expectedConstructionHint = uiaConstructionHint
@@ -1946,10 +1948,12 @@ package final class RetainedLazyListRuntimeAdapter {
                 selectedTokens.insert(boundaryProbe)
                 orderedTokens.append(boundaryProbe)
             }
-            for token in selection.tokens where !selectedTokens.contains(token) {
-                guard orderedTokens.count < maximumMountedRecords else { break }
-                selectedTokens.insert(token)
-                orderedTokens.append(token)
+            if !omitsOptionalPrefetch {
+                for token in selection.tokens where !selectedTokens.contains(token) {
+                    guard orderedTokens.count < maximumMountedRecords else { break }
+                    selectedTokens.insert(token)
+                    orderedTokens.append(token)
+                }
             }
         }
         // A capped estimated window must still get a chance to measure its

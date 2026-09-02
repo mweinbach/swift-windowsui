@@ -80,6 +80,44 @@ package final class RetainedLazyListRuntimeAdapter {
         }
     }
 
+    /// Original native demand for one cold managed ordinary preparation. Runtime
+    /// separately binds it to the original item, resolution scope, and intent.
+    /// This proof owns no item, node, provider, callback, or realization owner.
+    @MainActor
+    final class OrdinaryConstructionDemand {
+        fileprivate weak var adapter: RetainedLazyListRuntimeAdapter?
+        fileprivate weak var realization: RetainedLazyListLogicalRealization?
+        fileprivate let configuration: RetainedLazyListAdapterIdentity
+        fileprivate let generation: RetainedLazyListGeneration
+        fileprivate let descriptor: RetainedLazyListManagedLogicalDescriptorBinding
+        fileprivate let membership: RetainedLazyListMembershipIdentity
+        fileprivate let sourceIndex: Int
+        let viewport: Viewport
+
+        fileprivate init(
+            adapter: RetainedLazyListRuntimeAdapter, realization: RetainedLazyListLogicalRealization,
+            configuration: RetainedLazyListAdapterIdentity, generation: RetainedLazyListGeneration,
+            descriptor: RetainedLazyListManagedLogicalDescriptorBinding,
+            membership: RetainedLazyListMembershipIdentity, sourceIndex: Int, viewport: Viewport
+        ) {
+            self.adapter = adapter
+            self.realization = realization
+            self.configuration = configuration
+            self.generation = generation
+            self.descriptor = descriptor
+            self.membership = membership
+            self.sourceIndex = sourceIndex
+            self.viewport = viewport
+        }
+
+        func isCurrent(
+            for adapter: RetainedLazyListRuntimeAdapter, realization: RetainedLazyListLogicalRealization
+        ) -> Bool {
+            self.adapter === adapter && self.realization === realization
+                && adapter.isOrdinaryConstructionDemandCurrent(self)
+        }
+    }
+
     /// One request's estimate-only construction plan. Coordinates never leave
     /// the adapter, and the marker owns no node, provider, or authored callback.
     /// Runtime retains its independent original input and attachment authority.
@@ -525,6 +563,7 @@ package final class RetainedLazyListRuntimeAdapter {
         fileprivate let carriedRecordProofs: [RetainedLazyListRowToken: CarriedRecordProof]
         fileprivate let constructionHint: UIAConstructionHint?
         fileprivate let constructionPlan: UIAConstructionPlan?
+        fileprivate let ordinaryConstructionRequest: RetainedLazyListOrdinaryConstructionRequest?
         fileprivate weak var adapter: RetainedLazyListRuntimeAdapter?
         fileprivate var wasCompleted = false
         fileprivate var wasConsumed = false
@@ -549,7 +588,8 @@ package final class RetainedLazyListRuntimeAdapter {
             departingEmptyRows: [(RetainedLazyListMaterializedRowActivity, RetainedLazyListDepartureCause)] = [],
             emptyRowContinuations: [ObjectIdentifier: RetainedLazyListEmptyRowContinuation] = [:],
             carriedRecordProofs: [RetainedLazyListRowToken: CarriedRecordProof] = [:],
-            constructionHint: UIAConstructionHint? = nil, constructionPlan: UIAConstructionPlan? = nil
+            constructionHint: UIAConstructionHint? = nil, constructionPlan: UIAConstructionPlan? = nil,
+            ordinaryConstructionRequest: RetainedLazyListOrdinaryConstructionRequest? = nil
         ) {
             self.adapter = adapter
             self.buttonConstruction = buttonConstruction
@@ -565,6 +605,7 @@ package final class RetainedLazyListRuntimeAdapter {
             self.carriedRecordProofs = carriedRecordProofs
             self.constructionHint = constructionHint
             self.constructionPlan = constructionPlan
+            self.ordinaryConstructionRequest = ordinaryConstructionRequest
             self.virtualizedDepartureRoots = virtualizedDepartureRoots
             self.departingEmptyRows = departingEmptyRows
             self.emptyRowContinuations = emptyRowContinuations
@@ -580,6 +621,7 @@ package final class RetainedLazyListRuntimeAdapter {
             cohortProofs: [CarriedRecordProof]
         ) -> Bool {
             guard insertionPlan == nil, cohortProofs.allSatisfy(\.isCurrent),
+                ordinaryConstructionRequest == nil || records.allSatisfy({ origins[$0.request.token] != nil }),
                 let plan = RetainedLazyListInsertionPlan(
                     rows: records.map { record in
                         RetainedLazyListInsertionRow(
@@ -1376,6 +1418,36 @@ package final class RetainedLazyListRuntimeAdapter {
         logicalRealization = nil
     }
 
+    /// Capture before Runtime enters a lease getter. Cold eligibility is checked
+    /// only here; legal preparation and candidate publication change those flags.
+    func captureOrdinaryConstructionDemand(
+        for realization: RetainedLazyListLogicalRealization, viewport: Viewport
+    ) -> OrdinaryConstructionDemand? {
+        guard logicalRealization === realization, realization.isActive, uiaConstructionHint == nil,
+            hasCurrentLogicalSnapshot, snapshotIsCurrent(for: viewport), !pendingCandidate, !preparationIncomplete,
+            pendingScalarGeometry == nil, stagedPredecessor == nil, inheritedExtentSpacing == nil,
+            transitionRequiredTokens.isEmpty, transitionAwaitingMeasurements.isEmpty,
+            transitionCapacityDeferred.isEmpty, mounted[realization.token] == nil,
+            let descriptor = managedLogicalDescriptor, descriptor.isCurrent,
+            let generation, generation.isCurrent, generation == descriptor.sourceGeneration,
+            let sourceIndex = positions[realization.token], knownLeafCount(for: realization.token) != 0
+        else { return nil }
+        return OrdinaryConstructionDemand(
+            adapter: self, realization: realization, configuration: configuration, generation: generation,
+            descriptor: descriptor, membership: logicalMembershipIdentity, sourceIndex: sourceIndex, viewport: viewport)
+    }
+
+    fileprivate func isOrdinaryConstructionDemandCurrent(_ demand: OrdinaryConstructionDemand) -> Bool {
+        guard demand.adapter === self, !isReleasing, acceptedSnapshot, uiaConstructionHint == nil,
+            configuration === demand.configuration, generation == demand.generation, demand.generation.isCurrent,
+            managedLogicalDescriptor === demand.descriptor, demand.descriptor.isCurrent,
+            logicalMembershipIdentity === demand.membership, extentIndex?.context == demand.viewport.context,
+            let realization = demand.realization, logicalRealization === realization, realization.isActive,
+            positions[realization.token] == demand.sourceIndex
+        else { return false }
+        return true
+    }
+
     /// Runtime's original UIA request checks this during admitted construction,
     /// when ordinary snapshot queries deliberately reject isPreparing. No
     /// provider getter or logical-membership lookup participates in this check.
@@ -1802,6 +1874,12 @@ package final class RetainedLazyListRuntimeAdapter {
     ) -> Preparation {
         discardRevokedLogicalRealization()
         let expectedConstructionHint = uiaConstructionHint
+        let ordinaryConstructionRequest = checkedAdmission?.ordinaryConstructionRequest
+        guard
+            ordinaryConstructionRequest.map({
+                managed != nil && expectedConstructionHint == nil && $0.viewport == viewport && $0.isCurrent
+            }) != false
+        else { return .obsolete }
         guard expectedConstructionHint.map({ $0.viewport == viewport && $0.isCurrent }) != false else {
             return .obsolete
         }
@@ -1979,8 +2057,9 @@ package final class RetainedLazyListRuntimeAdapter {
             plannedWindow = UIAPlannedWindow(tokens: [], exceedsRecordLimit: false)
         }
         let plannedTokens = Set(plannedWindow.tokens)
+        let preparesCandidateProbe = expectedConstructionHint != nil || ordinaryConstructionRequest != nil
         var boundaryProbe =
-            expectedConstructionHint == nil ? nextGapBoundaryProbe(required: selection.requiredTokens) : nil
+            preparesCandidateProbe ? nil : nextGapBoundaryProbe(required: selection.requiredTokens)
         var selectedTokens = nextProtected
         var orderedTokens = nextProtected.sorted {
             positions[$0, default: Int.max] < positions[$1, default: Int.max]
@@ -1994,7 +2073,7 @@ package final class RetainedLazyListRuntimeAdapter {
             for token in plannedWindow.tokens where selectedTokens.insert(token).inserted {
                 orderedTokens.append(token)
             }
-        } else {
+        } else if !preparesCandidateProbe {
             // Keep the ordinary path's existing probe and prefetch order.
             if let boundaryProbe, !selectedTokens.contains(boundaryProbe),
                 orderedTokens.count < maximumMountedRecords
@@ -2017,12 +2096,12 @@ package final class RetainedLazyListRuntimeAdapter {
         // Protected cohorts build first for lease safety, then visible rows,
         // then nearest prefetch. A large prefetch must never consume the cap
         // or a small shared element budget before required visible rows.
-        let requiresUIAInsertionOrigins = managed != nil && expectedConstructionHint != nil
-        var uiaInsertionOrigins: UIAInsertionOrigins?
+        let requiresOriginalInsertionOrigins = managed != nil && preparesCandidateProbe
+        var originalInsertionOrigins: UIAInsertionOrigins?
         var insertionOrigins: [RetainedLazyListRowToken: RetainedLazyListInsertionOrigin] = [:]
         var insertionCohorts: [RetainedLazyListRowToken: CarriedRecordProof] = [:]
         if managed != nil {
-            if requiresUIAInsertionOrigins {
+            if requiresOriginalInsertionOrigins {
                 guard
                     operationIsCurrent(
                         expectedAttempt, configuration: expectedConfiguration, admission: checkedAdmission,
@@ -2037,7 +2116,7 @@ package final class RetainedLazyListRuntimeAdapter {
                         constructionHint: expectedConstructionHint),
                     generation.isCurrent, managedPreparationIsCurrent(managed), originalOrigins.isCurrent
                 else { return .obsolete }
-                uiaInsertionOrigins = originalOrigins
+                originalInsertionOrigins = originalOrigins
                 insertionOrigins = originalOrigins.origins
                 insertionCohorts = originalOrigins.cohorts
             } else {
@@ -2077,11 +2156,11 @@ package final class RetainedLazyListRuntimeAdapter {
         var leafIdentities: Set<ObjectIdentifier> = []
         var stoppedForBudget = false
         var cursor = 0
-        var appendedProbeAndPrefetch = expectedConstructionHint == nil
+        var appendedProbeAndPrefetch = !preparesCandidateProbe
         while cursor < orderedTokens.count || !appendedProbeAndPrefetch {
             if cursor == orderedTokens.count {
                 appendedProbeAndPrefetch = true
-                guard expectedConstructionHint?.isCurrent == true,
+                guard expectedConstructionHint?.isCurrent == true || ordinaryConstructionRequest?.isCurrent == true,
                     operationIsCurrent(
                         expectedAttempt, configuration: expectedConfiguration, admission: checkedAdmission,
                         identityProofs: acceptedIdentityProofs, constructionHint: expectedConstructionHint)
@@ -2110,7 +2189,10 @@ package final class RetainedLazyListRuntimeAdapter {
                 {
                     // A callback may have changed cached gap provenance. Do
                     // not refresh an origin after earlier factories ran.
-                    guard !requiresUIAInsertionOrigins || uiaInsertionOrigins?.origin(for: boundaryProbe) != nil else {
+                    guard
+                        !requiresOriginalInsertionOrigins
+                            || originalInsertionOrigins?.origin(for: boundaryProbe) != nil
+                    else {
                         return .obsolete
                     }
                     selectedTokens.insert(boundaryProbe)
@@ -2119,7 +2201,8 @@ package final class RetainedLazyListRuntimeAdapter {
                 }
                 for token in selection.tokens where !selectedTokens.contains(token) {
                     guard reservedRecords < maximumMountedRecords else { break }
-                    guard !requiresUIAInsertionOrigins || uiaInsertionOrigins?.origin(for: token) != nil else {
+                    guard !requiresOriginalInsertionOrigins || originalInsertionOrigins?.origin(for: token) != nil
+                    else {
                         return .obsolete
                     }
                     selectedTokens.insert(token)
@@ -2339,7 +2422,8 @@ package final class RetainedLazyListRuntimeAdapter {
                 }),
             departingEmptyRows: departingEmptyRows, emptyRowContinuations: emptyRowContinuations,
             carriedRecordProofs: carriedRecordProofs,
-            constructionHint: expectedConstructionHint, constructionPlan: constructionPlan)
+            constructionHint: expectedConstructionHint, constructionPlan: constructionPlan,
+            ordinaryConstructionRequest: ordinaryConstructionRequest)
         if managed != nil {
             guard
                 candidate.prepareInsertionPlan(origins: insertionOrigins, cohortProofs: Array(insertionCohorts.values))
@@ -3317,13 +3401,14 @@ package final class RetainedLazyListRuntimeAdapter {
 
     fileprivate func isCurrent(_ candidate: Candidate) -> Bool {
         !candidate.wasConsumed && isOperationCurrent(candidate)
+            && candidate.ordinaryConstructionRequest?.isCurrent != false
             && candidate.identityProofs.allSatisfy(\.isCurrent)
             && candidate.carriedRecordProofs.values.allSatisfy(\.isCurrent)
             && candidate.insertionPreparationIsCurrent
     }
 
-    /// Capture original origins and physical cohort proofs before the managed
-    /// UIA preparation calls a provider. The caller checks its full admission
+    /// Capture original origins and physical cohort proofs before a managed
+    /// preparation calls a provider. The caller checks its full admission
     /// around this native helper; this result is never a replacement for it.
     func captureUIAInsertionOrigins(
         initial: [RetainedLazyListRowToken], selection: [RetainedLazyListRowToken]
@@ -3353,7 +3438,7 @@ package final class RetainedLazyListRuntimeAdapter {
     }
 
     /// Native choices whose insertion origins must be captured before the
-    /// managed UIA preparation enters any factory. The later probe can only
+    /// managed preparation enters any factory. The later probe can only
     /// inspect an original prepared position or an earlier prepared position;
     /// its unknown cached predecessor is therefore in this bounded set.
     /// With K records, the two inputs and at most one predecessor per initial

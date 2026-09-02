@@ -15626,3 +15626,49 @@ The original native timeout and cleanup-required flag are not cleared by this
 source change. No native, input, display, performance, resource, or hardware
 qualification is claimed.
 **All nine original completion gates remain open.**
+
+### Ninth batch: prepare an ordinary lazy-list target and its predecessor together
+
+The original far-row keyboard tests remain the acceptance tests: selection must
+advance from 899 to 900, the actual row must exist, and the original reveal and
+focus behavior must complete within the unchanged settlement budget. A separate
+three-test candidate addresses the earlier readiness of row 899. Passing those
+three cases would not establish that the complete keyboard operation succeeds.
+
+The integrated source change captures an explicit ordinary resolution and its
+original logical item, realization, input intent and managed adapter before a
+lease callback. It does not infer ordinary authority merely from a missing UIA
+hint. For an eligible cold target, the existing required rows are prepared first;
+their actual output can then identify one predecessor in the same preparation.
+That predecessor uses an insertion origin captured before any factory, shares
+the existing element budget, and does not recursively construct its predecessor.
+Missing or expired original authority cannot be replaced by a new lookup.
+
+The request remains part of construction and adoption checks. It does not
+replace the original cleanup ownership predicate: cancellation still permits
+disposal of the original unfinished candidate and completion of already accepted
+journal effects. Existing default and UIA preparation paths, the four-round and
+128-element limits, the shared materializer and the keyboard navigation logic
+are unchanged. Other eligible ordinary clients, including public scrolling,
+can use the same preparation improvement and require regression validation.
+
+The new tests require immediate actual readiness of 899 without changing
+selection, offset or focus; the exact factory sequence [899, 898] within one
+provider phase; and refusal of additional work when the original realization
+is released by the 899 factory. They do not claim zero transient partial
+publication, original row-900 success, or coverage of every callback boundary.
+Late adoption/completion cancellation, origin ABA, reduced element budgets and
+the existing UIA/default paths remain explicit validation obligations.
+
+The test was frozen before the two production files were changed. Independent
+source and committed-tree reviews preserve all 718 earlier test paths and the
+exact baseline on inverse application. The sealed source packet is retained at
+`artifacts/goal-ninth-managed-target-readiness-intake-v1`. Root integrated all
+three files, reviewed and verified exactly three formatter guard line wraps
+without changing a test, and verified the composed inverse against the preceding
+committed tree. Formatting lint and architecture contracts passed
+(`goal-ninth-managed-target-readiness-formatted-lint-contracts.log`). The new
+three tests, original keyboard and scroll settlement cases, and UIA/default
+regressions still require fresh execution at the combined commit. No test pass,
+performance qualification or completion-gate closure is claimed by this source
+change. **All nine original completion gates remain open.**

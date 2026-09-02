@@ -2700,6 +2700,7 @@ final class RetainedLazyListAdoptionAdmission {
     private let expectedLayoutPassID: UInt64
     private weak var uiaPreparation: RetainedLazyListAccessibilityPreparation?
     private let requiresUIAPreparation: Bool
+    let ordinaryConstructionRequest: RetainedLazyListOrdinaryConstructionRequest?
     private var completedSubtrees: [RetainedLazyListAdoptionCompletion] = []
     private var wasRevoked = false
     private var isFinishingCandidate = false
@@ -2709,7 +2710,8 @@ final class RetainedLazyListAdoptionAdmission {
         adapter: RetainedLazyListRuntimeAdapter,
         candidate: RetainedLazyListRuntimeAdapter.Candidate? = nil,
         container: ViewNode, runtime: RetainedViewRuntime,
-        coordinator: RetainedBuildCoordinator, sequence: UInt64
+        coordinator: RetainedBuildCoordinator, sequence: UInt64,
+        ordinaryConstructionRequest: RetainedLazyListOrdinaryConstructionRequest? = nil
     ) {
         self.adapter = adapter
         self.candidate = candidate
@@ -2719,6 +2721,7 @@ final class RetainedLazyListAdoptionAdmission {
         self.attachment = container.captureLazyListAttachmentProof()
         self.coordinator = coordinator
         self.sequence = sequence
+        self.ordinaryConstructionRequest = ordinaryConstructionRequest
         self.expectedDisplayScale = runtime.displayScale
         self.expectedLayoutPassID = runtime.layoutPassID
         let preparation = runtime.lazyListUIAConstructionPreparation
@@ -2747,6 +2750,7 @@ final class RetainedLazyListAdoptionAdmission {
         let candidateCurrent = isFinishingCandidate ? candidate?.isOperationCurrent : candidate?.isCurrent
         guard !wasRevoked, candidateCurrent != false, attachment.isCurrent,
             let container, let runtime, let adapter, let lease,
+            ordinaryConstructionRequest?.isCurrent != false,
             !requiresUIAPreparation
                 || uiaPreparation.map({ runtime.isLazyListUIAConstructionCurrent($0) }) == true,
             runtime.permitsRetainedActionInvocation,
@@ -13460,6 +13464,49 @@ package final class RetainedLazyListAccessibilityItem {
         return adapter?.knownLeafCount(for: token)
     }
 }
+
+/// Identity and intent of one ordinary resolution, captured before its first
+/// layout query. A later resolution cannot borrow this origin even for the same
+/// item. The origin keeps neither the item nor its realization owner alive.
+@MainActor
+fileprivate final class RetainedLazyListOrdinaryResolution {
+    weak var item: RetainedLazyListAccessibilityItem?
+    weak var runtime: RetainedViewRuntime?
+    let focusRevision: UInt64
+    let pointerSequence: UInt64
+    let modal: ObjectIdentifier?
+
+    init(
+        item: RetainedLazyListAccessibilityItem, runtime: RetainedViewRuntime,
+        focusRevision: UInt64, pointerSequence: UInt64, modal: ObjectIdentifier?
+    ) {
+        self.item = item
+        self.runtime = runtime
+        self.focusRevision = focusRevision
+        self.pointerSequence = pointerSequence
+        self.modal = modal
+    }
+}
+
+/// One pre-lease qualification for additional ordinary predecessor planning.
+/// Existing Runtime admission still owns every factory, adoption and cleanup.
+@MainActor
+final class RetainedLazyListOrdinaryConstructionRequest {
+    fileprivate let origin: RetainedLazyListOrdinaryResolution
+    fileprivate let demand: RetainedLazyListRuntimeAdapter.OrdinaryConstructionDemand
+
+    fileprivate init(
+        origin: RetainedLazyListOrdinaryResolution,
+        demand: RetainedLazyListRuntimeAdapter.OrdinaryConstructionDemand
+    ) {
+        self.origin = origin
+        self.demand = demand
+    }
+
+    var viewport: RetainedLazyListRuntimeAdapter.Viewport { demand.viewport }
+    var isCurrent: Bool { origin.runtime?.isOrdinaryLazyListConstructionCurrent(self) == true }
+}
+
 @MainActor
 fileprivate final class RetainedLazyListAccessibilityPreparation {
     let token: RetainedLazyListRowToken
@@ -15008,6 +15055,7 @@ public final class RetainedViewRuntime {
     private var isProbingLazyListScrollTarget = false
     private var lazyListScrollSearchNeedsMoreWork = false
     private var isResolvingLazyListLogicalTarget = false
+    private var ordinaryLazyListResolution: RetainedLazyListOrdinaryResolution?
     private weak var lazyListLogicalRevealScroll: ViewNode?
     private weak var lazyListAccessibilityPreparation: RetainedLazyListAccessibilityPreparation?
     private weak var lazyListUIARequest: RetainedLazyListUIARequest?
@@ -22110,7 +22158,10 @@ public final class RetainedViewRuntime {
             else { return nil }
             return preparation.token
         }()
-        guard lazyListRebuildVisitIsCurrent(visit, resuming: phase), adapter.permitsStandaloneBuild,
+        let ordinaryConstructionRequest = captureOrdinaryLazyListConstructionRequest(
+            in: node, adapter: adapter, viewport: viewport)
+        guard ordinaryConstructionRequest?.isCurrent != false,
+            lazyListRebuildVisitIsCurrent(visit, resuming: phase), adapter.permitsStandaloneBuild,
             let lease = node.retainedSubtreeBuildLease
         else { return false }
         let managedDescriptor = adapter.managedLogicalDescriptorBinding
@@ -22123,7 +22174,7 @@ public final class RetainedViewRuntime {
         }
         if let preparation = uiaPreparation, !isLazyListUIAConstructionCurrent(preparation) { return false }
         guard canBuild, lazyListRebuildVisitIsCurrent(visit, resuming: phase), node.retainedSubtreeBuildLease === lease,
-            managedIdentity?.isCurrent != false
+            managedIdentity?.isCurrent != false, ordinaryConstructionRequest?.isCurrent != false
         else { return false }
         let coordinator = retainedBuildCoordinator
         // Pending is explicit. This adapter adds no retry queue or scheduler;
@@ -22149,7 +22200,7 @@ public final class RetainedViewRuntime {
         } else if managedDescriptor != nil {
             guard !buildStartGeometryRevision.overflow,
                 lazyListVisitIsCurrent(visit, expectedGeometryRevision: buildStartGeometryRevision.partialValue),
-                managedIdentity?.isCurrent == true,
+                managedIdentity?.isCurrent == true, ordinaryConstructionRequest?.isCurrent != false,
                 node.retainedSubtreeBuildLease === lease
             else {
                 coordinator.finishBuild()
@@ -22157,7 +22208,8 @@ public final class RetainedViewRuntime {
             }
         }
         let admission = RetainedLazyListAdoptionAdmission(
-            adapter: adapter, container: node, runtime: self, coordinator: coordinator, sequence: sequence)
+            adapter: adapter, container: node, runtime: self, coordinator: coordinator, sequence: sequence,
+            ordinaryConstructionRequest: ordinaryConstructionRequest)
         let transaction =
             managedDescriptor == nil
             ? RetainedBuildTransaction()
@@ -26997,19 +27049,64 @@ extension RetainedViewRuntime {
         }
     }
 
-    private func beginLazyListTargetResolution(during mutation: RetainedAccessibilityMutation?) -> Bool {
+    /// Only the exact ordinary resolver's item may qualify this bounded plan.
+    /// Full snapshot currentness is read before the first lease callback; later
+    /// checks use the original native demand and attachment while preparing.
+    private func captureOrdinaryLazyListConstructionRequest(
+        in content: ViewNode, adapter: RetainedLazyListRuntimeAdapter,
+        viewport: RetainedLazyListRuntimeAdapter.Viewport
+    ) -> RetainedLazyListOrdinaryConstructionRequest? {
+        guard isResolvingLazyListLogicalTarget, activeAccessibilityMutation == nil,
+            lazyListUIAConstructionPreparation == nil, lazyListUIARequest == nil,
+            let origin = ordinaryLazyListResolution, let item = origin.item,
+            item.content === content, item.adapter === adapter, isLazyListAccessibilityItemCurrent(item),
+            let realization = item.realization,
+            let demand = adapter.captureOrdinaryConstructionDemand(for: realization, viewport: viewport)
+        else { return nil }
+        // Do not turn an expired original origin into a nil/default request.
+        // The caller rejects this same capture before and after lease callbacks.
+        return RetainedLazyListOrdinaryConstructionRequest(origin: origin, demand: demand)
+    }
+
+    fileprivate func isOrdinaryLazyListConstructionCurrent(
+        _ request: RetainedLazyListOrdinaryConstructionRequest
+    ) -> Bool {
+        let origin = request.origin
+        guard ordinaryLazyListResolution === origin, origin.runtime === self, isResolvingLazyListLogicalTarget,
+            activeAccessibilityMutation == nil, lazyListUIAConstructionPreparation == nil, lazyListUIARequest == nil,
+            presentationFocusRevision == origin.focusRevision, pointerSequence == origin.pointerSequence,
+            presentationModalSnapshot.map(ObjectIdentifier.init) == origin.modal,
+            let item = origin.item, item.runtime === self, let adapter = item.adapter,
+            item.content?.retainedLazyListAdapter === adapter, let realization = item.realization,
+            realization.token == item.token, request.demand.isCurrent(for: adapter, realization: realization),
+            isLazyListAccessibilityContainerCurrent(item)
+        else { return false }
+        return true
+    }
+
+    private func beginLazyListTargetResolution(
+        during mutation: RetainedAccessibilityMutation?, ordinaryItem: RetainedLazyListAccessibilityItem? = nil
+    ) -> Bool {
         guard !isResolvingLazyListLogicalTarget, permitsRetainedActionInvocation,
             canReadLayoutSettlement, !isUpdatingResolvedLayout,
             mutation == nil ? activeAccessibilityMutation == nil : mutation === activeAccessibilityMutation
         else { return false }
         if let mutation, !isAccessibilityMutationCurrent(mutation) { return false }
         isResolvingLazyListLogicalTarget = true
+        if mutation == nil, let ordinaryItem {
+            ordinaryLazyListResolution = RetainedLazyListOrdinaryResolution(
+                item: ordinaryItem, runtime: self, focusRevision: presentationFocusRevision,
+                pointerSequence: pointerSequence, modal: presentationModalSnapshot.map(ObjectIdentifier.init))
+        } else {
+            ordinaryLazyListResolution = nil
+        }
         ensureLazyListResolutionBudget()
         return true
     }
 
     private func finishLazyListTargetResolution() {
         lazyListLogicalRevealScroll = nil
+        ordinaryLazyListResolution = nil
         isResolvingLazyListLogicalTarget = false
         finishLazyListResolutionBudgetIfIdle()
     }
@@ -27070,7 +27167,7 @@ extension RetainedViewRuntime {
             // row. Recursive layout here would fabricate a nested settlement.
             return .pending
         }
-        guard beginLazyListTargetResolution(during: nil) else { return .pending }
+        guard beginLazyListTargetResolution(during: nil, ordinaryItem: item) else { return .pending }
         defer { finishLazyListTargetResolution() }
         if let roots = materializeLazyListTarget(item, during: nil) { return .ready(roots) }
         guard isLazyListAccessibilityItemCurrent(item) else { return .obsolete }

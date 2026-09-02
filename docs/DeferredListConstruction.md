@@ -1,9 +1,11 @@
 # Deferred public List construction
 
-This is a source checkpoint, not a completed compatibility or performance gate.
-The composed changes have source checks but have not been compiled or executed
-together. The original collection, lifecycle, accessibility, animation, visual,
-and resource requirements in `goal.md` remain unchanged.
+This is an integration checkpoint, not a completed compatibility or performance
+gate. Focused Windows checkpoints have compiled and exercised this route;
+pending-replacement UIA settlement and some inactive/deferred state updates still
+fail. Follow-up source changes require their own validation. The original
+collection, lifecycle, accessibility, animation, visual, and resource requirements
+in `goal.md` remain unchanged; that ledger records exact commits and outcomes.
 
 Flat `List(data, id:)`, Identifiable and mutable Binding data initializers now
 retain a logical projection. `List { ForEach(...) }` uses that projection too,
@@ -134,7 +136,14 @@ returned-tree construction actions are unchanged. Source-only transport and
 native publication tests are listed in [Testing.md](Testing.md); execution
 qualification still belongs to the integrated root run.
 
-Direct data initializers preserve element-ID selection precedence. Builder rows
+Direct data-and-selection initializers preserve element-ID selection precedence.
+Each materialized content leaf receives the element tag under the declared ID
+type, including `AnyHashable`, optional IDs, and explicitly nil selection
+bindings. Only that typed tag is replaced; unrelated typed tags remain. Temporary
+copies of an overwritten tag payload unwind before source and construction
+admission are checked again. External owners can still retain that payload.
+The new `ListImplicitSelectionTagTests` cover these source paths; their focused
+execution is pending. Data initializers without selection and builder rows
 preserve their explicit `.tag` values. Keyboard movement realizes a real target,
 protects the prepared source and target through the accepted action, and uses
 the existing physical focus/reveal receipt. A later root rebuild cannot revive

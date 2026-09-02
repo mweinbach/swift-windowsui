@@ -9757,6 +9757,8 @@ public struct List: View {
     private let selectionMode: ListSelectionMode?
     private var deferredProjection: DeferredListProjection? = nil
     private var prefersImplicitSelectionTag = false
+    // Data-and-selection initializers publish an element tag even for a nil binding.
+    private var implicitSelectionTagType: ObjectIdentifier? = nil
 
     @_disfavoredOverload
     public init(@ViewBuilder content: () -> [AnyView]) {
@@ -9839,6 +9841,7 @@ public struct List: View {
         self.content = []
         self.deferredProjection = DeferredListProjection(ForEach(data, id: id, content: rowContent))
         self.prefersImplicitSelectionTag = true
+        self.implicitSelectionTagType = ObjectIdentifier(ID.self)
         self.selectionMode = selection.map { .single($0) }
     }
 
@@ -9851,6 +9854,7 @@ public struct List: View {
         self.content = []
         self.deferredProjection = DeferredListProjection(ForEach(data, id: id, content: rowContent))
         self.prefersImplicitSelectionTag = true
+        self.implicitSelectionTagType = ObjectIdentifier(ID.self)
         self.selectionMode = selection.map { .multiple($0) }
     }
 
@@ -9862,6 +9866,7 @@ public struct List: View {
         self.content = []
         self.deferredProjection = DeferredListProjection(ForEach(data, id: \.self, content: rowContent))
         self.prefersImplicitSelectionTag = true
+        self.implicitSelectionTagType = ObjectIdentifier(Int.self)
         self.selectionMode = .requiredSingle(selection)
     }
 
@@ -9883,6 +9888,7 @@ public struct List: View {
         self.content = []
         self.deferredProjection = DeferredListProjection(ForEach(data, id: \.id, content: rowContent))
         self.prefersImplicitSelectionTag = true
+        self.implicitSelectionTagType = ObjectIdentifier(Data.Element.ID.self)
         self.selectionMode = selection.map { .single($0) }
     }
 
@@ -9894,6 +9900,7 @@ public struct List: View {
         self.content = []
         self.deferredProjection = DeferredListProjection(ForEach(data, id: \.id, content: rowContent))
         self.prefersImplicitSelectionTag = true
+        self.implicitSelectionTagType = ObjectIdentifier(Data.Element.ID.self)
         self.selectionMode = selection.map { .multiple($0) }
     }
 
@@ -9906,6 +9913,7 @@ public struct List: View {
         self.content = []
         self.deferredProjection = DeferredListProjection(ForEach(data, id: id, content: rowContent))
         self.prefersImplicitSelectionTag = true
+        self.implicitSelectionTagType = ObjectIdentifier(ID.self)
         self.selectionMode = selection.map { .multiple($0) }
     }
 
@@ -10009,7 +10017,8 @@ public struct List: View {
             if let projection = list.deferredProjection {
                 return makeDeferredListComponent(
                     projection: projection, selectionMode: list.selectionMode,
-                    prefersImplicitSelectionTag: list.prefersImplicitSelectionTag, context: installedContext)
+                    prefersImplicitSelectionTag: list.prefersImplicitSelectionTag,
+                    implicitSelectionTagType: list.implicitSelectionTagType, context: installedContext)
             }
             return list.makeEagerComponent(context: installedContext)
         }
@@ -10113,7 +10122,8 @@ public struct List: View {
 
     static func materializedRow(
         _ view: AnyView, index: Int, implicitTag: AnyHashable? = nil, prefersImplicitTag: Bool = false,
-        selectionMode: ListSelectionMode?, listChrome: RetainedListChrome, isEditing: Bool,
+        implicitTagType: ObjectIdentifier? = nil, selectionMode: ListSelectionMode?,
+        listChrome: RetainedListChrome, isEditing: Bool,
         context: ViewBuildContext, runtime: RetainedViewRuntime, navigationState: ListKeyboardNavigationState,
         logicalOrdinal: Int? = nil, logicalLeaf: Int? = nil, validateSource: () -> Bool = { true }
     ) -> (node: ViewNode, isSelected: Bool) {
@@ -10150,6 +10160,10 @@ public struct List: View {
         guard canConstruct(), validateSource(), canConstruct() else { return (rejectedRetainedViewNode(), false) }
         var row = component.makeNode(runtime: runtime)
         guard canConstruct(), validateSource(), canConstruct() else { return (rejectedRetainedViewNode(), false) }
+        if let implicitTag, let implicitTagType {
+            Self.applyImplicitSelectionTag(implicitTag, type: implicitTagType, to: row)
+            guard canConstruct(), validateSource(), canConstruct() else { return (rejectedRetainedViewNode(), false) }
+        }
         if context.isSelectionDisabled, row.selectionDisabledOverride == nil {
             row.selectionDisabled = true
         }
@@ -10208,6 +10222,16 @@ public struct List: View {
             }
         }
         return (row, isSelected)
+    }
+
+    @inline(never)
+    private static func applyImplicitSelectionTag(_ tag: AnyHashable, type: ObjectIdentifier, to row: ViewNode) {
+        let identifier = retainedContainerValuesIdentifier()
+        var values = row.retainedContainerValues[identifier] as? ContainerValues ?? ContainerValues()
+        values.setTag(tag, for: type)
+        row.retainedContainerValues[identifier] = values
+        // Release temporary copies of the overwritten payload before the caller
+        // checks source and construction admission again.
     }
 
     /// Minimum total height applied to selection-bound rows when no explicit

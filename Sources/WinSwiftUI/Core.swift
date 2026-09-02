@@ -5297,6 +5297,10 @@ public struct ContainerValues: @unchecked Sendable {
         tags[ObjectIdentifier(Value.self)] = AnyHashable(value)
     }
 
+    mutating func setTag(_ value: AnyHashable, for typeIdentifier: ObjectIdentifier) {
+        tags[typeIdentifier] = value
+    }
+
     var hasExplicitSymbolTag: Bool { !tags.isEmpty }
 
     func containsExplicitSymbolTag(_ value: AnyHashable) -> Bool {

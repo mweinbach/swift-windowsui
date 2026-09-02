@@ -28,7 +28,7 @@ private enum DeferredListRecordBuildResult {
 @MainActor
 func makeDeferredListComponent(
     projection: DeferredListProjection, selectionMode: ListSelectionMode?, prefersImplicitSelectionTag: Bool,
-    context sourceContext: ViewBuildContext
+    implicitSelectionTagType: ObjectIdentifier?, context sourceContext: ViewBuildContext
 ) -> Component {
     let context = sourceContext.withEnvironmentValue(\.isInsideGroupedForm, false)
     return Component { runtime in
@@ -82,7 +82,8 @@ func makeDeferredListComponent(
             rowContext.viewIdentity.path = prefix
             let result = materializeDeferredListRecord(
                 record, prefix: prefix, projection: projection, selectionMode: selectionMode,
-                prefersImplicitSelectionTag: prefersImplicitSelectionTag, chrome: chrome,
+                prefersImplicitSelectionTag: prefersImplicitSelectionTag,
+                implicitSelectionTagType: implicitSelectionTagType, chrome: chrome,
                 isEditing: isEditing, rowSpacing: rowSpacing, separatorThickness: separatorThickness,
                 maximumProjectedLeaves: maximumLeaves / 2,
                 context: rowContext, runtime: runtime, navigation: navigation)
@@ -202,7 +203,8 @@ func makeDeferredListComponent(
 @inline(never)
 private func materializeDeferredListRecord(
     _ record: DeferredListRecord, prefix: RetainedViewIdentity, projection: DeferredListProjection,
-    selectionMode: ListSelectionMode?, prefersImplicitSelectionTag: Bool, chrome: RetainedListChrome,
+    selectionMode: ListSelectionMode?, prefersImplicitSelectionTag: Bool,
+    implicitSelectionTagType: ObjectIdentifier?, chrome: RetainedListChrome,
     isEditing: Bool, rowSpacing: Double, separatorThickness: Double, maximumProjectedLeaves: Int,
     context: ViewBuildContext,
     runtime: RetainedViewRuntime, navigation: ListKeyboardNavigationState
@@ -224,7 +226,7 @@ private func materializeDeferredListRecord(
         let row = ViewBuildContextScope.withCurrent(context) {
             List.materializedRow(
                 view, index: leafIndex, implicitTag: record.implicitTag,
-                prefersImplicitTag: prefersImplicitSelectionTag,
+                prefersImplicitTag: prefersImplicitSelectionTag, implicitTagType: implicitSelectionTagType,
                 selectionMode: selectionMode, listChrome: chrome, isEditing: isEditing,
                 context: context, runtime: runtime, navigationState: navigation,
                 logicalOrdinal: record.ordinal, logicalLeaf: leafIndex,

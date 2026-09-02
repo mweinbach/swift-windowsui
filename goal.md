@@ -12915,3 +12915,58 @@ source review, not a compiled or passing UIA result. The focused diagnostic
 attempt, final-query optional-prefetch policy, anchor correction, and larger-
 allowance settlement diagnosis remain outstanding. All nine original goal gates
 remain open and unchanged.
+
+
+### Ninth integration: typed List tags and the observed UIA final visibility boundary
+
+The focused diagnostic attempt at `2c711625f3c43d47af20c49d3f5114bc8324cbdc`
+completed naturally: **22 started, 17 passed, five failed, zero skipped**.
+The unchanged-provider fixture with its established warm premise and the new
+optional-expansion regression both passed, as did all three passive diagnostic
+controls. MeasurementCorrection finished 13/15; ManagedListUIARealizationBudget
+finished 1/4. All selected identities have individual XCTest outcomes. The
+wrapper and child both exited one after 602.875 seconds, including a 436.51-second
+build and 160.148 seconds reported by XCTest. There was no timeout or termination.
+Source/index endpoints match; the separate point-in-time post-closure census
+found no recorded process remaining. The raw log has 3,657,039 bytes, SHA256
+`6566ac274110cea267a4a88b12e56aab0c2f05f0b81aeb318f6cd4bd9cec34a1`.
+`goal-ninth-uia22-2c71162-reconciled-v1.json` records the exact roster/results.
+
+The default-four quiet/nested/managed failures stop at final-query accepted
+measurement capture, with six newly constructed optional rows and no remaining
+round. The explicit-eight and sixteen-round failures differ: they finish
+measurement in round five, report complete provider work with no unresolved
+rows, and reach the final visibility/correction rejection. Their pass 10,
+sequence 4, geometry 60, last-unmutated geometry 60, and mutation 42 survive;
+no pass-counter or final-query-result rejection is recorded. The strict final
+query/currentness/settlement/prepaint/root-membership guard therefore passed in
+those cases, but a positive target interaction and another useful correction did
+not. This does not establish the target geometry's cause. It rules out treating
+the previously hypothesized stale geometry-counter branch as observed evidence.
+The diagnostic flag was enabled only for this bounded attempt. No production
+prefetch, visibility, budget, or retry change is justified merely by this ledger.
+
+The separate List tag repair carries a declared ID type token from the six
+existing data-and-selection initializer routes into deferred materialization.
+Each real content leaf receives its element's typed tag before selection chrome;
+this includes an explicitly nil selection binding. An already-erased
+`AnyHashable` payload is stored under the declared type rather than guessing from
+its underlying value. Optional nil IDs remain distinguishable from absent tags.
+Unrelated typed tags, data-without-selection forms, builder-authored tags,
+factory ordering, and identities keep their existing behavior. Temporary old tag
+aliases are released in a separate non-inlined helper before source/admission
+validation, so reentrant cleanup cannot authorize stale construction.
+
+Nine new asynchronous tests cover declared AnyHashable/optional IDs, nil
+selection, all data-and-selection routes, no-selection/builder controls, and
+outgoing tag cleanup before source rejection. The cleanup fixture tests source
+invalidation, not a real managed-admission revocation, and external owners can
+retain an authored payload beyond this helper. All 650 existing test files are
+unchanged. Root's complete staged patch equals the reviewed 21,721-byte patch,
+SHA256 `a630134a0df78b53e7df9ba2b0564e4c040699b138990ee2d67bc35cdccabc2a`;
+strict lint and contracts pass without a formatting delta. The exact proof is
+`goal-ninth-list-typed-tag-root-staged-proof-v1.json`. Compatibility/List docs now
+distinguish earlier focused compilation from still-failing runtime behavior.
+The nine new tests and the original 78 builder tests must run on this follow-up;
+no tag result, other builder-state repair, native conformance, or goal completion
+is claimed. All nine original gates remain open.

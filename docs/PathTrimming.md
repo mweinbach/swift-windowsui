@@ -56,25 +56,27 @@ The exact full-range route remains unchanged. Existing retained arc flattening
 is still an approximation and is not a general arc rendering fix.
 
 There are 26 original analytic portable tests, six additional reversal controls
-and 12 retained geometry/pixel tests.
-At `7db6b98`, fresh execution passed 25 of the 26 portable tests and all 12
-retained tests. The retraced quadratic still rejects with `workLimit`; a source
-review attributes this to subdivision error allowances during prefix inversion.
-The subsequent sibling-allowance repair and its six new controls await fresh
-execution. The retained cases cover wide/tall dimensions,
+and 12 retained geometry/pixel tests. At `a3dfc5f`, fresh execution passed all
+44 of those cases, including the retraced quadratic that previously rejected
+with `workLimit` and all six sibling-allowance reversal controls. The retained
+cases cover wide/tall dimensions,
 Bézier controls, empty and partial fills, layout/reconciliation callback counts,
 live border width, resizing, passive erasure, origin placement, display scales
-and rejection. The related 80-case shape/selection cohort passed 78 and failed
-two, with no skips; its other failure is an older Arc test's stored-coordinate
-expectation. Neither that expectation correction nor retained gallery evidence
-has been validated yet. Exact source, raw logs and outcomes are recorded in the
-append-only [goal ledger](../goal.md).
+and rejection. The complete 98-case shape/selection cohort passed with no skips,
+including the independently corrected Arc assertion and twelve Arc coordinate
+controls. This is focused execution, not a full-suite or native parity result.
+Exact source, raw logs and outcomes are recorded in the append-only
+[goal ledger](../goal.md).
 
 The `shape-trim-static` gallery entry provides a 600-by-400 dark fixture with
 wide and tall quarter outlines, a half quadratic curve, and full/half/empty
 fills against untrimmed references. Its shared demo source uses ordinary shape
-APIs. A fresh retained-renderer image and visual inspection are still pending;
-adding this fixture does not create or approve a baseline.
+APIs. A freshly linked executable from `a3dfc5f` rendered that one entry through
+the retained snapshot and CPU rasterizer, and the resulting PNG was inspected.
+The quarter outlines, half curve and full/half/empty fills are visible in the
+expected panels; the gray complete-curve reference still shows segment faceting.
+This adds no approved baseline, D3D11 execution, macOS reference comparison or
+performance qualification.
 
 Bounds-dependent custom shapes, literal and nested retained geometry, inset and
 `strokeBorder` composition, hit/clip semantics, animated fractions, arbitrary

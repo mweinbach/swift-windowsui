@@ -2395,8 +2395,11 @@ public final class ComponentHost {
         }
     }
 
-    private static func gridConfigurationChanged(_ target: ViewLayoutMode, _ source: ViewLayoutMode) -> Bool {
+    private static func layoutConfigurationChanged(_ target: ViewLayoutMode, _ source: ViewLayoutMode) -> Bool {
         switch (target, source) {
+        case (.stack(let old), .stack(let new)),
+            (.lazyStack(let old), .lazyStack(let new)):
+            return old != new
         case (.grid(let old), .grid(let new)):
             return old != new
         case (.gridRow(let old), .gridRow(let new)):
@@ -2920,6 +2923,14 @@ public final class ComponentHost {
             guard copyNodeProperty(\.blurOpaque, source: source, target: target, check: check), check.isCurrent else {
                 return false
             }
+        }
+        if target.contentBlurRadius != source.contentBlurRadius {
+            guard copyNodeProperty(\.contentBlurRadius, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
+        if target.contentBlurOpaque != source.contentBlurOpaque {
+            guard copyNodeProperty(\.contentBlurOpaque, source: source, target: target, check: check), check.isCurrent
+            else { return false }
         }
         if target.geometryEffect != source.geometryEffect {
             guard copyNodeProperty(\.geometryEffect, source: source, target: target, check: check), check.isCurrent
@@ -4166,7 +4177,7 @@ public final class ComponentHost {
         }
         let targetLayoutTag = layoutModeTag(target.layoutMode)
         let sourceLayoutTag = layoutModeTag(source.layoutMode)
-        if targetLayoutTag != sourceLayoutTag || gridConfigurationChanged(target.layoutMode, source.layoutMode) {
+        if targetLayoutTag != sourceLayoutTag || layoutConfigurationChanged(target.layoutMode, source.layoutMode) {
             guard copyNodeProperty(\.layoutMode, source: source, target: target, check: check), check.isCurrent else {
                 return false
             }

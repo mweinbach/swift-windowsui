@@ -14356,3 +14356,37 @@ and recovery of its whole tree. Strict two-file lint and contracts passed.
 Fresh execution of the two complete collateral groups (148 and 123 methods,
 271 total) remains pending, including the original transport failure. No GPU,
 full-suite, performance or completion-gate pass is inferred from source review.
+
+
+### Ninth integration: refresh authored stack configuration and content blur (2026-09-02)
+
+Two independently reviewed `ComponentHost` omissions are repaired together.
+Reconciliation now compares the existing native `StackLayout` values for
+same-kind eager and lazy stacks, in addition to the existing grid cases. A
+changed spacing, padding, alignment or distribution therefore reaches the
+installed node through the existing guarded `layoutMode` copy. Equal finite
+configurations avoid a setter and remain clean. Category/identity decisions,
+grid handling and custom-layout behavior are unchanged; no authored equality
+callback or new general layout conformance is introduced.
+
+The host also copies changed `contentBlurRadius` and `contentBlurOpaque` values
+separately through its guarded property path. These are the public `.blur`
+properties, distinct from backdrop/material blur. Their existing paint
+invalidation and cache keys now observe live rebuilds. The opaque flag retains
+its existing hint semantics; this change does not invent different pixels for
+that flag or claim new opaque-blur rendering behavior.
+
+Twenty frozen stack regressions cover public eager/lazy spacing and alignment,
+RTL environment changes, padding, mounted State invalidation, native main-axis
+alignment/distribution, equal configurations, and identity/category controls.
+Three frozen blur regressions cover 0-to-positive-to-0, positive-radius cache
+replacement, and independent opaque-hint changes on the same node, including
+actual warm bitmap reuse checks. All 696 pre-existing test entries/raw bytes
+are unchanged. Root reviewed the full production and regression patches and
+independent reports before composition.
+
+The three-file strict lint and contracts passed. Application receipt
+`artifacts/goal-ninth-authored-properties-apply-v1.json` records exact composition
+on `f305bfd`, both original new-test hashes and complete inverse recovery. The
+121-method stack/collateral selection and three new blur cases remain unrun,
+alongside their broader blur/renderer obligations. No original gate is closed.

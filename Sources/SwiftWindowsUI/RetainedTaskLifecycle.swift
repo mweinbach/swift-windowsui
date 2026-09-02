@@ -1214,7 +1214,7 @@ final class RetainedTaskPhysicalDepartureRoot {
 
     fileprivate init(_ node: ViewNode) {
         self.node = node
-        runtime = node.runtime
+        runtime = node.retainedLazyListRuntime
         originalNodeID = ObjectIdentifier(node)
         originalAttachment = node.captureLazyListAttachmentProof()
     }

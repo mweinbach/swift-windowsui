@@ -15236,3 +15236,27 @@ original distant-row assertion must pass independently; a tiny mounted fixture
 cannot substitute for it. The broader 182-method C04 selection, release checks,
 native behavior, and hardware timing remain owed. No later navigation stage was
 changed speculatively. **All nine original completion gates remain open.**
+
+
+### 2026-09-02: first joined build exposes and corrects a mounted-capture access error
+
+The first diagnostic-writer selection at committed `078d10a` selected nineteen
+methods but stopped during compilation, before any XCTest method began. The
+compiler reported one distinct source error: the new mounted removal capture
+read `ViewNode.runtime` from RetainedTaskLifecycle.swift, while that field is
+file-private to Runtime.swift. This run records zero passed, zero failed, and
+nineteen unrun test methods; it does not satisfy the writer prerequisites or
+execute the original dashboard interaction workload.
+
+The retained direct child exited naturally with code 1, without timeout or
+termination. Its source-preservation check passed. The separate post-closure
+CIM snapshot found no matching process at that instant; it does not attest
+continuous descendant behavior.
+
+The capture now reads the existing internal `retainedLazyListRuntime` accessor,
+whose complete body returns that same stored runtime. This one-token access
+correction preserves the capture order, retained value, attachment proof, and
+all test bytes without widening the private field's visibility. A literal
+inverse restores the entire prior lifecycle file. Strict formatting and
+architecture contracts pass; the corrected source still needs compilation
+and test execution. **All nine original completion gates remain open.**

@@ -12322,3 +12322,35 @@ are `goal-ninth-empty-membership7989-intake-v1` and
 `goal-ninth-uia-insertion4dd1-intake-v1`. No compiler or XCTest has yet validated
 these changes. The original selected methods remain required, and all nine
 completion gates remain open.
+
+
+### 2026-09-01: Preserve an actual UIA target pass and stop known-empty work
+
+Runtime now tries its existing strict target-pass certificate after the normal
+measurement and reader phases, before entering another provider build, only
+for an unchanged target query. This prevents a redundant unchanged build from
+invalidating an already usable actual pass. The same round remains charged;
+all currentness, reader, callback, probe-retirement, other-list, and measured
+geometry checks still govern capture. A refused certificate falls through to
+the original provider path. Final queries and ordinary phase ordering are
+unchanged.
+
+A separate loop-top check stops an exact current target query when that same
+adapter/token has accepted a native zero-leaf result. It marks only the original
+preparation inactive. It does not manufacture visible roots or settlement, and
+it leaves the ordinary query epilogues and request cleanup in place. Keeping
+the typed preparation installed prevents an epilogue from rebuilding the
+failed demand through an ordinary path. Unknown or stale targets do not match.
+
+The source change is exactly 18 added Runtime lines, matching the reviewed
+2,007-byte patch, SHA256
+`1eba47ad70224f35cb1995eeab6409b35d307ecbff7a6191504c3d9908f4b944`.
+Root strict formatting and contracts passed; source tree is
+`7b9c150c55bf8cf475f8b09631df74ed16035dd1`. All 642 current test files and
+Package.swift are unchanged. The packet and root proof are
+`artifacts/goal-ninth-uia-target9f0-intake-v1` and
+`goal-ninth-uia-target65eb-staged-proof-v1.json`. No compiler or XCTest has
+validated these changes yet. The separate initial-query measurement correction
+and unused-phase proposal is not included or implicitly approved. Existing
+four/eight/sixteen-round expectations remain required. All nine completion
+gates remain open.

@@ -20014,6 +20014,16 @@ public final class RetainedViewRuntime {
             {
                 return
             }
+            // An accepted empty row cannot satisfy this request. Latch only
+            // its original preparation before more construction; the enclosing
+            // query still runs every ordinary epilogue and owned cleanup.
+            if let request = lazyListUIARequest, request.phase == .targetQuery,
+                isLazyListUIARequestCurrent(request),
+                request.item.adapter?.knownLeafCount(for: request.item.token) == 0
+            {
+                request.preparation.isActive = false
+                return
+            }
             let chargedBudget = lazyListResolutionBudget
             let resolutionSequence = layoutSettlementResolutionSequence
             if let budget = chargedBudget {
@@ -20032,6 +20042,14 @@ public final class RetainedViewRuntime {
                 }
                 recordLazyListUIAPhase(.readerPhase)
                 if resolveGeometryReaderSlots() { changed = true }
+                // A current actual target pass needs no further provider build.
+                // An unchanged build would still retire this pass's settlement
+                // revision merely because the construction hint remains active.
+                if !changed, lazyListUIARequest?.phase == .targetQuery, let chargedBudget,
+                    captureLazyListUIATargetPass(chargedTo: chargedBudget)
+                {
+                    return
+                }
                 recordLazyListUIAPhase(.providerPhase)
                 if let budget = lazyListResolutionBudget, resolveLazyListContainers(budget: budget) { changed = true }
             }

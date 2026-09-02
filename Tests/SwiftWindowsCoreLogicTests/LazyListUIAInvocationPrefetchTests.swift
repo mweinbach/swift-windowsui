@@ -215,8 +215,10 @@ final class LazyListUIAInvocationPrefetchTests: XCTestCase {
         let fixture = try InvocationPrefetchFixture(target: 300)
         defer { fixture.close() }
         let offset = fixture.scroll.scrollOffset
+        let cancellation = InvocationPrefetchCancellationWitness(adapter: fixture.adapter)
         var interventions = 0
         fixture.onFirstPostFactory = { fixture in
+            cancellation.captureFactoryEntry()
             interventions += 1
             fixture.scroll.scrollOffset = offset + 1
             fixture.scroll.scrollOffset = offset
@@ -232,9 +234,7 @@ final class LazyListUIAInvocationPrefetchTests: XCTestCase {
         XCTAssertNotNil(fixture.originalButton)
         XCTAssertTrue(fixture.currentButton === fixture.originalButton)
         let rejected = try XCTUnwrap(fixture.probe.postCalls.first)
-        XCTAssertEqual(rejected.physical.state, .revoked)
-        XCTAssertFalse(rejected.physical.actualAttachments.contains(where: \.isAttached))
-        XCTAssertFalse(fixture.adoptions.contains { $0.physical == ObjectIdentifier(rejected.physical) })
+        try assertRejectedFactoryPreservesAcceptedRow(fixture, rejected: rejected, witness: cancellation)
         assertSharedBudget(fixture)
         XCTAssertFalse(fixture.runtime.hasActiveRetainedBuild)
         XCTAssertNil(fixture.runtime.focusedNode)
@@ -243,9 +243,11 @@ final class LazyListUIAInvocationPrefetchTests: XCTestCase {
     func testAReplacementAdapterCannotReuseTheOriginalCompletionToken() async throws {
         let fixture = try InvocationPrefetchFixture(target: 300)
         defer { fixture.close() }
+        let cancellation = InvocationPrefetchCancellationWitness(adapter: fixture.adapter)
         var interventions = 0
         var entered: ObjectIdentifier?
         fixture.onFirstPostFactory = { fixture in
+            cancellation.captureFactoryEntry()
             interventions += 1
             entered = ObjectIdentifier(fixture.adapter)
             fixture.host.reload()
@@ -261,12 +263,52 @@ final class LazyListUIAInvocationPrefetchTests: XCTestCase {
         XCTAssertEqual(fixture.probe.postCalls.count, 1)
         XCTAssertNil(fixture.runtime.lazyListAccessibilityGeneration(for: fixture.originalItem))
         let rejected = try XCTUnwrap(fixture.probe.postCalls.first)
-        XCTAssertEqual(rejected.physical.state, .revoked)
-        XCTAssertFalse(rejected.physical.actualAttachments.contains(where: \.isAttached))
-        XCTAssertFalse(fixture.adoptions.contains { $0.physical == ObjectIdentifier(rejected.physical) })
+        try assertRejectedFactoryPreservesAcceptedRow(fixture, rejected: rejected, witness: cancellation)
         assertSharedBudget(fixture)
         XCTAssertFalse(fixture.runtime.hasActiveRetainedBuild)
         XCTAssertNil(fixture.runtime.focusedNode)
+    }
+
+    private func assertRejectedFactoryPreservesAcceptedRow(
+        _ fixture: InvocationPrefetchFixture, rejected: InvocationPrefetchFactoryCall,
+        witness: InvocationPrefetchCancellationWitness,
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let entry = try XCTUnwrap(witness.entry, file: file, line: line)
+        let original = try XCTUnwrap(
+            witness.beforeEffect.first { $0.token == rejected.token }, file: file, line: line)
+        let originalActivity = try XCTUnwrap(original.activity, file: file, line: line)
+        XCTAssertEqual(entry.native.rowRequest.token, rejected.token, file: file, line: line)
+        XCTAssertTrue(entry.native.physical === rejected.physical, file: file, line: line)
+        XCTAssertTrue(entry.native.physical === originalActivity.physical, file: file, line: line)
+        XCTAssertFalse(entry.native.attempt === originalActivity.attempt, file: file, line: line)
+        XCTAssertFalse(entry.native.component === originalActivity.component, file: file, line: line)
+        XCTAssertEqual(entry.construction, .admittedForConstruction, file: file, line: line)
+        XCTAssertEqual(entry.native.constructionState, .rejected, file: file, line: line)
+        XCTAssertEqual(original.footprint.state, .active, file: file, line: line)
+        XCTAssertFalse(original.footprint.attachedIdentities.isEmpty, file: file, line: line)
+        assertSameFootprint(entry.footprint, original.footprint, file: file, line: line)
+        assertSameFootprint(
+            InvocationPrefetchPhysicalFootprint(rejected.physical), original.footprint, file: file, line: line)
+
+        // These native table reads neither require a current source generation
+        // nor resolve layout. A successor may carry the accepted old row, but
+        // must not publish this canceled factory's fresh attempt/component.
+        let current = fixture.adapter.materializedRowActivities
+        XCTAssertTrue(current.contains { $0 === originalActivity }, file: file, line: line)
+        XCTAssertFalse(
+            current.contains { $0.attempt === entry.native.attempt || $0.component === entry.native.component },
+            file: file, line: line)
+    }
+
+    private func assertSameFootprint(
+        _ actual: InvocationPrefetchPhysicalFootprint, _ original: InvocationPrefetchPhysicalFootprint,
+        file: StaticString, line: UInt
+    ) {
+        XCTAssertEqual(actual.state, original.state, file: file, line: line)
+        XCTAssertEqual(actual.attachmentIdentities, original.attachmentIdentities, file: file, line: line)
+        XCTAssertEqual(actual.attachedIdentities, original.attachedIdentities, file: file, line: line)
+        XCTAssertEqual(actual.contributionIdentities, original.contributionIdentities, file: file, line: line)
     }
 
     private func assertSuccessfulInvoke(
@@ -339,6 +381,64 @@ private struct InvocationPrefetchFactoryCall {
     let round: Int
     let sequence: UInt64
     let pass: UInt64
+}
+
+/// Only native identities are retained. Row activity stays weak, and the
+/// captured attribution owns neither its journal nor retained view nodes.
+@MainActor
+private final class InvocationPrefetchCancellationWitness {
+    struct AcceptedRow {
+        weak var activity: RetainedLazyListMaterializedRowActivity?
+        let token: RetainedLazyListRowToken
+        let footprint: InvocationPrefetchPhysicalFootprint
+    }
+
+    struct Entry {
+        let native: RetainedLazyListBuildAttribution
+        let construction: RetainedLazyListConstructionState
+        let footprint: InvocationPrefetchPhysicalFootprint
+    }
+
+    let beforeEffect: [AcceptedRow]
+    private(set) var entry: Entry?
+
+    init(adapter: RetainedLazyListRuntimeAdapter) {
+        beforeEffect = adapter.materializedRowActivities.map {
+            AcceptedRow(
+                activity: $0, token: $0.request.token, footprint: InvocationPrefetchPhysicalFootprint($0.physical))
+        }
+    }
+
+    func captureFactoryEntry() {
+        guard let native = ViewBuildContextScope.current?.viewIdentity.lazyList?.native else { return }
+        entry = Entry(
+            native: native, construction: native.constructionState,
+            footprint: InvocationPrefetchPhysicalFootprint(native.physical))
+    }
+}
+
+@MainActor
+private struct InvocationPrefetchPhysicalFootprint {
+    let state: RetainedLazyListPhysicalActivityState
+    private let attachments:
+        [(target: RetainedLazyListTargetID, attachment: RetainedLazyListAttachmentID, attached: Bool)]
+    private let contributions: [RetainedLazyListContributionID]
+
+    init(_ physical: RetainedLazyListPhysicalActivityReceipt) {
+        state = physical.state
+        attachments = physical.actualAttachments.map { ($0.target, $0.attachment, $0.isAttached) }
+        contributions = physical.acceptedContributions.map(\.id)
+    }
+
+    var attachmentIdentities: Set<[ObjectIdentifier]> {
+        Set(attachments.map { [ObjectIdentifier($0.target), ObjectIdentifier($0.attachment)] })
+    }
+
+    var attachedIdentities: Set<[ObjectIdentifier]> {
+        Set(attachments.filter { $0.attached }.map { [ObjectIdentifier($0.target), ObjectIdentifier($0.attachment)] })
+    }
+
+    var contributionIdentities: Set<ObjectIdentifier> { Set(contributions.map(ObjectIdentifier.init)) }
 }
 
 private struct InvocationPrefetchAdoption {

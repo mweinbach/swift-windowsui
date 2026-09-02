@@ -334,3 +334,35 @@ checks the actual
 ingress queue and reservation. All 27 predicates, original work/query order,
 trace limits, three-second idle interval and internal/external deadlines remain
 unchanged. The earlier 24/27 result is not reclassified by this preparation.
+
+
+## Recorded native run at f64b73a (2026-09-02)
+
+A fresh source-bound run at `f64b73a3055b56cf95734551c7be93057fa25aac`
+passed all 27 unchanged predicates and exited naturally with child/controller
+code 0 after 11.266 seconds. Its trace has 1,701 records, 416,978 bytes,
+SHA-256 `230def74dae2f89de0f651af976faf9bdd83cac34952da3624df28ae46d14f04`.
+The retained local run is
+`artifacts/goal-ninth-native-owned-smoke-9f99c6d83e384844b1c4225291665250`.
+The earlier 24/27 attempt remains a separate failed result.
+
+This run exercised the actual 32-record backlogged turn and a following turn,
+with the model's real first resumption between them. The idle boundary records
+are consecutive and 3.0013587 seconds apart; the settled snapshots match.
+The original 64 probes/replies, native close/join sequence, and three phase
+frame-submission checks passed. No diagnostic pause, forced shutdown, timer
+exception, increased bound, or replacement workload was used.
+
+Before launch, the same clean source passed 23 logical-geometry tests, all 33
+ingress-setup tests, eight activation tests and the 116 native prerequisites.
+A separate 76-case publication/lifetime cohort also passed. The warmup's actual
+native executable link and stable PE hash are retained separately from the
+incremental 116-case run, which did not relink that executable. A new single-use
+binding joined those inputs. Source/index and pinned input endpoints matched;
+a separate process census after closure was empty.
+
+These results qualify this fixed local smoke attempt only. Direct C-vtable
+calls do not qualify COM routing or assistive-technology applications, frame
+submission does not prove display completion, and runtime DLL file pins do not
+prove loader selection. This is not hardware pacing, macOS parity, full-suite,
+or clean-machine release qualification.

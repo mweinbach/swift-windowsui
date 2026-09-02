@@ -101,7 +101,7 @@ limits still apply; this is not the completed product in `goal.md`.
 
 | API | Status | Notes |
 | --- | --- | --- |
-| `Text` (string / verbatim / key) | **Partial** | Native glyphs preserve shrinking transforms and bidirectional placement; wrapped text measures at its allocated width, and weight modifiers preserve inherited fonts. Localization keys resolve to plain strings (no bundle tables) |
+| `Text` (string / verbatim / key) | **Partial** | Native glyphs preserve shrinking transforms and bidirectional placement; wrapped text measures at its allocated width, and weight modifiers preserve inherited fonts. Explicit `LocalizedStringKey` Text initializers now use Foundation bundle/string-table lookup; stored String/StringProtocol and verbatim inputs remain literal. Lookup happens at initialization, not through the inherited locale. The lookup change has 12 new source-reviewed tests awaiting repository execution |
 | `Text` date / format / attributed | **Partial** | Deterministic string resolution; rich runs / live timers incomplete |
 | `Label`, `Image(systemName:)` | **Partial** | System icons render as real Segoe Fluent/MDL2 glyphs (native bitmap) with a drawn-vector fallback — never `?`; ~40 common SF Symbols mapped, variants/scale honored |
 | `Image(_:)` named / file / resource | **Partial** | WIC PNG/JPEG/BMP; no full asset-catalog pipeline |
@@ -333,7 +333,7 @@ existing environment value untouched.
 | Style enums that only change chrome profiles | **Partial** | e.g. many `listStyle`, `formStyle`, `menuStyle`, `groupBoxStyle` values map to retained shells or metadata, not protocol-based custom styles |
 | `ignoresSafeArea` / `edgesIgnoringSafeArea` | **Shim** | Pass-through on client-area surface |
 | `coordinateSpace` naming | **Shim** | Metadata boundary; simplified frame resolution |
-| `LocalizedStringKey` / resource localization | **Shim** | Resolves to plain string; no table lookup |
+| `LocalizedStringKey` / resource localization | **Partial** | Explicit Text localized-key overloads use the requested Foundation bundle/table, defaulting to the main bundle and Localizable. Missing keys/tables preserve the key. LocalizedStringResource and many control-title paths still flatten to plain strings; environment-locale updates, format interpolation, catalogs, plurals, Markdown, and automatic literal-overload conformance remain incomplete |
 | `EquatableView` / `.equatable()` | **Shim** | Renders content; no Equatable skip-rebuild |
 | Binding `.transaction` / `.animation` | **Partial** | Transaction-aware setters and writes through dynamic-member, collection, and optional projections carry their configured transaction into synchronous state observation and retained animation. Nested writes restore ambient context; explicit nil animation suppresses motion. Conflicting ambient/binding precedence and deferred updates still need native reference qualification (`BindingTransactionTests`) |
 | `@AppStorage` external observation | **Partial** | Reads/writes UserDefaults; does not observe external process changes |

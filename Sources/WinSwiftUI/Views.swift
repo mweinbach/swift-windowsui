@@ -6192,11 +6192,11 @@ public struct Text: View {
     }
 
     public init(_ titleKey: LocalizedStringKey) {
-        self.init(titleKey.resolvedString)
+        self.init(titleKey, tableName: nil, bundle: nil, comment: nil)
     }
 
     public init(_ key: LocalizedStringKey, tableName: String?) {
-        self.init(key.resolvedString)
+        self.init(key, tableName: tableName, bundle: nil, comment: nil)
     }
 
     private init(
@@ -6271,10 +6271,9 @@ public struct Text: View {
         bundle: Bundle? = nil,
         comment: StaticString? = nil
     ) {
-        _ = tableName
-        _ = bundle
         _ = comment
-        self.init(key.resolvedString)
+        let source = bundle ?? .main
+        self.init(source.localizedString(forKey: key.resolvedString, value: key.resolvedString, table: tableName))
     }
 
     public init(_ resource: LocalizedStringResource) {

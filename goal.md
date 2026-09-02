@@ -16058,3 +16058,46 @@ A fresh census after actual tool closure found no matching Swift/native workers
 or the actual direct child, PID 17456. This is a point observation, not owned
 Job or continuous descendant-closure evidence. All prior timeout records remain
 intact. **All nine original completion gates remain open.**
+
+### Ninth batch: implement explicit Text bundle and string-table lookup
+
+The existing localization requirement includes honoring an explicitly supplied
+bundle and string table. `Text(LocalizedStringKey, tableName:bundle:comment:)`
+now delegates that lookup to Foundation. The key-only and table-only convenience
+initializers use the same route. A nil bundle selects the main bundle; omitted,
+nil and empty table names select Localizable; absent keys or tables preserve the
+key; an existing empty translation stays empty. Translator comments do not enter
+the displayed value. Ordinary String/StringProtocol, verbatim and resource-wrapper
+initializer bodies remain unchanged.
+
+The production change is two `Views.swift` hunks, four added and five removed
+lines. Twelve new tests were frozen in a separate private test-only commit before
+implementation. Eleven use actual temporary resource bundles with translations
+that differ from their keys. They cover named/default/missing tables, missing
+keys, empty translations, bundle isolation, Unicode and escaped characters,
+comments, styling/concatenation and literal preservation. The remaining method
+covers only missing-key fallback through main-bundle convenience routes; it does
+not prove a translated executable main-bundle deployment. Content assertions
+check the retained description and a constructed node's text, not rendered pixels.
+
+Root read the full test and production/documentation changes, verified the
+Foundation and SwiftUI parameter contracts, and independently reconstructed all
+three initializer replacements forward and backward. All other production bytes
+were preserved. The full staged inverse restores the complete `dccbdf2` tree;
+this includes preserving the earlier construction instrumentation and every
+existing test. Architecture checks passed before integration. Formatting lint
+and architecture checks passed afterward in
+`artifacts/goal-ninth-text-bundle-table-lint-contracts-v1.log`.
+The immutable source packet and root review remain in
+`artifacts/goal-ninth-text-bundle-table-intake-v1` and
+`artifacts/goal-ninth-text-bundle-table-root-review-v1.json`.
+
+Fresh compilation and execution of the twelve new tests plus eight unchanged
+Text regressions are still required. Compatibility documentation continues to
+mark localization Partial. Resolution happens at initialization, not through the
+inherited locale at rendering time. Environment-driven locale updates, retained
+localization declarations, native literal-overload selection, formatted
+interpolation, plurals, catalogs, Markdown, resource wrappers and control-title
+paths remain unfinished. No native-reference, glyph-rendering or performance
+qualification follows from this bounded lookup implementation. **All nine
+original completion gates remain open.**

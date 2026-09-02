@@ -1501,10 +1501,18 @@ final class Win32NativeWindowState: NativeWindowOwnerContext {
         }
         smokeLastTimerFlags = flags
         smokeLastTimerInterval = installedAnimationInterval
+        let guiThreadState: UInt64?
+        if flags == 0, isCreated, !observedDestroy, !observedNonClientDestroy, !hasBegunQuiescence,
+            let handle
+        {
+            guiThreadState = Win32NativeSmokeGUIThreadState.sample(recordedWindow: handle)
+        } else {
+            guiThreadState = nil
+        }
         observation.record(
             .nativeTimerState, windowKey: creation.key, generation: currentSurface?.generation,
             nativeSequence: currentSurface?.geometry.nativeSequence,
-            value: installedAnimationInterval.map { Int64($0) }, flags: flags)
+            value: installedAnimationInterval.map { Int64($0) }, auxiliary: guiThreadState, flags: flags)
     }
 
     func executeOperation(_ operation: Win32NativeWindowOperation) throws -> Win32NativeWindowOperationResult {

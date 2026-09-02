@@ -226,3 +226,27 @@ other output-contract fields and checks need no relaxation. The diagnostic
 source tests, original native94 cohort plus seven new methods, compilation and
 any later native attempt require separate serial execution and fresh binding.
 No saved native result is changed by this source addition.
+
+## Passive GUI thread snapshot
+
+When the existing observer publishes a zero timer-state value for a created,
+live, nonquiescing window with its recorded handle, the native owner takes one
+`GetGUIThreadInfo` snapshot using its explicit nonzero current thread ID. It
+does not query the foreground thread or another window. The original record,
+timer-state cache and flags are preserved. No new record or native action is
+introduced; the snapshot supplies only the existing optional auxiliary field.
+
+An absent field means unsampled; zero means the API call failed. A successful
+value sets bit 7, uses bits 5-6 for no caret / recorded-window caret / other
+caret (0/1/2), and preserves the five documented GUI flags in bits 0-4. No HWND,
+caret rectangle or thread identifier is copied into this scalar. In particular,
+`GUI_CARETBLINKING` describes current caret visibility, not proof of an active
+timer or the source of a message. See Microsoft's [GUI thread information](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getguithreadinfo)
+and [flag definitions](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-guithreadinfo).
+
+The observation is a qualified instantaneous sample, not continuous coverage
+of the later idle interval. It cannot establish who sent message `0x118` or why.
+Seven new pure encoding tests supplement the existing 101-method focused
+cohort; fresh compilation and execution remain required. All 27 predicates,
+64 commands, ordinal-31 query, turn budgets, deadlines and trace caps remain
+unchanged. A later native attempt also needs a fresh executable binding.

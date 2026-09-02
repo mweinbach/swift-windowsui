@@ -19679,12 +19679,12 @@ public struct Stepper: View {
         }
         self.decrement = {
             onEditingChanged(true)
-            value.wrappedValue = Self.steppedStrideable(value.wrappedValue, by: -step, in: bounds)
+            value.wrappedValue = Self.steppedStrideable(value.wrappedValue, by: step, subtracting: true, in: bounds)
             onEditingChanged(false)
         }
         self.increment = {
             onEditingChanged(true)
-            value.wrappedValue = Self.steppedStrideable(value.wrappedValue, by: step, in: bounds)
+            value.wrappedValue = Self.steppedStrideable(value.wrappedValue, by: step, subtracting: false, in: bounds)
             onEditingChanged(false)
         }
     }
@@ -20087,12 +20087,63 @@ public struct Stepper: View {
 
     private static func steppedStrideable<Value>(
         _ value: Value,
-        by delta: Value.Stride,
+        by step: Value.Stride,
+        subtracting: Bool,
         in bounds: ClosedRange<Value>
     ) -> Value where Value: Strideable & Comparable, Value.Stride: SignedNumeric {
+        // A user-defined integer can have an observable Strideable witness.
+        // Only the standard integer types bypass that authored advancement.
+        let isStandardInteger =
+            Value.self == Int.self || Value.self == UInt.self
+            || Value.self == Int8.self || Value.self == UInt8.self
+            || Value.self == Int16.self || Value.self == UInt16.self
+            || Value.self == Int32.self || Value.self == UInt32.self
+            || Value.self == Int64.self || Value.self == UInt64.self
+            || Value.self == Int128.self || Value.self == UInt128.self
+        if isStandardInteger, let integer = value as? any FixedWidthInteger,
+            let result = Self.steppedFixedWidthInteger(integer, by: step, subtracting: subtracting, in: bounds)
+        {
+            return result
+        }
+
+        // Keep every other Strideable's raw delta and its own advancement, in the
+        // original order. Standard integer strides are handled before negating Int.min.
+        let delta = subtracting ? -step : step
         let clampedValue = min(max(value, bounds.lowerBound), bounds.upperBound)
         let candidate = clampedValue.advanced(by: delta)
         return min(max(candidate, bounds.lowerBound), bounds.upperBound)
+    }
+
+    private static func steppedFixedWidthInteger<Integer: FixedWidthInteger, Value>(
+        _ value: Integer,
+        by step: Value.Stride,
+        subtracting: Bool,
+        in bounds: ClosedRange<Value>
+    ) -> Value? where Value: Strideable & Comparable, Value.Stride: SignedNumeric {
+        guard let step = step as? Integer.Stride,
+            let lower = bounds.lowerBound as? Integer,
+            let upper = bounds.upperBound as? Integer
+        else { return nil }
+
+        let clampedValue = min(max(value, lower), upper)
+        let increasing = (step >= 0) != subtracting
+        let valueBits = Integer.Magnitude(truncatingIfNeeded: clampedValue)
+        let boundBits = Integer.Magnitude(truncatingIfNeeded: increasing ? upper : lower)
+
+        // Unsigned bit-pattern subtraction is the exact distance between these
+        // ordered values, including a signed range that crosses zero. Compare
+        // magnitudes before narrowing: neither the span nor the stride must fit Int.
+        let remaining = increasing ? boundBits &- valueBits : valueBits &- boundBits
+        let requested = step.magnitude
+        if requested >= remaining {
+            return increasing ? bounds.upperBound : bounds.lowerBound
+        }
+
+        // requested < remaining proves the result is inside the declared bounds.
+        // Wrapping here only reconstructs its bits; it cannot wrap the bound value.
+        let offset = Integer.Magnitude(requested)
+        let resultBits = increasing ? valueBits &+ offset : valueBits &- offset
+        return Integer(truncatingIfNeeded: resultBits) as? Value
     }
 
     private static func steppedStrideable<Value>(

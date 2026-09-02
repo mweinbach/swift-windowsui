@@ -15850,3 +15850,87 @@ formatting lint and architecture checks passed, including
 preceding three cleanup methods now require fresh compilation and execution.
 No button-restoration fix or passing result is claimed by this test-only change.
 **All nine original completion gates remain open.**
+### Ninth batch: actual cleanup and restored-content boundary results
+
+Fresh compilation and execution of the four newly added methods completed on
+`740aa89f6ce9c8d3247b9006a1a22fa800242731`. Production code is byte-identical to
+the preceding `6f3d70d` batch; all earlier tests are preserved. The selected run
+started and finished exactly four XCTest methods: **one passed, three failed,
+zero skipped**, with seven assertion failures across the three failing methods.
+These are four additional methods, not a rerun or replacement of the earlier
+571-method result.
+
+| New method | Actual outcome |
+| --- | --- |
+| `ManagedListTargetCleanupBoundaryTests.testHostCloseInRequiredBodyDisposesProposalAndFinishesOriginalBuild` | Passed, 2.234 seconds |
+| `ManagedListTargetCleanupBoundaryTests.testInitialOnChangeCancellationRefusesCompletionAndFinishesOriginalBuild` | Failed, 6.457 seconds |
+| `ManagedListTargetCleanupBoundaryTests.testOnChangeActionPayloadReleaseRefusesCompletionAndFinishesOriginalBuild` | Failed, 6.361 seconds |
+| `AccessibilityImplicitDefaultRestorationEntryDiagnosticsTests.testRemovedButtonRestorationContentEntrySplit` | Failed, 0.031 seconds |
+
+The close-in-body case now supplies actual evidence for disposal before
+adoption and completion of the original build cleanup. Both late-cancellation
+cases reached their intended callbacks, refused target readiness, and passed
+their read-only post-callback cleanup observations. Their failures are instead
+the expected mounted-root count at line 78 (two actual roots versus one expected)
+and preservation of the original input receipt and navigation owner at lines
+128-129. The root-count failure is not a resolver-count failure; the observer's
+no-additional-resolution assertion at line 96 passed. These failures require
+checking the test premises against native row decorations and later viewport
+reconciliation before attributing a production defect. No assertion has been
+removed and no runtime completion guard has been weakened.
+
+The button diagnostic recorded generation 1 both before and after the existing
+reload. Content-entry count advanced from 2 to 3, and the last entered generation
+advanced from 0 to 1, while stored root-child counts remained 0 before and after
+that reload. Its unchanged restored-projection unwrap still failed. This rules
+out failure to enter the restored content closure during that reload; it does
+not prove that a usable source was constructed or accepted. The next observation
+must distinguish the original construction, descriptor-registration and actual
+reconciliation results without another render, admission evaluation or retry.
+
+The run directory is
+`artifacts/cleanup-restoration4-740aa89-2b87622bd8e7450a81c2b3bd6b8a2bb7`.
+The execution tool actually closed with code 1 after 270.109 seconds; the child
+also exited 1. There was no timeout, termination or cleanup-required flag.
+Root independently reconciled every selected start and terminal outcome and
+the complete source/index endpoints in
+`artifacts/goal-ninth-cleanup-restoration4-740aa89-reconciled-v1.json`.
+The 8,956-byte raw log has SHA256
+`b0b27fa828549d6800630a210188ab3bb708cb40d29af499cf3faa145ab61f50`.
+The fresh post-closure process census was empty; it is a point observation,
+not continuous supervision or verified native Job closure. Its corrected
+process-name expression is retained in the separate `post-closure-v2.json`
+receipt; the first census remains intact.
+
+### Ninth batch: process-supervisor source review and pure tests
+
+Root reviewed the complete proposed Dashboard supervisor and controller, then
+rehashed all 24 payloads in
+`artifacts/goal-ninth-dashboard-ui11-owned-job-intake-v1`. Nine original helper
+bodies remain text-identical. An independent review read all 1,098 test-file
+lines and their loaders before root ran the three unchanged pure test files:
+34 supervisor tests, 11 controller source contracts and 13 separately frozen
+acquisition/clock/signal regressions. **All 58 passed** in 0.072 seconds with
+assertions enabled under isolated Python 3.12. The raw log and independently
+reconciled result are retained as
+`artifacts/goal-ninth-dashboard-owned-job-root-pure58-v1.log` and `.json`.
+All packet payloads remained unchanged after execution.
+
+The tests execute the entire supervisor module after checking that its
+import-time definitions are inert; they do not extract an AST subset. Exercised
+supervisor bodies receive fake API, clock and signal objects. The controller is
+parsed only. Python's unittest imports the standard signal module indirectly,
+but these checks do not install real signal handlers or invoke the native
+adapter. This qualifies injected state-machine behavior and source contracts,
+not Windows ABI bindings, real handle acquisition, actual descendant closure or
+wall-clock bounds. No Dashboard controller or native application was launched.
+
+The reviewed proposal still selects all eleven Dashboard tests and is not the
+next UI execution. A separate fixed, module-qualified selection of the original
+keyboard Refresh method is being prepared with current-production source pins,
+unchanged assertions and time bounds. It requires its own review before launch.
+The old UI11 timeout, its missing XCTest outcomes, and the earlier native-capture
+timeout and cleanup record are unchanged. Neither these pure checks nor the four
+focused Swift methods constitute Quick, Full, visual, native, macOS, performance,
+CI or clean-machine qualification. **All nine original completion gates remain
+open, and the original goal and every earlier ledger byte remain intact.**

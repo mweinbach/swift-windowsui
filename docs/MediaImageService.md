@@ -1,11 +1,13 @@
 # Bounded local image service
 
 `DemoMediaImageService` adds real asynchronous PNG, JPEG, and BMP decoding for
-future media-browser thumbnails and image previews. It returns owned pixels and
+media-browser thumbnails and image previews. It returns owned pixels and
 an ordinary public `Image`; it does not return a symbol or metadata standing in
 for decoded content. It is separate from the existing UTF-8 file preview. This
-source slice does not wire a new browser or gallery, complete the media/file
-template, or qualify macOS/Windows parity.
+service does not itself complete a media/file template or qualify macOS/Windows
+parity. The separate [paged media browser](MediaBrowserTemplate.md) composes it
+through a window-owned model with bounded visible work, selection, real failures,
+retry, cancellation, and typed URL drop.
 
 One browser/window owns one service instance. Construction does no I/O. A caller
 explicitly awaits `load`, owns that task's cancellation, and calls `close` when

@@ -12,8 +12,17 @@ final class DemoWindowState: ObservableObject {
     let observation = DemoObservationState()
     let longPress = DemoLongPressState()
     let fileBrowser: DemoFileBrowserModel
+    let mediaBrowser: DemoMediaBrowserModel
 
-    init(fileBrowser: DemoFileBrowserModel = DemoFileBrowserModel()) {
+    init(
+        fileBrowser: DemoFileBrowserModel = DemoFileBrowserModel(),
+        mediaBrowser: DemoMediaBrowserModel = DemoMediaBrowserModel()
+    ) {
         self.fileBrowser = fileBrowser
+        self.mediaBrowser = mediaBrowser
+    }
+
+    isolated deinit {
+        mediaBrowser.close()
     }
 }

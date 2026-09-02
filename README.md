@@ -238,6 +238,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gallery-compare.ps1 
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gallery-compare.ps1 -Pattern "canvas-*"
 ```
 
+The shared demo's gallery screen also includes a [paged media browser](docs/MediaBrowserTemplate.md)
+with bounded thumbnail/preview loading, cancellation and incoming file-URL drops.
+It admits 64 records with four per page. The workflow and 39 new regression tests
+are integrated but still await compilation and execution; native OLE, accessibility
+and retained-image qualification remain separate. This adds no snapshot catalog entry.
+
 To view the rendered screenshot after running the helper, open `artifacts/demo-screenshot.png`. The script also writes the raw source bitmap next to it as `artifacts/demo-screenshot.raw.bmp`, which is useful when checking the exact offscreen rasterizer output. This path does not capture the desktop or a foreground native window; it uses `WinSwiftUIRendererSnapshotter` and the retained runtime's `GPUIScene`/`RenderFrame` data.
 
 For side-by-side comparison:

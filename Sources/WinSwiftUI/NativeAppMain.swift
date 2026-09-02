@@ -16,7 +16,8 @@ enum WinSwiftUIAppMain {
         renderBackendFactory: any RenderBackendFactory,
         backendResolution: RenderBackendResolution,
         platformHostFactory: any PlatformHostFactory,
-        liveDiagnostics: LiveDiagnosticsConfiguration?
+        liveDiagnostics: LiveDiagnosticsConfiguration?,
+        nativeStartupPhaseProbe: NativeStartupPhaseProbe? = nil
     ) {
         if let platform = platformHostFactory as? any Win32NativePlatformHostFactory,
             let presentation = renderBackendFactory.makeNativePresentationFactory()
@@ -40,15 +41,21 @@ enum WinSwiftUIAppMain {
                 nativeHooks: .win32(pump),
                 nativePresentationFactory: presentation,
                 liveDiagnostics: liveDiagnostics,
-                nativeDisplayAcquisition: acquisitionSession?.recorder
+                nativeDisplayAcquisition: acquisitionSession?.recorder,
+                nativeStartupPhaseProbe: nativeStartupPhaseProbe
             )
             Task { @MainActor in
+                nativeStartupPhaseProbe?.record(.nativeTaskEntered)
                 let exitCode: Int32
                 do {
                     // Normal completion is after every window's destruction
                     // acknowledgement and the native thread's actual join.
                     exitCode = try await coordinator.runNative()
+                    nativeStartupPhaseProbe?.record(.nativeRunReturned)
                     if let issue = acquisitionSession?.retire(successfullyJoined: true) { print(issue) }
+                    // This records return from the retirement/report step,
+                    // including its failure report, never publication success.
+                    if acquisitionSession != nil { nativeStartupPhaseProbe?.record(.retirementReturned) }
                 } catch {
                     // Some failure paths still own native work. Do not sample,
                     // serialize, retry shutdown, or write from this catch.

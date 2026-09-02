@@ -287,6 +287,7 @@ final class WinSwiftUIWindowCoordinator {
     /// process and race the first one's report file.
     private let liveDiagnosticsConfiguration: LiveDiagnosticsConfiguration?
     private var liveDiagnosticsSession: LiveDiagnosticsSession?
+    private let nativeStartupPhaseProbe: NativeStartupPhaseProbe?
 
     /// Hosts whose window has closed but whose deallocation is deferred.
     ///
@@ -320,7 +321,8 @@ final class WinSwiftUIWindowCoordinator {
         sceneStorageScopeProvider: (@MainActor () -> String)? = nil,
         liveDiagnostics: LiveDiagnosticsConfiguration? = nil,
         documentServices: DocumentWindowServices? = nil,
-        nativeDisplayAcquisition: NativeDisplayAcquisition.Recorder? = nil
+        nativeDisplayAcquisition: NativeDisplayAcquisition.Recorder? = nil,
+        nativeStartupPhaseProbe: NativeStartupPhaseProbe? = nil
     ) {
         self.sceneConfigurations = sceneConfigurations
         self.documentServices = documentServices
@@ -328,6 +330,7 @@ final class WinSwiftUIWindowCoordinator {
         self.hooks = hooks ?? .platform(platformHostFactory)
         self.nativeHooks = nativeHooks
         self.liveDiagnosticsConfiguration = liveDiagnostics
+        self.nativeStartupPhaseProbe = nativeStartupPhaseProbe
         self.hostFactory =
             hostFactory
             ?? { configuration, isPrimary in
@@ -822,6 +825,7 @@ final class WinSwiftUIWindowCoordinator {
                     do {
                         try await nativeHooks.startOwner()
                         self.nativeOwnerStarted = true
+                        self.nativeStartupPhaseProbe?.record(.ownerStarted)
                         guard !self.isTerminated else { throw WindowCoordinatorError.coordinatorTerminated }
                         _ = try await self.bootPrimaryNativeWindow()
                         self.completeNativeStartup(.success(()))
@@ -1077,6 +1081,7 @@ final class WinSwiftUIWindowCoordinator {
             }
             do {
                 try await nativeHooks.startWindow(host, isPrimary ? .primaryLaunch : .requestedWindow)
+                if isPrimary { self.nativeStartupPhaseProbe?.record(.primaryStartupReturned) }
                 try host.validateDocumentAdmission(expected: nil)
                 guard self.windows.contains(where: { $0.host === host }) else {
                     throw WindowCoordinatorError.windowClosedDuringStartup
@@ -1087,7 +1092,8 @@ final class WinSwiftUIWindowCoordinator {
                 if isPrimary, let configuration = self.liveDiagnosticsConfiguration,
                     self.liveDiagnosticsSession == nil
                 {
-                    let session = LiveDiagnosticsSession(configuration: configuration, host: host)
+                    let session = LiveDiagnosticsSession(
+                        configuration: configuration, host: host, nativeStartupPhaseProbe: self.nativeStartupPhaseProbe)
                     self.liveDiagnosticsSession = session
                     session.start()
                 }

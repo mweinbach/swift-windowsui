@@ -15569,3 +15569,60 @@ new diagnostic and original matrix remains pending. This adds failure
 attribution, not a production fix,
 an implicit-default pass, or native accessibility qualification.
 **All nine original completion gates remain open.**
+
+
+### 2026-09-02: bounded native startup phase observations
+
+The ordinary native capture at `f419123` timed out without a journal, diagnostics
+report or raw application output. Those end-of-run files could not distinguish
+early startup from later retirement. The startup observation addition records
+only existing boundaries; it does not repair or reclassify that failed attempt.
+
+An internal per-instance MainActor probe is created only after the existing pure
+native-journal argument parser accepts a request. Missing or malformed requests
+return before obtaining stderr. The original later session setup, clock work,
+configuration warning and native eligibility decisions keep their original
+positions. The probe retains no user path, argument, UI node, runtime, renderer
+or COM owner. Existing initializer defaults are nil.
+
+The nine fixed scalar markers cover entry before application initialization,
+return from initialization and backend resolution, entry into the existing native
+task, acknowledgement of the original native owner, successful return from the
+primary window-start call, diagnostics begin, return from the native coordinator,
+and return from a nonnil session's joined retirement/report step. The diagnostics
+marker is after its existing finished guard and before that method's conditional
+clock call; the unchanged legacy path may already have started its clock. The
+primary-start and retirement-return markers do not prove presentation or journal
+publication success. No original task, await, guard, catch, callback ordering,
+failure result or clock call is moved.
+
+Each marker is 21 ASCII bytes, for at most nine write attempts and 189 bytes.
+Gaps are valid. Duplicate, earlier and reentrant records are suppressed; failed
+or short writes disable further output without retry or changing app failure
+behavior. The production sink borrows the existing stderr handle and performs
+one synchronous WriteFile call per admitted marker. It opens, duplicates, closes
+and flushes no handle. This byte bound is not a duration or crash-durability
+guarantee; missing bytes cannot prove an earlier boundary was never entered.
+
+Twenty-four new async tests were frozen before production edits. Independent
+review corrected one native-order fixture that had selected the legacy route:
+its original marker/clock/report assertion remains, inert native commands select
+the intended path, and a new twenty-fifth case checks the existing legacy order.
+The other 23 bodies and all prior repository test files remain unchanged. Root
+and the same independent reviewer checked the complete final implementation,
+tests and inverse. These tests use fake native operations and never launch the
+application, create an HWND, write a diagnostics report, or invoke live stderr.
+
+Root integrated all six files and verified their complete inverse against the
+preceding committed tree. Formatting lint required one line wrap in a new test;
+the exact substitution preserves its assertion and all 25 test methods. The
+composed inverse, formatting lint and architecture contracts then passed
+(`goal-ninth-native-startup-phase-formatted-lint-contracts.log`). The 25 tests,
+unchanged native measurement 77, and complete acquisition 33 still need fresh
+execution at the new commit. The frozen native supervisor intentionally rejects the changed
+production pins. A separately reviewed source-pin successor, actual final
+executable/runtime binding and explicit launch authorization remain necessary.
+The original native timeout and cleanup-required flag are not cleared by this
+source change. No native, input, display, performance, resource, or hardware
+qualification is claimed.
+**All nine original completion gates remain open.**

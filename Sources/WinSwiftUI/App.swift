@@ -169,8 +169,12 @@ extension App {
     }
 
     public static func main() {
+        let nativeStartupPhaseProbe = NativeStartupPhaseProbe.makeIfRequested(arguments: CommandLine.arguments)
+        nativeStartupPhaseProbe?.record(.mainEntered)
         let app = Self.init()
+        nativeStartupPhaseProbe?.record(.applicationInitialized)
         let resolved = RenderBackendFactoryResolution.resolve(Self.renderBackendFactory())
+        nativeStartupPhaseProbe?.record(.backendResolved)
 
         WinSwiftUIAppMain.run(
             application: app,
@@ -178,7 +182,8 @@ extension App {
             renderBackendFactory: resolved.factory,
             backendResolution: resolved.resolution,
             platformHostFactory: Self.platformHostFactory(),
-            liveDiagnostics: LiveDiagnosticsConfiguration.fromCommandLine()
+            liveDiagnostics: LiveDiagnosticsConfiguration.fromCommandLine(),
+            nativeStartupPhaseProbe: nativeStartupPhaseProbe
         )
     }
 }

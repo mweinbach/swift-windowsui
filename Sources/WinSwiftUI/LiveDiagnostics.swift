@@ -237,6 +237,7 @@ final class LiveDiagnosticsSession {
     private let requestClose: @MainActor () -> Void
     private let report: (String) -> Void
     private let nativeCommands: LiveDiagnosticsNativeCommands?
+    private let nativeStartupPhaseProbe: NativeStartupPhaseProbe?
 
     private var startedAt: Double?
     private var stoppedAt: Double?
@@ -283,6 +284,7 @@ final class LiveDiagnosticsSession {
         clock: @escaping () -> Double = { PlatformClock.now() },
         requestClose: (@MainActor () -> Void)? = nil,
         nativeCommands: LiveDiagnosticsNativeCommands? = nil,
+        nativeStartupPhaseProbe: NativeStartupPhaseProbe? = nil,
         report: @escaping (String) -> Void = { print("[WinSwiftUI] \($0)") }
     ) {
         self.configuration = configuration
@@ -290,6 +292,7 @@ final class LiveDiagnosticsSession {
         self.clock = clock
         self.requestClose = requestClose ?? { [weak host] in host?.platformWindow.requestClose() }
         self.nativeCommands = nativeCommands ?? (host.usesNativePresentation ? .live : nil)
+        self.nativeStartupPhaseProbe = nativeStartupPhaseProbe
         self.report = report
     }
 
@@ -372,6 +375,7 @@ final class LiveDiagnosticsSession {
 
     private func beginRecording(host: WinSwiftUIWindowHost) {
         guard !isFinished else { return }
+        nativeStartupPhaseProbe?.record(.diagnosticsEntered)
         if startedAt == nil { startedAt = clock() }
         // The layout/paint split is off in a shipping frame loop and on for
         // the run that is asking where the time goes. Native setup and its

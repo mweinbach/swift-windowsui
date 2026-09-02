@@ -15968,3 +15968,42 @@ Formatting lint and architecture checks then passed in
 Fresh compilation and execution are still required. The earlier two failing
 cases and their raw evidence remain unchanged. **All nine original completion
 gates remain open.**
+
+### Ninth batch: observe the original restored-button construction attempt
+
+The additive `AccessibilityImplicitDefaultConstructionDiagnosticsTests` method
+preserves all twelve assertions, five unwrap sites, three renders and the one
+explicit reload from the earlier entry diagnostic. It arms one internal scalar
+diagnostic immediately before that existing reload. The original four reference
+test/helper files remain byte-identical; no failing oracle or action is removed.
+
+`ComponentHost` now carries an optional, normally nil diagnostic on that exact
+immutable reload request. The pending slot is copied and cleared before the
+original lifecycle, request-capture and scheduling calls. A later or nested
+request cannot redirect writes from an older attempt. Thirteen literal source
+edits record only Bool/Int values at the existing composition, node construction,
+descriptor registration and reconciliation boundaries. They copy results that
+the original path already computed, without re-evaluating admission decisions,
+adding callbacks, querying layout or retaining UI nodes in the diagnostic.
+
+The output distinguishes reaching and returning from synchronous frames from
+acceptance. In particular, returning after composition without reaching node
+construction locates the existing post-composition guard; it does not identify
+which guard condition failed or prove later cleanup completion. The additional
+line is bounded to 416 ASCII bytes with LF. An absent line is not proof that an
+attempt never ran, because stdout is still buffered. The unmanaged path is
+identified explicitly and does not acquire managed construction evidence.
+
+Root reviewed the complete touched functions and test, replayed all thirteen
+production edits and the test-only changes in both directions, and verified the
+whole staged tree returns exactly to `9be3758` using the supplied inverse.
+Architecture checks passed before integration; formatting lint and architecture
+checks passed afterward in
+`artifacts/goal-ninth-implicit-construction-cut-lint-contracts-v1.log`.
+The immutable source packet is
+`artifacts/goal-ninth-implicit-construction-cut-intake-v1`.
+
+This is diagnostic instrumentation, not a restored-button fix, a zero-overhead
+claim or passing runtime evidence. Fresh compilation and the three new focused
+diagnostic methods are next. Every earlier failure and timeout remains recorded.
+**All nine original completion gates remain open.**

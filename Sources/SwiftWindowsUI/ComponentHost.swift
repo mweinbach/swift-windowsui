@@ -180,6 +180,27 @@ final class RetainedLazyListAdoptionCompletion {
     }
 }
 
+/// One diagnostic request's scalar observations, never admission or UI ownership.
+/// Returned flags describe the named synchronous frame, not later cleanup.
+@MainActor
+final class ComponentHostConstructionDiagnostic {
+    fileprivate(set) var requestBound = false
+    fileprivate(set) var replacedBeforeRequest = false
+    fileprivate(set) var unmanagedRequest = false
+    fileprivate(set) var attemptEntered = false
+    fileprivate(set) var attemptReturned = false
+    fileprivate(set) var compositionReturned = false
+    fileprivate(set) var nodesReturned = false
+    fileprivate(set) var newNodeCount = 0
+    fileprivate(set) var descriptorRegistrationReturned = false
+    fileprivate(set) var registeredDescriptors = false
+    fileprivate(set) var reconciliationEntered = false
+    fileprivate(set) var reconciliationReturned = false
+    fileprivate(set) var completed = false
+    fileprivate(set) var didMutate = false
+    fileprivate(set) var childrenCount = 0
+}
+
 @MainActor
 public final class ComponentHost {
     public let runtime: RetainedViewRuntime
@@ -243,10 +264,22 @@ public final class ComponentHost {
         let transaction: RetainedBuildTransaction
         let validity: (any RetainedBuildRequest)?
         let onCompleted: (() -> Void)?
+        let constructionDiagnostic: ComponentHostConstructionDiagnostic?
     }
 
     private final class BuildLifecycleInstallation {}
     private var buildLifecycleInstallation = BuildLifecycleInstallation()
+    private var pendingConstructionDiagnostic: ComponentHostConstructionDiagnostic?
+
+    /// Arms the next call to reload on this host, not a nested or future request.
+    /// Nil by default. The next reload removes this slot before any existing
+    /// lifecycle callback and carries the scalar capture in its own request.
+    func requestConstructionDiagnostic() -> ComponentHostConstructionDiagnostic {
+        let diagnostic = ComponentHostConstructionDiagnostic()
+        pendingConstructionDiagnostic?.replacedBeforeRequest = true
+        pendingConstructionDiagnostic = diagnostic
+        return diagnostic
+    }
 
     /// Optional state ownership supplied by the composition layer. Raw
     /// ComponentHost clients keep their existing path when this is absent.
@@ -365,13 +398,17 @@ public final class ComponentHost {
     /// Requests whose captured revision becomes obsolete are skipped. Other
     /// requests keep their order, even when a fallback rebuild is unchanged.
     public func reload(onCompleted: (() -> Void)?) {
+        let constructionDiagnostic = pendingConstructionDiagnostic
+        pendingConstructionDiagnostic = nil
+        constructionDiagnostic?.requestBound = true
         if buildLifecycle == nil, !runtime.hasActiveRetainedBuild {
+            constructionDiagnostic?.unmanagedRequest = true
             performUnmanagedReload(onCompleted: onCompleted)
             return
         }
         let request = ReloadRequest(
             transaction: RetainedBuildTransaction(), validity: buildLifecycle?.captureBuildRequest(),
-            onCompleted: onCompleted)
+            onCompleted: onCompleted, constructionDiagnostic: constructionDiagnostic)
         runtime.retainedBuildCoordinator.scheduleReload { [weak self] in
             self?.performReload(request)
         }
@@ -397,6 +434,9 @@ public final class ComponentHost {
     }
 
     private func performReload(_ request: ReloadRequest) {
+        let constructionDiagnostic = request.constructionDiagnostic
+        constructionDiagnostic?.attemptEntered = true
+        defer { constructionDiagnostic?.attemptReturned = true }
         guard request.validity?.isCurrent != false else {
             resetBuildTimings()
             return
@@ -424,7 +464,8 @@ public final class ComponentHost {
                 didAdopt =
                     (lifecycle == nil || epoch != nil)
                     && buildAndAdopt(
-                        epoch: epoch, sequence: sequence, validity: request.validity, lazyBuild: lazyBuild)
+                        epoch: epoch, sequence: sequence, validity: request.validity, lazyBuild: lazyBuild,
+                        constructionDiagnostic: constructionDiagnostic)
                 if lazyBuild.usesManagedPublication, let journal = lazyBuild.journal,
                     let activity = epoch as? any RetainedLazyListBuildActivity
                 {
@@ -505,7 +546,7 @@ public final class ComponentHost {
 
     private func buildAndAdopt(
         epoch: (any RetainedBuildEpoch)?, sequence: UInt64?, validity: (any RetainedBuildRequest)?,
-        lazyBuild: RootLazyBuild? = nil
+        lazyBuild: RootLazyBuild? = nil, constructionDiagnostic: ComponentHostConstructionDiagnostic? = nil
     ) -> Bool {
         let buttonConstruction = RetainedButtonActionConstruction(runtime: runtime)
         defer { buttonConstruction.finish() }
@@ -552,12 +593,17 @@ public final class ComponentHost {
         let composeSpan = trace?.record("compose.enter", host: UInt(bitPattern: ObjectIdentifier(self)))
         let components = buildComponents?() ?? []
         trace?.record("compose.returned", span: composeSpan, host: UInt(bitPattern: ObjectIdentifier(self)))
+        constructionDiagnostic?.compositionReturned = true
         let composeEndedAt = isProfiling ? PlatformClock.now() : 0
         if isProfiling { lastComposeSeconds = composeEndedAt - reloadStartedAt }
         guard candidateCanAdopt(epoch: epoch, sequence: sequence, validity: validity) else { return false }
         let nodesSpan = trace?.record("nodes.enter", host: UInt(bitPattern: ObjectIdentifier(self)))
         let newNodes = components.map { $0.makeNode(runtime: runtime) }
         trace?.record("nodes.returned", span: nodesSpan, host: UInt(bitPattern: ObjectIdentifier(self)))
+        if let constructionDiagnostic {
+            constructionDiagnostic.newNodeCount = newNodes.count
+            constructionDiagnostic.nodesReturned = true
+        }
         let nodesEndedAt = isProfiling ? PlatformClock.now() : 0
         if isProfiling { lastNodeConstructionSeconds = nodesEndedAt - composeEndedAt }
 
@@ -566,6 +612,10 @@ public final class ComponentHost {
             let descriptorsSpan = trace?.record("descriptors.enter", host: UInt(bitPattern: ObjectIdentifier(self)))
             let registeredDescriptors = journal.registerSourceDescriptors(in: newNodes)
             trace?.record("descriptors.returned", span: descriptorsSpan, host: UInt(bitPattern: ObjectIdentifier(self)))
+            if let constructionDiagnostic {
+                constructionDiagnostic.registeredDescriptors = registeredDescriptors
+                constructionDiagnostic.descriptorRegistrationReturned = true
+            }
             guard registeredDescriptors else { return false }
             lazyBuild?.preparation = journal.preparation()
             if journal.hasManagedContributions {
@@ -606,10 +656,17 @@ public final class ComponentHost {
             taskAdoption = nil
         }
         let reconcileSpan = trace?.record("reconcile.enter", host: UInt(bitPattern: ObjectIdentifier(self)))
+        constructionDiagnostic?.reconciliationEntered = true
         let result = Self.reconcileChildren(
             of: runtime.root, oldChildren: oldChildren, newNodes: newNodes, taskAdoption: taskAdoption,
             lazyJournal: lazyBuild?.journal)
         trace?.record("reconcile.returned", span: reconcileSpan, host: UInt(bitPattern: ObjectIdentifier(self)))
+        if let constructionDiagnostic {
+            constructionDiagnostic.completed = result.completed
+            constructionDiagnostic.didMutate = result.didMutate
+            constructionDiagnostic.childrenCount = result.children.count
+            constructionDiagnostic.reconciliationReturned = true
+        }
         if let journal = lazyBuild?.journal {
             if result.completed {
                 let anchor = runtime.root.lazyListActivityStorage().captureActualAttachment(

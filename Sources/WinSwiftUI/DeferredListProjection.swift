@@ -63,16 +63,10 @@ struct DeferredViewListData {
             let activity = ViewListProjectionActivity()
             var rows: [AnyView] = []
             for ordinal in 0..<count {
-                guard activity.isCurrent, generation.isCurrent else {
-                    generation.revoke()
-                    return []
-                }
+                guard activity.isCurrent, generation.isCurrent else { return [] }
                 rows.append(contentsOf: rowFactory(ordinal))
             }
-            guard activity.isCurrent, generation.isCurrent else {
-                generation.revoke()
-                return []
-            }
+            guard activity.isCurrent, generation.isCurrent else { return [] }
             eagerRows = rows
             return rows
         }
@@ -117,18 +111,21 @@ struct DeferredViewListData {
                 let isCurrent = {
                     activity.isCurrent && generation.isCurrent && sourceGenerations.allSatisfy { $0.isCurrent }
                 }
-                guard isCurrent(), identifiers.indices.contains(ordinal) else {
+                guard isCurrent() else {
+                    activity.reject()
+                    return false
+                }
+                guard identifiers.indices.contains(ordinal) else {
                     generation.revoke()
                     activity.reject()
                     return false
                 }
                 let valid = Self.validateSourceElement(
                     in: data, ordinal: ordinal, count: identifiers.count,
-                    id: id, capturedID: identifiers[ordinal], isCurrent: isCurrent)
+                    id: id, capturedID: identifiers[ordinal], generation: generation, isCurrent: isCurrent)
                 // Model/index/key temporaries have left the helper before this
                 // original lookup is checked. Cleanup cannot hide reentry.
                 guard valid, isCurrent() else {
-                    generation.revoke()
                     activity.reject()
                     return false
                 }
@@ -140,45 +137,27 @@ struct DeferredViewListData {
                 let isCurrent = {
                     activity.isCurrent && generation.isCurrent && sourceGenerations.allSatisfy { $0.isCurrent }
                 }
-                guard isCurrent() else {
-                    generation.revoke()
-                    return []
-                }
+                guard isCurrent() else { return [] }
                 let elementID = identifiers[ordinal]
                 guard
                     let element = Self.checkedSourceElement(
                         in: data, ordinal: ordinal, count: identifiers.count,
-                        id: id, capturedID: elementID, isCurrent: isCurrent),
+                        id: id, capturedID: elementID, generation: generation, isCurrent: isCurrent),
                     isCurrent()
-                else {
-                    generation.revoke()
-                    return []
-                }
+                else { return [] }
                 let authored = rowContent(element)
-                guard isCurrent() else {
-                    generation.revoke()
-                    return []
-                }
+                guard isCurrent() else { return [] }
                 guard
                     Self.validateSourceElement(
                         in: data, ordinal: ordinal, count: identifiers.count,
-                        id: id, capturedID: elementID, isCurrent: isCurrent),
+                        id: id, capturedID: elementID, generation: generation, isCurrent: isCurrent),
                     isCurrent()
-                else {
-                    generation.revoke()
-                    return []
-                }
+                else { return [] }
                 let rows = normalizedProjectedViewList(authored)
-                guard isCurrent() else {
-                    generation.revoke()
-                    return []
-                }
+                guard isCurrent() else { return [] }
                 var result: [AnyView] = []
                 for (outputIndex, view) in rows.enumerated() {
-                    guard isCurrent() else {
-                        generation.revoke()
-                        return []
-                    }
+                    guard isCurrent() else { return [] }
                     let row = view.ensuringViewIdentitySlot(outputIndex).mappingViewIdentity { content in
                         AnyView(
                             DynamicListEditMetadataView(
@@ -188,19 +167,13 @@ struct DeferredViewListData {
                     .prefixedViewIdentity([.keyed(RetainedViewIdentity.Key(elementID))])
                     result.append(row)
                 }
-                guard isCurrent() else {
-                    generation.revoke()
-                    return []
-                }
+                guard isCurrent() else { return [] }
                 guard
                     Self.validateSourceElement(
                         in: data, ordinal: ordinal, count: identifiers.count,
-                        id: id, capturedID: elementID, isCurrent: isCurrent),
+                        id: id, capturedID: elementID, generation: generation, isCurrent: isCurrent),
                     isCurrent()
-                else {
-                    generation.revoke()
-                    return []
-                }
+                else { return [] }
                 return result
             })
     }
@@ -208,32 +181,57 @@ struct DeferredViewListData {
     /// Returns only model data. The native provider's immutable aggregate
     /// identity cannot prove that a reference-backed source still carries the
     /// ID captured before an authored row body or component was entered.
+    /// Cancelled activity rejects this output without invalidating the source.
+    /// Proven source mismatch is recorded before temporary payloads unwind.
     @inline(never)
     private static func checkedSourceElement<Data: RandomAccessCollection, ID: Hashable>(
         in data: Data, ordinal: Int, count expectedCount: Int,
-        id: KeyPath<Data.Element, ID>, capturedID: ID, isCurrent: () -> Bool
+        id: KeyPath<Data.Element, ID>, capturedID: ID, generation: DeferredViewListGeneration,
+        isCurrent: () -> Bool
     ) -> Data.Element? {
         guard isCurrent() else { return nil }
         let count = data.count
-        guard isCurrent(), count == expectedCount, ordinal >= 0, ordinal < count else { return nil }
+        guard isCurrent() else { return nil }
+        guard count == expectedCount, ordinal >= 0, ordinal < count else {
+            generation.revoke()
+            return nil
+        }
         let startIndex = data.startIndex
         guard isCurrent() else { return nil }
         let endIndex = data.endIndex
         guard isCurrent() else { return nil }
         let candidate = data.index(startIndex, offsetBy: ordinal, limitedBy: endIndex)
-        guard isCurrent(), let index = candidate else { return nil }
+        guard isCurrent() else { return nil }
+        guard let index = candidate else {
+            generation.revoke()
+            return nil
+        }
         let isEnd = index == endIndex
-        guard isCurrent(), !isEnd else { return nil }
+        guard isCurrent() else { return nil }
+        guard !isEnd else {
+            generation.revoke()
+            return nil
+        }
         let element = data[index]
         guard isCurrent() else { return nil }
         let currentID = element[keyPath: id]
         guard isCurrent() else { return nil }
         let matches = RetainedViewIdentity.Key(currentID).checkedEquals(
             RetainedViewIdentity.Key(capturedID), isCurrent: isCurrent)
+        // The checked result already proves inequality under the original
+        // activity. Later key cleanup cannot erase that source-invalid fact.
+        if matches == false {
+            generation.revoke()
+            return nil
+        }
         guard isCurrent(), matches == true else { return nil }
         if let validated = element as? any DeferredListElementValidation {
             let valid = validated.validateDeferredListElement()
-            guard isCurrent(), valid else { return nil }
+            guard isCurrent() else { return nil }
+            guard valid else {
+                generation.revoke()
+                return nil
+            }
         }
         return element
     }
@@ -243,11 +241,12 @@ struct DeferredViewListData {
     @inline(never)
     private static func validateSourceElement<Data: RandomAccessCollection, ID: Hashable>(
         in data: Data, ordinal: Int, count expectedCount: Int,
-        id: KeyPath<Data.Element, ID>, capturedID: ID, isCurrent: () -> Bool
+        id: KeyPath<Data.Element, ID>, capturedID: ID, generation: DeferredViewListGeneration,
+        isCurrent: () -> Bool
     ) -> Bool {
         checkedSourceElement(
             in: data, ordinal: ordinal, count: expectedCount,
-            id: id, capturedID: capturedID, isCurrent: isCurrent) != nil
+            id: id, capturedID: capturedID, generation: generation, isCurrent: isCurrent) != nil
     }
 
     /// The initializer checks its original receipt after this helper releases
@@ -297,15 +296,9 @@ struct DeferredViewListData {
         let activity = ViewListProjectionActivity()
         guard isCurrent, activity.isCurrent else { return [] }
         let rows = storage.materializedRows(count: elements.count)
-        guard isCurrent, activity.isCurrent else {
-            revoke()
-            return []
-        }
+        guard isCurrent, activity.isCurrent else { return [] }
         let result = applyingEdits(to: rows, activity: activity)
-        guard isCurrent, activity.isCurrent else {
-            revoke()
-            return []
-        }
+        guard isCurrent, activity.isCurrent else { return [] }
         return result
     }
 
@@ -313,15 +306,9 @@ struct DeferredViewListData {
         let activity = ViewListProjectionActivity()
         guard isCurrent, activity.isCurrent, elements.indices.contains(ordinal) else { return [] }
         let rows = storage.rowFactory(ordinal)
-        guard isCurrent, activity.isCurrent else {
-            revoke()
-            return []
-        }
+        guard isCurrent, activity.isCurrent else { return [] }
         let result = applyingEdits(to: rows, activity: activity)
-        guard isCurrent, activity.isCurrent else {
-            revoke()
-            return []
-        }
+        guard isCurrent, activity.isCurrent else { return [] }
         return result
     }
 
@@ -343,13 +330,11 @@ struct DeferredViewListData {
         guard elements.indices.contains(ordinal) else { return false }
         let activity = ViewListProjectionActivity()
         guard isCurrent, activity.isCurrent else {
-            revoke()
             activity.reject()
             return false
         }
         let valid = storage.validateSource(ordinal, activity)
         guard valid, isCurrent, activity.isCurrent else {
-            revoke()
             activity.reject()
             return false
         }
@@ -503,10 +488,7 @@ struct DeferredListProjection {
         case .data(let data, let prefix):
             let occurrence = data.elements[element.sourceOrdinal].occurrence
             let rows = data.rowViews(for: element.sourceOrdinal)
-            guard activity.isCurrent, data.isCurrent else {
-                data.revoke()
-                return []
-            }
+            guard activity.isCurrent, data.isCurrent else { return [] }
             return rows.map {
                 $0.prefixedViewIdentity(prefix + [.occurrence(occurrence)])
             }
@@ -548,10 +530,7 @@ struct DeferredListProjection {
             return true
         case .data(let data, _):
             let valid = data.validateSource(for: element.sourceOrdinal)
-            guard valid, activity.isCurrent else {
-                data.revoke()
-                return false
-            }
+            guard valid, activity.isCurrent else { return false }
             return true
         }
     }
@@ -600,24 +579,19 @@ final class DeferredListBindingSource<Element, ID: Hashable> {
         self.validateKey = { ordinal in
             let activity = ViewListProjectionActivity()
             let isCurrent = { activity.isCurrent && generation.isCurrent }
-            guard isCurrent(), identifiers.indices.contains(ordinal) else {
+            guard isCurrent() else { return false }
+            guard identifiers.indices.contains(ordinal) else {
                 generation.revoke()
                 return false
             }
             let collection = source.wrappedValue
-            guard isCurrent() else {
-                generation.revoke()
-                return false
-            }
+            guard isCurrent() else { return false }
             guard
                 Self.index(
                     for: identifiers[ordinal], occurrence: occurrences[ordinal], in: collection,
-                    id: id, isCurrent: isCurrent) != nil,
+                    id: id, isCurrent: isCurrent, generation: generation) != nil,
                 isCurrent()
-            else {
-                generation.revoke()
-                return false
-            }
+            else { return false }
             return true
         }
         self.createBinding = { ordinal in
@@ -726,7 +700,7 @@ final class DeferredListBindingSource<Element, ID: Hashable> {
 
     private static func index<Values: Collection>(
         for key: ID, occurrence: Int, in collection: Values, id: KeyPath<Element, ID>,
-        isCurrent: () -> Bool
+        isCurrent: () -> Bool, generation: DeferredViewListGeneration? = nil
     ) -> Values.Index? where Values.Element == Element {
         guard isCurrent() else { return nil }
         let startIndex = collection.startIndex
@@ -738,7 +712,12 @@ final class DeferredListBindingSource<Element, ID: Hashable> {
         while isCurrent() {
             let reachedEnd = index == endIndex
             guard isCurrent() else { return nil }
-            if reachedEnd { break }
+            if reachedEnd {
+                // Only a complete scan proves the captured occurrence absent.
+                // Keep that fact before collection/index/key temporaries unwind.
+                generation?.revoke()
+                break
+            }
             let element = collection[index]
             guard isCurrent() else { return nil }
             let candidate = element[keyPath: id]

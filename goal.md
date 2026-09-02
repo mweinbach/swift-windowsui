@@ -12462,3 +12462,58 @@ and preservation of the other 641 existing test files, all production, and
 Package.swift. The reviewed packets are `goal-ninth-button-admission3521-diagnostic-intake-v1`
 and `goal-ninth-empty-membership3575-intake-v1`. Execution of the original
 20 affected cases is still required. All nine completion gates remain open.
+
+
+### 2026-09-01: Execute fresh reservations and locate the Button setup failure
+
+On clean `496428cb7b248a00a640dfe7500e46e8af18b3f0`, all 17 membership
+cases passed, including the original stale-reservation case. The three Button
+cases all failed with the new specific `descriptorCopyPreparation` error before
+their assertions. The focused 20-case run had 17 passes, three failures, no
+skips, and natural child/controller exit 1/1 after 236.922 seconds. Source/index
+endpoints matched; post-closure CIM found no matching process at that instant.
+The descriptor-copy setup still needs a causal repair, not a weaker admission.
+
+Evidence is `artifacts/fixture20-496428c-38b29c5b318149bd848321762ae098ef`,
+`goal-ninth-fixture20-496428c-reconciled-v1.json`, and the matching closure
+receipt. Supplementary source-span checks initially used incorrect annotation
+and newline boundaries. The corrected independent comparison matches every
+original byte through both test-class prefixes and all 20 original identifiers
+and async classifications. It completed during the frozen-source run, not
+before launch; `goal-ninth-fixture20-496428c-derivation-proof-v4.json` retains
+that timing and the failed checks. No source, selection, or runner changed.
+
+
+### 2026-09-01: Preserve accepted list sources when row construction is cancelled
+
+Deferred list projection now distinguishes an interrupted finite construction
+attempt from proven source invalidity. A cancelled factory, collection access,
+or aggregate validation rejects its output without revoking an unchanged
+accepted source generation. Genuine count, index, ordinal, key, or validator
+failure is latched at the original proof point while current, before temporary
+cleanup can cancel the surrounding attempt. No partial eager cache is published.
+
+Binding-backed validation follows the same distinction. It keeps its original
+getter and currentness checks; only a complete current scan proving a captured
+key/occurrence absent revokes its generation. Unequal keys remain normal search
+results, and ambiguous cancellation does not become source invalidity. Escaped
+binding getter/setter and lifetime semantics remain unchanged. There is no new
+authority capture, callback, retry, source-close policy, or Runtime/UIA guard.
+
+Four new methods cover eight direct-List/builder cases: cancellation in a row
+factory, collection access, or binding getter preserves the original accepted
+source; genuine missing binding keys stay invalid even after restoration.
+They use actual entered admissions and one explicit layout per case. Key-getter
+and proof-followed-by-cleanup cancellation remain source-reviewed boundaries
+without dedicated new execution fixtures; no universal coverage is claimed.
+
+Root strict formatting and contracts passed. The three-file patch is 35,159
+bytes, SHA256 `4a3ed434d4af66a41bda938716b686e2ad0f33014fa60f2235369a2ad1a16f45`,
+with source tree `ef2962b1314f7bb2d2f0ba3571f5b2865a9bb1c0`.
+`artifacts/goal-ninth-projection-binding496-staged-proof-v1.json` verifies exact
+reproduction and preservation of all 643 existing test files and Package.swift.
+The generic and binding packets remain separate in
+`goal-ninth-projection-cancellation85bae-intake-v1` and
+`goal-ninth-projection-binding-d857-intake-v1`. The four new methods and existing
+projection/binding/UIA regressions still require root execution. All nine
+original completion gates remain open.

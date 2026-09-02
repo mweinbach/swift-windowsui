@@ -13504,3 +13504,91 @@ patch SHA-256
 These eleven tests are not yet compiled or executed at this entry. This removes
 duplicated ancestry work; it is not a proven explanation or fix for the retained
 media/gallery timeout, and it grants no completion-gate credit by itself.
+
+
+### Ninth implementation pass: bounded dashboard report loading (2026-09-02)
+
+The descriptor-query change at
+`d8fe4c178c2284dd37adf03dd6f1a7c59dcf0f53` now has fresh executed evidence:
+all eleven new descriptor-owner query tests passed, and all 33 retirement,
+handoff, activity, and completion-peer regressions passed in a separate serial
+selection. The first attempt took 403.282 seconds including compilation; its
+actual eleven-test class took 0.054 seconds. The second took 6.312 seconds.
+Neither selection skipped tests. Independent reconciliations and subsequent
+process censuses are retained in
+`artifacts/goal-ninth-descriptor-query11-d8fe4c1-reconciled-v1.json` and
+`artifacts/goal-ninth-physical33-d8fe4c1-reconciled-v1.json`. This does not resolve
+Media152/File14 timeouts or establish a full-suite or performance pass. The
+remaining repeated receipt scans require measurement before broader caching;
+authorization must stay fresh across registration, publication, and callbacks.
+
+The dashboard source slice adds an application-owned data model and a bounded
+asynchronous local JSON service. Its default inputs are actual encoded valid,
+empty, and malformed sample bytes, not timer-generated success states. A caller
+can supply a different asynchronous byte reader without bypassing decoding. This
+is not claimed as filesystem or network I/O. The reader must bound its own
+allocations and eventually return or throw.
+
+The service admits one physical read/decode operation and no queued service
+work. Cancellation keeps that slot occupied until the reader actually returns.
+The model retains at most one physical task and one latest replacement intent;
+repeated refreshes supersede that intent rather than adding tasks. Completion
+must still belong to the exact current request. Selection alone does not start
+work or relabel an existing request. Retry uses the failed input, while Refresh
+uses the current selection. Closing is permanent, revokes pending publication,
+and releases the decoded report; a noncooperative reader can still occupy its
+physical slot until it returns. The asynchronous task does not retain its model
+across the read suspension.
+
+Decoding checks the 16,384-byte input limit before JSON parsing, requires version
+1 and all three range arrays, allows at most twelve points per range, bounds
+labels to 24 UTF-8 bytes of nonempty single-line text, rejects duplicate labels
+within a range, and rejects nonfinite or out-of-range fractions instead of
+clamping. Zero values remain zero. The existing chart starts with explicitly
+labeled preview content, then shows the actual decoded report or a useful empty
+state. Loading and failures preserve the last successful content; empty success
+does not substitute preview data. Public controls expose input selection,
+Refresh, Retry, and Cancel while retaining range selection and pointer hover.
+
+This adds 25 model and eleven retained interaction test methods plus shared
+support. The support gates actual byte delivery and never assigns a fabricated
+model result. Its retained fixtures use actual State/ObservedObject tokens and
+keyboard/pointer input, but reload synchronously on notification rather than
+exercising the native window frame scheduler. The 640x480 checks mount the chart
+card alone; the separate whole-dashboard case uses 1280x900. These declarations
+are not yet compiled or executed at this entry. Retained snapshots, reviewed
+visual changes, broader dashboard regression tests, native accessibility, macOS
+execution, and performance qualification remain required.
+
+The eight reviewed paths comprise three production files, three test/support
+files, and two documentation files. All 670 pre-existing test files remain
+unchanged. Root formatting changes only whitespace in the modified chart block
+and two new test files. The documentation explicitly retains the separate gap:
+existing Sync merely advances a sample progress value and diagnostics records a
+demo event. This loader does not qualify either as real background work, and
+chart activity effects alter presentation rather than the decoded report.
+
+Strict lint and contracts pass. The source tree before this goal appendix is
+`56440a63032c8b85171ba90d99f025e277036eee`; the complete patch is
+`artifacts/goal-ninth-dashboard-data-root-formatted-v1.patch`, SHA-256
+`7992f2c4fc559be8903eb362d1c666c87e8b8f522535b291bfe7f4931618ada1`.
+The independent whole-diff and old-test preservation check is
+`artifacts/goal-ninth-dashboard-data-root-staged-proof-v1.json`.
+
+Accessibility investigation also distinguishes a test-oracle error from the
+remaining production failure. The public realization test's pending-layout
+assertion was inconsistent when introduced in `41c9e82`: the checked settlement
+contract and an explicit navigation test preserving pending render flags already
+existed, and realization itself performed layout-only queries. A narrowly
+reviewed correction will require a current settlement receipt and preserved
+pending render work, without adding a render/query or relaxing bounds, actions,
+focus, or budgets. No special public-getter acknowledgement overlay is needed.
+The distinct post-invocation successor-adapter failure still requires a bounded
+runtime repair. Separately, the native Invoke bridge currently discards the
+source Boolean result; an ordinary logical row can therefore report native
+success despite source refusal. Truthful native action completion remains an
+explicit unresolved obligation, outside that bounded successor repair.
+
+All nine original completion gates, their scope, and their thresholds remain
+unchanged and open. No baseline, native predicate, work budget, or prior failed
+or timed-out result is reclassified by this source slice.

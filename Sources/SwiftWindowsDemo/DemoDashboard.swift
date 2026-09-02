@@ -49,6 +49,7 @@ public struct DemoRendererIdentity: Hashable, Sendable {
 @MainActor
 public final class DemoDashboardModel: ObservableObject {
     public let rendererIdentity: DemoRendererIdentity
+    public let dashboardData: DemoDashboardDataModel
 
     @Published var selectedModule: DemoModule = .layout
     @Published var interactionCount = 0
@@ -127,10 +128,12 @@ public final class DemoDashboardModel: ObservableObject {
 
     public init(
         rendererIdentity: DemoRendererIdentity = .direct3D11,
-        settingsStore: DemoSettingsStore = .inMemory()
+        settingsStore: DemoSettingsStore = .inMemory(),
+        dashboardData: DemoDashboardDataModel? = nil
     ) {
         self.rendererIdentity = rendererIdentity
         self.settingsStore = settingsStore
+        self.dashboardData = dashboardData ?? DemoDashboardDataModel()
         recentEvents = [
             "System ready",
             rendererIdentity.readyEvent,
@@ -2536,12 +2539,33 @@ struct DemoChartCard: View {
     @State private var range: DemoChartRange = .day
 
     @ObservedObject var model: DemoDashboardModel
+    @ObservedObject private var data: DemoDashboardDataModel
     let layout: DemoLayout
+
+    init(model: DemoDashboardModel, layout: DemoLayout) {
+        self.model = model
+        self.data = model.dashboardData
+        self.layout = layout
+    }
 
     private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
 
     private var bars: [DemoChartBar] {
-        Self.bars(interactions: model.interactionCount, range: range)
+        switch data.snapshot.content {
+        case .preview:
+            return Self.bars(interactions: model.interactionCount, range: range)
+        case .report(let report):
+            return Self.bars(report: report, interactions: model.interactionCount, range: range)
+        case .released:
+            return []
+        }
+    }
+
+    private var subtitle: String {
+        if case .preview = data.snapshot.content { return range.subtitle }
+        let count = bars.count
+        let noun = count == 1 ? "sample" : "samples"
+        return "\(count) local \(noun) \u{2014} \(range.label)"
     }
 
     var body: some View {
@@ -2554,7 +2578,7 @@ struct DemoChartCard: View {
                             .foregroundStyle(.primary)
                             .lineLimit(1)
 
-                        Text(range.subtitle)
+                        Text(subtitle)
                             .font(DemoType.caption)
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
@@ -2577,13 +2601,41 @@ struct DemoChartCard: View {
                 }
                 .frame(height: DemoMetrics.s6)
 
-                DemoChartPlot(
-                    bars: bars,
-                    width: layout.chartInnerWidth,
-                    height: layout.chartPlotHeight,
-                    hoveredIndex: $hoveredIndex
-                )
+                Group {
+                    if bars.isEmpty {
+                        VStack(alignment: .leading, spacing: DemoMetrics.s2) {
+                            Text(data.isClosed ? "Dashboard data closed" : "No samples for \(range.label)")
+                                .font(DemoType.cardTitle)
+                                .foregroundStyle(.secondary)
+                            Text(
+                                data.isClosed
+                                    ? "Create a new data model to load another report."
+                                    : "Load a report with samples in this range to show its chart."
+                            )
+                            .font(DemoType.caption)
+                            .foregroundStyle(.tertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(
+                            width: layout.chartInnerWidth,
+                            height: layout.chartPlotHeight + DemoMetrics.s5 + 21,
+                            alignment: .center
+                        )
+                        .accessibilityIdentifier("dashboard.data.empty")
+                    } else {
+                        DemoChartPlot(
+                            bars: bars,
+                            width: layout.chartInnerWidth,
+                            height: layout.chartPlotHeight,
+                            hoveredIndex: $hoveredIndex
+                        )
+                        .accessibilityIdentifier("dashboard.data.plot")
+                    }
+                }
                 .padding(.top, layout.verticallyCompact ? DemoMetrics.s3 : DemoMetrics.s4)
+
+                DemoDashboardDataControls(model: data)
+                    .padding(.top, DemoMetrics.s3)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -2596,8 +2648,8 @@ struct DemoChartCard: View {
     }
 
     /// Each period has its own stable sample cadence and x-axis labels. The
-    /// daily series deliberately remains byte-for-byte identical to the
-    /// original chart, preserving every existing screenshot and parity test.
+    /// daily series deliberately retains the original chart's data and math.
+    /// The workflow footer changes the card, not these existing sample values.
     static func bars(interactions: Int, range: DemoChartRange) -> [DemoChartBar] {
         let pattern: [Double]
         let labels: [String]
@@ -2618,6 +2670,22 @@ struct DemoChartCard: View {
             let phase = (Double(index) + Double(interactions) * 0.13).truncatingRemainder(dividingBy: 1)
             let value = min(1, max(0.10, base + phase * 0.10)) * 40
             return DemoChartBar(index: index, value: value, label: labels[index])
+        }
+    }
+
+    /// Real decoded points use the same activity adjustment as the preview.
+    /// Zero remains a real zero at rest; an empty range stays empty.
+    static func bars(report: DemoDashboardReport, interactions: Int, range: DemoChartRange) -> [DemoChartBar] {
+        let points: [DemoDashboardDataPoint]
+        switch range {
+        case .day: points = report.day
+        case .week: points = report.week
+        case .all: points = report.all
+        }
+        return points.enumerated().map { index, point in
+            let phase = (Double(index) + Double(interactions) * 0.13).truncatingRemainder(dividingBy: 1)
+            let value = min(1, max(0, point.fraction + phase * 0.10)) * 40
+            return DemoChartBar(index: index, value: value, label: point.label)
         }
     }
 }

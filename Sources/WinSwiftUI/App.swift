@@ -4826,6 +4826,15 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
         }
     }
 
+    /// Nil keeps the batch on the blocking legacy window loop. A cooperative
+    /// owned-host reload uses the existing native wake without requesting another frame.
+    static func observedObjectReloadTaskRequestsFrame(
+        usesNativePresentation: Bool, hasNativeHandle: Bool
+    ) -> Bool? {
+        if usesNativePresentation { return false }
+        return hasNativeHandle ? nil : true
+    }
+
     /// Schedule a batched reload.  Multiple rapid @Published changes within
     /// the same run-loop turn are coalesced into a single rebuild.
     ///
@@ -4855,21 +4864,24 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
         onObservedObjectReloadScheduled?(changedObjectID, false)
         guard !hasTornDownWindow else { return }
 
-        // The native GetMessage/DispatchMessage loop does not yield to Swift's
+        // The legacy GetMessage/DispatchMessage loop does not yield to Swift's
         // main-actor executor. Give the batch a native wake as well as the
         // Task fallback used by hosts running under a cooperative executor.
         syncAnimationDriver(for: window)
         guard !hasTornDownWindow else { return }
         window.invalidate()
 
-        // A live HWND has the wake above. Do not accumulate unserviceable
-        // Swift Tasks behind its blocking native message loop.
-        guard !hasTornDownWindow, window.nativeHandle == nil else { return }
+        // Only the legacy live HWND blocks the actor in its message loop.
+        // Owned presentation can consume the batch independently of a frame.
+        guard !hasTornDownWindow,
+            let requestsFrame = Self.observedObjectReloadTaskRequestsFrame(
+                usesNativePresentation: usesNativePresentation, hasNativeHandle: window.nativeHandle != nil)
+        else { return }
         Task { @MainActor [weak self] in
             guard let self else {
                 return
             }
-            self.flushObservedObjectReload(in: self.window, requestsFrame: true)
+            self.flushObservedObjectReload(in: self.window, requestsFrame: requestsFrame)
         }
     }
 

@@ -15200,6 +15200,10 @@ public final class RetainedViewRuntime {
     fileprivate var hasLazyListLayoutScope: Bool { lazyListResolutionBudget != nil }
     private var lazyListElementLimit = 128
     private var lazyListRoundLimit = 4
+    /// Read-only internal configuration; the live budget remains private.
+    internal var lazyListResolutionBudgetConfiguration: (elementLimit: Int, roundLimit: Int) {
+        (lazyListElementLimit, lazyListRoundLimit)
+    }
     internal private(set) var lazyListResolveCount = 0
     internal private(set) var lastLazyListWorkCompletion: RetainedLazyListWorkBudget.Completion = .complete
     internal private(set) var lastLazyListConsumedElements = 0

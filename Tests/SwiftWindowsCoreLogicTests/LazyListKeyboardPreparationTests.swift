@@ -552,8 +552,7 @@ final class LazyListKeyboardPreparationTests: XCTestCase {
         let fixture = try KeyboardPreparationFixture()
         defer { fixture.close() }
         fixture.probe.selected = 899
-        fixture.runtime.lazyListElementLimit = 1
-        fixture.runtime.lazyListRoundLimit = 1
+        XCTAssertTrue(fixture.runtime.configureLazyListResolutionBudget(elementLimit: 1, roundLimit: 1))
         fixture.beginTrace()
         try XCTUnwrap(try fixture.row(0).onKeyDown)(Self.down)
         fixture.endTrace()
@@ -578,15 +577,15 @@ final class LazyListKeyboardPreparationTests: XCTestCase {
         XCTAssertEqual(fixture.focusedOrdinals, [900])
         XCTAssertGreaterThan(fixture.scroll.scrollOffset, 20_000)
         XCTAssertNil(fixture.adapter.keyboardPreparation)
-        XCTAssertEqual(fixture.runtime.lazyListElementLimit, 1)
-        XCTAssertEqual(fixture.runtime.lazyListRoundLimit, 1)
+        XCTAssertEqual(fixture.runtime.lazyListResolutionBudgetConfiguration.elementLimit, 1)
+        XCTAssertEqual(fixture.runtime.lazyListResolutionBudgetConfiguration.roundLimit, 1)
     }
 
     func testPendingAfterTheSingleWriteUsesOrdinarySettlementWithoutRepeatingTheSetter() async throws {
         let fixture = try KeyboardPreparationFixture()
         defer { fixture.close() }
         fixture.probe.selected = 899
-        fixture.runtime.lazyListRoundLimit = 1
+        XCTAssertTrue(fixture.runtime.configureLazyListResolutionBudget(elementLimit: 128, roundLimit: 1))
         fixture.beginTrace()
         try XCTUnwrap(try fixture.row(0).onKeyDown)(Self.down)
         fixture.endTrace()
@@ -608,15 +607,14 @@ final class LazyListKeyboardPreparationTests: XCTestCase {
         XCTAssertEqual(fixture.focusedOrdinals, [900])
         XCTAssertGreaterThan(fixture.scroll.scrollOffset, 20_000)
         XCTAssertNil(fixture.adapter.keyboardPreparation)
-        XCTAssertEqual(fixture.runtime.lazyListRoundLimit, 1)
+        XCTAssertEqual(fixture.runtime.lazyListResolutionBudgetConfiguration.roundLimit, 1)
     }
 
     func testInterveningOrdinaryCallbackCannotLendAReplacementSourceToPendingEligibility() async throws {
         let fixture = try KeyboardPreparationFixture()
         defer { fixture.close() }
         fixture.probe.selected = 899
-        fixture.runtime.lazyListElementLimit = 1
-        fixture.runtime.lazyListRoundLimit = 1
+        XCTAssertTrue(fixture.runtime.configureLazyListResolutionBudget(elementLimit: 1, roundLimit: 1))
         let handler = try XCTUnwrap(try fixture.row(0).onKeyDown)
         let originalScope = try XCTUnwrap(fixture.scroll.listNavigationOwner)
         fixture.beginTrace()
@@ -655,8 +653,8 @@ final class LazyListKeyboardPreparationTests: XCTestCase {
         XCTAssertEqual(fixture.probe.reads, reads)
         XCTAssertEqual(fixture.probe.factories, factories)
         XCTAssertTrue(fixture.probe.writes.isEmpty)
-        XCTAssertEqual(fixture.runtime.lazyListElementLimit, 1)
-        XCTAssertEqual(fixture.runtime.lazyListRoundLimit, 1)
+        XCTAssertEqual(fixture.runtime.lazyListResolutionBudgetConfiguration.elementLimit, 1)
+        XCTAssertEqual(fixture.runtime.lazyListResolutionBudgetConfiguration.roundLimit, 1)
     }
 
     func testAnimatedAdoptionCannotRestoreTheOriginalTargetsRevokedRowRole() async throws {

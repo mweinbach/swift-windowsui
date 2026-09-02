@@ -16481,3 +16481,46 @@ and physical-reference regressions. The original approved 140 and later approved
 fifteen physical-reference cases remain disjoint. These tests have not yet run
 on the combined source. Their historical failures remain failures until fresh
 execution establishes otherwise. All nine original goal gates stay open.
+
+### 2026-09-02: first combined owner and keyboard run stopped at test compilation
+
+- The fixed selection was bound to clean commit `65656d851431276bc89aa2ea385aa1b308910a45`
+  and tree `a78e38e5d622cac7a335217b15af06dbf14c40e6`: 155 exact methods in fourteen
+  complete classes, all async. The 140-method original partition and fifteen
+  additional physical-reference methods remained disjoint and exhaustive. The
+  19,025-character filter passed 155 positive and 958 negative source checks;
+  the runner differed from the reviewed donor only in its two filter literals.
+- The attempt at `artifacts/cohort155-65656-5f551c750b7a4acea998594f38c6ee80`
+  closed naturally with child/runner exit 1 after 181.344 seconds of waiting and
+  cleanup. It stopped during test compilation. Ten distinct private-access
+  diagnostics in `LazyListKeyboardPreparationTests` were repeated twenty times
+  each by compilation. No XCTest suite, case start, case terminal, or Swift
+  Testing start was reported. This is neither 155 passing cases nor 155 failing
+  cases; the selected behavior remains untested on this commit.
+- The raw log is 4,912,438 bytes, SHA256
+  `206bae9cd579e3be2e0c8f8a1280e2da058ef1ad1bae06e987b04b208a8c44d6`.
+  `goal-ninth-cohort155-closed-compile-failure-v1.json` records the failure-only
+  reconciliation. All 1,204 tracked file endpoints, the retained Git link, and
+  the index matched, and root rehashed the tracked files before correction.
+  There was no timeout, termination attempt, metadata error, or cleanup flag.
+  Natural direct-child closure is not a proof of descendant closure or
+  continuous source immutability.
+- The three affected setups now call the existing guarded
+  `configureLazyListResolutionBudget` with the same limits `(1, 1)`, `(128, 1)`,
+  and `(1, 1)`, and assert that configuration succeeds. This existing API
+  invalidates layout before tracing and the original key event; no compensating
+  render, query, key event, retry, or larger budget was introduced.
+- Both stored limits remain private. A get-only internal tuple exposes their
+  integer values without exposing a mutable budget. The five original final
+  configuration equalities read that tuple. All 23 method headers and all
+  outcome assertions remain; only three setup-success assertions were added.
+  Defaults remain 128 elements and four rounds. This is a separate access
+  correction, not a replacement of the raw or formatted test freezes.
+- The complete two-file correction and exact literal inverse are retained in
+  `artifacts/goal-ninth-keyboard-budget-access-correction-v1`. Strict lint of
+  both staged Swift files and architecture contracts passed. Behavioral
+  validation still requires the same fixed 155-method selection on the next
+  clean commit; no case was removed to avoid this compile failure.
+- The separate calendar/selected-content and text-snapshot packets remain
+  unintegrated and unexecuted. All nine original completion gates remain open;
+  this entry adds evidence and detail without changing their requirements.

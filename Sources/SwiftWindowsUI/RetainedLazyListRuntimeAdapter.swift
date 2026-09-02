@@ -378,6 +378,51 @@ package final class RetainedLazyListRuntimeAdapter {
         }
     }
 
+    /// Native preservation witnesses captured before metadata can call out.
+    /// The selected prefix retains no measured extent and grants no row build.
+    @MainActor
+    final class AnchorSupport {
+        private let anchor: RetainedLazyListRowToken
+        fileprivate let proofs: [RetainedLazyListRowToken: CarriedRecordProof]
+
+        fileprivate init(
+            anchor: RetainedLazyListRowToken, proofs: [RetainedLazyListRowToken: CarriedRecordProof]
+        ) {
+            self.anchor = anchor
+            self.proofs = proofs
+        }
+
+        var tokens: Set<RetainedLazyListRowToken> { Set(proofs.keys) }
+        var isCurrent: Bool { proofs.values.allSatisfy(\.isCurrent) }
+
+        func selectingPrefix(
+            tokens: [RetainedLazyListRowToken], positions: [RetainedLazyListRowToken: Int]
+        ) -> AnchorSupport? {
+            guard let ordinal = positions[anchor], ordinal >= 0, ordinal < proofs.count,
+                tokens.indices.contains(ordinal), tokens[ordinal] == anchor
+            else { return nil }
+            // Reindex only the original bounded cohort. Old adjacency and old
+            // gap summaries cannot establish a boundary in the new source.
+            var byPosition: [Int: (RetainedLazyListRowToken, CarriedRecordProof)] = [:]
+            for (token, proof) in proofs {
+                guard let position = positions[token] else { continue }
+                guard tokens.indices.contains(position), tokens[position] == token else { return nil }
+                if position <= ordinal {
+                    guard byPosition[position] == nil else { return nil }
+                    byPosition[position] = (token, proof)
+                }
+            }
+            var selected: [RetainedLazyListRowToken: CarriedRecordProof] = [:]
+            for position in 0...ordinal {
+                guard let (token, proof) = byPosition[position] else { return nil }
+                selected[token] = proof
+            }
+            // Do not filter or recapture a lost selected proof. The caller must
+            // reject it as obsolete, unlike an initially missing dependency.
+            return AnchorSupport(anchor: anchor, proofs: selected)
+        }
+    }
+
     private enum RecordPreparation {
         case record(Record)
         case skippedOptional
@@ -1739,6 +1784,7 @@ package final class RetainedLazyListRuntimeAdapter {
         let expectedAttempt = attempt
         var expectedConfiguration = configuration
         var selectionViewport = viewport
+        var anchorSupportProofs: [RetainedLazyListRowToken: CarriedRecordProof] = [:]
 
         if !snapshotIsCurrent(for: viewport) {
             let widthSnapshot = cachedSnapshotForManagedWidthChange(
@@ -1756,6 +1802,9 @@ package final class RetainedLazyListRuntimeAdapter {
             {
                 previousRequired.insert(realization.token)
             }
+            let originalAnchorSupport =
+                managed != nil && widthSnapshot == nil
+                ? anchor.flatMap { captureAnchorSupport(preserving: $0.token) } : nil
             guard
                 let snapshot = widthSnapshot
                     ?? readSnapshot(
@@ -1766,6 +1815,16 @@ package final class RetainedLazyListRuntimeAdapter {
                     constructionHint: expectedConstructionHint),
                 snapshot.generation.isCurrent
             else { return .obsolete }
+            if originalAnchorSupport != nil {
+                guard let managed, snapshot.generation == managed.descriptor.sourceGeneration else { return .obsolete }
+            }
+            if let support = originalAnchorSupport?.selectingPrefix(
+                tokens: snapshot.tokens, positions: snapshot.positions)
+            {
+                guard support.isCurrent else { return .obsolete }
+                anchorSupportProofs = support.proofs
+                previousRequired.formUnion(anchorSupportProofs.keys)
+            }
             guard let estimate = RetainedLazyListExtent.estimated(estimatedExtent + interLeafSpacing),
                 let nextIndex = RetainedLazyListExtentIndex(
                     tokens: snapshot.tokens,
@@ -1939,7 +1998,7 @@ package final class RetainedLazyListRuntimeAdapter {
         if managed != nil, !transitionRequiredTokens.isEmpty {
             for token in selection.requiredTokens {
                 guard let original = mounted[token] else { continue }
-                guard let proof = carriedRecordProof(for: original),
+                guard let proof = anchorSupportProofs[token] ?? carriedRecordProof(for: original), proof.isCurrent,
                     original.nodes.count <= maximumMountedLeaves - remainingReservedLeaves
                 else { return .obsolete }
                 originalProofs[token] = proof
@@ -3455,6 +3514,20 @@ package final class RetainedLazyListRuntimeAdapter {
         let roots = record.nodes.map { $0.lazyListActivityStorage().captureActualAttachment(of: $0, in: runtime) }
         let proof = CarriedRecordProof(record: record, container: container, roots: roots, activity: activity)
         return proof.isCurrent ? proof : nil
+    }
+
+    /// Freeze eligible weak actual witnesses before the one existing metadata
+    /// read. Unrelated deleted/stale rows do not invalidate the original set.
+    func captureAnchorSupport(preserving anchor: RetainedLazyListRowToken) -> AnchorSupport? {
+        guard !isReleasing, managedLogicalDescriptor != nil, mounted[anchor] != nil,
+            mounted.count <= maximumMountedRecords, mountedLeafCount <= maximumMountedLeaves
+        else { return nil }
+        var proofs: [RetainedLazyListRowToken: CarriedRecordProof] = [:]
+        for (token, record) in mounted {
+            if let proof = carriedRecordProof(for: record) { proofs[token] = proof }
+        }
+        guard proofs[anchor] != nil else { return nil }
+        return AnchorSupport(anchor: anchor, proofs: proofs)
     }
 
     private func carriedIdentitiesAreDistinct(

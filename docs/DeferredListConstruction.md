@@ -293,6 +293,19 @@ offset is zero but the enclosing scroll view has a positive offset. This adds
 no authored anchor, row cache, construction pass, or provider authority; the
 existing input and equal-value authored-intent guards remain unchanged.
 
+When managed preparation reads replacement metadata, it first captures a fixed
+set of weak witnesses for eligible original mounted rows. It can include the
+complete predecessor prefix through the surviving anchor in the new order only
+when every dependency fits inside that original set. This adds those rows to
+the existing required measurements; it does not retain their old heights, build
+missing predecessors or enlarge the row or work limits. Missing initial support
+declines the whole extra prefix. A selected witness that later becomes stale
+invalidates the attempt rather than being recaptured. The metadata generation
+must still match the original managed descriptor. Width-cache reuse, nil anchors
+and the raw adapter preparation path keep their existing behavior. Thirteen
+new source tests cover this policy; execution on the integrated source remains
+pending, including the existing default-budget UIA regressions.
+
 The native host source now shares this construction path. Logical item-state
 and property-zero ItemContainer lookup use typed native requests with copied
 geometry. The full C-call lease spans actor dispatch, foreign start-after

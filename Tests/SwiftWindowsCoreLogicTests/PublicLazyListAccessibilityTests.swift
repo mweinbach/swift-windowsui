@@ -431,19 +431,35 @@ final class PublicLazyListAccessibilityTests: XCTestCase {
         }
 
         XCTAssertEqual(SWU_UIAVirtualizedItemProviderRealizeResult(pattern), publicLazyListInvalidOperation)
-        fixture.probe.onFactory = nil
         XCTAssertTrue(requestedReplacement)
         let acceptedSuccessor = try XCTUnwrap(successor)
         XCTAssertFalse(acceptedSuccessor === preparingAdapter)
         XCTAssertTrue(try fixture.host.list().retainedLazyListAdapter === acceptedSuccessor)
         XCTAssertEqual(try XCTUnwrap(successorOffset), originalOffset, accuracy: 0.001)
-        // Prove the successor had a changed, measured predecessor in this
-        // query; no later layout is allowed to manufacture that opportunity.
+        XCTAssertEqual(scroll.scrollOffset, originalOffset, accuracy: 0.001)
+        XCTAssertEqual(fixture.source.uiaLogicalItemState(elementID: elementID), .placeholder)
+        XCTAssertFalse(fixture.probe.factoryCalls.contains(300))
+        XCTAssertTrue(fixture.probe.activations.isEmpty)
+        XCTAssertTrue(successorFactories.isEmpty, "The obsolete original request cannot construct its successor")
+        // rowRoot only reads actual children; resolvedFrame is stored layout.
+        // These checks cannot settle the successor before its own query below.
+        XCTAssertEqual(
+            try fixture.host.rowRoot("public.row.2.first").resolvedFrame.height,
+            replacementHeight - 40, accuracy: 0.001)
+
+        XCTAssertNotNil(fixture.host.layout())
+        fixture.probe.onFactory = nil
+
+        // This independent ordinary query owns the successor's construction
+        // and anchor correction. The original UIA allowance is already closed.
         XCTAssertTrue(successorFactories.contains(2))
         XCTAssertEqual(
             try fixture.host.rowRoot("public.row.2.first").resolvedFrame.height, replacementHeight, accuracy: 0.001)
-        XCTAssertEqual(scroll.scrollOffset, originalOffset, accuracy: 0.001)
-        XCTAssertEqual(fixture.source.uiaLogicalItemState(elementID: elementID), .placeholder)
+        XCTAssertTrue(try fixture.host.list().retainedLazyListAdapter === acceptedSuccessor)
+        XCTAssertEqual(scroll.scrollOffset, originalOffset + 40, accuracy: 0.001)
+        XCTAssertFalse(acceptedSuccessor.hasUnresolvedWork)
+        XCTAssertFalse(fixture.host.runtime.hasPendingLayout)
+        XCTAssertFalse(fixture.host.runtime.hasActiveRetainedBuild)
         XCTAssertFalse(fixture.probe.factoryCalls.contains(300))
         XCTAssertTrue(fixture.probe.activations.isEmpty)
     }

@@ -15821,3 +15821,32 @@ The sealed packet and root inverse receipt remain under `artifacts/`. No fake
 managed-epoch getter or new production hook was introduced. Compilation and
 execution are still required; these three methods are not included in the
 earlier 571-method validation result. **All nine completion gates remain open.**
+
+### Ninth batch: distinguish content entry from missing button restoration
+
+One new `AccessibilityImplicitDefaultRestorationEntryDiagnosticsTests` method
+isolates the original removed-button case without changing the original matrix
+or its prior diagnostic. Its original twelve assertions, three renders, one
+explicit reload and five projection-query sites remain in the same order.
+Only two content-entry integers, eight scalar snapshots and one bounded output
+line are added. Exactly two stored root-child counts immediately bracket the
+existing explicit reload; the diagnostic does not retain another UI object,
+install a lifecycle hook, request another layout or attempt another restoration.
+
+The output will distinguish whether the content closure was entered during
+that reload and whether the root was empty before the following existing render.
+Entry is not proof of usable source construction or accepted physical adoption;
+nonempty children are not proof of a restored button. Missing buffered output
+does not prove that a stage was never reached. The separate native-admission
+observation note remains a proposal, with no production instrumentation added.
+
+Root independently reconstructed the selected removed-case body from the
+unchanged original test and replayed all three diagnostic edits forward and
+backward. The original test, prior diagnostic and host remain byte-identical.
+The complete new source, review and inverse are retained in
+`artifacts/goal-ninth-implicit-restoration-entry-intake-v1`. Whole-tree inverse,
+formatting lint and architecture checks passed, including
+`goal-ninth-implicit-restoration-entry-lint-contracts.log`. This method and the
+preceding three cleanup methods now require fresh compilation and execution.
+No button-restoration fix or passing result is claimed by this test-only change.
+**All nine original completion gates remain open.**

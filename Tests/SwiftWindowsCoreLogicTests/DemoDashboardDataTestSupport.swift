@@ -320,6 +320,7 @@ final class DemoDashboardDataFixture {
         model: DemoDashboardDataModel, size: IntSize = IntSize(width: 640, height: 720),
         scheme: ColorScheme = .dark, scale: Double = 1, wholeRoot: Bool = false
     ) {
+        let diagnosticInitSpan = DashboardInteractionDiagnostics.record("fixture.init.enter")
         let dashboard = DemoDashboardModel(dashboardData: model)
         self.dashboard = dashboard
         let state = DemoDashboardDataFixtureState(size: size)
@@ -350,13 +351,16 @@ final class DemoDashboardDataFixture {
             environmentValuesProvider: {
                 EnvironmentValues(colorScheme: scheme, displayScale: scale, pixelLength: 1 / scale)
             })
+        let diagnosticComponentsSpan = DashboardInteractionDiagnostics.record("fixture.components.enter")
         host.setComponents {
             guard !state.closed else { return [] }
             if wholeRoot { return [makeViewComponent(DemoRootView(model: dashboard), context: context)] }
             let layout = DemoLayout(size: Size(width: Double(state.size.width), height: Double(state.size.height)))
             return [makeViewComponent(DemoChartCard(model: dashboard, layout: layout), context: context)]
         }
+        DashboardInteractionDiagnostics.record("fixture.components.returned", span: diagnosticComponentsSpan)
         render()
+        DashboardInteractionDiagnostics.record("fixture.init.returned", span: diagnosticInitSpan)
     }
 
     var nodes: [ViewNode] { Self.descendants(runtime.root) }
@@ -365,16 +369,24 @@ final class DemoDashboardDataFixture {
     var observedNotifications: [ObjectIdentifier] { subscriptions.notifications }
 
     func render() {
+        let diagnosticRenderSpan = DashboardInteractionDiagnostics.record("fixture.render.enter")
+        let diagnosticFirstSpan = DashboardInteractionDiagnostics.record("fixture.render.first.enter")
         _ = runtime.renderScene(at: 1)
+        DashboardInteractionDiagnostics.record("fixture.render.first.returned", span: diagnosticFirstSpan)
+        let diagnosticSecondSpan = DashboardInteractionDiagnostics.record("fixture.render.second.enter")
         _ = runtime.renderScene(at: 1)
+        DashboardInteractionDiagnostics.record("fixture.render.second.returned", span: diagnosticSecondSpan)
         XCTAssertNil(coordinator.latestInstallationError)
+        DashboardInteractionDiagnostics.record("fixture.render.returned", span: diagnosticRenderSpan)
     }
 
     func close() {
         guard !state.closed else { return }
+        let diagnosticCloseSpan = DashboardInteractionDiagnostics.record("fixture.close.enter")
         state.closed = true
         subscriptions.close()
         coordinator.close()
+        DashboardInteractionDiagnostics.record("fixture.close.returned", span: diagnosticCloseSpan)
     }
 
     func node(_ identifier: String) throws -> ViewNode {
@@ -447,5 +459,46 @@ final class DemoDashboardDataFixture {
             pending.append(contentsOf: node.children.reversed())
         }
         return result
+    }
+}
+
+/// Test-only opt-in transport. It never configures the production File14 singleton.
+enum DashboardInteractionDiagnostics {
+    static let environmentKey = "SWIFT_WINDOWSUI_DASHBOARD_UI11_TRACE_FILE"
+    static let writer = configuredWriter(path: ProcessInfo.processInfo.environment[environmentKey])
+
+    // Explicit local fixtures exercise configuration without changing process environment.
+    static func configuredWriter(path: String?) -> RetainedConstructionTraceWriter? {
+        guard let path, !path.isEmpty else { return nil }
+        return try? RetainedConstructionTraceWriter(path: path)
+    }
+
+    @discardableResult
+    static func record(_ event: StaticString, span: UInt64? = nil) -> UInt64? {
+        record(event, span: span, writer: writer)
+    }
+
+    @discardableResult
+    static func record(
+        _ event: StaticString, span: UInt64? = nil, writer: RetainedConstructionTraceWriter?
+    ) -> UInt64? {
+        writer?.record(event, span: span)
+    }
+
+    static func recordBodyEntry(_ testCase: XCTestCase) {
+        recordBodyEntry(testCase, writer: writer)
+    }
+
+    static func recordBodyEntry(_ testCase: XCTestCase, writer: RetainedConstructionTraceWriter?) {
+        recordCase("case.body.enter", testCase: testCase, writer: writer)
+    }
+
+    static func recordCase(
+        _ event: StaticString, testCase: XCTestCase, writer: RetainedConstructionTraceWriter?
+    ) {
+        guard let writer else { return }
+        // Metadata is copied only after configuration succeeds and is never retained as an object.
+        writer.record(
+            event, caseID: UInt(bitPattern: ObjectIdentifier(testCase)), caseName: testCase.name)
     }
 }

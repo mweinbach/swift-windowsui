@@ -15150,3 +15150,42 @@ six existing plus eight new final-child methods. Complete-class partitions of
 limit; neither partition has run at this checkpoint. Wider tests, native flows,
 visual comparisons, and the original performance requirements remain separate.
 **All nine original completion gates remain open.**
+
+
+### 2026-09-02: add disabled-by-default phase evidence to the original dashboard interaction tests
+
+The unresolved original eleven dashboard interaction methods now contain
+observational case-entry markers and fixture call/return markers. Their original
+identifiers, assertions, awaits, callbacks, and guards are preserved by nineteen
+additive insertions with an exact removal inverse. Two existing Test files
+changed and one eight-method writer/observer test file was added; all 713 other
+previous Test paths remain byte-identical. No production source or existing
+File14 writer changed.
+
+The separate `SWIFT_WINDOWSUI_DASHBOARD_UI11_TRACE_FILE` key is off when missing
+or empty. It enables seventeen case/fixture event names through the existing
+bounded 64 MiB writer. Recorded case association is temporal evidence only;
+neither an entry nor a return establishes fixture ownership, a passing test,
+dominant cost, or performance. A return after case completion stays unassigned.
+Source review checked that markers do not keep UI fixture owners alive.
+
+Root previously executed the reviewed r3 pure tooling controls: all 27 methods
+and 256 subtests passed. Those synthetic controls did not import or run the
+workload controller and do not count as dashboard test execution. The candidate
+controller preserves the original eleven-case filter, process calls, and
+900-second limit; no timeout extension, test substitution, or automatic retry
+has been introduced. Process closure still requires separate observation.
+
+The three joined Swift files pass strict formatting and architecture contracts.
+Formatting changed only whitespace in the new eight-method test file; its
+method names and order remain unchanged, and the formatting/source inverses
+restore the full preceding `f37474b` tree. A private review is checking any
+tooling source-pin amendment needed for that formatted file, without binding
+a future source commit or running a controller.
+
+Fresh execution of the unchanged eleven construction-writer tests plus these
+eight dashboard diagnostic tests is required before at most one marked attempt
+of the original eleven dashboard interactions. Neither step has run here. The
+earlier dashboard timeout remains unresolved and all eleven outcomes from that
+attempt remain unknown. Static retained output is not a replacement for the
+mounted interaction workload. **All nine original completion gates remain open.**

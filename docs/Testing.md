@@ -1677,3 +1677,26 @@ These tests do not establish native SwiftUI style semantics or interactive Windo
 qualification. Existing progress appearance, geometry, accessibility, form,
 public-facade, and mount tests stay unchanged. Quick registration and broader
 joined-root Quick/Full validation remain separate work. See [ProgressViewStyles.md](ProgressViewStyles.md).
+
+
+## Dashboard interaction phase diagnostics
+
+The original eleven DemoDashboardDataInteractionTests have optional observational
+case and fixture markers. A missing or empty
+`SWIFT_WINDOWSUI_DASHBOARD_UI11_TRACE_FILE` leaves this tracing disabled. Its
+writer is separate from the production File14 diagnostic configuration and uses
+the existing 64 MiB bound. The test assertions, async operations, callbacks, and
+fixture guards remain unchanged.
+
+Markers distinguish actual XCTest case callbacks, explicit body entry, and
+fixture call/return observations. Their case association is temporal, not proof
+of fixture ownership. A missing return, a late event, or an incomplete trace is
+not a passing test or a performance measurement. The trace does not establish
+process or writer closure; that needs separate evidence.
+
+Before using a marked dashboard run, execute the eleven unchanged
+RetainedConstructionDiagnosticsTests and eight DashboardInteractionDiagnosticsTests
+against the same committed source. Preserve the original eleven-case workload
+and its timeout. Pure parser/controller fake controls, writer tests, actual
+dashboard outcomes, and complete product qualification are separate results.
+The newly joined Swift diagnostics still require compilation and execution.

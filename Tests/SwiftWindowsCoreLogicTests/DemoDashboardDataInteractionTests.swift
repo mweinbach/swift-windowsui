@@ -12,7 +12,25 @@ import SwiftWindowsGraphics
 /// composited screenshots, renderer recovery, or performance qualification.
 @MainActor
 final class DemoDashboardDataInteractionTests: XCTestCase {
+    // Synchronous XCTest class hooks touch only the nonactor diagnostic observer.
+    nonisolated override class func setUp() {
+        super.setUp()
+        if let observer = DashboardInteractionTraceObserver.configured {
+            XCTestObservationCenter.shared.addTestObserver(observer)
+            observer.recordRegistered()
+        }
+    }
+
+    nonisolated override class func tearDown() {
+        if let observer = DashboardInteractionTraceObserver.configured {
+            XCTestObservationCenter.shared.removeTestObserver(observer)
+            observer.recordRemoved()
+        }
+        super.tearDown()
+    }
+
     func testInitialPreviewKeepsTheExistingChartAndFocusableInputControls() async throws {
+        DashboardInteractionDiagnostics.recordBodyEntry(self)
         let harness = DemoDashboardDataHarness()
         let fixture = DemoDashboardDataFixture(model: harness.model)
         defer {
@@ -38,6 +56,7 @@ final class DemoDashboardDataInteractionTests: XCTestCase {
     }
 
     func testKeyboardRefreshShowsLoadingAndPublishesOnlyActuallyDecodedPoints() async throws {
+        DashboardInteractionDiagnostics.recordBodyEntry(self)
         let harness = DemoDashboardDataHarness()
         let fixture = DemoDashboardDataFixture(model: harness.model)
         defer {
@@ -69,6 +88,7 @@ final class DemoDashboardDataInteractionTests: XCTestCase {
     }
 
     func testEmptyInputRemovesThePlotAndValidRefreshRestoresActualData() async throws {
+        DashboardInteractionDiagnostics.recordBodyEntry(self)
         let harness = DemoDashboardDataHarness()
         let fixture = DemoDashboardDataFixture(model: harness.model)
         defer {
@@ -102,6 +122,7 @@ final class DemoDashboardDataInteractionTests: XCTestCase {
     }
 
     func testMalformedInputAndRetryShowRealErrorsUntilNewInputSucceeds() async throws {
+        DashboardInteractionDiagnostics.recordBodyEntry(self)
         let harness = DemoDashboardDataHarness()
         let fixture = DemoDashboardDataFixture(model: harness.model)
         defer {
@@ -138,6 +159,7 @@ final class DemoDashboardDataInteractionTests: XCTestCase {
     }
 
     func testKeyboardCancelRevokesPublicationAndRetryStartsAFreshRead() async throws {
+        DashboardInteractionDiagnostics.recordBodyEntry(self)
         let harness = DemoDashboardDataHarness()
         let fixture = DemoDashboardDataFixture(model: harness.model)
         defer {
@@ -170,6 +192,7 @@ final class DemoDashboardDataInteractionTests: XCTestCase {
     }
 
     func testRepeatedRefreshButtonsWaitForTheOldReadAndKeepOnlyLatestIntent() async throws {
+        DashboardInteractionDiagnostics.recordBodyEntry(self)
         let harness = DemoDashboardDataHarness()
         let fixture = DemoDashboardDataFixture(model: harness.model)
         defer {
@@ -201,6 +224,7 @@ final class DemoDashboardDataInteractionTests: XCTestCase {
     }
 
     func testTheExistingRangeButtonsPreserveSelectionAndUseDecodedSeries() async throws {
+        DashboardInteractionDiagnostics.recordBodyEntry(self)
         let harness = DemoDashboardDataHarness()
         let fixture = DemoDashboardDataFixture(model: harness.model)
         defer {
@@ -230,6 +254,7 @@ final class DemoDashboardDataInteractionTests: XCTestCase {
     }
 
     func testDecodedChartMarksStillRespondToRetainedPointerHover() async throws {
+        DashboardInteractionDiagnostics.recordBodyEntry(self)
         let harness = DemoDashboardDataHarness()
         let fixture = DemoDashboardDataFixture(model: harness.model)
         defer {
@@ -265,6 +290,7 @@ final class DemoDashboardDataInteractionTests: XCTestCase {
     }
 
     func testInputAndRefreshControlsStayInsideTheMinimumWindowInBothAppearances() async throws {
+        DashboardInteractionDiagnostics.recordBodyEntry(self)
         for scheme in [ColorScheme.light, .dark] {
             for scale in [1.0, 1.5] {
                 let harness = DemoDashboardDataHarness()
@@ -296,6 +322,7 @@ final class DemoDashboardDataInteractionTests: XCTestCase {
     }
 
     func testClosedOwnerReleasesThePlotAndDisablesPublicLoadControls() async throws {
+        DashboardInteractionDiagnostics.recordBodyEntry(self)
         let harness = DemoDashboardDataHarness()
         let fixture = DemoDashboardDataFixture(model: harness.model)
         defer {
@@ -323,6 +350,7 @@ final class DemoDashboardDataInteractionTests: XCTestCase {
     }
 
     func testInjectedDataInTheOrdinaryDashboardStillRespondsToExistingActivity() async throws {
+        DashboardInteractionDiagnostics.recordBodyEntry(self)
         let harness = DemoDashboardDataHarness()
         let fixture = DemoDashboardDataFixture(
             model: harness.model, size: IntSize(width: 1280, height: 900), wholeRoot: true)
@@ -354,5 +382,31 @@ final class DemoDashboardDataInteractionTests: XCTestCase {
         XCTAssertEqual(fixture.dashboard.selectedModule, .layout)
         XCTAssertEqual(harness.gate.snapshot.starts.count, 1)
         XCTAssertTrue(fixture.observedNotifications.contains(ObjectIdentifier(fixture.dashboard)))
+    }
+}
+
+/// This immutable observer retains only the diagnostic writer, never a test case.
+final class DashboardInteractionTraceObserver: XCTestObservation, Sendable {
+    static let configured: DashboardInteractionTraceObserver? = {
+        guard let writer = DashboardInteractionDiagnostics.writer else { return nil }
+        return DashboardInteractionTraceObserver(writer: writer)
+    }()
+
+    private let writer: RetainedConstructionTraceWriter
+
+    init(writer: RetainedConstructionTraceWriter) { self.writer = writer }
+
+    func recordRegistered() { writer.record("observer.registered") }
+    func recordRemoved() { writer.record("observer.removed") }
+
+    func testCaseWillStart(_ testCase: XCTestCase) {
+        guard testCase is DemoDashboardDataInteractionTests else { return }
+        DashboardInteractionDiagnostics.recordCase("case.enter", testCase: testCase, writer: writer)
+    }
+
+    func testCaseDidFinish(_ testCase: XCTestCase) {
+        guard testCase is DemoDashboardDataInteractionTests else { return }
+        // This callback is an observation, not an assertion or passing test result.
+        DashboardInteractionDiagnostics.recordCase("case.exit", testCase: testCase, writer: writer)
     }
 }

@@ -14558,3 +14558,64 @@ obligation. It needs original-to-known-successor transport adjacent to its own
 native writes, including review of initial post-revoke task-setup captures.
 The original 22 proposed overlay tests are retained; no stale-ownership gap is
 closed by a source-composition pass or a later current-proof recapture.
+
+
+### Ninth integration: bounded checking of supplied display facts (2026-09-02)
+
+This adds a precursor for trustworthy live measurement, not a native collector
+or hardware qualification. The original nine gates, workload requirements,
+30-second duration, deadline-miss target, and one/two-refresh p95 targets remain
+unchanged. `NativeDisplayMeasurement.check(Batch)` is a pure package-level
+checker in SwiftWindowsGraphics; it has no I/O, clock calls, native hooks,
+callback, window/COM ownership, ETL decoder, quantile computation or declaration
+of real display success.
+
+The typed inputs keep original clock/process/thread/window/swapchain lifetimes,
+preparation, native Present intervals and returns, ordered DXGI Start/Stop facts,
+dispositions, zero/many display observations, original receipts, input-effect
+declarations and supplied coverage separate. Known origin/frequency mismatch
+is contradictory; absent comparable basis is incomplete. Pairing precedes
+association, and ties, nested/orphan sequences, overlapping native brackets,
+multiple matches and reused pairs never select a nearest or first winner.
+Every affected association is invalidated independently of input array order.
+An API return or actor receipt is not a displayed frame. Supplied idle gaps are
+only the complement of eligible supplied call intervals, with explicit endpoint
+inclusion; they are not OS demand, absence of real Present calls, or deadlines.
+Known loss, unfinished capture and missing tails remain missing evidence even
+when a particular supplied-fact match is unique.
+
+The final reviewed v2 preserves the prior model and adds the missing basis
+checks for dispositions and coverage holes, plus multiplicity checks independent
+of whether a parent reference exists. The fixed input caps are 8 clocks, 64
+epochs, 8,192 attempts, 16,384 events with 8,192 Starts and Stops each, 8,192
+dispositions, 16,384 display observations, 8,192 receipts, 8,192 inputs and 64
+missing intervals. Total supplied entries including coverage are bounded at
+65,536, and reported issues at 1,024. Checked exhaustion rejects the complete
+batch without returning an accepted prefix. These are checker bounds after the
+caller has allocated arrays; they do not bound recorder allocation or ETW/disk
+cost, and no throughput result is claimed.
+
+The root adds only NativeDisplayMeasurement.swift and its 77-method pure XCTest
+file on top of `22babc1b1d28859b9ff672f0b0f0c9a8f70628a1`. All 700 existing
+Tests entries and raw files remain unchanged. The original source patch and
+whole-tree inverse are verified in
+`artifacts/goal-ninth-native-display-facts-apply-v1.json`; source tree
+`08170b5dbb43087352f988a662819ea6b6771c4e` restores the complete prior tree.
+Strict formatting changes only the new test's call/array/ternary wrapping,
+indentation and one trailing comma; every test name, condition and value remains.
+The final source-only tree is `49b2a440e840c6c2de7f82fce437c469b716e3c7`.
+The format inverse and original inverse restore both exact trees; the new
+64,348-byte test has SHA-256
+`86821aace0bdbb27e1b16398103b93499e4e494564a07084ebd9fb96053730d2`.
+Production remains the reviewed 62,292 bytes, SHA-256
+`046bae1571f48aeb2c7dbbd3798a5985e87438a3b8b4cdb582d9cf977eda6186`.
+Strict two-file lint and unchanged contracts pass. The complete 77-case class
+has not yet compiled or executed on root.
+
+Real acquisition remains separate: original QPC/PID/TID capture, immutable
+request/queue/receipt links, native call brackets and swapchain epochs need
+bounded instrumentation before any owned ETW collection/decoding. Provider
+schema, event provenance, capture loss/drain/finalization, display observations,
+input timestamps and visible effects, demanded deadlines, percentile workloads,
+high-refresh hardware and long sessions still need real evidence. Neither this
+checker nor supplied synthetic facts close any native or timing gate.

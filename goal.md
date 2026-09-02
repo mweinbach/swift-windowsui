@@ -12625,3 +12625,48 @@ original goal is unchanged; these wording fixes remove possible weaker
 interpretations rather than adding a new requirement. The reviewed packet is
 `artifacts/goal-ninth-release-checklist496-intake-v1`. No runtime or release
 result is claimed for these documentation changes.
+
+
+### Ninth integration: executed cancellation, membership, Button and trace-writer checks
+
+The combined fixed 61-case cohort ran on `1c28ccfa91b2862418398107e2a778aea6cda3c1`
+(tree `1abd13ef9a5cb1cd7f07a4189397eed60bd8c9a9`). It compiled and executed all
+61 selected XCTest methods: **60 passed, one failed, zero skipped**. This is
+focused evidence only; none of the nine original completion gates is closed.
+
+- Both new ordinary-projection cancellation methods and both new binding-backed
+  cancellation methods passed. All 26 original projection, binding and admission
+  methods in their three existing files also passed. The accepted source now
+  survives the tested finite-construction cancellation cases, while the separate
+  missing-source tests still require rejection.
+- All nine accepted-membership and eight mounted-empty-row publication methods
+  passed again. Their previous fresh-reservation fixture repair is exercised here
+  with the cancellation and diagnostic changes integrated.
+- The shared descriptor-binding fixture repair allowed all three Button admission
+  methods to reach their assertions. Two passed. The remaining method,
+  `testRejectedSourceDestructorSealsJournalBeforeNewButtonAcceptance`, failed its
+  existing `XCTAssertTrue` at line 34. This is no longer the earlier descriptor-copy
+  setup exception. Its destructor-cleanup ordering still needs diagnosis; the
+  assertion and production identity guards have not been weakened.
+- All eleven new trace-writer methods passed, including visibility of complete
+  records before writer close, bounded output, rejection and failure handling.
+  This does not establish the separate small visibility smoke or execute any of
+  the fourteen FileBrowser interaction methods. Their prior timeout remains
+  unresolved until the bounded diagnostic attempt has actual evidence.
+
+The root runner and its original child both exited naturally with code 1 after
+465.985 seconds, without timeout or termination. Source/index endpoints were
+independently compared. The post-closure CIM snapshot found no matching workload
+or formatter processes; it is a point-in-time observation, not continuous
+descendant attestation. The raw log contains 3,611,404 bytes, SHA-256
+`a6b1a5514b0489c130aa9b29c3162a2113a07fa05102ffa6c20cd5070252f1b0`.
+The reconciliation is
+`artifacts/goal-ninth-projection-writer61-1c28ccf-reconciled-v1.json`; the separate
+closure receipt has the corresponding `-post-closure-v1.json` name.
+
+The earlier derivation proof's field
+`original26ProjectionBindingTestFilesByteIdentical` names its unit incorrectly:
+the check compared **26 methods in three files**, not 26 files. The actual file
+roster and byte comparisons are unchanged; this clarification does not rewrite
+that frozen receipt. No full-suite, native-window, gallery, hardware, hosted-CI,
+clean-machine delivery or complete SwiftUI compatibility pass is inferred.

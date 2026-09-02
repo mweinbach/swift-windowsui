@@ -15030,3 +15030,78 @@ ordering. Added bounded maps, continuation records and temporary pins have not
 been measured for allocation or performance. Native animation, hardware timing,
 full-suite and release qualification remain open. **None of the nine original
 completion gates is closed by this source integration.**
+
+
+### 2026-09-02: opt-in native presentation acquisition source integration
+
+The native application journal is integrated on top of `ed61ba4`, as a separate
+source slice. It adds actual application-side observations needed by the
+original measurement goal; it does not turn supplied facts or successful
+Present return values into display or input-latency evidence. The existing
+77-method supplied-facts checker and every previous test remain unchanged.
+
+An explicit `--native-display-journal` argument enables one recorder on the
+primary native host. Without it, the ordinary path does not sample or bind
+acquisition contexts. The recorder carries original request, window, attachment,
+surface and frame identities, a checked QPC frequency, integer samples, actual
+Present flags and HRESULT, reply delivery and completed actor consumption.
+Prepared scene timestamps occur after scene construction and are not the start
+of all active framework work. Command-entry bookkeeping precedes native
+validation; the backend recording scope begins inside the existing attachment
+execution gate and clears before snapshots and replies. No extra Present,
+input, GPU timing query, recording task or wait is introduced.
+
+Epochs describe actual swap-chain creation, explicitly distinguished surface
+changes, and the return from release of the owned COM reference. They do not
+prove that every external reference or queued display operation has ended.
+The bounded recorder invalidates the whole capture for overflow, inconsistent
+identities, rejected work, missing clocks or incomplete drain; it never accepts
+a truncated prefix. Limits remain eight clocks, 64 epochs, 8192 request and
+receipt records, and 32 MiB encoded output. UInt64 values remain decimal strings.
+
+Only successful return from the existing native drain and actual thread join
+permits finalization. Complete encoding and a new temporary sibling precede a
+move without replacement to the requested absent path. There is no retry, and
+failed startup/join or incomplete work publishes no journal. Synchronous output
+has no claimed filesystem latency or durability guarantee; a failed operation
+may leave a uniquely named partial file. Process exit zero or an empty complete
+journal alone is not proof that native acquisition was exercised.
+
+Root reviewed the nine production changes, all 33 new tests and helpers, and the
+source/inverse proof. The 11-path patch contains nine production Swift files,
+one new test file and one new document. It preserves all 713 existing test paths,
+including the mounted lifetime integration, and adds one for a total of 714.
+All ten initial Swift postimages match the reviewed packet byte for byte. Git's
+CRLF expansion in the new Markdown document is recorded separately. The inverse
+recovers the complete previous root tree; the reviewed formatter inverse then
+source inverse does the same. The source receipts are
+`artifacts/goal-ninth-native-acquisition-root-apply-v1.json` and
+`artifacts/goal-ninth-native-acquisition-root-format-proof-v1.json`.
+Strict lint on all ten changed Swift files and architecture checks pass.
+The formatted source tree before the final documentation additions is
+`a2635167c3e0aee37deec87c07fa97880ef9e0d7`.
+
+The new tests use fake acquisition/backend and clock objects; even a future
+pass will not execute D3D11 or the actual Win32 journal writer. All 33 remain
+uncompiled and unrun at this integration checkpoint. The next native selection
+must freshly derive the exact 77 existing plus 33 new methods from the final
+committed source. No prior result is transferred to those 110 methods.
+
+A separate bounded ordinary-app exercise is being prepared after those unit
+tests. It will preserve the fixed smoke harness, use the existing 0.5-second
+no-input diagnostics mode, distinct fresh output files, and a newly reviewed
+controller with a 30-second child wait and five-second owned cleanup. Timeout
+or forced termination will fail the exercise. Those controller bounds do not
+alter the original sustained hardware criteria. Source review found that the
+ordinary app can update its pacing cache even without input. The planned child
+environment redirects only its explicitly LOCALAPPDATA-based cache into the
+new attempt directory and refuses inherited diagnostic writer modes. Normal
+bounded preference reads remain; this is not full user-profile isolation.
+No native app, collector, input injection or hardware test has run here.
+
+[NativeDisplayMeasurement.md](docs/NativeDisplayMeasurement.md) records the
+interface, recording boundaries, source limits and remaining acquisition work.
+ETW/provider decoding and loss evidence, lifetime/clock normalization, actual
+display disposition, input effects, demanded deadlines, sustained 60/120/144 Hz
+results, long-session resources and release validation remain owed.
+**All nine original completion gates remain open.**

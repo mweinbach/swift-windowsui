@@ -319,7 +319,8 @@ final class WinSwiftUIWindowCoordinator {
         hostFactory: (@MainActor (WindowGroupConfiguration, Bool) throws -> WinSwiftUIWindowHost)? = nil,
         sceneStorageScopeProvider: (@MainActor () -> String)? = nil,
         liveDiagnostics: LiveDiagnosticsConfiguration? = nil,
-        documentServices: DocumentWindowServices? = nil
+        documentServices: DocumentWindowServices? = nil,
+        nativeDisplayAcquisition: NativeDisplayAcquisition.Recorder? = nil
     ) {
         self.sceneConfigurations = sceneConfigurations
         self.documentServices = documentServices
@@ -360,7 +361,10 @@ final class WinSwiftUIWindowCoordinator {
                     // broken yesterday starts self-paced instead of replaying
                     // the 1.5 s evidence slideshow. Hosts built directly
                     // (tests, embedders) default to no memory.
-                    presentPacingMemory: .standard
+                    presentPacingMemory: .standard,
+                    nativeDisplayAcquisition: NativeDisplayAcquisitionSession.forHost(
+                        nativeDisplayAcquisition, isPrimary: isPrimary,
+                        usesNativePresentation: nativePresentationFactory != nil)
                 )
             }
         self.sceneStorageScopeProvider =

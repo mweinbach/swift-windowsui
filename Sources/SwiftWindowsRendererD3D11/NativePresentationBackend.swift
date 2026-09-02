@@ -27,7 +27,7 @@ private enum D3D11NativePresentationError: Error, ClassifiedPresentationFailure 
 /// Owns the same kernels used by the actor compatibility facades, on the HWND
 /// owner instead. Selecting one path first releases both paths' resources.
 /// Inactive kernels never keep a second flip-model swap chain on the HWND.
-private final class D3D11NativePresentationBackend: NativePresentationBackend {
+private final class D3D11NativePresentationBackend: NativePresentationBackend, NativeDisplayAcquisitionBackend {
     private let frame: D3D11FrameKernel
     private let batch: D3D11BatchKernel
     private var selectedPath: NativePresentationPath?
@@ -40,6 +40,14 @@ private final class D3D11NativePresentationBackend: NativePresentationBackend {
     init(frameConfiguration: D3D11RendererConfiguration) {
         frame = D3D11FrameKernel(configuration: frameConfiguration, usesCapturedSurfaceScale: true)
         batch = D3D11BatchKernel()
+    }
+
+    func beginDisplayAcquisition(_ context: NativeDisplayAcquisition.Context) -> Bool {
+        batch.beginDisplayAcquisition(context)
+    }
+
+    func endDisplayAcquisition(_ context: NativeDisplayAcquisition.Context) {
+        batch.endDisplayAcquisition(context)
     }
 
     func attach(to surface: SurfaceDescriptor, path: NativePresentationPath) throws {
@@ -65,6 +73,7 @@ private final class D3D11NativePresentationBackend: NativePresentationBackend {
         case .scene:
             guard batch.isAttached else { throw D3D11NativePresentationError.pathNotAttached(.scene) }
             try batch.resize(to: surface.pixelSize)
+            batch.rebindDisplayAcquisitionSurface()
         case .frame:
             guard frame.isAttached else { throw D3D11NativePresentationError.pathNotAttached(.frame) }
             try frame.resize(to: surface)
@@ -81,6 +90,7 @@ private final class D3D11NativePresentationBackend: NativePresentationBackend {
         let started = PlatformClock.now()
         batch.bindResources(for: scene)
         lastBindSeconds = PlatformClock.now() - started
+        batch.displayAcquisitionWillRender()
         try batch.render(scene: scene)
     }
 
@@ -89,6 +99,7 @@ private final class D3D11NativePresentationBackend: NativePresentationBackend {
         guard selectedPath == .frame, self.frame.isAttached else {
             throw D3D11NativePresentationError.pathNotAttached(.frame)
         }
+        batch.invalidateDisplayAcquisition(.unsupportedFramePath)
         try self.frame.render(frame: frame)
     }
 

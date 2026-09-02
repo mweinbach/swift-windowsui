@@ -282,6 +282,7 @@ public struct NativePresentationCommand: NativeWindowOwnerCommand {
     public let operation: NativePresentationOperation
     public let reply: NativeWindowReply<NativePresentationReceipt>
     public let teardownStore: NativePresentationTeardownStore?
+    package let acquisition: NativeDisplayAcquisition.Context?
     public var commandReply: NativeWindowCommandReply { reply.commandReply }
 
     public init(
@@ -290,6 +291,18 @@ public struct NativePresentationCommand: NativeWindowOwnerCommand {
         operation: NativePresentationOperation, reply: NativeWindowReply<NativePresentationReceipt>,
         teardownStore: NativePresentationTeardownStore? = nil
     ) {
+        self.init(
+            windowKey: windowKey, attachmentID: attachmentID, expectedSurfaceGeneration: expectedSurfaceGeneration,
+            requestID: requestID, operation: operation, reply: reply, teardownStore: teardownStore, acquisition: nil)
+    }
+
+    package init(
+        windowKey: NativeWindowKey, attachmentID: NativeWindowAttachmentID,
+        expectedSurfaceGeneration: UInt64?, requestID: NativeWindowRequestID = NativeWindowRequestID(),
+        operation: NativePresentationOperation, reply: NativeWindowReply<NativePresentationReceipt>,
+        teardownStore: NativePresentationTeardownStore? = nil, acquisition: NativeDisplayAcquisition.Context?
+    ) {
+        self.acquisition = acquisition
         self.windowKey = windowKey
         self.attachmentID = attachmentID
         self.expectedSurfaceGeneration = expectedSurfaceGeneration
@@ -306,6 +319,11 @@ public struct NativePresentationCommand: NativeWindowOwnerCommand {
     public func execute(in context: any NativeWindowOwnerContext) throws {
         let startedAtSeconds = PlatformClock.now()
         let surface = context.surface
+        acquisition?.enteredNative(
+            actualBinding: NativeDisplayAcquisition.Binding(
+                windowKey: surface.key, attachmentID: attachmentID, surfaceGeneration: surface.generation))
+        var acquisitionCompleted = false
+        defer { if !acquisitionCompleted { acquisition?.endedNative(.threw) } }
         guard surface.key == windowKey else { throw NativeWindowOwnerFailure.staleWindow }
         if operation.requiresSurfaceGeneration, expectedSurfaceGeneration == nil {
             throw NativeWindowOwnerFailure.execution("Presentation work requires a captured surface generation.")
@@ -336,7 +354,7 @@ public struct NativePresentationCommand: NativeWindowOwnerCommand {
             attachment = existing
         }
 
-        let failure = try attachment.perform(operation, on: surface)
+        let failure = try attachment.perform(operation, on: surface, acquisition: acquisition)
         // Snapshot polling is native work too. Keep the attachment registered
         // until that work has left its quiescence gate.
         var snapshot = attachment.takeSnapshot()
@@ -361,6 +379,8 @@ public struct NativePresentationCommand: NativeWindowOwnerCommand {
             isInstalled = false
         }
         let completedAtSeconds = PlatformClock.now()
+        acquisition?.endedNative(failure == nil ? .returned : .failed)
+        acquisitionCompleted = true
         reply.complete(
             .success(
                 NativePresentationReceipt(
@@ -446,9 +466,10 @@ private final class NativePresentationAttachment: NativeWindowOwnerAttachment {
         return result
     }
 
-    func perform(_ operation: NativePresentationOperation, on surface: NativeWindowSurface) throws
-        -> NativePresentationFailure?
-    {
+    func perform(
+        _ operation: NativePresentationOperation, on surface: NativeWindowSurface,
+        acquisition: NativeDisplayAcquisition.Context?
+    ) throws -> NativePresentationFailure? {
         guard surface.key == windowKey else { throw NativeWindowOwnerFailure.staleWindow }
         guard !isExecuting else {
             throw NativeWindowOwnerFailure.execution("Native presentation execution cannot reenter.")
@@ -484,6 +505,21 @@ private final class NativePresentationAttachment: NativeWindowOwnerAttachment {
         }
         guard let backend else {
             throw NativeWindowOwnerFailure.execution("Native presentation construction returned no backend.")
+        }
+        // Bind only after the existing gate and construction/closing checks.
+        // A rejected nested request must never replace or clear its caller.
+        let acquisitionBackend = acquisition == nil ? nil : backend as? any NativeDisplayAcquisitionBackend
+        var acquisitionEntered = false
+        if let acquisition {
+            if let acquisitionBackend {
+                acquisitionEntered = acquisitionBackend.beginDisplayAcquisition(acquisition)
+                if !acquisitionEntered { acquisition.invalidate(.scopeMismatch) }
+            } else {
+                acquisition.invalidate(.unsupportedBackend)
+            }
+        }
+        defer {
+            if acquisitionEntered, let acquisition { acquisitionBackend?.endDisplayAcquisition(acquisition) }
         }
         do {
             switch operation {

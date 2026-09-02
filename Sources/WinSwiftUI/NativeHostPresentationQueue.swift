@@ -15,6 +15,7 @@ final class NativeHostPresentationQueue {
         let expectedGeneration: UInt64?
         let operation: NativePresentationOperation
         let smokeTag: NativeOwnedSmokeFrameTag?
+        let acquisition: NativeDisplayAcquisition.Context?
         let completion: Completion
     }
 
@@ -22,6 +23,7 @@ final class NativeHostPresentationQueue {
     private let attachmentID: NativeWindowAttachmentID
     private let teardownStore: NativePresentationTeardownStore
     private let smokeObservation: Win32NativeSmokeObservation?
+    private let acquisition: NativeDisplayAcquisition.Recorder?
     private var pending: [Pending] = []
     private var executing: Pending?
     private var acceptsRequests = true
@@ -32,28 +34,37 @@ final class NativeHostPresentationQueue {
     init(
         sink: any NativeWindowCommandSink, attachmentID: NativeWindowAttachmentID,
         teardownStore: NativePresentationTeardownStore,
-        smokeObservation: Win32NativeSmokeObservation? = nil
+        smokeObservation: Win32NativeSmokeObservation? = nil,
+        acquisition: NativeDisplayAcquisition.Recorder? = nil
     ) {
         self.sink = sink
         self.attachmentID = attachmentID
         self.teardownStore = teardownStore
         self.smokeObservation = smokeObservation
+        self.acquisition = acquisition
     }
 
     func submit(
         _ operation: NativePresentationOperation, surface: NativeWindowSurface,
         requiresSurfaceGeneration: Bool = true, smokeTag: NativeOwnedSmokeFrameTag? = nil,
-        completion: @escaping Completion
+        preparation: NativeDisplayAcquisition.Preparation? = nil, completion: @escaping Completion
     ) {
         guard acceptsRequests else {
+            acquisition?.noteRefusedPreparation(preparation)
             completion(.failure(.closing))
             return
         }
+        let requestID = NativeWindowRequestID()
+        let capture = acquisition?.prepare(
+            requestID: requestID,
+            binding: NativeDisplayAcquisition.Binding(
+                windowKey: surface.key, attachmentID: attachmentID, surfaceGeneration: surface.generation),
+            operation: operation.kind, preparation: preparation)
         pending.append(
             Pending(
-                id: NativeWindowRequestID(), surface: surface,
+                id: requestID, surface: surface,
                 expectedGeneration: requiresSurfaceGeneration ? surface.generation : nil,
-                operation: operation, smokeTag: smokeTag, completion: completion
+                operation: operation, smokeTag: smokeTag, acquisition: capture, completion: completion
             )
         )
         advance()
@@ -74,7 +85,10 @@ final class NativeHostPresentationQueue {
         let rejected = pending
         pending.removeAll()
         for request in rejected {
+            request.acquisition?.rejectedLocally()
+            request.acquisition?.beginActorDelivery(rejected: true)
             request.completion(.failure(.closing))
+            request.acquisition?.endActorDelivery()
         }
         isRejectingPendingRequests = false
         notifyDrainedIfNeeded()
@@ -108,6 +122,9 @@ final class NativeHostPresentationQueue {
                 revision: tag.contentRevision, auxiliary: tag.phase)
         }
         let reply = NativeWindowReply<NativePresentationReceipt> { [self] result in
+            // Core can reject the original commandReply without invoking the
+            // command's reject method. Observe this actual terminal callback.
+            request.acquisition?.receivedReply(result)
             recordNativeOwnedSmokeFrameReply(
                 smokeObservation, kind: .frameReplyReceived, requestID: request.id,
                 surface: request.surface, tag: request.smokeTag, result: result)
@@ -118,7 +135,7 @@ final class NativeHostPresentationQueue {
         let command = NativePresentationCommand(
             windowKey: request.surface.key, attachmentID: attachmentID,
             expectedSurfaceGeneration: request.expectedGeneration, requestID: request.id,
-            operation: request.operation, reply: reply, teardownStore: teardownStore
+            operation: request.operation, reply: reply, teardownStore: teardownStore, acquisition: request.acquisition
         )
         _ = sink.submit(command)
     }
@@ -150,7 +167,13 @@ final class NativeHostPresentationQueue {
         recordNativeOwnedSmokeFrameReply(
             smokeObservation, kind: .frameReplyConsumed, requestID: request.id,
             surface: request.surface, tag: request.smokeTag, result: validated)
+        if case .failure = validated {
+            request.acquisition?.beginActorDelivery(rejected: true)
+        } else {
+            request.acquisition?.beginActorDelivery(rejected: false)
+        }
         request.completion(validated)
+        request.acquisition?.endActorDelivery()
         isDeliveringCompletion = false
         advance()
         notifyDrainedIfNeeded()

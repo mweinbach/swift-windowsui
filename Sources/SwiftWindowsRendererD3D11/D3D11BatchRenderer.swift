@@ -226,6 +226,9 @@ final class D3D11BatchKernel {
     private var deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>?
     private var dxgiFactory: UnsafeMutablePointer<IDXGIFactory2>?
     private var swapChain: UnsafeMutablePointer<IDXGISwapChain1>?
+    private var displayAcquisition: NativeDisplayAcquisition.Context?
+    private var displayAcquisitionEpoch: NativeDisplayAcquisition.EpochToken?
+    private var displayAcquisitionRendered = false
     private var renderTargetView: UnsafeMutablePointer<ID3D11RenderTargetView>?
 
     /// Identity token for the device currently held, or `0` when detached.
@@ -1292,7 +1295,10 @@ final class D3D11BatchKernel {
 
         releaseCOM(&renderTargetView)
         releaseCOM(&offscreenTexture)
+        let acquisitionRelease = displayAcquisitionEpoch?.sample()
         releaseCOM(&swapChain)
+        displayAcquisitionEpoch?.didRelease(at: acquisitionRelease)
+        displayAcquisitionEpoch = nil
         releaseCOM(&dxgiFactory)
         releaseCOM(&deviceContext)
         releaseCOM(&device)
@@ -1500,7 +1506,7 @@ final class D3D11BatchKernel {
 
         let presentStartedAt = Self.nowSeconds()
         do {
-            try presentFrame()
+            try presentFrame(frameID: frameID)
         } catch {
             if gpuTimingStatus == .pending {
                 gpuTimingStatus = PresentationFailureKind.classifying(error) == .deviceLost ? .deviceLost : .aborted
@@ -2603,11 +2609,56 @@ final class D3D11BatchKernel {
         }
     }
 
+    // Only the native presenter opts in. The compatibility facade leaves this
+    // nil and performs no sampling or recorder updates. No COM owner is stored
+    // in either the immutable request context or the independent lifetime token.
+    func beginDisplayAcquisition(_ context: NativeDisplayAcquisition.Context) -> Bool {
+        guard displayAcquisition == nil else {
+            context.invalidate(.scopeMismatch)
+            return false
+        }
+        guard context.beginScope() else { return false }
+        displayAcquisition = context
+        displayAcquisitionRendered = false
+        return true
+    }
+
+    func endDisplayAcquisition(_ context: NativeDisplayAcquisition.Context) {
+        guard let current = displayAcquisition, current.matches(context) else {
+            context.invalidate(.scopeMismatch)
+            return
+        }
+        if displayAcquisitionRendered { context.recordSubmission(lastFrameSubmission) }
+        displayAcquisition = nil
+        displayAcquisitionRendered = false
+        context.endScope()
+    }
+
+    func displayAcquisitionWillRender() {
+        guard let displayAcquisition else { return }
+        displayAcquisitionRendered = true
+        displayAcquisition.invokedRenderer()
+    }
+
+    func invalidateDisplayAcquisition(_ fault: NativeDisplayAcquisition.Fault) {
+        displayAcquisition?.invalidate(fault)
+    }
+
+    func rebindDisplayAcquisitionSurface() {
+        // This is the successful attachment-lease boundary, not a new COM
+        // allocation. Keep the old lifetime token if the bounded recorder fails.
+        if let displayAcquisition, let old = displayAcquisitionEpoch,
+            let updated = old.rebound(to: displayAcquisition)
+        {
+            displayAcquisitionEpoch = updated
+        }
+    }
+
     /// Ends the frame on whichever target is attached: a real DXGI present
     /// for the windowed swap chain, a context flush for the offscreen
     /// target (which has nothing to present, but must have its draws
     /// submitted before anything reads the texture back).
-    private func presentFrame() throws {
+    private func presentFrame(frameID: BackendFrameID) throws {
         switch renderTargetKind {
         case .swapChain:
             guard let swapChain else {
@@ -2618,7 +2669,13 @@ final class D3D11BatchKernel {
             // whole frames — the call simply stops blocking on a compositor
             // that was never going to release it on time.
             let syncInterval: UINT = presentPacingPolicy.presentsOnVBlank ? 1 : 0
+            let ticket = displayAcquisition?.preparePresent(
+                epoch: displayAcquisitionEpoch, frame: frameID, address: UInt64(UInt(bitPattern: swapChain)),
+                syncInterval: syncInterval, flags: 0)
+            let acquisitionBegan = ticket?.sample()
             let hr = swapChain.pointee.lpVtbl.pointee.Present(swapChain, syncInterval, 0)
+            let acquisitionEnded = ticket?.sample()
+            ticket?.returned(hr, began: acquisitionBegan, ended: acquisitionEnded)
             try handlePresentResult(hr)
         case .offscreen:
             deviceContext?.pointee.lpVtbl.pointee.Flush(deviceContext)
@@ -3090,6 +3147,16 @@ final class D3D11BatchKernel {
                 nil,
                 &chain
             )
+        }
+        if let displayAcquisition {
+            if hr >= 0, let swapChain {
+                displayAcquisitionEpoch = displayAcquisition.openEpoch(
+                    address: UInt64(UInt(bitPattern: swapChain)), deviceGeneration: deviceGeneration)
+            } else if swapChain != nil {
+                // A failed API with a nonnil partial result is not a proven
+                // creation epoch; cleanup stays unchanged and capture is invalid.
+                displayAcquisition.invalidate(.epochIdentity)
+            }
         }
         try throwIfFailed(hr, operation: "IDXGIFactory2.CreateSwapChainForHwnd")
 

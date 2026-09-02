@@ -2473,6 +2473,7 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
     private let renderer: any RenderBackend
     private let batchRenderer: (any BatchRenderBackend)?
     private let nativePresentationFactory: (any NativePresentationBackendFactory)?
+    private let nativeDisplayAcquisition: NativeDisplayAcquisition.Recorder?
     private let nativePresentationAttachmentID = NativeWindowAttachmentID()
     private let nativePresentationTeardownStore = NativePresentationTeardownStore()
     private var nativePresentationQueue: NativeHostPresentationQueue?
@@ -3116,7 +3117,8 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
         startupProbeConfiguration: StartupProbeConfiguration? = .fromEnvironment(),
         recoveryPolicy: BatchBackendRecoveryPolicy = .standard,
         backendResolution: RenderBackendResolution? = nil,
-        presentPacingMemory: PresentPacingMemoryStore? = nil
+        presentPacingMemory: PresentPacingMemoryStore? = nil,
+        nativeDisplayAcquisition: NativeDisplayAcquisition.Recorder? = nil
     ) {
         var configuration = configuration
         if !configuration.isDocumentGroup {
@@ -3141,6 +3143,7 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
         self.renderer = renderer
         self.batchRenderer = batchRenderer
         self.nativePresentationFactory = nativePresentationFactory
+        self.nativeDisplayAcquisition = nativePresentationFactory == nil ? nil : nativeDisplayAcquisition
         self.surfaceDescriptorProvider = surfaceDescriptorProvider
         self.runtime = RetainedViewRuntime(clearColor: configuration.clearColor, root: ViewNode())
         self.componentHost = ComponentHost(runtime: runtime)
@@ -6273,7 +6276,7 @@ extension WinSwiftUIWindowHost {
         nativeLifetimeKey = created.key
         nativePresentationQueue = NativeHostPresentationQueue(
             sink: sink, attachmentID: nativePresentationAttachmentID, teardownStore: nativePresentationTeardownStore,
-            smokeObservation: nativeSmokeProbe?.observation)
+            smokeObservation: nativeSmokeProbe?.observation, acquisition: nativeDisplayAcquisition)
         bindNativeDialogSession(NativeDialogSession(windowKey: created.key, commandSink: sink))
         guard !hasTornDownWindow else { throw WindowCoordinatorError.windowClosedDuringStartup }
 
@@ -6476,16 +6479,19 @@ extension WinSwiftUIWindowHost {
         _ operation: NativePresentationOperation, capturedSurface: NativeWindowSurface? = nil,
         requiresSurfaceGeneration: Bool = true,
         smokeTag: NativeOwnedSmokeFrameTag? = nil,
+        preparation: NativeDisplayAcquisition.Preparation? = nil,
         completion: @escaping NativeHostPresentationQueue.Completion
     ) {
         guard !hasTornDownWindow, let queue = nativePresentationQueue,
             let surface = capturedSurface ?? window.nativeSurface
         else {
+            nativeDisplayAcquisition?.noteRefusedPreparation(preparation)
             completion(.failure(hasTornDownWindow ? .closing : .unavailable))
             return
         }
         queue.submit(
-            operation, surface: surface, requiresSurfaceGeneration: requiresSurfaceGeneration, smokeTag: smokeTag
+            operation, surface: surface, requiresSurfaceGeneration: requiresSurfaceGeneration, smokeTag: smokeTag,
+            preparation: preparation
         ) {
             [weak self] result in
             if let self, case .success(let receipt) = result,
@@ -6978,11 +6984,20 @@ extension WinSwiftUIWindowHost {
             primitiveCount = 0
             visitedNodeCount = 0
         }
+        let acquisitionPreparation: NativeDisplayAcquisition.Preparation?
+        if path == .scene, let nativeDisplayAcquisition {
+            acquisitionPreparation = NativeDisplayAcquisition.Preparation(
+                at: nativeDisplayAcquisition.sample(), contentRevision: runtime.contentRevision, boundary: .scene)
+        } else {
+            acquisitionPreparation = nil
+        }
         guard !hasTornDownWindow else {
+            nativeDisplayAcquisition?.noteRefusedPreparation(acquisitionPreparation)
             completeNativeInitialFrameWaiters(submitted: false)
             return
         }
         if shouldSkipIdenticalPresent() {
+            nativeDisplayAcquisition?.noteSkippedPreparation(acquisitionPreparation)
             recordSkippedIdenticalPresent(in: window)
             completeNativeInitialFrameWaiters(submitted: hasCurrentNativeSubmittedFrame)
             return
@@ -7010,7 +7025,9 @@ extension WinSwiftUIWindowHost {
         didSubmit = true
         syncAnimationDriver(for: window)
         let smokeTag = nativeSmokeProbe?.frameTag(revision: accounting.contentRevision)
-        submitNativePresentation(operation, capturedSurface: surface, smokeTag: smokeTag) { [weak self] result in
+        submitNativePresentation(
+            operation, capturedSurface: surface, smokeTag: smokeTag, preparation: acquisitionPreparation
+        ) { [weak self] result in
             self?.completeNativeFrame(result, accounting: accounting, smokeTag: smokeTag)
         }
     }

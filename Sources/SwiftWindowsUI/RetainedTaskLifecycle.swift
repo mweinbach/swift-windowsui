@@ -900,6 +900,11 @@ fileprivate final class RetainedTaskGroupLaunchOwner {
         let previous = slot
         let replacement = RetainedTaskSlot(declaration, attempt: restart ? nil : previous?.attempt)
         slot = replacement
+        // The installed slot now pins the attempt. Permanently relinquish the
+        // old slot before association cleanup can reenter: a later physical
+        // claim may empty `slot`, but an earlier accepted-absence cleanup must
+        // still never recover cancellation ownership of this moved attempt.
+        if !restart { previous?.attempt = nil }
         if let previous, previous.declaration !== declaration, let old = previous.declaration.groupAssociation {
             old.revoke()
             let key = ObjectIdentifier(old.declarationID)
@@ -933,6 +938,10 @@ fileprivate final class RetainedTaskGroupLaunchOwner {
         for member in members where member.actual.node === node { member.renderQualified = false }
         // Revocation/claim was performed for the full forest before this hook.
         // Cancellation belongs to that original post-forest cleanup record.
+    }
+
+    fileprivate func containsOriginalMember(_ capture: RetainedTaskPhysicalMemberCapture) -> Bool {
+        members.contains { capture.matches($0) }
     }
 
     private func start(_ candidate: RetainedTaskSlot) {
@@ -1127,6 +1136,16 @@ final class RetainedLazyListAcceptedTaskCleanup {
         payload = .children(children)
     }
 
+    /// Ordinary structural departure can retain its old physical output as a
+    /// removal overlay. Move only the already-claimed original group payload;
+    /// every alias in the journal or local cleanup array becomes inert now.
+    fileprivate func takePhysicalGroupPayload() -> RetainedTaskGroupCleanupPayload? {
+        guard !isFinished, case .group(let group) = payload, !group.permitsTransfer else { return nil }
+        isFinished = true
+        payload = nil
+        return group
+    }
+
     @inline(never)
     func finish() {
         guard !isFinished else { return }
@@ -1148,6 +1167,291 @@ final class RetainedLazyListAcceptedTaskCleanup {
             for cleanup in children { cleanup.finish() }
         }
         withExtendedLifetime(captured) {}
+    }
+}
+
+/// Temporary pins used only across the callback-free claim and membership
+/// mapping. The retained footprint below contains no Task state or action.
+@MainActor
+fileprivate struct RetainedTaskPhysicalMemberCapture {
+    weak var node: ViewNode?
+    let state: RetainedTaskNodeState
+    let attachment: RetainedTaskAttachment
+    let ancestors: [ObjectIdentifier]
+
+    init(node: ViewNode, state: RetainedTaskNodeState, ancestors: [ObjectIdentifier]) {
+        self.node = node
+        self.state = state
+        attachment = state.attachment
+        self.ancestors = ancestors
+    }
+
+    func matches(_ member: RetainedTaskGroupLaunchMember) -> Bool {
+        guard let node else { return false }
+        return member.actual.node === node && member.originalState === state
+            && member.originalTaskAttachment === attachment
+    }
+}
+
+/// A root names one original physical departure, not a later node found by
+/// walking a mutable tree. These receipts never authorize a Task to start.
+@MainActor
+final class RetainedTaskPhysicalDepartureRoot {
+    private enum Phase {
+        case unresolved
+        case overlay
+        case completing
+        case complete
+    }
+
+    private weak var node: ViewNode?
+    private weak var runtime: RetainedViewRuntime?
+    fileprivate let originalAttachment: RetainedLazyListAttachmentProof
+    private var phase = Phase.unresolved
+    fileprivate let originalNodeID: ObjectIdentifier
+    private(set) var wasPhysicallyHandled = false
+    fileprivate weak var departure: RetainedTaskPhysicalDeparture?
+
+    fileprivate init(_ node: ViewNode) {
+        self.node = node
+        runtime = node.runtime
+        originalNodeID = ObjectIdentifier(node)
+        originalAttachment = node.captureLazyListAttachmentProof()
+    }
+
+    /// Read before the ordinary remover's first native attachment write. Its
+    /// setup follows only the preselected successor of this original capture;
+    /// it cannot acquire a new proof after a native prefix or authored callback.
+    /// Terminal task cleanup does not invalidate this original visual lifetime
+    /// or restore the separate eligibility to defer a group's task payload.
+    func hasOriginalAttachment(of node: ViewNode) -> Bool {
+        self.node === node && originalAttachment.isCurrent
+    }
+
+    func canTrackRemoval(of node: ViewNode) -> Bool {
+        phase == .unresolved && !wasPhysicallyHandled && departure?.canCaptureOriginalRoots == true
+            && hasOriginalAttachment(of: node)
+    }
+
+    @discardableResult
+    func acceptOverlay(
+        on node: ViewNode, in runtime: RetainedViewRuntime,
+        setup: RetainedRemovalAttachmentContinuation?
+    ) -> (pins: RetainedRemovalAttachmentAdmissionPins, departure: RetainedTaskPhysicalDeparture)? {
+        guard phase == .unresolved, !wasPhysicallyHandled, let departure, departure.canCaptureOriginalRoots,
+            self.node === node, self.runtime === runtime,
+            node.isRemovalOverlay, runtime.permitsRetainedActionInvocation,
+            let pins = setup?.pinOriginalRemovalAdmission(matching: originalAttachment, on: node)
+        else { return nil }
+        return withExtendedLifetime((pins, departure)) {
+            // All original/comparison endpoints and the original departure
+            // remain pinned through this native decision. Pin acquisition may
+            // not substitute a later phase or revive a terminal group.
+            guard phase == .unresolved, !wasPhysicallyHandled, departure.canCaptureOriginalRoots,
+                self.node === node, self.runtime === runtime, node.isRemovalOverlay,
+                runtime.permitsRetainedActionInvocation, departure.admitOverlay(self)
+            else { return nil }
+            phase = .overlay
+            wasPhysicallyHandled = true
+            // The caller must hold this same temporary tuple through its
+            // actual entry.taskRoots append. Releasing here could run an old
+            // endpoint's destructor after admission but before its barrier is
+            // visible to a reentrant tick or terminal operation.
+            return (pins: pins, departure: departure)
+        }
+    }
+
+    /// A completed immediate removal is also one-shot. Terminal preparation
+    /// alone never sets this marker; it cannot authorize skipping a later
+    /// attachment through a newly captured operation.
+    func finishImmediateRemoval() {
+        wasPhysicallyHandled = true
+        guard phase == .unresolved else { return }
+        phase = .complete
+        departure?.finishReadyGroups()
+    }
+
+    /// Claim completion before its first callback. A nested tick cannot
+    /// satisfy this root while the outer disappearance is still in flight.
+    @discardableResult
+    func beginCompletion() -> Bool {
+        guard phase == .overlay else { return false }
+        phase = .completing
+        return true
+    }
+
+    func finishCompletion() {
+        guard phase == .completing else { return }
+        phase = .complete
+        departure?.finishReadyGroups()
+    }
+
+    fileprivate var isComplete: Bool { phase == .complete }
+
+    fileprivate func finishForest() {
+        if phase == .unresolved { phase = .complete }
+    }
+
+    fileprivate func prepareTerminal() { phase = .complete }
+}
+
+@MainActor
+private final class RetainedTaskPhysicalDepartureGroup {
+    private(set) var roots: [RetainedTaskPhysicalDepartureRoot]
+    private var payload: RetainedTaskGroupCleanupPayload?
+
+    init(_ payload: RetainedTaskGroupCleanupPayload, roots: [RetainedTaskPhysicalDepartureRoot]) {
+        self.payload = payload
+        self.roots = roots
+    }
+
+    var isFinished: Bool { payload == nil }
+
+    func addAdmittedRoot(_ root: RetainedTaskPhysicalDepartureRoot) {
+        if !roots.contains(where: { $0 === root }) { roots.append(root) }
+    }
+
+    @inline(never)
+    func finish() {
+        guard let captured = payload else { return }
+        // Keep every other group's debt registered while this group's handler
+        // runs. Terminal reentry can claim those groups independently.
+        payload = nil
+        captured.originalOwner.finishClaimedSlots(captured.originalSlots, permitsTransfer: false)
+        withExtendedLifetime(captured) {}
+    }
+}
+
+/// The ordinary departure driver captures member/root identities before its
+/// first claim. After claim, a native runtime registry owns executable debt
+/// through setup, accepted overlays, and in-flight disappearance callbacks.
+@MainActor
+final class RetainedTaskPhysicalDeparture {
+    /// Only weak/native identity data survives membership mapping. Group
+    /// indices describe the captured original subtree, never a later tree.
+    private struct Footprint {
+        let root: RetainedTaskPhysicalDepartureRoot
+        let affectedGroupIndices: [Int]
+    }
+
+    private let roots: [RetainedTaskPhysicalDepartureRoot]
+    private var originalRoots: [ObjectIdentifier: RetainedTaskPhysicalDepartureRoot] = [:]
+    private var originalMembers: [RetainedTaskPhysicalMemberCapture] = []
+    private var footprint: [ObjectIdentifier: Footprint] = [:]
+    private var admittedRoots: [RetainedTaskPhysicalDepartureRoot] = []
+    private var groups: [RetainedTaskPhysicalDepartureGroup] = []
+    private var didFinishForest = false
+    private(set) var isTerminal = false
+
+    init(roots departing: [ViewNode]) {
+        var roots: [RetainedTaskPhysicalDepartureRoot] = []
+        var originalRoots: [ObjectIdentifier: RetainedTaskPhysicalDepartureRoot] = [:]
+        var originalMembers: [RetainedTaskPhysicalMemberCapture] = []
+        var pending = departing.reversed().map { ($0, [ObjectIdentifier](), true) }
+        var visited = Set<ObjectIdentifier>()
+        while let (node, ancestors, isForestRoot) = pending.popLast() {
+            let key = ObjectIdentifier(node)
+            guard visited.insert(key).inserted else { continue }
+            let path = ancestors + [key]
+            let root = RetainedTaskPhysicalDepartureRoot(node)
+            originalRoots[key] = root
+            if isForestRoot { roots.append(root) }
+            if let state = node.existingRetainedTaskState {
+                originalMembers.append(RetainedTaskPhysicalMemberCapture(node: node, state: state, ancestors: path))
+            }
+            for child in node.children.reversed() { pending.append((child, path, false)) }
+        }
+        self.roots = roots
+        self.originalRoots = originalRoots
+        self.originalMembers = originalMembers
+        for root in originalRoots.values { root.departure = self }
+    }
+
+    /// Expose only the fixed original forest roots, including zero-Task roots.
+    /// The Runtime companion constructs opaque successors from these exact
+    /// captures before claims; this accessor never inspects a current node.
+    var originalRemovalAttachmentCaptures: [(ObjectIdentifier, RetainedLazyListAttachmentProof)] {
+        roots.map { ($0.originalNodeID, $0.originalAttachment) }
+    }
+
+    /// Called immediately after the existing complete-forest claim, before
+    /// any callback or attachment mutation. Accepted-absence cleanup retains
+    /// its separate compatible-transfer policy and cannot enter this path.
+    @inline(never)
+    func takeClaimedGroups(_ cleanup: [RetainedLazyListAcceptedTaskCleanup]) {
+        var affected: [ObjectIdentifier: Set<Int>] = [:]
+        for item in cleanup {
+            guard let payload = item.takePhysicalGroupPayload() else { continue }
+            let groupIndex = groups.count
+            for member in originalMembers where payload.originalOwner.containsOriginalMember(member) {
+                for ancestor in member.ancestors { affected[ancestor, default: []].insert(groupIndex) }
+            }
+            groups.append(
+                RetainedTaskPhysicalDepartureGroup(
+                    payload, roots: roots.filter { affected[$0.originalNodeID]?.contains(groupIndex) == true }))
+        }
+        for (key, root) in originalRoots {
+            guard let groups = affected[key], !groups.isEmpty else { continue }
+            footprint[key] = Footprint(root: root, affectedGroupIndices: groups.sorted())
+        }
+        // Only native receipt identities and immutable group indices remain.
+        // This non-inlined helper unwinds all temporary state/member pins
+        // before the driver can enter its first authored callback.
+        originalMembers.removeAll()
+        originalRoots.removeAll()
+    }
+
+    var hasClaims: Bool { !groups.isEmpty }
+    var isFinished: Bool { (didFinishForest || isTerminal) && groups.allSatisfy(\.isFinished) }
+
+    fileprivate var canCaptureOriginalRoots: Bool { !didFinishForest && !isTerminal }
+
+    func captureOriginalRoot(for node: ViewNode) -> RetainedTaskPhysicalDepartureRoot? {
+        guard canCaptureOriginalRoots, let original = footprint[ObjectIdentifier(node)],
+            original.root.canTrackRemoval(of: node)
+        else { return nil }
+        return original.root
+    }
+
+    /// Called only after native append and the receipt's original setup check.
+    /// A descendant extends only groups whose original members it contained.
+    fileprivate func admitOverlay(_ root: RetainedTaskPhysicalDepartureRoot) -> Bool {
+        guard canCaptureOriginalRoots, let original = footprint[root.originalNodeID], original.root === root else {
+            return false
+        }
+        if !admittedRoots.contains(where: { $0 === root }) { admittedRoots.append(root) }
+        for index in original.affectedGroupIndices { groups[index].addAdmittedRoot(root) }
+        return true
+    }
+
+    func finishForest() {
+        didFinishForest = true
+        for root in roots { root.finishForest() }
+        // Weak/native footprint release precedes cancellation handlers. Only
+        // barriers actually admitted into an overlay survive the forest.
+        footprint.removeAll()
+        finishReadyGroups()
+    }
+
+    fileprivate func finishReadyGroups() {
+        guard didFinishForest || isTerminal else { return }
+        for group in groups where isTerminal || group.roots.allSatisfy(\.isComplete) {
+            group.finish()
+        }
+    }
+
+    /// Revocation is native and callback-free. The terminal caller prepares
+    /// every registered batch before it starts any cancellation handler.
+    func prepareTerminal() {
+        isTerminal = true
+        for root in roots { root.prepareTerminal() }
+        for root in admittedRoots { root.prepareTerminal() }
+        footprint.removeAll()
+    }
+
+    func finishTerminal() {
+        prepareTerminal()
+        finishReadyGroups()
     }
 }
 

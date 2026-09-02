@@ -14973,3 +14973,60 @@ timing, or any hardware qualification. No display settings were changed and no
 collector was started. Pinned Mac reference execution, 60/120/144 Hz sustained
 measurement, assistive-technology validation, and clean-machine/release evidence
 remain open. **All nine original completion gates remain open.**
+
+
+### 2026-09-02: original attachment custody through mounted removal and overlay publication
+
+The reviewed mounted removal candidate is now integrated as its own source
+slice on top of the `5c5a50d` validation checkpoint. This repairs the candidate's
+earlier practice of sampling an attachment after callbacks and treating that
+new observation as the original removal. It does not waive any of the six
+failing final-children cases or change the original product goal.
+
+Runtime now captures the original forest roots before claims or callbacks,
+including roots with no Task claim. Native successor records follow only the
+permitted original token, parent-to-nil, runtime-to-nil, and exact retirement-gate
+writes. There are 17 covered writer sites: ten token stores, three parent clears,
+three runtime clears, and one gate installation. The final comparison happens
+after the existing storage-revocation prefix. A refused metadata record remains
+refused and cannot turn a callback-created attachment into the old disappearance
+or Task cleanup. Refusing metadata does not suppress the existing generic native
+write, so this is not a general mutation rollback or cancellation fix.
+
+The original and actual endpoint references remain alive through the literal
+store and acknowledgement or refusal. Task overlay admission returns the same
+temporary pins and original departure to Runtime, which retains them through
+the actual append to the overlay entry's task roots. This closes the additional
+lifetime gap found when the intermediate candidate returned only a Bool. All
+original phase, handled, departure, runtime, group-claim, transfer and completion
+guards remain. Task-free visual admission is explicit; it cannot act as fallback
+for a refused removal origin. A visual lifetime may remain eligible after its
+Task debt ends, as required by the unchanged terminal-debt regression.
+
+The private source lineage is test-first `d989cbf` followed by reviewed final
+candidate `aed98b1`. Root applied only its four-path forward patch: Runtime,
+RetainedTaskLifecycle, and two new test files. No Activity/O patch was reapplied.
+All 711 preexisting test files remain unchanged; the checkout now has 713 test
+paths. The 22 original candidate tests and 20 successor tests remain complete.
+The latter are 14 synchronous and six asynchronous methods, not 20 asynchronous
+methods. Formatting changed only reviewed access-modifier placement and line
+wrapping; the unrelated Runtime import/comment prefix was restored.
+
+The contextual source inverse recovers the complete previous root tree,
+including the public scroll settlement changes absent from the author's full
+Runtime postimage. The formatting inverse recovers that frozen contextual
+source before the source inverse recovers the original tree. Receipts are
+`artifacts/goal-ninth-mounted-successor-root-apply-v1.json` and
+`artifacts/goal-ninth-mounted-successor-root-format-proof-v1.json`.
+Strict lint on all four changed Swift files and architecture contracts pass.
+The formatted source tree before documentation is
+`917cca93f01afef2860be35c63fd7cb2e3550821`.
+
+Compilation and execution of these 42 tests remain pending, together with the
+94 publication and 46 collateral methods and the separate final-child
+withdrawal repair. Source review does not force the weak ARC interval inside
+the inherited revocation prefix and does not establish actual optimized release
+ordering. Added bounded maps, continuation records and temporary pins have not
+been measured for allocation or performance. Native animation, hardware timing,
+full-suite and release qualification remain open. **None of the nine original
+completion gates is closed by this source integration.**

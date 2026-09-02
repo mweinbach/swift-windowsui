@@ -2213,8 +2213,19 @@ final class RetainedLazyListAttachmentProof {
     }
 
     var isCurrent: Bool {
+        matchesCurrentAttachment(permittingRetirementGate: nil)
+    }
+
+    /// Only removal-overlay cleanup observes its own already-installed gate.
+    /// The normal attachment/adoption predicate above keeps rejecting every
+    /// retirement gate; this cannot authorize a new write or a Task start.
+    fileprivate func isCurrentForRemovalOverlay(_ gate: RetainedLazyListAttachmentIdentity?) -> Bool {
+        matchesCurrentAttachment(permittingRetirementGate: gate)
+    }
+
+    private func matchesCurrentAttachment(permittingRetirementGate gate: RetainedLazyListAttachmentIdentity?) -> Bool {
         guard let node, node.lazyListAttachmentIdentity === identity,
-            !node.isRetiringLazyListAttachment
+            !node.isRetiringLazyListAttachment || node.hasLazyListRetirementGate(gate)
         else { return false }
         if hadParent {
             guard let parent, node.parent === parent else { return false }
@@ -2257,6 +2268,269 @@ final class RetainedLazyListAttachmentProof {
         return true
     }
 }
+/// One known point in the original removal's native write sequence. Endpoints
+/// refer to the original weak capture; preparing a successor never reads UI.
+@MainActor
+fileprivate final class RetainedRemovalAttachmentExpectation {
+    let identity: RetainedLazyListAttachmentIdentity
+    let parentIsNil: Bool
+    let runtimeIsNil: Bool
+    let retirementGate: RetainedLazyListAttachmentIdentity?
+
+    init(
+        identity: RetainedLazyListAttachmentIdentity, parentIsNil: Bool = false, runtimeIsNil: Bool = false,
+        retirementGate: RetainedLazyListAttachmentIdentity? = nil
+    ) {
+        self.identity = identity
+        self.parentIsNil = parentIsNil
+        self.runtimeIsNil = runtimeIsNil
+        self.retirementGate = retirementGate
+    }
+}
+
+/// These temporary strong pins never enter a continuation or writer result.
+/// Actual endpoints are rejection inputs, not sources of successor authority.
+@MainActor
+fileprivate struct RetainedRemovalAttachmentPins {
+    let originalNode: ViewNode?
+    let originalParent: ViewNode?
+    let originalRuntime: RetainedViewRuntime?
+    let node: ViewNode?
+    let actualParent: ViewNode?
+    let actualRuntime: RetainedViewRuntime?
+    let needsParent: Bool
+    let needsRuntime: Bool
+
+    func matches(_ expected: RetainedRemovalAttachmentExpectation) -> Bool {
+        guard let node, originalNode === node, node.lazyListAttachmentIdentity === expected.identity,
+            !node.isRetiringLazyListAttachment || node.hasLazyListRetirementGate(expected.retirementGate)
+        else { return false }
+        if needsParent {
+            guard let originalParent, actualParent === originalParent else { return false }
+        } else if actualParent != nil {
+            return false
+        }
+        if needsRuntime {
+            guard let originalRuntime, actualRuntime === originalRuntime else { return false }
+        } else if actualRuntime != nil {
+            return false
+        }
+        return true
+    }
+}
+
+extension RetainedLazyListAttachmentProof {
+    fileprivate func originalRemovalExpectation() -> RetainedRemovalAttachmentExpectation {
+        RetainedRemovalAttachmentExpectation(identity: identity)
+    }
+
+    fileprivate func pinRemovalExpectation(
+        _ expected: RetainedRemovalAttachmentExpectation, on actualNode: ViewNode? = nil,
+        includingCapturedEndpoints: Bool = false
+    ) -> RetainedRemovalAttachmentPins {
+        let originalNode = node
+        let needsParent = hadParent && !expected.parentIsNil
+        let needsRuntime = hadRuntime && !expected.runtimeIsNil
+        let originalParent = needsParent || includingCapturedEndpoints ? parent : nil
+        let originalRuntime = needsRuntime || includingCapturedEndpoints ? runtime : nil
+        let comparedNode = actualNode ?? originalNode
+        return RetainedRemovalAttachmentPins(
+            originalNode: originalNode, originalParent: originalParent, originalRuntime: originalRuntime,
+            node: comparedNode, actualParent: comparedNode?.parent, actualRuntime: comparedNode?.runtime,
+            needsParent: needsParent, needsRuntime: needsRuntime)
+    }
+}
+
+/// Opaque native transport from the existing original forest capture. It owns
+/// no node, runtime, Task payload, controller or authored callback.
+@MainActor
+final class RetainedRemovalAttachmentContinuation {
+    fileprivate let original: RetainedLazyListAttachmentProof
+    fileprivate private(set) var expected: RetainedRemovalAttachmentExpectation
+    private let isTaskFreeVisualOrigin: Bool
+    private var writesAreClosed = false
+    private(set) var hasEnteredInitialRevoke = false
+    private(set) var hasRefusedWrite = false
+
+    fileprivate init(original: RetainedLazyListAttachmentProof, taskFreeVisual: Bool = false) {
+        self.original = original
+        expected = original.originalRemovalExpectation()
+        isTaskFreeVisualOrigin = taskFreeVisual
+    }
+
+    var isCurrent: Bool { matchesKnown(expected) }
+
+    fileprivate var hasRemovalSetup: Bool { hasEnteredInitialRevoke || isTaskFreeVisualOrigin }
+    fileprivate var retirementGate: RetainedLazyListAttachmentIdentity? { expected.retirementGate }
+
+    fileprivate func matchesKnown(_ capture: RetainedRemovalAttachmentExpectation) -> Bool {
+        guard !hasRefusedWrite, expected === capture else { return false }
+        let pins = original.pinRemovalExpectation(capture)
+        return withExtendedLifetime(pins) { pins.matches(capture) }
+    }
+
+    func prepareRevoke() -> RetainedRemovalAttachmentWrite? {
+        prepare(.revoke)
+    }
+
+    func prepareParentNil() -> RetainedRemovalAttachmentWrite? {
+        prepare(.parentNil)
+    }
+
+    func prepareRuntimeNil() -> RetainedRemovalAttachmentWrite? {
+        prepare(.runtimeNil)
+    }
+
+    fileprivate func prepareGate(_ identity: RetainedLazyListAttachmentIdentity) -> RetainedRemovalAttachmentWrite? {
+        prepare(.gate, gate: identity)
+    }
+
+    private func prepare(
+        _ kind: RetainedRemovalAttachmentWrite.Kind, gate: RetainedLazyListAttachmentIdentity? = nil
+    ) -> RetainedRemovalAttachmentWrite? {
+        guard !hasRefusedWrite, !writesAreClosed, !isTaskFreeVisualOrigin else { return nil }
+        guard kind == .revoke || hasEnteredInitialRevoke else {
+            hasRefusedWrite = true
+            return nil
+        }
+        let before = expected
+        let after = RetainedRemovalAttachmentExpectation(
+            identity: kind == .revoke ? RetainedLazyListAttachmentIdentity() : before.identity,
+            parentIsNil: before.parentIsNil || kind == .parentNil,
+            runtimeIsNil: before.runtimeIsNil || kind == .runtimeNil,
+            retirementGate: kind == .gate ? gate : before.retirementGate)
+        return RetainedRemovalAttachmentWrite(continuation: self, before: before, after: after, kind: kind)
+    }
+
+    fileprivate func canAdvance(_ before: RetainedRemovalAttachmentExpectation) -> Bool {
+        !hasRefusedWrite && !writesAreClosed && !isTaskFreeVisualOrigin && expected === before
+    }
+
+    fileprivate func refuseWrite() { hasRefusedWrite = true }
+
+    fileprivate func didWrite(_ record: RetainedRemovalAttachmentWrite) {
+        expected = record.after
+        if record.kind == .revoke { hasEnteredInitialRevoke = true }
+    }
+
+    fileprivate func closeWrites() { writesAreClosed = true }
+
+    /// Hold both original captures through the caller's native Task admission.
+    /// These pins leave with that decision, before any cancellation callout.
+    func pinOriginalRemovalAdmission(
+        matching capture: RetainedLazyListAttachmentProof, on node: ViewNode
+    ) -> RetainedRemovalAttachmentAdmissionPins? {
+        guard hasEnteredInitialRevoke, !isTaskFreeVisualOrigin, !hasRefusedWrite, !writesAreClosed else { return nil }
+        let before = expected
+        let pins = original.pinRemovalExpectation(before, on: node, includingCapturedEndpoints: true)
+        let capturePins = capture.pinRemovalExpectation(capture.originalRemovalExpectation(), on: node)
+        return withExtendedLifetime((pins, capturePins)) {
+            guard canAdvance(before), pins.matches(before), original.hasSameCapture(as: capture) else { return nil }
+            return RetainedRemovalAttachmentAdmissionPins(pins: pins, capturePins: capturePins)
+        }
+    }
+}
+
+@MainActor
+final class RetainedRemovalAttachmentAdmissionPins {
+    private let pins: RetainedRemovalAttachmentPins
+    private let capturePins: RetainedRemovalAttachmentPins
+
+    fileprivate init(pins: RetainedRemovalAttachmentPins, capturePins: RetainedRemovalAttachmentPins) {
+        self.pins = pins
+        self.capturePins = capturePins
+    }
+}
+
+/// A prepared record cannot acknowledge itself. Only the fixed native writers
+/// below can consume it and return the result of their actual literal write.
+@MainActor
+final class RetainedRemovalAttachmentWrite {
+    fileprivate enum Kind: Equatable { case revoke, parentNil, runtimeNil, gate }
+
+    fileprivate let continuation: RetainedRemovalAttachmentContinuation
+    fileprivate let before: RetainedRemovalAttachmentExpectation
+    fileprivate let after: RetainedRemovalAttachmentExpectation
+    fileprivate let kind: Kind
+    private var wasConsumed = false
+    private var wasAcknowledged = false
+
+    fileprivate init(
+        continuation: RetainedRemovalAttachmentContinuation, before: RetainedRemovalAttachmentExpectation,
+        after: RetainedRemovalAttachmentExpectation, kind: Kind
+    ) {
+        self.continuation = continuation
+        self.before = before
+        self.after = after
+        self.kind = kind
+    }
+
+    fileprivate func claim(
+        on node: ViewNode, kind writer: Kind, gate: RetainedLazyListAttachmentIdentity? = nil
+    ) -> RetainedRemovalAttachmentWritePins {
+        let wasUnspent = !wasConsumed
+        wasConsumed = true
+        let pins = continuation.original.pinRemovalExpectation(before, on: node)
+        let accepted =
+            wasUnspent && kind == writer && (writer != .gate || after.retirementGate === gate)
+            && continuation.canAdvance(before) && pins.matches(before)
+        if !accepted { continuation.refuseWrite() }
+        return RetainedRemovalAttachmentWritePins(record: self, pins: pins, accepted: accepted)
+    }
+
+    fileprivate func acknowledgeLiteralWrite() -> RetainedRemovalAttachmentWriteResult? {
+        guard !wasAcknowledged, wasConsumed, continuation.canAdvance(before) else {
+            continuation.refuseWrite()
+            return nil
+        }
+        wasAcknowledged = true
+        continuation.didWrite(self)
+        return RetainedRemovalAttachmentWriteResult(continuation: continuation, expected: after)
+    }
+}
+
+/// The writer must keep this whole value alive through success or refusal.
+/// Neither it nor any of its UI pins is returned to the driver.
+@MainActor
+fileprivate struct RetainedRemovalAttachmentWritePins {
+    let record: RetainedRemovalAttachmentWrite
+    let pins: RetainedRemovalAttachmentPins
+    let accepted: Bool
+
+    var replacementIdentity: RetainedLazyListAttachmentIdentity? { accepted ? record.after.identity : nil }
+
+    func didWrite() -> RetainedRemovalAttachmentWriteResult? {
+        accepted ? record.acknowledgeLiteralWrite() : nil
+    }
+}
+
+@MainActor
+final class RetainedRemovalAttachmentWriteResult {
+    private let continuation: RetainedRemovalAttachmentContinuation
+    private let expected: RetainedRemovalAttachmentExpectation
+
+    fileprivate init(
+        continuation: RetainedRemovalAttachmentContinuation, expected: RetainedRemovalAttachmentExpectation
+    ) {
+        self.continuation = continuation
+        self.expected = expected
+    }
+
+    var isCurrent: Bool { continuation.matchesKnown(expected) }
+}
+
+extension RetainedTaskPhysicalDeparture {
+    /// Copy only the existing original forest-root captures, including roots
+    /// with no Task group. Never walk a later tree or sample a new attachment.
+    func captureOriginalRemovalAttachments() -> [ObjectIdentifier: RetainedRemovalAttachmentContinuation] {
+        var captured: [ObjectIdentifier: RetainedRemovalAttachmentContinuation] = [:]
+        for (node, attachment) in originalRemovalAttachmentCaptures {
+            captured[node] = RetainedRemovalAttachmentContinuation(original: attachment)
+        }
+        return captured
+    }
+}
+
 @MainActor
 struct RetainedLazyListAttachmentQuery {
     private struct Tree: Hashable {
@@ -5290,6 +5564,13 @@ public final class ViewNode {
     /// Revoke before a callback can observe a detach, including a move through
     /// detached construction parents. Returning to the same parent is new.
     fileprivate func revokeLazyListAttachmentProofs() {
+        revokeLazyListAttachmentProofs(removalWrite: nil)
+    }
+
+    @discardableResult
+    func revokeLazyListAttachmentProofs(
+        removalWrite: RetainedRemovalAttachmentWrite?
+    ) -> RetainedRemovalAttachmentWriteResult? {
         // Detached source transfers have never published physical activity.
         // Their reserved insertion IDs must survive until that first write.
         if runtime != nil {
@@ -5298,10 +5579,51 @@ public final class ViewNode {
         }
         lifecycleHandlers?.completedLazyTaskAppearance = nil
         hasPaintedCurrentAttachment = false
-        lifecycleHandlers?.lazyListAttachmentIdentity = nil
+        let result = writeRemovalAttachmentIdentity(removalWrite)
         lifecycleHandlers?.lazyListPresentedPaint = nil
         lifecycleHandlers?.lazyListCanvasPaintAlpha = nil
         lifecycleHandlers?.retainedLazyListAdapter?.revokePendingCandidate()
+        // The tail may reenter. Return only the already-known successor; its
+        // consumer must compare it, never capture a replacement after the tail.
+        return result
+    }
+
+    @inline(never)
+    private func writeRemovalAttachmentIdentity(
+        _ record: RetainedRemovalAttachmentWrite?
+    ) -> RetainedRemovalAttachmentWriteResult? {
+        // Storage revocation above may rotate S or release weak UI members.
+        // Compare R's original predecessor only here, beside its actual write.
+        let write = record?.claim(on: self, kind: .revoke)
+        return withExtendedLifetime(write) {
+            lifecycleHandlers?.lazyListAttachmentIdentity = write?.replacementIdentity
+            return write?.didWrite()
+        }
+    }
+
+    @inline(never)
+    @discardableResult
+    func writeRemovalParentNil(
+        removalWrite: RetainedRemovalAttachmentWrite?
+    ) -> RetainedRemovalAttachmentWriteResult? {
+        let write = removalWrite?.claim(on: self, kind: .parentNil)
+        return withExtendedLifetime(write) {
+            // Refusal suppresses only the ACK, never this baseline native write.
+            parent = nil
+            return write?.didWrite()
+        }
+    }
+
+    @inline(never)
+    @discardableResult
+    func writeRemovalRuntimeNil(
+        removalWrite: RetainedRemovalAttachmentWrite?
+    ) -> RetainedRemovalAttachmentWriteResult? {
+        let write = removalWrite?.claim(on: self, kind: .runtimeNil)
+        return withExtendedLifetime(write) {
+            runtime = nil
+            return write?.didWrite()
+        }
     }
 
     var retainedLazyListPresentedPaint: RetainedLazyListPresentedPaint? {
@@ -6476,17 +6798,29 @@ public final class ViewNode {
         guard !isRetiringLazyListAttachment, !children.contains(where: \.isRetiringLazyListAttachment) else { return }
         let interactionRuntime = runtime
         let buttonRetirement = RetainedButtonActionRetirement(in: children)
+        let taskDeparture = RetainedTaskPhysicalDeparture(roots: children)
+        let originalRemovalAttachments = taskDeparture.captureOriginalRemovalAttachments()
         let groupTaskCleanup = Self.claimLazyGroupTaskDepartures(in: children)
+        taskDeparture.takeClaimedGroups(groupTaskCleanup)
+        interactionRuntime?.registerPhysicalTaskDeparture(taskDeparture)
+        let physicalTaskRoots = interactionRuntime?.capturePhysicalTaskDepartureRoots(in: children) ?? [:]
         interactionRuntime?.beginLongPressReconciliation()
         defer {
             interactionRuntime?.endLongPressReconciliation()
+            taskDeparture.finishForest()
             for cleanup in groupTaskCleanup { cleanup.finish() }
+            interactionRuntime?.pruneFinishedPhysicalTaskDepartures()
             buttonRetirement.finish()
         }
         Self.revokeTextInputOwnership(in: children)
         for child in children {
             guard !isRetiringLazyListAttachment, !child.isRetiringLazyListAttachment else { return }
-            child.revokeLazyListAttachmentProofs()
+            let taskRoots = physicalTaskRoots[ObjectIdentifier(child)] ?? []
+            if taskRoots.contains(where: \.wasPhysicallyHandled) { continue }
+            let currentTaskRoots = taskRoots.filter { $0.canTrackRemoval(of: child) }
+            let originalRemoval = originalRemovalAttachments[ObjectIdentifier(child)]
+            let initialWrite = child.revokeLazyListAttachmentProofs(removalWrite: originalRemoval?.prepareRevoke())
+            let taskSetup = initialWrite?.isCurrent == true ? originalRemoval : nil
             if runtime != nil, child.transition.removal.kind != .identity, child.applyRemovalTransition() {
                 guard !isRetiringLazyListAttachment, !child.isRetiringLazyListAttachment else { return }
                 child.isRemovalOverlay = true
@@ -6494,12 +6828,16 @@ public final class ViewNode {
                 child.cachedFrameCommandRange = nil
                 child.cachedSceneKey = nil
                 child.cachedScenePaintRange = nil
-                runtime?.transitionOverlays.append(child)
-                child.revokeLazyListAttachmentProofs()
-                child.parent = nil
-                child.setRuntime(nil)
+                let overlay = runtime?.appendTransitionOverlay(child, taskRoots: currentTaskRoots, taskSetup: taskSetup)
+                child.revokeLazyListAttachmentProofs(removalWrite: overlay?.prepareRevoke())
+                child.writeRemovalParentNil(removalWrite: overlay?.prepareParentNil())
+                child.setRuntime(nil, removalOverlay: overlay)
             } else {
+                let finishesOriginalTaskRoots = taskSetup?.isCurrent == true
                 child.markSubtreeDisappeared()
+                if finishesOriginalTaskRoots {
+                    for root in currentTaskRoots { root.finishImmediateRemoval() }
+                }
                 guard !isRetiringLazyListAttachment, !child.isRetiringLazyListAttachment else { return }
                 child.revokeLazyListAttachmentProofs()
                 child.parent = nil
@@ -6526,19 +6864,28 @@ public final class ViewNode {
         let interactionRuntime = runtime
         let sourceRuntime = newChild.runtime
         let buttonRetirement = RetainedButtonActionRetirement(in: [children[index]])
+        let taskDeparture = RetainedTaskPhysicalDeparture(roots: [children[index]])
+        let originalRemovalAttachments = taskDeparture.captureOriginalRemovalAttachments()
         let groupTaskCleanup = Self.claimLazyGroupTaskDepartures(in: [children[index]])
+        taskDeparture.takeClaimedGroups(groupTaskCleanup)
+        interactionRuntime?.registerPhysicalTaskDeparture(taskDeparture)
+        let physicalTaskRoots = interactionRuntime?.capturePhysicalTaskDepartureRoots(in: [children[index]]) ?? [:]
         interactionRuntime?.beginLongPressReconciliation()
         if sourceRuntime !== interactionRuntime { sourceRuntime?.beginLongPressReconciliation() }
         defer {
             if sourceRuntime !== interactionRuntime { sourceRuntime?.endLongPressReconciliation() }
             interactionRuntime?.endLongPressReconciliation()
+            taskDeparture.finishForest()
             for cleanup in groupTaskCleanup { cleanup.finish() }
+            interactionRuntime?.pruneFinishedPhysicalTaskDepartures()
             buttonRetirement.finish()
         }
 
         let old = children[index]
         guard !old.isRetiringLazyListAttachment else { return }
-        detachRemovedChild(old)
+        detachRemovedChild(
+            old, taskRoots: physicalTaskRoots[ObjectIdentifier(old)] ?? [],
+            originalRemoval: originalRemovalAttachments[ObjectIdentifier(old)])
 
         guard !isRetiringLazyListAttachment, !newChild.isRetiringLazyListAttachment,
             newChild.parent?.isRetiringLazyListAttachment != true
@@ -6580,11 +6927,18 @@ public final class ViewNode {
             }
         }
         let buttonRetirement = RetainedButtonActionRetirement(in: [children[index]])
+        let taskDeparture = RetainedTaskPhysicalDeparture(roots: [children[index]])
+        let originalRemovalAttachments = taskDeparture.captureOriginalRemovalAttachments()
         let groupTaskCleanup = Self.claimLazyGroupTaskDepartures(in: [children[index]])
+        taskDeparture.takeClaimedGroups(groupTaskCleanup)
+        interactionRuntime?.registerPhysicalTaskDeparture(taskDeparture)
+        let physicalTaskRoots = interactionRuntime?.capturePhysicalTaskDepartureRoots(in: [children[index]]) ?? [:]
         interactionRuntime?.beginLongPressReconciliation()
         defer {
             interactionRuntime?.endLongPressReconciliation()
+            taskDeparture.finishForest()
             for cleanup in groupTaskCleanup { cleanup.finish() }
+            interactionRuntime?.pruneFinishedPhysicalTaskDepartures()
             buttonRetirement.finish()
         }
 
@@ -6592,10 +6946,14 @@ public final class ViewNode {
         let removed = children.remove(at: index)
         let canContinueInsertion = buttonActions?.recordChildrenWrite(on: self) != false
         if let sourceDeparture {
-            detachButtonActionSource(sourceDeparture)
+            detachButtonActionSource(
+                sourceDeparture, taskRoots: physicalTaskRoots[ObjectIdentifier(removed)] ?? [],
+                originalRemoval: originalRemovalAttachments[ObjectIdentifier(removed)])
         } else {
             guard canContinueInsertion else { return }
-            detachRemovedChild(removed, buttonActions: buttonActions)
+            detachRemovedChild(
+                removed, buttonActions: buttonActions, taskRoots: physicalTaskRoots[ObjectIdentifier(removed)] ?? [],
+                originalRemoval: originalRemovalAttachments[ObjectIdentifier(removed)])
         }
         invalidateRuntime()
     }
@@ -6604,17 +6962,24 @@ public final class ViewNode {
     /// receipts authorize only cleanup of the already-removed source, never
     /// publication into the destination. Public callback reentry receives no
     /// such receipt, and cannot refresh these original expectations.
-    private func detachButtonActionSource(_ departure: ButtonActionSourceDeparture) {
+    private func detachButtonActionSource(
+        _ departure: ButtonActionSourceDeparture, taskRoots: [RetainedTaskPhysicalDepartureRoot] = [],
+        originalRemoval: RetainedRemovalAttachmentContinuation?
+    ) {
         let removed = departure.root.node
         guard departure.owns(removed) else { return }
-        removed.revokeLazyListAttachmentProofs()
+        guard !taskRoots.contains(where: \.wasPhysicallyHandled) else { return }
+        let currentTaskRoots = taskRoots.filter { $0.canTrackRemoval(of: removed) }
+        let initialWrite = removed.revokeLazyListAttachmentProofs(removalWrite: originalRemoval?.prepareRevoke())
         departure.recordAttachmentWrite(on: removed)
+        let taskSetup = initialWrite?.isCurrent == true ? originalRemoval : nil
         removed.revokeTextInputOwnership()
         departure.observe()
         guard departure.owns(removed) else { return }
         departure.root.dismantle?(removed)
         departure.observe()
         guard departure.owns(removed) else { return }
+        var overlay: RetainedRemovalOverlayEntry?
         if runtime != nil, removed.transition.removal.kind != .identity,
             removed.applyRemovalTransition(sourceDeparture: departure)
         {
@@ -6624,16 +6989,20 @@ public final class ViewNode {
             removed.cachedFrameCommandRange = nil
             removed.cachedSceneKey = nil
             removed.cachedScenePaintRange = nil
-            runtime?.transitionOverlays.append(removed)
+            overlay = runtime?.appendTransitionOverlay(removed, taskRoots: currentTaskRoots, taskSetup: taskSetup)
             runtime?.invalidate()
         } else {
+            let finishesOriginalTaskRoots = taskSetup?.isCurrent == true && departure.owns(removed)
             removed.disappearButtonActionSource(departure)
+            if finishesOriginalTaskRoots {
+                for root in currentTaskRoots { root.finishImmediateRemoval() }
+            }
         }
         guard departure.owns(removed) else { return }
-        removed.revokeLazyListAttachmentProofs()
-        removed.parent = nil
+        removed.revokeLazyListAttachmentProofs(removalWrite: overlay?.prepareRevoke())
+        removed.writeRemovalParentNil(removalWrite: overlay?.prepareParentNil())
         departure.recordAttachmentWrite(on: removed)
-        removed.detachButtonActionSourceRuntime(departure)
+        removed.detachButtonActionSourceRuntime(departure, removalOverlay: overlay)
         departure.observe()
     }
 
@@ -6675,7 +7044,9 @@ public final class ViewNode {
         withExtendedLifetime(remainingTasks) {}
     }
 
-    private func detachButtonActionSourceRuntime(_ departure: ButtonActionSourceDeparture) {
+    private func detachButtonActionSourceRuntime(
+        _ departure: ButtonActionSourceDeparture, removalOverlay: RetainedRemovalOverlayEntry? = nil
+    ) {
         guard let entry = departure.entry(for: self), departure.owns(self) else { return }
         if let previousRuntime = entry.runtime, let adapter = entry.adapter,
             retainedLazyListAdapter === adapter, adapter.ownsAttachment(self)
@@ -6683,14 +7054,16 @@ public final class ViewNode {
             // The existing owned-container path retains its stricter mapping
             // gate and drains it fully. It already requires a fresh operation
             // before attachment elsewhere; this source receipt cannot waive it.
-            detachLazyListRuntime(from: previousRuntime, adapter: adapter, hasRevokedTextInputOwnership: true)
+            detachLazyListRuntime(
+                from: previousRuntime, adapter: adapter, hasRevokedTextInputOwnership: true,
+                removalOverlay: removalOverlay)
             departure.observe()
             return
         }
         buttonActionOwner?.runtimeWillChange(from: runtime, to: nil)
         storedAccessibilityAttachmentIdentity = nil
         entry.taskState?.invalidateAttachment()
-        revokeLazyListAttachmentProofs()
+        revokeLazyListAttachmentProofs(removalWrite: removalOverlay?.prepareRevoke())
         departure.recordAttachmentWrite(on: self)
         entry.runtime?.unregisterLazyListContainer(self)
         fileDialogPresenterLease?.invalidate()
@@ -6714,7 +7087,7 @@ public final class ViewNode {
         departure.observe()
         guard departure.owns(self) else { return }
         if !animationStates.isEmpty { entry.runtime?.unregisterAnimatingNode(self) }
-        runtime = nil
+        writeRemovalRuntimeNil(removalWrite: removalOverlay?.prepareRuntimeNil())
         departure.recordAttachmentWrite(on: self)
         for child in entry.children { child.detachButtonActionSourceRuntime(departure) }
     }
@@ -6729,12 +7102,18 @@ public final class ViewNode {
     /// transition (or straight to disappearance) and unparents it. The single
     /// place that decides what leaving looks like — shared by `removeChild`,
     /// `replaceChild` and `setChildren`.
-    private func detachRemovedChild(_ removed: ViewNode, buttonActions: RetainedButtonActionAdoption? = nil) {
+    private func detachRemovedChild(
+        _ removed: ViewNode, buttonActions: RetainedButtonActionAdoption? = nil,
+        taskRoots: [RetainedTaskPhysicalDepartureRoot] = [], originalRemoval: RetainedRemovalAttachmentContinuation?
+    ) {
         guard !isRetiringLazyListAttachment, !removed.isRetiringLazyListAttachment,
             buttonActions?.isCurrent != false
         else { return }
-        removed.revokeLazyListAttachmentProofs()
+        guard !taskRoots.contains(where: \.wasPhysicallyHandled) else { return }
+        let currentTaskRoots = taskRoots.filter { $0.canTrackRemoval(of: removed) }
+        let initialWrite = removed.revokeLazyListAttachmentProofs(removalWrite: originalRemoval?.prepareRevoke())
         guard buttonActions?.recordAttachmentWrite(on: removed) != false else { return }
+        let taskSetup = initialWrite?.isCurrent == true ? originalRemoval : nil
         removed.revokeTextInputOwnership()
         guard buttonActions?.isCurrent != false else { return }
         removed.onDismantlePlatformView?(removed)
@@ -6752,15 +7131,19 @@ public final class ViewNode {
             removed.cachedFrameCommandRange = nil
             removed.cachedSceneKey = nil
             removed.cachedScenePaintRange = nil
-            runtime?.transitionOverlays.append(removed)
+            let overlay = runtime?.appendTransitionOverlay(removed, taskRoots: currentTaskRoots, taskSetup: taskSetup)
             runtime?.invalidate()
-            removed.revokeLazyListAttachmentProofs()
-            removed.parent = nil
+            removed.revokeLazyListAttachmentProofs(removalWrite: overlay?.prepareRevoke())
+            removed.writeRemovalParentNil(removalWrite: overlay?.prepareParentNil())
             guard buttonActions?.recordAttachmentWrite(on: removed) != false else { return }
-            removed.setRuntime(nil, buttonActions: buttonActions)
+            removed.setRuntime(nil, buttonActions: buttonActions, removalOverlay: overlay)
         } else {
             guard buttonActions?.isCurrent != false else { return }
+            let finishesOriginalTaskRoots = taskSetup?.isCurrent == true
             removed.markSubtreeDisappeared()
+            if finishesOriginalTaskRoots {
+                for root in currentTaskRoots { root.finishImmediateRemoval() }
+            }
             guard !isRetiringLazyListAttachment, !removed.isRetiringLazyListAttachment,
                 buttonActions?.isCurrent != false
             else { return }
@@ -6813,6 +7196,9 @@ public final class ViewNode {
 
         let interactionRuntime = runtime
         var groupTaskCleanup: [RetainedLazyListAcceptedTaskCleanup] = []
+        var taskDeparture: RetainedTaskPhysicalDeparture?
+        var originalRemovalAttachments: [ObjectIdentifier: RetainedRemovalAttachmentContinuation] = [:]
+        var physicalTaskRoots: [ObjectIdentifier: [RetainedTaskPhysicalDepartureRoot]] = [:]
         var ownedDepartures: [RetainedOrdinaryOwnedDeparture] = []
         var buttonRetirement: RetainedButtonActionRetirement?
         interactionRuntime?.beginLongPressReconciliation()
@@ -6829,7 +7215,9 @@ public final class ViewNode {
             for departure in ownedDepartures { lazyJournal?.finishOrdinaryOwnedDeparture(departure) }
             for sourceRuntime in sourceRuntimes { sourceRuntime.endLongPressReconciliation() }
             interactionRuntime?.endLongPressReconciliation()
+            taskDeparture?.finishForest()
             for cleanup in groupTaskCleanup { cleanup.finish() }
+            interactionRuntime?.pruneFinishedPhysicalTaskDepartures()
             buttonRetirement?.finish()
         }
 
@@ -6837,7 +7225,12 @@ public final class ViewNode {
         let departing = children.filter { !surviving.contains(ObjectIdentifier($0)) }
         guard buttonActions?.beginDeparture(in: departing) != false else { return }
         buttonRetirement = RetainedButtonActionRetirement(in: departing)
+        taskDeparture = RetainedTaskPhysicalDeparture(roots: departing)
+        originalRemovalAttachments = taskDeparture?.captureOriginalRemovalAttachments() ?? [:]
         groupTaskCleanup = Self.claimLazyGroupTaskDepartures(in: departing)
+        taskDeparture?.takeClaimedGroups(groupTaskCleanup)
+        if let taskDeparture { interactionRuntime?.registerPhysicalTaskDeparture(taskDeparture) }
+        physicalTaskRoots = interactionRuntime?.capturePhysicalTaskDepartureRoots(in: departing) ?? [:]
         if let lazyJournal {
             for cleanup in groupTaskCleanup { lazyJournal.claimTaskCleanup(cleanup) }
             for node in Self.lazyListNodes(in: departing) ?? [] {
@@ -6862,7 +7255,9 @@ public final class ViewNode {
         for child in departing {
             // Departure has already been claimed. Its existing cleanup must
             // drain even if a callback invalidates adoption of the survivors.
-            detachRemovedChild(child)
+            detachRemovedChild(
+                child, taskRoots: physicalTaskRoots[ObjectIdentifier(child)] ?? [],
+                originalRemoval: originalRemovalAttachments[ObjectIdentifier(child)])
         }
         guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
         for child in nextChildren {
@@ -7016,7 +7411,8 @@ public final class ViewNode {
 
     fileprivate func setRuntime(
         _ runtime: RetainedViewRuntime?, hasRevokedTextInputOwnership: Bool = false,
-        buttonActions: RetainedButtonActionAdoption? = nil
+        buttonActions: RetainedButtonActionAdoption? = nil,
+        removalOverlay: RetainedRemovalOverlayEntry? = nil
     ) {
         guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
         buttonActionOwner?.runtimeWillChange(from: self.runtime, to: runtime)
@@ -7030,7 +7426,7 @@ public final class ViewNode {
             guard runtime == nil else { return }
             detachLazyListRuntime(
                 from: previousRuntime, adapter: adapter,
-                hasRevokedTextInputOwnership: hasRevokedTextInputOwnership)
+                hasRevokedTextInputOwnership: hasRevokedTextInputOwnership, removalOverlay: removalOverlay)
             return
         }
         let didChangeRuntime = self.runtime !== runtime
@@ -7038,7 +7434,7 @@ public final class ViewNode {
         let isLeavingRuntime = self.runtime != nil && self.runtime !== runtime
         if isLeavingRuntime { lifecycleHandlers?.retainedTasks?.invalidateAttachment() }
         if didChangeRuntime {
-            revokeLazyListAttachmentProofs()
+            revokeLazyListAttachmentProofs(removalWrite: runtime == nil ? removalOverlay?.prepareRevoke() : nil)
             guard buttonActions?.recordAttachmentWrite(on: self) != false else { return }
             self.runtime?.unregisterLazyListContainer(self)
         }
@@ -7072,8 +7468,16 @@ public final class ViewNode {
             runtime?.registerAnimatingNode(self)
         }
         guard buttonActions?.isCurrent != false else { return }
-        self.runtime = runtime
+        if runtime == nil {
+            writeRemovalRuntimeNil(removalWrite: removalOverlay?.prepareRuntimeNil())
+        } else {
+            self.runtime = runtime
+        }
         guard buttonActions?.recordAttachmentWrite(on: self) != false else { return }
+        // A native reattachment starts a different physical lifetime. Its
+        // later admission cannot inherit the old overlay's input/task fence;
+        // stale overlay completion still owns only its captured old payload.
+        if runtime != nil { isRemovalOverlay = false }
         if let runtime { listNavigationOwner?.didAttach(to: runtime) }
         if runtime != nil, didChangeRuntime {
             fileDialogPresenterIsDeparting = false
@@ -7102,12 +7506,12 @@ public final class ViewNode {
     /// callbacks before reaching here; it is not the checked eviction path.
     private func detachLazyListRuntime(
         from previousRuntime: RetainedViewRuntime, adapter: RetainedLazyListRuntimeAdapter,
-        hasRevokedTextInputOwnership: Bool
+        hasRevokedTextInputOwnership: Bool, removalOverlay: RetainedRemovalOverlayEntry? = nil
     ) {
-        let gate = LazyListRetirementGate(nodes: [self])
+        let gate = LazyListRetirementGate(nodes: [self], removalAttachment: removalOverlay?.retirementAttachment)
         drainLazyListRuntimeDetach(
             from: previousRuntime, adapter: adapter, gateIdentity: gate.identity,
-            hasRevokedTextInputOwnership: hasRevokedTextInputOwnership)
+            hasRevokedTextInputOwnership: hasRevokedTextInputOwnership, removalOverlay: removalOverlay)
         // The helper's old payload captures have unwound while the gate and
         // weak claim still exclude a new owner. Existing queued cleanup also
         // finishes before the gate releases that claim.
@@ -7116,14 +7520,15 @@ public final class ViewNode {
 
     private func drainLazyListRuntimeDetach(
         from previousRuntime: RetainedViewRuntime, adapter: RetainedLazyListRuntimeAdapter,
-        gateIdentity: RetainedLazyListAttachmentIdentity, hasRevokedTextInputOwnership: Bool
+        gateIdentity: RetainedLazyListAttachmentIdentity, hasRevokedTextInputOwnership: Bool,
+        removalOverlay: RetainedRemovalOverlayEntry? = nil
     ) {
         storedAccessibilityAttachmentIdentity = nil
         let controller = textInputController
         let storage = scrollObserverStorage
         let detachedChildren = children
         let scopedTaskCleanup = existingRetainedTaskState?.claimLazyPhysicalDeparture()
-        revokeLazyListAttachmentProofs()
+        revokeLazyListAttachmentProofs(removalWrite: removalOverlay?.prepareRevoke())
         previousRuntime.unregisterLazyListContainer(self)
         if !hasRevokedTextInputOwnership { revokeTextInputOwnership() }
         fileDialogPresenterLease?.invalidate()
@@ -7141,8 +7546,8 @@ public final class ViewNode {
             retainedLazyListAdapter === adapter, runtime === previousRuntime
         {
             previousRuntime.unregisterAnimatingNode(self)
-            revokeLazyListAttachmentProofs()
-            runtime = nil
+            revokeLazyListAttachmentProofs(removalWrite: removalOverlay?.prepareRevoke())
+            writeRemovalRuntimeNil(removalWrite: removalOverlay?.prepareRuntimeNil())
             for child in detachedChildren where child.parent === self && child.runtime === previousRuntime {
                 child.setRuntime(nil, hasRevokedTextInputOwnership: true)
             }
@@ -15336,7 +15741,96 @@ public final class RetainedViewRuntime {
 
     /// Nodes that have been removed from the view tree but are still animating
     /// out via their removal transition. Rendered after the main tree each frame.
-    public internal(set) var transitionOverlays: [ViewNode] = []
+    public var transitionOverlays: [ViewNode] { removalOverlays.map(\.node) }
+    private var removalOverlays: [RetainedRemovalOverlayEntry] = []
+    private var physicalTaskDepartures: [RetainedTaskPhysicalDeparture] = []
+
+    /// Register before any controller, modifier, clock, or disappearance can
+    /// reenter. A removed root may no longer be reachable through `root` when
+    /// terminal cancellation runs, but its original task debt remains here.
+    fileprivate func registerPhysicalTaskDeparture(_ departure: RetainedTaskPhysicalDeparture) {
+        guard departure.hasClaims else { return }
+        physicalTaskDepartures.append(departure)
+    }
+
+    /// Capture every original matching batch before the remover's first native
+    /// write. A nested remover can split an untouched original descendant out
+    /// of its old forest, but cannot borrow an admitted or later attachment.
+    fileprivate func capturePhysicalTaskDepartureRoots(
+        in roots: [ViewNode]
+    ) -> [ObjectIdentifier: [RetainedTaskPhysicalDepartureRoot]] {
+        var captured: [ObjectIdentifier: [RetainedTaskPhysicalDepartureRoot]] = [:]
+        for node in roots {
+            let receipts = physicalTaskDepartures.compactMap { $0.captureOriginalRoot(for: node) }
+            if !receipts.isEmpty { captured[ObjectIdentifier(node)] = receipts }
+        }
+        return captured
+    }
+
+    fileprivate func pruneFinishedPhysicalTaskDepartures() {
+        physicalTaskDepartures.removeAll(where: \.isFinished)
+    }
+
+    @discardableResult
+    fileprivate func appendTransitionOverlay(
+        _ node: ViewNode, taskRoots: [RetainedTaskPhysicalDepartureRoot] = [],
+        taskSetup: RetainedRemovalAttachmentContinuation?
+    ) -> RetainedRemovalOverlayEntry {
+        // Keep the setup proof from before the resolver's callbacks. A stale
+        // original cannot acquire a later attachment merely by being appended.
+        let entry = RetainedRemovalOverlayEntry(node: node, attachment: taskSetup)
+        removalOverlays.append(entry)
+        // The native overlay has now actually been admitted. Merely having a
+        // nonidentity transition never grants deferred task cancellation.
+        for root in taskRoots {
+            if let admission = root.acceptOverlay(on: node, in: self, setup: taskSetup) {
+                withExtendedLifetime(admission) {
+                    entry.taskRoots.append(root)
+                }
+            }
+        }
+        return entry
+    }
+
+    /// Matched geometry has its own task-free visual admission. It cannot
+    /// create a physical-departure successor or receive any Task root.
+    @discardableResult
+    private func appendMatchedGeometryTransitionOverlay(_ node: ViewNode) -> RetainedRemovalOverlayEntry {
+        let original = RetainedRemovalAttachmentContinuation(
+            original: node.captureLazyListAttachmentProof(), taskFreeVisual: true)
+        let entry = RetainedRemovalOverlayEntry(node: node, attachment: original)
+        removalOverlays.append(entry)
+        return entry
+    }
+
+    /// Canvas discards declarations without disappearance. Detach the entire
+    /// old snapshot before cancellation can append a new overlay; only these
+    /// old roots are satisfied, and unrelated task batches remain untouched.
+    private func discardTransitionOverlaysForCanvas() {
+        let discarded = removalOverlays
+        removalOverlays.removeAll()
+        var completions: [RetainedTaskPhysicalDepartureRoot] = []
+        for entry in discarded where !entry.isCompleting {
+            completions.append(contentsOf: entry.beginCompletion())
+        }
+        for completion in completions { completion.finishCompletion() }
+        pruneFinishedPhysicalTaskDepartures()
+        withExtendedLifetime(discarded) {}
+    }
+
+    private func finishPhysicalTaskDeparturesForTerminal() {
+        while true {
+            let pending = physicalTaskDepartures.filter { !$0.isFinished }
+            guard !pending.isEmpty else { break }
+            for departure in pending { departure.prepareTerminal() }
+            for departure in pending { departure.finishTerminal() }
+            // A handler can register a different original departure. Its debt
+            // must also finish before this terminal cancellation returns.
+            pruneFinishedPhysicalTaskDepartures()
+            withExtendedLifetime(pending) {}
+        }
+        pruneFinishedPhysicalTaskDepartures()
+    }
 
     /// Managed List departures have already finished all executable cleanup.
     /// Their bounded visual tails own renderer values only, unlike ordinary
@@ -15613,13 +16107,13 @@ public final class RetainedViewRuntime {
         if content !== root { root.setChildren([content]) }
         // Declaration lookup may remove tagged siblings carrying transitions.
         // Those discarded declarations are not a part of the resolved symbol.
-        transitionOverlays.removeAll()
+        discardTransitionOverlaysForCanvas()
         let size = content.intrinsicContentSize()
         guard CanvasSymbolSource.pixelSize(for: size, displayScale: displayScale) != nil else { return nil }
         root.frame = Rect(origin: .zero, size: size)
         content.frame = Rect(origin: .zero, size: size)
         updateResolvedLayout()
-        transitionOverlays.removeAll()
+        discardTransitionOverlaysForCanvas()
         return size
     }
 
@@ -19359,22 +19853,45 @@ public final class RetainedViewRuntime {
         let didAdvanceRetiredLazyListPaint = advanceRetiredLazyListPaint(to: timestamp)
 
         var didAdvanceOverlayAnimations = false
-        var completedOverlays: [ViewNode] = []
-        for overlay in transitionOverlays {
-            if tickPropertyAnimations(node: overlay, at: timestamp) {
+        var completedOverlays: [RetainedRemovalOverlayEntry] = []
+        // Snapshot admission identities before any callback. A nested tick can
+        // finish a later sibling and append that same node as a new overlay;
+        // the older pass must never consume the replacement admission.
+        let overlaySnapshot = removalOverlays
+        for entry in overlaySnapshot {
+            guard removalOverlays.contains(where: { $0 === entry }), !entry.isCompleting,
+                !entry.isWaitingForRetirementGate
+            else { continue }
+            guard entry.isCurrent else {
+                completedOverlays.append(entry)
+                continue
+            }
+            if tickPropertyAnimations(node: entry.node, at: timestamp) {
                 didAdvanceOverlayAnimations = true
             }
-            if overlay.animationStates.isEmpty {
-                completedOverlays.append(overlay)
+            if entry.node.animationStates.isEmpty {
+                completedOverlays.append(entry)
             }
         }
-        for overlay in completedOverlays {
-            overlay.isRemovalOverlay = false
-            overlay.markSubtreeDisappeared()
-            if let index = transitionOverlays.firstIndex(where: { $0 === overlay }) {
-                transitionOverlays.remove(at: index)
+        for entry in completedOverlays {
+            guard removalOverlays.contains(where: { $0 === entry }), !entry.isCompleting,
+                !entry.isWaitingForRetirementGate
+            else { continue }
+            let isOriginalAttachment = entry.isCurrent
+            let taskCompletions = entry.beginCompletion()
+            if isOriginalAttachment {
+                entry.node.isRemovalOverlay = false
+                entry.node.markSubtreeDisappeared()
+            }
+            // The batch is still registered during onDisappear, so terminal
+            // reentry can drain it. Ordinary completion uses this ambient
+            // scope, never the transaction that began the earlier removal.
+            for completion in taskCompletions { completion.finishCompletion() }
+            if let index = removalOverlays.firstIndex(where: { $0 === entry }) {
+                removalOverlays.remove(at: index)
             }
         }
+        pruneFinishedPhysicalTaskDepartures()
         if didAdvanceOverlayAnimations || !completedOverlays.isEmpty {
             // Removal overlays are detached from the live tree, so their
             // property observers cannot invalidate this runtime. Without
@@ -19839,7 +20356,7 @@ public final class RetainedViewRuntime {
                 oldNode.frame = oldFrame
                 oldNode.resolvedFrame = oldFrame
 
-                transitionOverlays.append(oldNode)
+                appendMatchedGeometryTransitionOverlay(oldNode)
                 invalidate()
             }
         }
@@ -20131,6 +20648,8 @@ public final class RetainedViewRuntime {
         if renderLifecycleTaskCancellationDepth == 1 { hasFinishedRenderLifecycleTaskCancellation = false }
         let navigationRetirements = retiredPreparedListNavigationRetirements
         retiredPreparedListNavigationRetirements.removeAll()
+        let capturedPhysicalDepartures = physicalTaskDepartures
+        for departure in capturedPhysicalDepartures { departure.prepareTerminal() }
         let groupTaskCleanup = ViewNode.claimLazyGroupTaskDepartures(in: [root] + transitionOverlays)
         let focusRequests = pendingPresentationFocusRequests
         for request in focusRequests { request.revoke() }
@@ -20151,7 +20670,9 @@ public final class RetainedViewRuntime {
         for task in tasks { task.cancel() }
         for retirement in scopedRetirements { retirement.cancel() }
         for cleanup in groupTaskCleanup { cleanup.finish() }
+        finishPhysicalTaskDeparturesForTerminal()
         withExtendedLifetime(scopedRetirements) {}
+        withExtendedLifetime(capturedPhysicalDepartures) {}
         renderLifecycleTaskCancellationDepth -= 1
         guard renderLifecycleTaskCancellationDepth == 0 else {
             // A cancellation handler may request task cleanup again. Its
@@ -23363,6 +23884,60 @@ public struct PropertySnapshot {
         self.backgroundColor = backgroundColor
     }
 }
+
+/// One admission, even if application reentry later reuses the same ViewNode.
+/// Its original continuation follows only acknowledged native writes. It is
+/// cleanup metadata and is never used as construction or Task-start authority.
+@MainActor
+fileprivate final class RetainedRemovalOverlayEntry {
+    let node: ViewNode
+    var taskRoots: [RetainedTaskPhysicalDepartureRoot] = []
+    private let attachment: RetainedRemovalAttachmentContinuation?
+    private var wasInvalidated = false
+    private(set) var isCompleting = false
+
+    init(node: ViewNode, attachment: RetainedRemovalAttachmentContinuation?) {
+        self.node = node
+        self.attachment = attachment
+    }
+
+    var isCurrent: Bool {
+        if attachment?.hasRemovalSetup != true || attachment?.isCurrent != true { wasInvalidated = true }
+        return !wasInvalidated
+    }
+
+    /// The old adapter must finish its callbacks and release its exact gate
+    /// before a nested tick may deliver this overlay's physical disappearance.
+    var isWaitingForRetirementGate: Bool { node.hasLazyListRetirementGate(attachment?.retirementGate) }
+
+    /// Preparation reads only the already-bound native continuation. The
+    /// literal writer must make the final comparison with all endpoints pinned.
+    func prepareRevoke() -> RetainedRemovalAttachmentWrite? {
+        wasInvalidated ? nil : attachment?.prepareRevoke()
+    }
+
+    func prepareParentNil() -> RetainedRemovalAttachmentWrite? {
+        wasInvalidated ? nil : attachment?.prepareParentNil()
+    }
+
+    func prepareRuntimeNil() -> RetainedRemovalAttachmentWrite? {
+        wasInvalidated ? nil : attachment?.prepareRuntimeNil()
+    }
+
+    var retirementAttachment: RetainedRemovalAttachmentContinuation? {
+        wasInvalidated ? nil : attachment
+    }
+
+    func beginCompletion() -> [RetainedTaskPhysicalDepartureRoot] {
+        guard !isCompleting else { return [] }
+        isCompleting = true
+        attachment?.closeWrites()
+        // Claim every original batch before the first physical callback or
+        // cancellation can reenter this admission through another group.
+        return taskRoots.filter { $0.beginCompletion() }
+    }
+}
+
 @MainActor
 final class ButtonActionSourceDeparture {
     @MainActor
@@ -23569,9 +24144,10 @@ private final class LazyListRetirementGate {
     private let nodes: [WeakViewNodeRef]
     private var didFinish = false
 
-    init(nodes: [ViewNode]) {
+    init(nodes: [ViewNode], removalAttachment: RetainedRemovalAttachmentContinuation? = nil) {
         self.nodes = nodes.map { WeakViewNodeRef(node: $0) }
-        for node in nodes { node.installLazyListRetirementGate(identity) }
+        let write = nodes.count == 1 ? removalAttachment?.prepareGate(identity) : nil
+        for node in nodes { node.installLazyListRetirementGate(identity, removalWrite: write) }
     }
 
     func finish() {
@@ -23762,9 +24338,22 @@ extension ViewNode {
         first.count == second.count && zip(first, second).allSatisfy { pair in pair.0 === pair.1 }
     }
 
-    fileprivate func installLazyListRetirementGate(_ identity: RetainedLazyListAttachmentIdentity) {
+    @inline(never)
+    @discardableResult
+    fileprivate func installLazyListRetirementGate(
+        _ identity: RetainedLazyListAttachmentIdentity, removalWrite: RetainedRemovalAttachmentWrite? = nil
+    ) -> RetainedRemovalAttachmentWriteResult? {
         if lifecycleHandlers == nil { lifecycleHandlers = ViewNodeLifecycleHandlers() }
-        lifecycleHandlers?.lazyListRetirementIdentity = identity
+        let write = removalWrite?.claim(on: self, kind: .gate, gate: identity)
+        return withExtendedLifetime(write) {
+            lifecycleHandlers?.lazyListRetirementIdentity = identity
+            return write?.didWrite()
+        }
+    }
+
+    fileprivate func hasLazyListRetirementGate(_ identity: RetainedLazyListAttachmentIdentity?) -> Bool {
+        guard let identity else { return false }
+        return lifecycleHandlers?.lazyListRetirementIdentity === identity
     }
 
     fileprivate func finishLazyListRetirementGate(_ identity: RetainedLazyListAttachmentIdentity) {

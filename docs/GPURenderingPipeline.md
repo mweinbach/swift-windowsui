@@ -126,6 +126,33 @@ identity and general same-key launch/cancel reentrancy remain unqualified.
 `RenderLifecycleDeliveryTests` and
 `SceneLifecycleHostTests` cover the retained contract on both presentation paths.
 
+Mounted removal cleanup keeps the original attachment across native writes.
+Each forest root is captured before claims or callbacks, including a visual
+root without a Task claim. Successor records acknowledge only the original
+operation's token stores, parent/runtime clears, and exact retirement gate.
+The comparison runs after storage revocation; endpoint references remain alive
+through the literal store and acknowledgement or refusal. A callback-created
+attachment cannot become the original disappearance or Task cleanup, and a
+refused record cannot recover by sampling a newer attachment. Refusal does not
+cancel the existing generic native write, so unchecked child-field replacement
+and general cancellation behavior remain separate work.
+
+Overlay Task admission keeps the same temporary pins and original departure
+through Runtime's actual append to the overlay entry's task roots. Returning
+only an admission Bool would release those references before that store.
+Existing group claims, phase/departure/runtime checks, accepted-absence transfer,
+completion ownership, and terminal cancellation remain in force. Task-free visual
+admission is explicit and cannot replace a refused removal origin; eligible
+visual cleanup can outlive terminal Task debt.
+
+`MountedTaskOverlayRetirementTests` adds 22 cases and
+`MountedAttachmentSuccessorTests` adds 20, including 14 synchronous and six
+asynchronous methods in the latter. Their original source oracles are preserved.
+Strict lint and architecture checks pass for this integration; compilation and
+execution are still pending. The weak release interval inside storage revocation
+is source-reviewed rather than forced by a synthetic hook, and allocation costs
+and native timing remain unmeasured.
+
 The two `ViewSnapshot.rasterize` overloads that create a temporary runtime and
 return only a bitmap stop lifecycle delivery and request task cancellation in
 deferred cleanup, on success and rendering failure. Cancellation is cooperative:

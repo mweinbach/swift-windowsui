@@ -388,9 +388,18 @@ enum PathTrimming {
             return result
         }
 
-        mutating func measure(_ segment: Segment, tolerance: Double, depth: Int) throws -> Length {
-            try spend()
-            let bounds = try segment.bounds()
+        mutating func measure(
+            _ segment: Segment, tolerance: Double, depth: Int,
+            prepaidBounds: (lower: Double, upper: Double)? = nil
+        ) throws -> Length {
+            let bounds: (lower: Double, upper: Double)
+            if let prepaidBounds {
+                bounds = prepaidBounds
+            } else {
+                try spend()
+                bounds = try segment.bounds()
+            }
+            guard tolerance.isFinite, tolerance >= 0 else { throw Failure.numericalLimit }
             guard segment.isCurve else { return Length(value: bounds.upper, error: 0) }
             let error = (bounds.upper - bounds.lower) * 0.5
             if error <= tolerance {
@@ -399,11 +408,23 @@ enum PathTrimming {
             guard depth < limits.maximumCurveDepth else { throw Failure.workLimit }
             let halves = try segment.split(at: 0.5)
             guard halves.0 != segment, halves.1 != segment else { throw Failure.numericalLimit }
-            let first = try measure(halves.0, tolerance: tolerance * 0.5, depth: depth + 1)
-            let second = try measure(halves.1, tolerance: tolerance * 0.5, depth: depth + 1)
+
+            // Reserve only the sibling error that can be needed. A monotone
+            // sibling must not discard half the allowance at a retracing cusp.
+            // These right-child bounds are paid here and reused exactly once.
+            try spend()
+            let rightBounds = try halves.1.bounds()
+            let reservedError = min(tolerance * 0.5, (rightBounds.upper - rightBounds.lower) * 0.5)
+            let firstTolerance = tolerance - reservedError
+            guard firstTolerance.isFinite, firstTolerance >= 0 else { throw Failure.numericalLimit }
+            let first = try measure(halves.0, tolerance: firstTolerance, depth: depth + 1)
+            let secondTolerance = tolerance - first.error
+            guard secondTolerance.isFinite, secondTolerance >= 0 else { throw Failure.numericalLimit }
+            let second = try measure(
+                halves.1, tolerance: secondTolerance, depth: depth + 1, prepaidBounds: rightBounds)
             let length = try PathTrimming.adding(first.value, second.value)
             let combinedError = first.error + second.error
-            guard combinedError.isFinite else { throw Failure.numericalLimit }
+            guard combinedError.isFinite, combinedError <= tolerance else { throw Failure.numericalLimit }
             return Length(value: length, error: combinedError)
         }
 

@@ -21,6 +21,14 @@ length. Inversion separately allows the larger of `1e-7` units and `1e-8` of the
 selected segment's length. Accumulated path error is additional; these policies
 are not a universal endpoint error guarantee or a native conformance claim.
 
+Subdivision reuses unused sibling error allowance within that same tolerance.
+The right child's bounds are paid for once, used to reserve only the allowance
+it may need, and reused after the left child returns. Nonfinite or negative
+remaining allowances and a combined reported error above the original tolerance
+reject the selection. The right bound is now read before the left subtree, so
+the order of competing failures can differ; no work is refunded. This remains
+floating-point estimation, not outward-rounded interval arithmetic.
+
 Default limits admit at most 65,536 input elements, 131,072 derived segments,
 1,048,576 work steps, 24 curve subdivision levels and 56 inversion iterations.
 Arc angles and sweeps are bounded by `8192*pi`. Arithmetic checks reject lost
@@ -47,11 +55,13 @@ an explicit empty path so they cannot fall back to a rectangular background.
 The exact full-range route remains unchanged. Existing retained arc flattening
 is still an approximation and is not a general arc rendering fix.
 
-There are 26 new analytic portable tests and 12 retained geometry/pixel tests.
+There are 26 original analytic portable tests, six additional reversal controls
+and 12 retained geometry/pixel tests.
 At `7db6b98`, fresh execution passed 25 of the 26 portable tests and all 12
 retained tests. The retraced quadratic still rejects with `workLimit`; a source
-review attributes this to subdivision error allowances during prefix inversion,
-and a repair remains pending. The retained cases cover wide/tall dimensions,
+review attributes this to subdivision error allowances during prefix inversion.
+The subsequent sibling-allowance repair and its six new controls await fresh
+execution. The retained cases cover wide/tall dimensions,
 Bézier controls, empty and partial fills, layout/reconciliation callback counts,
 live border width, resizing, passive erasure, origin placement, display scales
 and rejection. The related 80-case shape/selection cohort passed 78 and failed

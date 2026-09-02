@@ -156,7 +156,9 @@ distance-based geometry implementations. Retained partial shapes measure their
 resolved inner paint size before normalizing the result for presentation; empty
 or rejected selections remain empty paths. At `7db6b98`, 25 of 26 portable
 trimming tests and all 12 retained trimming tests passed; a retraced quadratic
-still rejects with `workLimit`. Bounds-dependent custom shapes, nested/inset
+rejected with `workLimit`. A subsequent repair reuses unused sibling error
+allowance without changing tolerances or limits and awaits fresh execution.
+Bounds-dependent custom shapes, nested/inset
 shape composition, trim hit/clip behavior, animated fractions and native parity
 remain unqualified; see [path trimming](PathTrimming.md).
 Inset's existing `.inset(by:)` reconstruction can discard stored styling.

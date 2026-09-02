@@ -12581,3 +12581,47 @@ Source tree `05dddc9db945ef0f9dd8bb50d0308819d13957a5` and preservation of
 the other 645 existing test files are recorded in
 `artifacts/goal-ninth-button-bindingc6d-staged-proof-v1.json`. The original
 three cases still require execution. All nine completion gates remain open.
+
+
+### Original completion gates after the 2026-09-01 focused runs
+
+All nine original completion gates remain open. This map adds no requirement,
+exception, or substitute for their existing acceptance criteria.
+
+The four focused runs on clean `c340789` on 2026-09-01 passed 159 of 160
+ordinary ownership cases, 164 of 167 Button/Table cases, 115 of 122 internal
+UIA cases, and seven of 19 public UIA/budget cases. The remaining failures
+number one, three, seven, and twelve respectively; none of these selections
+skipped a test. These results qualify only their recorded source and methods.
+Later fixture or production changes require their own execution evidence.
+
+The later `496428c` focused run passed all 17 membership cases and located
+three Button setup failures at descriptor-copy preparation. The subsequent
+binding-identity fixture repair, source-cancellation changes and construction
+diagnostics still await execution. These newer changes do not inherit a Full
+or release qualification from the dated cohort results above.
+
+| Original gate | Remaining implementation and evidence |
+| --- | --- |
+| 1. Full pinned desktop API and behavior | Complete public declaration, extension and overlay review, Windows implementation mapping, and behavioral conformance for the fixed baseline. The captured inventory and passing synthetic audit tools are inputs, not a completed census. In-scope partial implementations, shims and placeholders remain gaps; no implicit platform exception is permitted. |
+| 2. Relevant semantic, interaction, accessibility and visual coverage | Correct the remaining ownership, construction and UIA failures; complete the FileBrowser interaction diagnosis and fixed Core/List regressions. Map every in-scope feature and applicable state to coverage, then validate the integrated source. A pass across existing tests alone cannot establish coverage of missing features. |
+| 3. Shared Windows/macOS reference apps | Build and exercise the same reference sources at the candidate revision on both platforms, with reviewed behavior and render comparisons that state font, theme and platform differences. Earlier macOS build or SDK-export success does not qualify current behavior. |
+| 4. CPU/D3D11 scene agreement | Verify current effects, groups, mixed order, transparency, clipping and fractional DPI through CPU rendering and actual D3D11 execution/readback. Historical passes and a material skip do not qualify changed source or excuse an in-scope gap. Keep fallback limitations and measured tolerances explicit. |
+| 5. Motion targets and bounded resources | Finish interruption, scrolling, long-session collection/navigation/window lifetime and idle-work checks. Publish rendered motion and controlled hardware evidence against the unchanged section 4 targets, including native input-to-present latency and all required workload and percentile fields. Unit-test timing and virtual-display diagnostics do not qualify hardware pacing. |
+| 6. All eight template workflows | Complete the advertised model, persistence, loading/failure/retry/cancellation and interaction paths for every template. Native document activation/close decisions, the complete media/file workflow, and the remaining chart, navigation and animation-lab behavior still need integration and proof. Exercise keyboard, pointer and assistive technology; static previews are not complete workflows. |
+| 7. Real-machine native smoke | Resolve the failed fairness/idle predicates from the 24-of-27 native attempt at `525c6e7`. Separately record GPU recovery, software fallback, monitor/DPI changes, IME, native dialogs and Narrator flows. The hidden-window workload and normal renderer health do not establish those results. |
+| 8. Exact release commit in hosted CI | Pass contracts, lint, serial tests/builds and reviewed visual gates on the candidate commit, then retain successful hosted results for that exact revision. The older local Full and earlier hosted failures remain historical evidence; focused runs do not replace this gate. Keep manual and timing qualification separate. |
+| 9. Clean-machine delivery | Complete the versioned sample package, runtime/resource dependencies, installation/build/deployment instructions and compatibility notes. Record a clean Windows machine or VM installing, building and deploying the sample without the original development tree. A fresh checkout alone is insufficient. |
+
+Local implementation, failure diagnosis and coverage work can proceed while
+preparing the separate pinned-macOS, controlled-hardware, native, hosted-CI
+and clean-machine evidence. A versioned subset release does not close the
+full goal, and no gate is marked complete by this status map.
+
+The release checklist now distinguishes development checks from full goal
+qualification: a fresh checkout does not replace clean-machine installation,
+and normal renderer health does not replace required recovery evidence. The
+original goal is unchanged; these wording fixes remove possible weaker
+interpretations rather than adding a new requirement. The reviewed packet is
+`artifacts/goal-ninth-release-checklist496-intake-v1`. No runtime or release
+result is claimed for these documentation changes.

@@ -1,11 +1,16 @@
 # Release Checklist
 
-Concrete sign-off procedure for cutting a `swift-windowsui` release. This
-implements the Phase 9 release gate from
-[`docs/StabilizationRoadmap.md`](StabilizationRoadmap.md). Run it on a clean
-machine (or a fresh checkout) with the Swift for Windows toolchain available;
-verify the toolchain first with
+Concrete sign-off procedure for cutting a `swift-windowsui` release, including
+the versioned subset described by Phase 9 in
+[`docs/StabilizationRoadmap.md`](StabilizationRoadmap.md). Development and
+subset-release checks may use a fresh checkout with the Swift for Windows
+toolchain available; verify the toolchain first with
 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/with-swift.ps1 -CheckOnly`.
+
+Full qualification also requires all nine gates in
+[`goal.md`](../goal.md#9-tooling-delivery-and-proof-of-completion). Record the
+documented sample installation, build, and deployment on a clean Windows
+machine or VM; a fresh checkout alone does not establish that result.
 
 Versioning rules and Supported-tier guarantees live in
 [`CHANGELOG.md`](../CHANGELOG.md). Per-API status lives in
@@ -98,8 +103,13 @@ the result. Launch the demo with `scripts/run-demo.ps1` (or
       path and Supported controls degrade readably (known cosmetic gaps:
       rectangular clips, uniform corner radii, solid base color for
       radial/conic gradients, plain offset shadows)
-- [ ] **Recovery smoke (optional but recommended):** confirm
-      `rendererHealthSnapshot` reports `.defaultScene` in a normal run
+- [ ] **Normal renderer health (optional development check):** confirm
+      `rendererHealthSnapshot` reports `.defaultScene` in a normal run.
+      This checks normal startup, not recovery.
+- [ ] **Renderer recovery (required for full qualification):** perform the
+      documented real-machine GPU recovery smoke and record the recovery
+      outcome. Confirm usable output after the supported recovery path.
+      A normal `.defaultScene` snapshot does not exercise recovery.
 
 ## 3. Documentation and metadata
 

@@ -14426,3 +14426,24 @@ one-file lint and post-edit contracts passed. No compiled stack reduction or
 crash resolution is claimed yet. Fresh validation must run the complete three
 regressions first, then all original 212 C06 cases, MaterialContentBlurTests24
 and D3D11MaterialContentBlurTests16. All nine completion gates remain open.
+
+
+### Ninth integration: observe the original keyboard preparation attempt (2026-09-02)
+
+A new `ListKeyboardPhaseTests` companion preserves the original 1,000-row
+fixture, both key presses, all nine assertions and immediate selection/focus
+requirements. It enables the existing passive phase recorder only around the
+first down-arrow handler, then prints the stored phase/counter values before
+an original assertion or lookup can fail. It does not introduce UIA admission,
+new layout/render queries, retries, yields or different budgets. Four rounds,
+128 elements and the existing 512-entry recording cap remain unchanged.
+
+Root independently removed the two diagnostic insertions and recovered the
+original method byte for byte. All 698 existing test entries and raw bytes
+remain unchanged. The exact one-file inverse, source comparison and new-method
+count are recorded in `artifacts/goal-ninth-list-keyboard-apply-v1.json`.
+Strict lint and contracts passed. This diagnostic is not a navigation fix and
+has not yet run. Phase output may be capped, unavailable physical activity is
+not zero work, and a last-work summary alone can be stale without a new scope.
+Its allocation/stdout overhead cannot serve as performance evidence. The
+original keyboard failure and all nine completion gates remain open.

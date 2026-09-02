@@ -12354,3 +12354,42 @@ validated these changes yet. The separate initial-query measurement correction
 and unused-phase proposal is not included or implicitly approved. Existing
 four/eight/sixteen-round expectations remain required. All nine completion
 gates remain open.
+
+
+### 2026-09-01: Keep only accepted original ordinary ownership plans
+
+Ordinary descriptor-owned publication now retains the exact original plans
+that were actually accepted. A rejected sibling cannot erase an accepted
+component or leave rejected ownership attached. This path is restricted to a
+successfully prepared ordinary adoption whose frozen and current owned metadata
+contain no managed or lazy regions. The original source roster is materialized
+and that domain is checked before the first accepted fact. If the domain no
+longer qualifies, the original strict route remains available only before any
+new accepted fact; there is no fallback after partial publication.
+
+Property, insertion, completion, and declared-structure consumers filter their
+original permission and presence arrays by those successful plan identities,
+preserving original order and duplicates. Empty successful results still run
+the existing outgoing retirement and revision work. The three original
+preparation checks, managed/lazy-region routines, queued-region behavior, and
+original native owner/slot identities remain unchanged. This is a correction
+to bounded ordinary metadata publication, not a claim about every visual
+subtree under a managed ancestor or arbitrary later ARC reentry.
+
+Eight new regression methods cover 20 designed scenario iterations, including
+nil-controller host closure, accepted-field retirement, suspended continuation,
+original native-lifetime closure, stale declared revisions, and mixed accepted
+and rejected siblings. The original 152-case ordinary cohort remains required
+alongside these eight additions. All 642 previously tracked test files remain
+unchanged by this source correction.
+
+Root contracts and strict formatting passed. The complete staged diff matches
+the reviewed 73,169-byte patch, SHA256
+`0cd7e2a9414a8237c847a707183150e2d00d4b33f49b22280cd8fb6874b6fd93`;
+source tree is `3e34e7dfc267fed586c7cd9c14178adefb23dd7a`.
+`artifacts/goal-ninth-ordinary-regionless3472-intake-v1` preserves the projected
+packet and original reviews; `goal-ninth-ordinary-regionlessc812-staged-proof-v1.json`
+records exact staged reproduction. The projection preserves the existing
+package-visible immutable attempt identity. No compiler, runtime test, public
+facade, performance, or native result is claimed here. All nine original
+completion gates remain open.

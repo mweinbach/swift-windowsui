@@ -1630,6 +1630,7 @@ final class RetainedLazyListAdoptionJournal {
     private var didMutate = false
     private var acceptedRowTables: [ObjectIdentifier: RetainedLazyListMembershipID] = [:]
     private(set) var isOrdinaryAdoption = false
+    private var beganRegionlessOrdinaryOwnedAdoption = false
     private var preparedInput: RetainedLazyListAdoptionPreparation?
     private var preparedActivity: RetainedLazyListPreparedActivity?
     private var groups: [ObjectIdentifier: RetainedLazyListGroupRecord] = [:]
@@ -1703,6 +1704,14 @@ final class RetainedLazyListAdoptionJournal {
         case .descriptorBuild(let scope): return scope.canPublishDescriptors
         case .selectedRows(let admission): return admission.isCurrent
         }
+    }
+
+    // This is publication routing, not write authority. Owner close must still
+    // reach the accepted field's outgoing cleanup.
+    private var usesRegionlessOrdinaryOwnedPublication: Bool {
+        beganRegionlessOrdinaryOwnedAdoption && phase == .adopting
+            && !hasManagedContributions && componentOrder.isEmpty && materializedRoots.isEmpty
+            && physicalByMembership.isEmpty && acceptedRowTables.isEmpty
     }
 
     var hasDescriptorWork: Bool { !descriptorSources.isEmpty || !existingLogicalDeclarations.isEmpty }
@@ -2175,6 +2184,15 @@ final class RetainedLazyListAdoptionJournal {
         if let boundDescriptorScope, !boundDescriptorScope.observeOrdinaryAdoption() { return false }
         preparedActivity = response
         phase = .adopting
+        // The earlier ordinary flag also marks failed attempts. Only a fully
+        // prepared descriptor attempt can select the regionless owned path.
+        if case .descriptorBuild = origin,
+            !hasManagedContributions, componentOrder.isEmpty, materializedRoots.isEmpty,
+            physicalByMembership.isEmpty, acceptedRowTables.isEmpty,
+            ownedLedger?.hasRegionlessOrdinaryProvenance == true
+        {
+            beganRegionlessOrdinaryOwnedAdoption = true
+        }
         return true
     }
 
@@ -2298,7 +2316,9 @@ final class RetainedLazyListAdoptionJournal {
             copiedConfiguration: keyPath == \ViewNode.transition || keyPath == \ViewNode.implicitReconcileAnimation
                 || keyPath == \ViewNode.reconcileAnimationModifiers)
         boundDescriptorScope?.recordAcceptedDescriptor()
-        ownedLedger?.recordAcceptedProperty(from: source, to: target, keyPath: keyPath)
+        ownedLedger?.recordAcceptedProperty(
+            from: source, to: target, keyPath: keyPath,
+            ordinaryPublication: { self.usesRegionlessOrdinaryOwnedPublication })
         _ = ordinaryLedger?.recordAcceptedProperty(from: source, to: target, keyPath: keyPath)
         for absence in ordinaryLedger?.takePropertyAbsences() ?? [] {
             boundDescriptorScope?.recordAcceptedOriginalRetirement(absence.previous)
@@ -2353,7 +2373,9 @@ final class RetainedLazyListAdoptionJournal {
                     permitsOriginalCompletion: true)
             }
         }
-        ownedLedger?.recordCompletedNode(from: source, to: target)
+        ownedLedger?.recordCompletedNode(
+            from: source, to: target,
+            ordinaryPublication: { self.usesRegionlessOrdinaryOwnedPublication })
         _ = ordinaryLedger?.recordCompletedNode(from: source, to: target)
         for absence in ordinaryLedger?.takePropertyAbsences() ?? [] {
             boundDescriptorScope?.recordAcceptedOriginalRetirement(absence.previous)
@@ -2373,7 +2395,10 @@ final class RetainedLazyListAdoptionJournal {
     /// Consumes the native-only preflight immediately beside the exact final
     /// children-field publication. It never evaluates application code.
     func recordAcceptedOwnedStructuralDeclaration(from source: ViewNode, to target: ViewNode) {
-        if let actual = ownedLedger?.recordAcceptedStructuralDeclaration(from: source, to: target) {
+        if let actual = ownedLedger?.recordAcceptedStructuralDeclaration(
+            from: source, to: target,
+            ordinaryPublication: { self.usesRegionlessOrdinaryOwnedPublication })
+        {
             recordInsertionPublication(from: source, to: target, actual: actual)
         }
     }
@@ -2770,7 +2795,8 @@ final class RetainedLazyListAdoptionJournal {
         else { return [] }
         _ = recordAcceptedInsertedDescriptor(on: node)
         recordInsertionPublication(from: node, to: node, actual: actual, inserted: true)
-        ownedLedger?.recordAcceptedInsertedNode(on: node)
+        ownedLedger?.recordAcceptedInsertedNode(
+            on: node, ordinaryPublication: { self.usesRegionlessOrdinaryOwnedPublication })
         _ = ordinaryLedger?.recordAcceptedInsertedNode(on: node)
         for facet in pending.nativeFacets { recordAcceptedFacet(facet, actual: actual) }
         // Completion is a separate checked-subtree fact, after attach callbacks.
@@ -5430,6 +5456,138 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
 
     init(attempt: RetainedLazyListAttemptID) { self.attempt = attempt }
 
+    private enum PublicationResult {
+        case domainChanged
+        case published([RetainedOwnedComponentDeclarationPlan])
+    }
+
+    // Freeze fixes this provenance. Current permission/presence namespaces are
+    // checked separately for every original candidate and outgoing target member.
+    var hasRegionlessOrdinaryProvenance: Bool {
+        guard didPrepare, !wasFinished, let frozenPlans,
+            regionSources.isEmpty, deferredRegionBuilds.isEmpty,
+            registrations.values.allSatisfy({ entries in
+                entries.allSatisfy { registration in
+                    if case .descriptor = registration.origin,
+                        case .descriptor = registration.receipt.nativeLifetime
+                    {
+                        return !registration.isDeferredConstruction
+                    }
+                    return false
+                }
+            }),
+            sources.allSatisfy({ source in
+                source.deferredRoot == nil
+                    && source.components.allSatisfy { component in
+                        if case .descriptor = component { return true }
+                        return false
+                    }
+            }),
+            frozenPlans.allSatisfy({ plan in
+                if case .descriptor = plan.origin, case .descriptor = plan.receipt.nativeLifetime {
+                    return !plan.isDeferredConstruction && plan.structuralRegions.isEmpty
+                }
+                return false
+            })
+        else { return false }
+        return true
+    }
+
+    private func isRegionlessOrdinaryPermission(_ permission: RetainedOwnedSlotPermission) -> Bool {
+        guard case .descriptor = permission.lifetime else { return false }
+        return permission.structuralFacets.keys.allSatisfy { $0.region == nil }
+    }
+
+    private func isRegionlessOrdinaryPresence(_ presence: RetainedOwnedComponentPresence) -> Bool {
+        guard case .descriptor = presence.lifetime else { return false }
+        return presence.deferredRegion == nil && presence.declaredRegions.isEmpty
+            && presence.structuralFacets.keys.allSatisfy { $0.region == nil }
+    }
+
+    private func isRegionlessOrdinaryPublication(
+        _ declarations: [RetainedOwnedComponentDeclarationPlan],
+        on target: ViewNode, storage: RetainedLazyListNodeActivityStorage
+    ) -> Bool {
+        guard didPrepare, !wasFinished, regionSources.isEmpty, deferredRegionBuilds.isEmpty,
+            declarations.allSatisfy({ plan in
+                if case .descriptor = plan.origin, case .descriptor = plan.receipt.nativeLifetime {
+                    return plan.structuralRegions.isEmpty && !plan.isDeferredConstruction
+                        && isRegionlessOrdinaryPresence(plan.receipt.componentPresence)
+                        && plan.receipt.slotPermissions.allSatisfy { isRegionlessOrdinaryPermission($0) }
+                }
+                return false
+            }),
+            target.retainedLazyListActivityStorage === storage,
+            target.retainedLazyListAdapter == nil, target.retainedLazyListGap == nil,
+            target.retainedLazyListRowChrome == nil,
+            storage.sourceOutputs.isEmpty, storage.sourceDescriptor == nil,
+            storage.acceptedLogicalDeclaration == nil, storage.committedContributions.isEmpty,
+            storage.deferredSubtreeAnchor == nil, storage.ownedEmptyRowRevisions.isEmpty,
+            storage.ownedDeferredRegions.isEmpty, storage.ownedRegionStructuralPermissions.isEmpty,
+            storage.ownedRegionStructuralComponents.isEmpty,
+            storage.ownedEmptyStructuralNamespaces.values.allSatisfy({ $0.regions.isEmpty }),
+            storage.ownedDeclaredStructuralNamespaces.values.allSatisfy({ $0.regions.isEmpty })
+        else { return false }
+        let permissions =
+            Array(storage.ownedPayloadPermissions.values) + [storage.ownedStructuralPermissions]
+            + Array(storage.ownedEmptyStructuralPermissions.values)
+            + Array(storage.ownedDeclaredStructuralPermissions.values)
+        guard permissions.allSatisfy({ $0.allSatisfy { isRegionlessOrdinaryPermission($0) } }),
+            storage.ownedScopeDeclaredSlots.values.allSatisfy({ entry in
+                guard let permission = entry.permission else { return false }
+                return isRegionlessOrdinaryPermission(permission)
+            })
+        else { return false }
+        let presences =
+            Array(storage.ownedPayloadComponents.values) + [storage.ownedStructuralComponents]
+            + [Array(storage.ownedEmptyStructuralComponents.values)]
+            + [Array(storage.ownedDeclaredStructuralComponents.values)]
+        return presences.allSatisfy({ $0.allSatisfy { isRegionlessOrdinaryPresence($0) } })
+            && storage.ownedScopeDeclaredComponents.values.allSatisfy { entry in
+                guard let presence = entry.presence else { return false }
+                return isRegionlessOrdinaryPresence(presence)
+            }
+    }
+
+    private func successfulPermissions(
+        _ original: [RetainedOwnedSlotPermission],
+        declarations: [RetainedOwnedComponentDeclarationPlan]
+    ) -> [RetainedOwnedSlotPermission] {
+        let accepted = Set(
+            declarations.flatMap { $0.receipt.slotPermissions.map { ObjectIdentifier($0) } })
+        // The set supplies membership only. Keep original order and duplicates.
+        return original.filter { accepted.contains(ObjectIdentifier($0)) }
+    }
+
+    private func selectedOrdinaryPlans(for source: ViewNode) -> [RetainedOwnedComponentDeclarationPlan]? {
+        guard didPrepare, !wasFinished, !source.containsRejectedRetainedSource else { return nil }
+        let payloads = Set(sources.filter { $0.node === source }.map { ObjectIdentifier($0.payload) })
+        let needed =
+            frozenPlans?.filter { plan in
+                plan.sourcePayloads.contains { payloads.contains(ObjectIdentifier($0)) }
+            } ?? []
+        guard
+            needed.allSatisfy({
+                selectedPlans.contains(ObjectIdentifier($0))
+                    && planRegistrations[ObjectIdentifier($0)]?.receipt === $0.receipt
+            })
+        else { return nil }
+        return needed
+    }
+
+    private func ordinaryPermissions(
+        in plans: [RetainedOwnedComponentDeclarationPlan]
+    ) -> [RetainedOwnedSlotPermission] {
+        var result: [RetainedOwnedSlotPermission] = []
+        var seen: Set<ObjectIdentifier> = []
+        for plan in plans where !plan.declarationOnly {
+            for permission in plan.receipt.slotPermissions where seen.insert(ObjectIdentifier(permission)).inserted {
+                result.append(permission)
+            }
+        }
+        return result
+    }
+
     func stageDeferredRegion(
         _ anchor: RetainedLazyListDeferredSubtreeAnchor, component: RetainedLazyListComponentID
     ) -> Bool {
@@ -5833,7 +5991,10 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         return true
     }
 
-    func recordAcceptedProperty(from source: ViewNode, to target: ViewNode, keyPath: PartialKeyPath<ViewNode>) {
+    func recordAcceptedProperty(
+        from source: ViewNode, to target: ViewNode, keyPath: PartialKeyPath<ViewNode>,
+        ordinaryPublication: () -> Bool = { false }
+    ) {
         let key = RetainedOwnedPropertyKey(
             source: ObjectIdentifier(source), target: ObjectIdentifier(target), field: keyPath)
         guard let publication = propertyPublications.removeValue(forKey: key),
@@ -5843,6 +6004,41 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
             let runtime = target.retainedLazyListRuntime
         else { return }
         let actual = storage.captureActualAttachment(of: target, in: runtime)
+        if ordinaryPublication(),
+            isRegionlessOrdinaryPublication(publication.declarations, on: target, storage: storage)
+        {
+            func originalTargetMatches() -> Bool {
+                publication.source === source && publication.target === target
+                    && target.retainedLazyListActivityStorage === storage
+                    && storage.targetID === publication.targetID && storage.attachmentID === publication.attachmentID
+                    && target.retainedLazyListRuntime === runtime
+            }
+            let result = publish(
+                publication.declarations, actual: actual, source: source,
+                facet: publication.facet, kind: .sourceField,
+                ordinaryDomainStillMatches: {
+                    ordinaryPublication() && originalTargetMatches()
+                        && self.isRegionlessOrdinaryPublication(
+                            publication.declarations, on: target, storage: storage)
+                })
+            switch result {
+            case .domainChanged:
+                // No plan was published. Fall through with the same consumed
+                // preparation only if its original physical binding still holds.
+                guard originalTargetMatches() else { return }
+            case .published(let declarations):
+                let permissions = successfulPermissions(publication.permissions, declarations: declarations)
+                replaceStructural(on: storage, actual: actual, with: permissions)
+                replacePayload(
+                    on: storage, actual: actual, field: keyPath,
+                    with: publication.hasPayload ? permissions : [])
+                replaceComponents(
+                    on: storage, actual: actual, field: keyPath,
+                    with: declarations.map { $0.receipt.componentPresence }, hasPayload: publication.hasPayload)
+                fulfillDeclaredMarkerRetirements(declarations, source: source, storage: storage, actual: actual)
+                return
+            }
+        }
         // Incoming exact generations become authoritative before retiring the
         // last outgoing payload reference and before its capture can deinit.
         publish(
@@ -5875,7 +6071,7 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         return true
     }
 
-    func recordAcceptedInsertedNode(on node: ViewNode) {
+    func recordAcceptedInsertedNode(on node: ViewNode, ordinaryPublication: () -> Bool = { false }) {
         let storage = node.lazyListActivityStorage()
         guard let publication = insertions.removeValue(forKey: ObjectIdentifier(storage.targetID)),
             publication.source === node, publication.targetID === storage.targetID,
@@ -5883,6 +6079,40 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
             let runtime = node.retainedLazyListRuntime
         else { return }
         let actual = storage.captureActualAttachment(of: node, in: runtime)
+        if ordinaryPublication(),
+            isRegionlessOrdinaryPublication(publication.declarations, on: node, storage: storage)
+        {
+            func originalTargetMatches() -> Bool {
+                publication.source === node && node.retainedLazyListActivityStorage === storage
+                    && publication.targetID === storage.targetID && publication.attachmentID === storage.attachmentID
+                    && node.retainedLazyListRuntime === runtime
+            }
+            let result = publish(
+                publication.declarations, actual: actual, source: node, facet: nil, kind: .structuralEntry,
+                ordinaryDomainStillMatches: {
+                    ordinaryPublication() && originalTargetMatches()
+                        && self.isRegionlessOrdinaryPublication(
+                            publication.declarations, on: node, storage: storage)
+                })
+            switch result {
+            case .domainChanged:
+                guard originalTargetMatches() else { return }
+            case .published(let declarations):
+                let permissions = successfulPermissions(publication.permissions, declarations: declarations)
+                for field in node.retainedSourcePayloadFields {
+                    replacePayload(on: storage, actual: actual, field: field, with: permissions)
+                    replaceComponents(
+                        on: storage, actual: actual, field: field,
+                        with: declarations.map { $0.receipt.componentPresence }, hasPayload: true)
+                }
+                replaceStructural(on: storage, actual: actual, with: permissions)
+                replaceComponentStructural(
+                    on: storage, actual: actual, with: declarations.map { $0.receipt.componentPresence })
+                fulfillDeclaredMarkerRetirements(declarations, source: node, storage: storage, actual: actual)
+                // Original regionless provenance makes the region queue empty.
+                return
+            }
+        }
         publish(publication.declarations, actual: actual, source: node, facet: nil, kind: .structuralEntry)
         // Refused activation cannot supply a physical owned footprint. Recheck
         // after publish's weak-source scan before assigning the prepared members.
@@ -5910,7 +6140,14 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         }
     }
 
-    func recordCompletedNode(from source: ViewNode, to target: ViewNode) {
+    func recordCompletedNode(
+        from source: ViewNode, to target: ViewNode, ordinaryPublication: () -> Bool = { false }
+    ) {
+        if recordRegionlessOrdinaryCompletion(
+            from: source, to: target, ordinaryPublication: ordinaryPublication)
+        {
+            return
+        }
         guard let allDeclarations = plans(for: source),
             let permissions = permissions(for: source, includingDeclarations: false),
             let runtime = target.retainedLazyListRuntime
@@ -5930,6 +6167,43 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
             on: storage, actual: actual, with: declarations.map { $0.receipt.componentPresence })
         fulfillDeclaredMarkerRetirements(declarations, source: source, storage: storage, actual: actual)
         publishCompletedRegions(from: source, to: target, storage: storage, actual: actual)
+    }
+
+    // False means the caller must run the untouched legacy lookup, never reuse
+    // this path's relaxed candidates after a domain change.
+    private func recordRegionlessOrdinaryCompletion(
+        from source: ViewNode, to target: ViewNode, ordinaryPublication: () -> Bool
+    ) -> Bool {
+        guard ordinaryPublication(), let storage = target.retainedLazyListActivityStorage,
+            isRegionlessOrdinaryPublication([], on: target, storage: storage)
+        else { return false }
+        guard let allDeclarations = selectedOrdinaryPlans(for: source),
+            let runtime = target.retainedLazyListRuntime
+        else { return true }
+        guard isRegionlessOrdinaryPublication(allDeclarations, on: target, storage: storage) else { return false }
+        let originalPermissions = ordinaryPermissions(in: allDeclarations)
+        let declarations = allDeclarations.filter { !$0.declarationOnly }
+        let actual = storage.captureActualAttachment(of: target, in: runtime)
+        let result = publish(
+            declarations, actual: actual, source: source, facet: nil, kind: .structuralEntry,
+            ordinaryDomainStillMatches: {
+                ordinaryPublication() && target.retainedLazyListActivityStorage === storage
+                    && storage.targetID === actual.target && storage.attachmentID === actual.attachment
+                    && target.retainedLazyListRuntime === runtime
+                    && self.isRegionlessOrdinaryPublication(allDeclarations, on: target, storage: storage)
+            })
+        switch result {
+        case .domainChanged:
+            return false
+        case .published(let accepted):
+            let permissions = successfulPermissions(originalPermissions, declarations: accepted)
+            replaceStructural(on: storage, actual: actual, with: permissions)
+            replaceComponentStructural(
+                on: storage, actual: actual, with: accepted.map { $0.receipt.componentPresence })
+            fulfillDeclaredMarkerRetirements(accepted, source: source, storage: storage, actual: actual)
+            publishCompletedRegions(from: source, to: target, storage: storage, actual: actual)
+            return true
+        }
     }
 
     func prepareStructuralDeclaration(from source: ViewNode, to target: ViewNode) -> Bool {
@@ -5966,7 +6240,7 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
     /// source parent, including an exact unchanged field. Intermediate child
     /// arrays and scalar-property copies are not declaration publications.
     func recordAcceptedStructuralDeclaration(
-        from source: ViewNode, to target: ViewNode
+        from source: ViewNode, to target: ViewNode, ordinaryPublication: () -> Bool = { false }
     ) -> RetainedLazyListActualAttachment? {
         let key = RetainedOwnedPropertyKey(
             source: ObjectIdentifier(source), target: ObjectIdentifier(target), field: \ViewNode.children)
@@ -5979,6 +6253,64 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
             let runtime = target.retainedLazyListRuntime
         else { return nil }
         let actual = storage.captureActualAttachment(of: target, in: runtime)
+        if ordinaryPublication(),
+            isRegionlessOrdinaryPublication(publication.declarations, on: target, storage: storage)
+        {
+            func originalTargetMatches() -> Bool {
+                publication.source === source && publication.target === target
+                    && target.retainedLazyListActivityStorage === storage
+                    && storage.targetID === publication.targetID && storage.attachmentID === publication.attachmentID
+                    && storage.ownedDeclaredStructuralRevision == expectedRevision && expectedRevision < .max
+                    && target.retainedLazyListRuntime === runtime
+            }
+            let result = publish(
+                publication.declarations, actual: actual, source: source,
+                facet: publication.facet, kind: .structuralEntry,
+                ordinaryDomainStillMatches: {
+                    ordinaryPublication() && originalTargetMatches()
+                        && self.isRegionlessOrdinaryPublication(
+                            publication.declarations, on: target, storage: storage)
+                })
+            switch result {
+            case .domainChanged:
+                guard originalTargetMatches() else { return nil }
+            case .published(let declarations):
+                let permissions = successfulPermissions(publication.permissions, declarations: declarations)
+                let oldPermissions = storage.ownedDeclaredStructuralPermissions.values.flatMap { $0 }
+                let oldPresences = Array(storage.ownedDeclaredStructuralComponents.values)
+                storage.ownedDeclaredStructuralPermissions.removeAll()
+                storage.ownedDeclaredStructuralComponents.removeAll()
+                storage.ownedDeclaredStructuralNamespaces.removeAll()
+                for plan in declarations {
+                    let owner = ObjectIdentifier(plan.receipt.owner)
+                    storage.ownedDeclaredStructuralPermissions[owner] = plan.receipt.slotPermissions
+                    storage.ownedDeclaredStructuralComponents[owner] = plan.receipt.componentPresence
+                    storage.ownedDeclaredStructuralNamespaces[owner, default: RetainedOwnedMarkerNamespaces()].include(
+                        plan.structuralRegions)
+                }
+                storage.ownedDeclaredStructuralRevision = expectedRevision + 1
+                let facetKey = RetainedOwnedPhysicalFacetKey(
+                    target: ObjectIdentifier(storage.targetID), attachment: ObjectIdentifier(storage.attachmentID),
+                    field: nil)
+                for permission in permissions { permission.structuralFacets[facetKey] = actual }
+                for presence in storage.ownedDeclaredStructuralComponents.values {
+                    presence.structuralFacets[facetKey] = actual
+                }
+                for old in oldPermissions where !permissions.contains(where: { $0 === old }) {
+                    removeStructuralReference(old, storage: storage, key: facetKey)
+                    deferDeclaredMarkerRetirement(.slot(old), formerActual: actual, removalFacet: publication.facet)
+                    retireIfUnreferenced(old, preservingCold: false)
+                }
+                for old in oldPresences
+                where storage.ownedDeclaredStructuralComponents[ObjectIdentifier(old.owner)] !== old {
+                    removeComponentStructuralReference(old, storage: storage, key: facetKey)
+                    deferDeclaredMarkerRetirement(
+                        .component(old), formerActual: actual, removalFacet: publication.facet)
+                    retireIfUnreferenced(old, preservingCold: false)
+                }
+                return actual
+            }
+        }
         publish(
             publication.declarations, actual: actual, source: source,
             facet: publication.facet, kind: .structuralEntry)
@@ -6618,14 +6950,20 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         }
     }
 
+    @discardableResult
     private func publish(
         _ plans: [RetainedOwnedComponentDeclarationPlan], actual: RetainedLazyListActualAttachment,
-        source: ViewNode?, facet: RetainedLazyListSourceFacetID?, kind: RetainedOwnedComponentPublicationKind
-    ) {
+        source: ViewNode?, facet: RetainedLazyListSourceFacetID?, kind: RetainedOwnedComponentPublicationKind,
+        ordinaryDomainStillMatches: () -> Bool = { true }
+    ) -> PublicationResult {
         let sourcePayloads =
             source.map { source in
                 sources.filter { $0.node === source }.map(\.payload)
             } ?? []
+        // Weak source materialization precedes the domain check. A rejected
+        // domain has not activated or recorded any plan in this invocation.
+        guard ordinaryDomainStillMatches() else { return .domainChanged }
+        var successful: [RetainedOwnedComponentDeclarationPlan] = []
         for plan in plans {
             let presence = plan.receipt.componentPresence
             guard plan.receipt.slotPermissions.allSatisfy({ !$0.wasRevoked }), presence.activate() else { continue }
@@ -6644,7 +6982,9 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
                 RetainedOwnedComponentDeclarationFact(
                     plan: plan, slots: plan.receipt.slots, sourcePayload: payload,
                     sourceFacet: facet, actual: actual, kind: kind))
+            successful.append(plan)
         }
+        return .published(successful)
     }
 
     private func replacingComponentTable(

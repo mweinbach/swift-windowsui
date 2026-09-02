@@ -7039,7 +7039,7 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         source: ViewNode?, facet: RetainedLazyListSourceFacetID?, kind: RetainedOwnedComponentPublicationKind,
         ordinaryDomainStillMatches: () -> Bool = { true }
     ) -> PublicationResult {
-        let sourcePayloads =
+        let sourcePayloads: [RetainedLazyListSourcePayloadID] =
             source.map { source in
                 var payloads: [RetainedLazyListSourcePayloadID] = []
                 for record in sources {

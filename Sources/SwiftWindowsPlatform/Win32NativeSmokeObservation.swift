@@ -95,6 +95,23 @@ package enum Win32NativeSmokeEventKind: UInt16, CaseIterable, Sendable {
     case publicationGateReleaseRequested
 }
 
+/// Receiver association sampled from this owner's existing state before message dispatch.
+/// The value is diagnostic metadata, not a handle, sender identity, or ownership capability.
+package enum Win32NativeSmokeMessageTarget: UInt64, CaseIterable, Sendable {
+    case threadMessage = 1
+    case controlWindow = 2
+    case registeredWindow = 3
+    case unmatchedWindow = 4
+
+    package static func classify(
+        hasWindowHandle: Bool, matchesControlWindow: Bool, matchesRegisteredWindow: Bool
+    ) -> Self {
+        guard hasWindowHandle else { return .threadMessage }
+        if matchesControlWindow { return .controlWindow }
+        return matchesRegisteredWindow ? .registeredWindow : .unmatchedWindow
+    }
+}
+
 package enum Win32NativeSmokeTimerFlags {
     package static let highResolutionInstalled: UInt32 = 1 << 0
     package static let windowTimerInstalled: UInt32 = 1 << 1

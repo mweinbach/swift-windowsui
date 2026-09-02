@@ -191,3 +191,38 @@ work, or long-running idle. Those remain separate gates even after a successful
 bounded attempt. This successor retains the root compiler repairs through
 cdd5fd2 by context. Any later root updates require a fresh context join;
 whole-file replacement is not an integration plan.
+
+## Passive message target diagnostic successor
+
+The two existing native dispatch records now carry a receiver category in
+`auxiliary`: 1 is a thread message with no HWND, 2 matches the owner's control
+window, 3 matches a recorded handle in the owner's registered-window collection,
+and 4 is a nonnil target with neither recorded association. Missing metadata in
+older traces remains unclassified; it does not imply category 4. These values
+identify an association, not a sender, timer producer, class, or additional
+Windows ownership capability. No HWND or message payload is recorded.
+
+The category is captured once before `TranslateMessage`, only when this owner
+has a smoke observer. The return record reuses that scalar even if dispatch
+clears the target handle. Both original message values and original flags
+expressions remain in place; the return flags retain their existing evaluation
+after dispatch. Classification reads existing native state without querying
+Windows or retaining a window across dispatch. It does not classify nested
+sent messages that the existing outer message loop does not observe.
+
+All 27 predicates, including the strict absence of every native dispatch during
+idle, remain unchanged. There is no exception for a category or message number.
+The 64-command workload, ordinal-31 query, native/actor turn budgets, original
+time limits and trace caps are unchanged. The seven additional source tests
+cover the pure category mapper, wire fields, omitted legacy metadata, and the
+unchanged complete predicate dictionaries for positive and negative synthetic
+traces. They do not create a native window or qualify quietness or fairness.
+
+The optional field already exists in the trace ABI, but the controller's output
+contract also pins the exact `Win32NativeSmokeObservation.swift` source bytes.
+Adding the category declaration requires a reviewed successor of that source
+pin; it is not compatible with an unchanged literal source-pin contract. The
+other output-contract fields and checks need no relaxation. The diagnostic
+source tests, original native94 cohort plus seven new methods, compilation and
+any later native attempt require separate serial execution and fresh binding.
+No saved native result is changed by this source addition.

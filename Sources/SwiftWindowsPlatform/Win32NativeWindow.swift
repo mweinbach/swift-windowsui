@@ -137,14 +137,17 @@ final class Win32NativeLoop {
                     }
                     return exitCode
                 }
+                // Keep only the original receiver category across dispatch, which may destroy its target.
+                let smokeTarget: UInt64? =
+                    mailbox.smokeObservation == nil ? nil : smokeMessageTarget(for: message.hwnd).rawValue
                 mailbox.smokeObservation?.record(
                     .nativeMessageDispatched, value: Int64(message.message),
-                    flags: message.hwnd == controlWindow ? 1 : 2)
+                    auxiliary: smokeTarget, flags: message.hwnd == controlWindow ? 1 : 2)
                 TranslateMessage(&message)
                 DispatchMessageW(&message)
                 mailbox.smokeObservation?.record(
                     .nativeDispatchReturned, value: Int64(message.message),
-                    flags: message.hwnd == controlWindow ? 1 : 2)
+                    auxiliary: smokeTarget, flags: message.hwnd == controlWindow ? 1 : 2)
                 finishDestructionAfterDispatch()
                 if let pendingFatalFailure { parkForFatalExit(pendingFatalFailure) }
             }
@@ -162,6 +165,22 @@ final class Win32NativeLoop {
             self.controlWindow = nil
             return DWORD(ERROR_INVALID_FUNCTION)
         }
+    }
+
+    private func smokeMessageTarget(for target: HWND?) -> Win32NativeSmokeMessageTarget {
+        let matchesControl = target != nil && target == controlWindow
+        var matchesRegistered = false
+        if let target, !matchesControl {
+            for window in windows.values {
+                if window.matchesRecordedMessageTarget(target) {
+                    matchesRegistered = true
+                    break
+                }
+            }
+        }
+        return .classify(
+            hasWindowHandle: target != nil, matchesControlWindow: matchesControl,
+            matchesRegisteredWindow: matchesRegistered)
     }
 
     private func parkForFatalExit(_ failure: NativeWindowOwnerFailure) -> Never {
@@ -1215,6 +1234,11 @@ final class Win32NativeWindowState: NativeWindowOwnerContext {
         default:
             return DefWindowProcW(hwnd, message, wParam, lParam)
         }
+    }
+
+    /// Compare only recorded state; diagnostic classification must not perform a native ownership query.
+    fileprivate func matchesRecordedMessageTarget(_ candidate: HWND) -> Bool {
+        handle == candidate
     }
 
     private func ownsNativeHandle(_ hwnd: HWND?) -> Bool {

@@ -12734,3 +12734,32 @@ methods and all 646 other existing test files remain byte-identical. Strict lint
 and architecture contracts passed; the repaired test and full 167-case Button
 selection have not yet executed on the integrated source. The earlier failure
 remains a recorded result, not a retroactive pass. All nine goal gates stay open.
+
+
+### Ninth integration: classify native dispatch targets without exemptions
+
+Native smoke dispatch and return records now carry the same pre-dispatch scalar
+classification when observation is enabled: nil/thread target, control window,
+registered recorded window, or unmatched non-null handle. The classification
+uses only recorded handles and is captured before native dispatch; no owner is
+retained across dispatch and no native ownership query is added. It identifies
+a target category, not a sender, caret/timer cause or ownership authority.
+Existing message, flags and their original evaluation positions are preserved.
+The extra window scan and record bytes are not claimed to be timing-neutral.
+
+Seven new tests cover all classifier inputs and categories, both dispatch wire
+shapes, omitted metadata and unchanged predicate results with each category.
+The original 94 selected native methods remain selected, giving 101 for the next
+portable run. The existing validation file's entire 29,241-byte committed prefix
+is unchanged; three methods are appended and four are in a new file. Root strict
+lint on all four Swift files and architecture contracts passed. Source and prefix
+proofs are `artifacts/goal-ninth-native-message-target-root-staged-proof-v1.json`
+and its corresponding `-test-prefix-proof-v1.json` receipt.
+
+The prior real native result remains 24 of 27 predicates passed, with fairness
+and settled-idle failures unresolved. No predicate, schema vocabulary, workload,
+query position, budget, timeout, record cap or idle exemption changes here.
+A fresh exact-source 101-case run and its closure/provenance checks are required
+before a new native binding; the old 94-case receipt cannot be reused. This source
+change is diagnostic, not a native fairness fix or a qualifying native pass.
+All nine original completion gates remain open.

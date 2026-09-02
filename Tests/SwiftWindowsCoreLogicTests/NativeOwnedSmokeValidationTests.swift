@@ -527,3 +527,93 @@ private final class SmokePredicateFixture {
             NativeOwnedSmokeValidation.decode(data), observation: observation.snapshot(), state: boundState)
     }
 }
+
+/// Target metadata never creates an exception to an existing qualification predicate.
+@MainActor
+final class NativeOwnedSmokeMessageTargetValidationTests: XCTestCase {
+    private let metadata: [UInt64?] = [nil, 1, 2, 3, 4]
+
+    func testTargetMetadataKeepsEveryPredicateOutsideIdle() async throws {
+        let fixture = SmokePredicateFixture()
+        let state = fixture.completeTrace()
+        fixture.insertDiagnosticMessagePair(before: .idleBegan, time: 999_999_998)
+        let baseline = try fixture.evaluate(state: state)
+        XCTAssertEqual(baseline.predicates.count, 27)
+        XCTAssertTrue(baseline.qualifyingPredicatesSatisfied)
+        XCTAssertFalse(baseline.insufficientFairnessExercise)
+        for value in metadata {
+            fixture.setDiagnosticMessageMetadata(value)
+            let verdict = try fixture.evaluate(state: state)
+            XCTAssertEqual(verdict.predicates, baseline.predicates)
+            XCTAssertEqual(verdict.qualifyingPredicatesSatisfied, baseline.qualifyingPredicatesSatisfied)
+            XCTAssertEqual(verdict.insufficientFairnessExercise, baseline.insufficientFairnessExercise)
+        }
+    }
+
+    func testTargetMetadataNeverExemptsDispatchInsideIdle() async throws {
+        let fixture = SmokePredicateFixture()
+        let state = fixture.completeTrace()
+        fixture.insertDiagnosticMessagePair(before: .idleEnded, time: 2_000_000_000)
+        let baseline = try fixture.evaluate(state: state)
+        XCTAssertEqual(baseline.predicates.count, 27)
+        XCTAssertEqual(
+            baseline.predicates.filter { !$0.value }.map(\.key).sorted(), ["three-second-unforced-settled-idle"])
+        XCTAssertFalse(baseline.qualifyingPredicatesSatisfied)
+        for value in metadata {
+            fixture.setDiagnosticMessageMetadata(value)
+            let verdict = try fixture.evaluate(state: state)
+            XCTAssertEqual(verdict.predicates, baseline.predicates)
+            XCTAssertEqual(verdict.qualifyingPredicatesSatisfied, baseline.qualifyingPredicatesSatisfied)
+            XCTAssertEqual(verdict.insufficientFairnessExercise, baseline.insufficientFairnessExercise)
+        }
+    }
+
+    func testTargetMetadataCannotMaskWrongOwnerOrNativeProgressDuringQuery() async throws {
+        let cases: [(Win32NativeSmokeEventKind, UInt32, String, UInt64?)] = [
+            (.idleBegan, 20, "actor-and-native-owner-thread-separation", 999_999_998),
+            (.nativeQueryCompleted, 10, "native-query-finished-without-native-progress", nil),
+        ]
+        for (marker, thread, predicate, time) in cases {
+            let fixture = SmokePredicateFixture()
+            let state = fixture.completeTrace()
+            fixture.insertDiagnosticMessagePair(before: marker, dispatchThread: thread, time: time)
+            let baseline = try fixture.evaluate(state: state)
+            XCTAssertEqual(baseline.predicates.count, 27)
+            XCTAssertEqual(baseline.predicates[predicate], false)
+            XCTAssertFalse(baseline.qualifyingPredicatesSatisfied)
+            for value in metadata {
+                fixture.setDiagnosticMessageMetadata(value)
+                let verdict = try fixture.evaluate(state: state)
+                XCTAssertEqual(verdict.predicates, baseline.predicates)
+                XCTAssertEqual(verdict.qualifyingPredicatesSatisfied, baseline.qualifyingPredicatesSatisfied)
+                XCTAssertEqual(verdict.insufficientFairnessExercise, baseline.insufficientFairnessExercise)
+            }
+        }
+    }
+}
+
+extension SmokePredicateFixture {
+    /// Move only these newly created synthetic rows; existing fixture construction is unchanged.
+    func insertDiagnosticMessagePair(
+        before marker: Win32NativeSmokeEventKind, dispatchThread: UInt32 = 10, time: UInt64? = nil
+    ) {
+        let index = rows.firstIndex { ($0["kind"] as? NSNumber)?.uint16Value == marker.rawValue }!
+        let timestamp = time ?? (rows[index]["uptimeNanoseconds"] as! NSNumber).uint64Value
+        add(.nativeMessageDispatched, value: 0x0118, flags: 2, thread: dispatchThread, time: timestamp)
+        let dispatched = rows.removeLast()
+        add(.nativeDispatchReturned, value: 0x0118, flags: 2, thread: 10, time: timestamp)
+        let returned = rows.removeLast()
+        rows.insert(contentsOf: [dispatched, returned], at: index)
+        for index in rows.indices { rows[index]["ordinal"] = UInt64(index + 1) }
+    }
+
+    func setDiagnosticMessageMetadata(_ value: UInt64?) {
+        for kind in [Win32NativeSmokeEventKind.nativeMessageDispatched, .nativeDispatchReturned] {
+            if let value {
+                replace(kind: kind, key: "auxiliary", with: value)
+            } else {
+                remove(kind: kind, key: "auxiliary")
+            }
+        }
+    }
+}

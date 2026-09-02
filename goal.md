@@ -14390,3 +14390,39 @@ The three-file strict lint and contracts passed. Application receipt
 on `f305bfd`, both original new-test hashes and complete inverse recovery. The
 121-method stack/collateral selection and three new blur cases remain unrun,
 alongside their broader blur/renderer obligations. No original gate is closed.
+
+
+### Ninth integration: isolate recursive content-blur recording storage (2026-09-02)
+
+The interrupted C06 method remains an unknown test result. Windows Application
+Error event 8475 records `c00000fd` (stack overflow) for the XCTest executable
+at the matching time, but no captured ancestry or Swift frame identifies the
+specific source of the exception. It is not an assertion failure or proof of
+infinite recursion.
+
+`ScenePainter` now gives each isolated content-blur recording a private,
+synchronous heap holder for its scene, deferred scratch, replay counter,
+transform and buffer descriptor. Non-inlined preparation finishes before
+recursive painting. Separate completion helpers consume the finished recording
+after descent returns, keeping scene-valued result temporaries out of both
+recursive coordinators. Both accepted and rejected paired-backdrop emission
+move to the paired helper. No shared holder, cache publication or node/runtime
+ownership is added.
+
+The original transform/claim order, two distinct snapshot identities, glyph
+inouts, local replay accounting, source surface sizes, suppression flags,
+clip/opacity semantics and depth/budget limits remain unchanged. Independent
+completion still attaches cached atlases and rasterizes; paired completion
+still registers an isolated-backdrop source without doing either early.
+Completed deferred scratch is released before the holder returns.
+
+Only `ScenePainter.swift` changed. All 698 existing test entries/raw bytes,
+including all three `CanvasSymbolMixedDepthTests`, depth 32, both group branches
+and every assertion, are unchanged. Root's application proof and the independent
+source/inverse/lifetime review are preserved under
+`artifacts/goal-ninth-canvas-blur-stack-intake-v1` and
+`artifacts/goal-ninth-canvas-blur-stack-apply-v1.json`. Pre-edit contracts, strict
+one-file lint and post-edit contracts passed. No compiled stack reduction or
+crash resolution is claimed yet. Fresh validation must run the complete three
+regressions first, then all original 212 C06 cases, MaterialContentBlurTests24
+and D3D11MaterialContentBlurTests16. All nine completion gates remain open.

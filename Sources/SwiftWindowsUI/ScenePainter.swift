@@ -2591,29 +2591,52 @@ public enum ScenePainter {
         else {
             // Keep rejected dependency-bearing sources explicit. Baking a
             // budget fallback could retain stale parent pixels on a later frame.
-            let textureID = scene.registerImageRenderPass(
-                GPUIScene(clearColor: .clear), size: .zero, input: .isolatedBackdrop,
-                contentBlurRadius: Int32(deviceRadius))
-            scene.addImage(
-                contentBlurPrimitive(
-                    isolation, frame: isolation.paintFrame, textureID: textureID,
-                    surfaceSize: surfaceSize, displayScale: displayScale), toLayer: isolation.layerIndex)
+            appendRecordedBackdropContentBlur(
+                nil, isolation: isolation, deviceRadius: deviceRadius, into: &scene,
+                surfaceSize: surfaceSize, displayScale: displayScale)
             return true
         }
 
-        let source = recordIsolatedSubtree(
+        let recording = recordIsolatedSubtree(
             isolation, buffer: buffer, deferredDescendants: claims,
             surfaceSize: Size(width: Double(buffer.size.width), height: Double(buffer.size.height)),
             displayScale: displayScale, textSystem: textSystem,
             usedNativeGlyphs: &usedNativeGlyphs, usedPixelGlyphs: &usedPixelGlyphs,
             backdropIsolationScope: .paired)
-        let textureID = scene.registerImageRenderPass(
-            source, size: buffer.size, input: .isolatedBackdrop, contentBlurRadius: Int32(deviceRadius))
+        appendRecordedBackdropContentBlur(
+            recording, isolation: isolation, deviceRadius: deviceRadius, into: &scene,
+            surfaceSize: surfaceSize, displayScale: displayScale)
+        return true
+    }
+
+    /// Keep both accepted and rejected scene values outside the coordinator
+    /// that remains on the stack while a nested Canvas symbol records.
+    @inline(never)
+    private static func appendRecordedBackdropContentBlur(
+        _ recording: IsolatedSubtreeRecording?,
+        isolation: ContentBlurIsolation,
+        deviceRadius: Int,
+        into scene: inout GPUIScene,
+        surfaceSize: Size,
+        displayScale: Double
+    ) {
+        let textureID: Int32
+        let frame: Rect
+        if let recording {
+            textureID = scene.registerImageRenderPass(
+                recording.scene, size: recording.buffer.size, input: .isolatedBackdrop,
+                contentBlurRadius: Int32(deviceRadius))
+            frame = recording.buffer.frame
+        } else {
+            textureID = scene.registerImageRenderPass(
+                GPUIScene(clearColor: .clear), size: .zero, input: .isolatedBackdrop,
+                contentBlurRadius: Int32(deviceRadius))
+            frame = isolation.paintFrame
+        }
         scene.addImage(
             contentBlurPrimitive(
-                isolation, frame: buffer.frame, textureID: textureID,
+                isolation, frame: frame, textureID: textureID,
                 surfaceSize: surfaceSize, displayScale: displayScale), toLayer: isolation.layerIndex)
-        return true
     }
 
     /// Use the same sanitized Float for emission and dependency selection. A
@@ -2761,11 +2784,10 @@ public enum ScenePainter {
         ).withRetainedClipShape(isolation.effectiveClip, displayScale: displayScale)
     }
 
-    /// Paints the blurred subtree into its own scene and rasterizes it.
-    ///
-    /// Out of line, and returning the bitmap rather than taking the sub-scene
-    /// as an `inout`, so none of it is live in the caller's frame while the
-    /// rasterizer runs.
+    /// Paints the blurred subtree into its own scene and rasterizes it. The
+    /// scene stays behind a recording reference during nested sources;
+    /// completion consumes its value after the recorder has returned.
+    @inline(never)
     private static func rasterizeIsolatedSubtree(
         _ isolation: ContentBlurIsolation,
         buffer: OffscreenPassBuffer,
@@ -2776,17 +2798,61 @@ public enum ScenePainter {
         usedNativeGlyphs: inout Bool,
         usedPixelGlyphs: inout Bool
     ) -> BitmapSurface {
-        var subScene = recordIsolatedSubtree(
+        let recording = recordIsolatedSubtree(
             isolation, buffer: buffer, deferredDescendants: deferredDescendants,
             surfaceSize: surfaceSize, displayScale: displayScale, textSystem: textSystem,
             usedNativeGlyphs: &usedNativeGlyphs, usedPixelGlyphs: &usedPixelGlyphs,
             backdropIsolationScope: .independent)
-        // The independent bitmap cache owns its final pixels. Peek rather than
-        // consuming atlas dirtiness; the outer frame remains the upload owner.
-        attachCachedGlyphAtlases(to: &subScene)
-        return GPUIRawSceneRasterizer.rasterize(subScene, size: buffer.size)
+        return rasterizeRecordedIsolatedSubtree(recording)
     }
 
+    @inline(never)
+    private static func rasterizeRecordedIsolatedSubtree(
+        _ recording: IsolatedSubtreeRecording
+    ) -> BitmapSurface {
+        // The independent bitmap cache owns its final pixels. Peek rather than
+        // consuming atlas dirtiness; the outer frame remains the upload owner.
+        attachCachedGlyphAtlases(to: &recording.scene)
+        return GPUIRawSceneRasterizer.rasterize(recording.scene, size: recording.buffer.size)
+    }
+
+    /// Like Canvas and group recordings, an isolated subtree owns its mutable
+    /// scene on the heap. Preparing transforms and deferred claims must finish
+    /// before another source can enter this recorder.
+    @MainActor
+    private final class IsolatedSubtreeRecording {
+        let buffer: OffscreenPassBuffer
+        let subTransform: Transform2D
+        var scene: GPUIScene
+        var deferred: [DeferredDrawState]
+        var replayCount = 0
+
+        @inline(never)
+        init(
+            _ isolation: ContentBlurIsolation,
+            buffer: OffscreenPassBuffer,
+            deferredDescendants: [ClaimedDeferredDraw],
+            displayScale: Double
+        ) {
+            self.buffer = buffer
+            scene = GPUIScene(clearColor: buffer.clearColor)
+            // Map layout through the inherited transform before shifting into
+            // the buffer, preserving the order used by compositing groups.
+            let bufferShift = Transform2D.translation(
+                x: -buffer.frame.origin.x, y: -buffer.frame.origin.y)
+            let subTransform = isolation.inheritedTransform.concatenating(bufferShift)
+            self.subTransform = subTransform
+            deferred = ScenePainter.rebasedDeferredClaims(
+                deferredDescendants,
+                shift: Point(x: -buffer.frame.origin.x, y: -buffer.frame.origin.y),
+                inheritedOpacity: isolation.primitiveOpacity,
+                geometry: DeferredCaptureGeometry(
+                    root: isolation.node, parentOrigin: isolation.parentOrigin,
+                    inheritedTransform: subTransform, includesRoot: true, displayScale: displayScale))
+        }
+    }
+
+    @inline(never)
     private static func recordIsolatedSubtree(
         _ isolation: ContentBlurIsolation,
         buffer: OffscreenPassBuffer,
@@ -2797,30 +2863,14 @@ public enum ScenePainter {
         usedNativeGlyphs: inout Bool,
         usedPixelGlyphs: inout Bool,
         backdropIsolationScope: BackdropIsolationScope
-    ) -> GPUIScene {
-        var subScene = GPUIScene(clearColor: buffer.clearColor)
-        var subDeferred: [DeferredDrawState] = []
-        var subReplay = 0
-        // The children map layout space through the node's inherited
-        // transform into screen space and are only then shifted into the
-        // buffer's origin, so the shift composes last — the same order a
-        // compositing group uses, and the reason a blurred subtree under a
-        // transformed ancestor lands in the right place inside its bitmap.
-        let bufferShift = Transform2D.translation(
-            x: -buffer.frame.origin.x, y: -buffer.frame.origin.y)
-        let subTransform = isolation.inheritedTransform.concatenating(bufferShift)
-        subDeferred = rebasedDeferredClaims(
-            deferredDescendants,
-            shift: Point(x: -buffer.frame.origin.x, y: -buffer.frame.origin.y),
-            inheritedOpacity: isolation.primitiveOpacity,
-            geometry: DeferredCaptureGeometry(
-                root: isolation.node, parentOrigin: isolation.parentOrigin,
-                inheritedTransform: subTransform, includesRoot: true, displayScale: displayScale))
+    ) -> IsolatedSubtreeRecording {
+        let recording = IsolatedSubtreeRecording(
+            isolation, buffer: buffer, deferredDescendants: deferredDescendants, displayScale: displayScale)
 
         paintNode(
             isolation.node,
-            into: &subScene,
-            deferredDraws: &subDeferred,
+            into: &recording.scene,
+            deferredDraws: &recording.deferred,
             parentOrigin: isolation.parentOrigin,
             inheritedClip: nil,
             layerIndex: 0,
@@ -2836,8 +2886,8 @@ public enum ScenePainter {
             inheritedBlendMode: isolation.inheritedBlendMode,
             usedNativeGlyphs: &usedNativeGlyphs,
             usedPixelGlyphs: &usedPixelGlyphs,
-            replayCount: &subReplay,
-            inheritedTransform: subTransform,
+            replayCount: &recording.replayCount,
+            inheritedTransform: recording.subTransform,
             isInsideDrawingGroup: isolation.isInsideDrawingGroup,
             backdropIsolationScope: backdropIsolationScope,
             skipCacheUpdates: true,
@@ -2848,16 +2898,19 @@ public enum ScenePainter {
         )
 
         appendDeferredDraws(
-            &subDeferred, into: &subScene, previousScene: nil, previousSceneIdentity: nil,
+            &recording.deferred, into: &recording.scene, previousScene: nil, previousSceneIdentity: nil,
             snapshotIdentity: PaintSnapshotIdentity(), surfaceSize: surfaceSize,
             displayScale: displayScale, textSystem: textSystem,
             usedNativeGlyphs: &usedNativeGlyphs, usedPixelGlyphs: &usedPixelGlyphs,
-            replayCount: &subReplay, canvasSymbolState: isolation.canvasSymbolState,
+            replayCount: &recording.replayCount, canvasSymbolState: isolation.canvasSymbolState,
             colorEffectPassDepth: isolation.colorEffectPassDepth + (backdropIsolationScope == .paired ? 1 : 0),
             skipCacheUpdates: true, backdropIsolationScope: backdropIsolationScope, isDeferredCapture: true)
 
-        subScene.finish()
-        return subScene
+        recording.scene.finish()
+        // The former local queue was released when recording returned. Do not
+        // retain its completed scratch through bitmap or backdrop completion.
+        recording.deferred.removeAll(keepingCapacity: false)
+        return recording
     }
 
     /// A deferred entry the isolation pass has taken away from the deferred

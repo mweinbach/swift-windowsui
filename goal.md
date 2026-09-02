@@ -12434,3 +12434,31 @@ comparisons are in `artifacts/goal-ninth-ordinary160-c340789-reconciled-v1.json`
 `post-closure-v1.json` receipts. These are focused results only. No new Full,
 native-window, visual, hardware, macOS, CI, or release qualification is claimed.
 All nine original completion gates remain open.
+
+
+### 2026-09-01: Distinguish Button setup refusal and rebuild empty-row reservations
+
+The final-admission Button fixture now reports a different error for each of
+its 11 existing setup conditions. Split guards retain the same once-only,
+left-to-right evaluation and first-failure exit. No authority read, callback,
+proof, candidate, destructor probe, or production code changes. All three test
+bodies and their 17 assertions remain identical. The actual failing guard is
+still unknown; this is diagnostic preparation, not a claimed behavior fix.
+
+The empty-membership fixture now assigns each explicit attempt a fresh content
+revision before build/admission capture, using the same revision in its viewport
+context. This requests an actual second content build instead of reusing an
+unchanged accepted record. It intentionally invalidates the prior layout stamp
+but keeps the logical membership, original provider generation, physical empty
+receipt, descriptor binding, and attachment. No cache clear, record release, or
+weaker stale-reservation check was added. All 17 methods, 128 assertions, and
+20 test unwrap calls remain unchanged.
+
+Root strict formatting and contracts passed. The two-file staged patch is
+8,325 bytes, SHA256 `38d12a78b39e68ce82d60eec98fe434e917a132f54cfb05d43a8fa221a2345bb`;
+source tree is `32363b99c310852ffc4ced03c0acfd113252fe23`.
+`artifacts/goal-ninth-fixtures8273-staged-proof-v1.json` records exact reproduction
+and preservation of the other 641 existing test files, all production, and
+Package.swift. The reviewed packets are `goal-ninth-button-admission3521-diagnostic-intake-v1`
+and `goal-ninth-empty-membership3575-intake-v1`. Execution of the original
+20 affected cases is still required. All nine completion gates remain open.

@@ -399,7 +399,8 @@ private final class EmptyMembershipFixture {
     func makeAttempt() throws -> EmptyMembershipAttempt {
         let attempt = try EmptyMembershipAttempt(
             registry: registry, target: target, runtime: runtime, provider: provider,
-            adapter: adapter, lease: lease, existingBinding: binding)
+            adapter: adapter, lease: lease, existingBinding: binding,
+            contentRevision: UInt64(attempts.count))
         binding = attempt.binding
         attempts.append(attempt)
         return attempt
@@ -480,7 +481,8 @@ private final class EmptyMembershipAttempt {
     init(
         registry: StateMountRegistry, target: ViewNode, runtime: RetainedViewRuntime,
         provider: RetainedLazyListDataSource<Int, [ViewNode]>, adapter: RetainedLazyListRuntimeAdapter,
-        lease: EmptyMembershipBuildLease, existingBinding: RetainedLazyListManagedLogicalDescriptorBinding?
+        lease: EmptyMembershipBuildLease, existingBinding: RetainedLazyListManagedLogicalDescriptorBinding?,
+        contentRevision: UInt64
     ) throws {
         let epoch = try XCTUnwrap(registry.beginRootBuild())
         let activity = EmptyMembershipBuildActivity(registry: registry, epoch: epoch)
@@ -521,6 +523,8 @@ private final class EmptyMembershipAttempt {
             target.retainedLazyListAdapter = adapter
             XCTAssertTrue(adapter.claimAttachment(to: target))
         }
+        // A fresh reservation requires a content rebuild before admission captures its layout stamp.
+        target.setRetainedLazyListMeasurementRevisions(content: contentRevision, environment: 0)
         let sequence = try XCTUnwrap(nativeCoordinator.beginBuild())
         nativeCoordinator.install(activity, startedAt: sequence)
         let admission = RetainedLazyListAdoptionAdmission(
@@ -533,7 +537,7 @@ private final class EmptyMembershipAttempt {
         journal.seedExistingRowActivities(adapter.materializedRowActivities)
         let context = try XCTUnwrap(
             RetainedLazyListMeasurementContext(
-                width: 120, displayScale: 1, contentRevision: 0, environmentRevision: 0))
+                width: 120, displayScale: 1, contentRevision: contentRevision, environmentRevision: 0))
         let viewport = try XCTUnwrap(RetainedLazyListRuntimeAdapter.Viewport(context: context, offset: 0, extent: 40))
         let budget = try XCTUnwrap(RetainedLazyListWorkBudget(elementLimit: 4, roundLimit: 4))
         guard

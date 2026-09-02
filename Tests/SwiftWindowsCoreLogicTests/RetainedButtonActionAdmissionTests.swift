@@ -99,7 +99,7 @@ private final class ButtonFinalAdmissionFixture {
             ownerLifetime: container.lazyListActivityStorage().descriptorOwnerLifetime)
         defer { if !setupCompleted { descriptorScope.finish() } }
         guard activity.bindLazyListDescriptorScope(descriptorScope) else {
-            throw ButtonFinalAdmissionError.noAdmission
+            throw ButtonFinalAdmissionError.activityScopeBinding
         }
         var buildContext = ViewBuildContext(
             stateMountCoordinator: stateCoordinator, canvasSizeProvider: { Size(width: 200, height: 100) },
@@ -148,7 +148,7 @@ private final class ButtonFinalAdmissionFixture {
                 provider: provider, estimatedExtent: 20, prefetchExtent: 0,
                 maximumMountedRecords: 4, maximumMountedLeaves: 8, maximumProtectedRecords: 1))
         guard adapter.installManagedLogicalDescriptor(proposal.nativeBinding) else {
-            throw ButtonFinalAdmissionError.noAdmission
+            throw ButtonFinalAdmissionError.descriptorInstallation
         }
         let descriptorSource = ViewNode()
         descriptorSource.retainedLazyListAdapter = adapter
@@ -173,9 +173,12 @@ private final class ButtonFinalAdmissionFixture {
         // build activity as Runtime. An unmanaged adapter refuses reconciliation
         // before copying any Button, so it cannot test final admission cleanup.
         let journal = RetainedLazyListAdoptionJournal(admission: admission, transaction: RetainedBuildTransaction())
-        guard journal.bindDescriptorScope(descriptorScope),
-            journal.registerSourceDescriptor(proposal.nativeBinding, on: descriptorSource) != nil
-        else { throw ButtonFinalAdmissionError.noAdmission }
+        guard journal.bindDescriptorScope(descriptorScope) else {
+            throw ButtonFinalAdmissionError.journalScopeBinding
+        }
+        guard journal.registerSourceDescriptor(proposal.nativeBinding, on: descriptorSource) != nil else {
+            throw ButtonFinalAdmissionError.descriptorRegistration
+        }
         let context = try XCTUnwrap(
             RetainedLazyListMeasurementContext(width: 100, displayScale: 1, contentRevision: 0, environmentRevision: 0))
         let viewport = try XCTUnwrap(RetainedLazyListRuntimeAdapter.Viewport(context: context, offset: 0, extent: 60))
@@ -185,17 +188,28 @@ private final class ButtonFinalAdmissionFixture {
                 viewport: viewport, protectedRoots: [], budget: budget, admission: admission,
                 activity: activity, journal: journal)
         else { throw ButtonFinalAdmissionError.noCandidate }
-        guard admission.installCandidate(candidate), admission.isCurrent else {
-            throw ButtonFinalAdmissionError.noAdmission
+        guard admission.installCandidate(candidate) else {
+            throw ButtonFinalAdmissionError.candidateInstallation
+        }
+        guard admission.isCurrent else {
+            throw ButtonFinalAdmissionError.candidateCurrent
         }
         let preparation = try XCTUnwrap(journal.preparation())
         let prepared = try XCTUnwrap(activity.willAdoptLazyList(preparation))
-        guard journal.beginAdoption(preparation, preparedActivity: prepared),
-            candidate.configureManagedPublication(preparation), journal.markMutationStarted(),
-            case .ready(let publication) = journal.prepareDescriptorCopy(from: descriptorSource, to: container),
-            journal.recordAcceptedLogicalDeclaration(publication) != nil
-        else {
-            throw ButtonFinalAdmissionError.noAdmission
+        guard journal.beginAdoption(preparation, preparedActivity: prepared) else {
+            throw ButtonFinalAdmissionError.journalAdoption
+        }
+        guard candidate.configureManagedPublication(preparation) else {
+            throw ButtonFinalAdmissionError.candidatePublication
+        }
+        guard journal.markMutationStarted() else {
+            throw ButtonFinalAdmissionError.mutationStart
+        }
+        guard case .ready(let publication) = journal.prepareDescriptorCopy(from: descriptorSource, to: container) else {
+            throw ButtonFinalAdmissionError.descriptorCopyPreparation
+        }
+        guard journal.recordAcceptedLogicalDeclaration(publication) != nil else {
+            throw ButtonFinalAdmissionError.descriptorPublication
         }
         self.runtime = runtime
         self.events = events
@@ -278,5 +292,15 @@ private final class ButtonFinalAdmissionLease: RetainedSubtreeBuildLease {
 
 private enum ButtonFinalAdmissionError: Error {
     case noCandidate
-    case noAdmission
+    case activityScopeBinding
+    case descriptorInstallation
+    case journalScopeBinding
+    case descriptorRegistration
+    case candidateInstallation
+    case candidateCurrent
+    case journalAdoption
+    case candidatePublication
+    case mutationStart
+    case descriptorCopyPreparation
+    case descriptorPublication
 }

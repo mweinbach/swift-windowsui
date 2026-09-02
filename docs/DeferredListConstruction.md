@@ -306,6 +306,16 @@ and the raw adapter preparation path keep their existing behavior. Thirteen
 new source tests cover this policy; execution on the integrated source remains
 pending, including the existing default-budget UIA regressions.
 
+Final UIA reveal checks membership of the exact target in the current prepaint
+dispatch list and positive clipped geometric visibility. A framed row need not
+be a pointer hit-test target. The original query, settlement, root, pass and
+mutation checks still run first. The existing visibility helper checks the
+physical surface and ancestor clips; this is not a new occlusion or rounded-clip
+algorithm. Six new tests isolate visible framed rows and hidden, list-clipped,
+off-surface and zero-paint-area rejection. Their larger explicit fixture budget
+does not change the default query limits or establish a default-budget pass;
+fresh execution remains pending.
+
 The native host source now shares this construction path. Logical item-state
 and property-zero ItemContainer lookup use typed native requests with copied
 geometry. The full C-call lease spans actor dispatch, foreign start-after

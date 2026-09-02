@@ -25118,9 +25118,9 @@ extension RetainedViewRuntime {
                 recordLazyListUIARejection(.resolveFinal)
                 return nil
             }
-            if prepaintState.interactions.contains(where: {
-                $0.node === target && $0.frame.width > 0 && $0.frame.height > 0
-            }) {
+            if prepaintState.dispatchNodes.contains(where: { $0.node === target }),
+                scrollVisibilityFraction(of: target) > 0
+            {
                 request.phase = .resolved
                 request.completed = true
                 return roots

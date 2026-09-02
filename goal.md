@@ -12714,3 +12714,23 @@ The cleanup and census receipts are
 `artifacts/goal-ninth-file14-3a704bf-post-closure-all-recorded-v1.json`.
 No longer timeout, smaller fixture, retry or passing FileBrowser result is
 introduced. All nine original completion gates remain open.
+
+
+### Ninth integration: observe both sides of rejected Button cleanup
+
+The remaining Button admission fixture failure is corrected at its actual
+observation boundary. Sealing the journal inside the original destructor callback
+does not itself retire the incoming Button owner, so the fixture now records and
+asserts current admission immediately after that seal. Rejected final acceptance
+then retires the owner; a new assertion requires admission to be false afterward.
+The previous post-cleanup true expectation contradicted the same test's existing
+retired-owner expectation. No production guard, authority, callback or retry was
+changed. All seventeen existing assertions remain, with the true assertion moved
+to its intended boundary, and the final false assertion is additional.
+
+The one-file patch is recorded in
+`artifacts/goal-ninth-button-boundary-root-staged-proof-v1.json`. Both other
+methods and all 646 other existing test files remain byte-identical. Strict lint
+and architecture contracts passed; the repaired test and full 167-case Button
+selection have not yet executed on the integrated source. The earlier failure
+remains a recorded result, not a retroactive pass. All nine goal gates stay open.

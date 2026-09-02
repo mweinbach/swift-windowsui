@@ -26,12 +26,17 @@ final class RetainedButtonActionAdmissionTests: XCTestCase {
     func testRejectedSourceDestructorSealsJournalBeforeNewButtonAcceptance() async throws {
         let fixture = try ButtonFinalAdmissionFixture()
         defer { fixture.finish() }
-        fixture.events.onRelease = { [weak journal = fixture.journal] in _ = journal?.seal() }
+        var admissionWasCurrentAfterSeal = false
+        fixture.events.onRelease = { [weak journal = fixture.journal, weak admission = fixture.admission] in
+            _ = journal?.seal()
+            admissionWasCurrentAfterSeal = admission?.isCurrent == true
+        }
 
         let result = fixture.reconcile()
 
         XCTAssertEqual(fixture.events.releases, 1)
-        XCTAssertTrue(fixture.admission.isCurrent)
+        XCTAssertTrue(admissionWasCurrentAfterSeal)
+        XCTAssertFalse(fixture.admission.isCurrent)
         XCTAssertFalse(fixture.journal.canContinueAdoption)
         XCTAssertFalse(result.completed)
         XCTAssertTrue(fixture.retained.buttonActionOwner?.isRetired == true)

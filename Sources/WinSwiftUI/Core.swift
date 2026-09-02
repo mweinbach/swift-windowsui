@@ -10969,20 +10969,66 @@ enum RetainedClipShapeStyle {
 protocol RetainedClipShape: Shape {
     var retainedClipShapeStyle: RetainedClipShapeStyle { get }
 }
-@MainActor
-protocol RetainedContentShapeProvider: Shape {
-    var retainedContentShapeStyle: SwiftWindowsUI.RetainedContentShapeStyle { get }
-}
-@MainActor
-func resolvedRetainedContentShapeStyle<S: Shape>(for shape: S) -> SwiftWindowsUI.RetainedContentShapeStyle {
-    if let provider = shape as? any RetainedContentShapeProvider {
-        return provider.retainedContentShapeStyle
-    }
-    if shape is Circle || shape is Ellipse {
-        return .ellipse
+/// Keeps logical corners intact until a modifier has its actual build context.
+/// Only value geometry is passed to the runtime; no authored path is retained.
+enum RetainedContentShapeDescriptor: Sendable, Equatable {
+    case style(SwiftWindowsUI.RetainedContentShapeStyle)
+    case unevenRoundedRectangle(RectangleCornerRadii)
+
+    func resolved(in layoutDirection: LayoutDirection) -> SwiftWindowsUI.RetainedContentShapeStyle {
+        switch self {
+        case .style(let style):
+            return style
+        case .unevenRoundedRectangle(let radii):
+            let isRTL = layoutDirection == .rightToLeft
+            return .unevenRoundedRectangle(
+                RetainedCornerRadii(
+                    topLeft: isRTL ? radii.topTrailing : radii.topLeading,
+                    topRight: isRTL ? radii.topLeading : radii.topTrailing,
+                    bottomRight: isRTL ? radii.bottomLeading : radii.bottomTrailing,
+                    bottomLeft: isRTL ? radii.bottomTrailing : radii.bottomLeading))
+        }
     }
 
-    return (shape as? any RetainedClipShape)?.retainedClipShapeStyle.retainedContentShapeStyle ?? .rectangle
+    func inset(by amount: Double) -> RetainedContentShapeDescriptor {
+        switch self {
+        case .style(.roundedRectangle(let radius)):
+            return .style(.roundedRectangle(max(0, radius - amount)))
+        case .style(.unevenRoundedRectangle(let radii)):
+            return .style(.unevenRoundedRectangle(radii.inset(by: amount)))
+        case .style(.rectangle), .style(.capsule), .style(.ellipse):
+            return self
+        case .unevenRoundedRectangle(let radii):
+            return .unevenRoundedRectangle(
+                RectangleCornerRadii(
+                    topLeading: max(0, radii.topLeading - amount),
+                    bottomLeading: max(0, radii.bottomLeading - amount),
+                    bottomTrailing: max(0, radii.bottomTrailing - amount),
+                    topTrailing: max(0, radii.topTrailing - amount)))
+        }
+    }
+}
+@MainActor
+protocol RetainedContentShapeProvider: Shape {
+    var retainedContentShapeDescriptor: RetainedContentShapeDescriptor { get }
+}
+extension RetainedContentShapeProvider {
+    /// Compatibility projection for callers without a build context. Modifiers
+    /// resolve the descriptor in their inherited direction instead.
+    var retainedContentShapeStyle: SwiftWindowsUI.RetainedContentShapeStyle {
+        retainedContentShapeDescriptor.resolved(in: .leftToRight)
+    }
+}
+@MainActor
+func resolvedRetainedContentShapeDescriptor<S: Shape>(for shape: S) -> RetainedContentShapeDescriptor {
+    if let provider = shape as? any RetainedContentShapeProvider {
+        return provider.retainedContentShapeDescriptor
+    }
+    if shape is Circle || shape is Ellipse {
+        return .style(.ellipse)
+    }
+
+    return .style((shape as? any RetainedClipShape)?.retainedClipShapeStyle.retainedContentShapeStyle ?? .rectangle)
 }
 @MainActor
 enum ViewBuildContextScope {
@@ -26799,14 +26845,14 @@ extension View {
     public func contentShape<S: Shape>(_ kind: ContentShapeKinds, _ shape: S, eoFill: Bool = false, mask: Bool = false)
         -> some View
     {
-        let retainedStyle = resolvedRetainedContentShapeStyle(for: shape)
-        let retainedShape = RetainedContentShape(
-            kinds: kind.retainedKinds,
-            style: retainedStyle,
-            eoFill: eoFill,
-            mask: mask
-        )
+        let descriptor = resolvedRetainedContentShapeDescriptor(for: shape)
         return ModifiedView(content: self) { content, context in
+            let retainedShape = RetainedContentShape(
+                kinds: kind.retainedKinds,
+                style: descriptor.resolved(in: context.layoutDirection),
+                eoFill: eoFill,
+                mask: mask
+            )
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
@@ -26817,14 +26863,14 @@ extension View {
     }
 
     public func containerShape<S: Shape>(_ shape: S) -> some View {
-        let retainedStyle = resolvedRetainedContentShapeStyle(for: shape)
-        let retainedShape = RetainedContentShape(
-            kinds: .container,
-            style: retainedStyle,
-            eoFill: false,
-            mask: false
-        )
+        let descriptor = resolvedRetainedContentShapeDescriptor(for: shape)
         return ModifiedView(content: self) { content, context in
+            let retainedShape = RetainedContentShape(
+                kinds: .container,
+                style: descriptor.resolved(in: context.layoutDirection),
+                eoFill: false,
+                mask: false
+            )
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)

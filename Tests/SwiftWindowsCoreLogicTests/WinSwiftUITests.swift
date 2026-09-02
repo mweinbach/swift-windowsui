@@ -2479,7 +2479,8 @@ final class WinSwiftUITests: XCTestCase {
                 contentShapeNode.contentShapes.first,
                 RetainedContentShape(
                     kinds: .interaction,
-                    style: .roundedRectangle(16),
+                    style: .unevenRoundedRectangle(
+                        RetainedCornerRadii(topLeft: 4, topRight: 6, bottomRight: 16, bottomLeft: 10)),
                     eoFill: false
                 )
             )

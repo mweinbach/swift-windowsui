@@ -2608,7 +2608,7 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
     private let resolvePaintOwner: (ViewNode) -> ShapePaintOwner?
     private let buildPath: (Rect) -> Path
     private let clipShapeStyle: RetainedClipShapeStyle
-    private let contentShapeStyle: SwiftWindowsUI.RetainedContentShapeStyle
+    private let contentShapeDescriptor: RetainedContentShapeDescriptor
     private var fillStyle: ForegroundStyle?
     private var fillRuleStyle: RetainedClipFillStyle?
     private var strokeStyle: ForegroundStyle?
@@ -2622,7 +2622,7 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
         self.resolvePaintOwner = { node in resolveShapePaintOwner(for: shape, in: node) }
         self.buildPath = { rect in shape.path(in: rect) }
         self.clipShapeStyle = (shape as? any RetainedClipShape)?.retainedClipShapeStyle ?? .rectangle
-        self.contentShapeStyle = resolvedRetainedContentShapeStyle(for: shape)
+        self.contentShapeDescriptor = resolvedRetainedContentShapeDescriptor(for: shape)
         self.fillStyle = nil
         self.fillRuleStyle = nil
         self.strokeStyle = nil
@@ -2642,8 +2642,8 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
         clipShapeStyle
     }
 
-    var retainedContentShapeStyle: SwiftWindowsUI.RetainedContentShapeStyle {
-        contentShapeStyle
+    var retainedContentShapeDescriptor: RetainedContentShapeDescriptor {
+        contentShapeDescriptor
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
@@ -2833,7 +2833,7 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
     private let buildComponent: (ViewBuildContext) -> Component
     private let amount: Double
     private let clipShapeStyle: RetainedClipShapeStyle
-    private let contentShapeStyle: SwiftWindowsUI.RetainedContentShapeStyle
+    private let contentShapeDescriptor: RetainedContentShapeDescriptor
     private var fillStyle: ForegroundStyle?
     private var fillRuleStyle: RetainedClipFillStyle?
     private var strokeStyle: ForegroundStyle?
@@ -2847,7 +2847,7 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
         }
         self.amount = amount
         self.clipShapeStyle = (content as? any RetainedClipShape)?.retainedClipShapeStyle ?? .rectangle
-        self.contentShapeStyle = resolvedRetainedContentShapeStyle(for: content)
+        self.contentShapeDescriptor = resolvedRetainedContentShapeDescriptor(for: content)
         self.fillStyle = nil
         self.fillRuleStyle = nil
         self.strokeStyle = nil
@@ -2863,8 +2863,8 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
         adjustedClipShapeStyle
     }
 
-    var retainedContentShapeStyle: SwiftWindowsUI.RetainedContentShapeStyle {
-        adjustedContentShapeStyle
+    var retainedContentShapeDescriptor: RetainedContentShapeDescriptor {
+        contentShapeDescriptor.inset(by: amount)
     }
 
     private var adjustedClipShapeStyle: RetainedClipShapeStyle {
@@ -2873,15 +2873,6 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
             return .roundedRectangle(max(0, radius - amount))
         case .rectangle, .capsule:
             return clipShapeStyle
-        }
-    }
-
-    private var adjustedContentShapeStyle: SwiftWindowsUI.RetainedContentShapeStyle {
-        switch contentShapeStyle {
-        case .roundedRectangle(let radius):
-            return .roundedRectangle(max(0, radius - amount))
-        case .rectangle, .capsule, .ellipse:
-            return contentShapeStyle
         }
     }
 
@@ -3097,7 +3088,7 @@ public struct TrimmedShape<Content: Shape>: Shape, RetainedClipShape, RetainedCo
     private let startFraction: CGFloat
     private let endFraction: CGFloat
     private let clipShapeStyle: RetainedClipShapeStyle
-    private let contentShapeStyle: SwiftWindowsUI.RetainedContentShapeStyle
+    private let contentShapeDescriptor: RetainedContentShapeDescriptor
     private var fillStyle: ForegroundStyle?
     private var fillRuleStyle: RetainedClipFillStyle?
     private var strokeStyle: ForegroundStyle?
@@ -3109,7 +3100,7 @@ public struct TrimmedShape<Content: Shape>: Shape, RetainedClipShape, RetainedCo
         self.startFraction = startFraction
         self.endFraction = endFraction
         self.clipShapeStyle = (content as? any RetainedClipShape)?.retainedClipShapeStyle ?? .rectangle
-        self.contentShapeStyle = resolvedRetainedContentShapeStyle(for: content)
+        self.contentShapeDescriptor = resolvedRetainedContentShapeDescriptor(for: content)
         self.fillStyle = nil
         self.fillRuleStyle = nil
         self.strokeStyle = nil
@@ -3125,8 +3116,8 @@ public struct TrimmedShape<Content: Shape>: Shape, RetainedClipShape, RetainedCo
         clipShapeStyle
     }
 
-    var retainedContentShapeStyle: SwiftWindowsUI.RetainedContentShapeStyle {
-        contentShapeStyle
+    var retainedContentShapeDescriptor: RetainedContentShapeDescriptor {
+        contentShapeDescriptor
     }
 
     public func path(in rect: Rect) -> Path {
@@ -3667,6 +3658,11 @@ extension RoundedRectangle: InsettableShape, RetainedClipShape {
 extension UnevenRoundedRectangle: InsettableShape, RetainedClipShape {
     var retainedClipShapeStyle: RetainedClipShapeStyle {
         .roundedRectangle(cornerRadii.retainedUniformFallbackRadius)
+    }
+}
+extension UnevenRoundedRectangle: RetainedContentShapeProvider {
+    var retainedContentShapeDescriptor: RetainedContentShapeDescriptor {
+        .unevenRoundedRectangle(cornerRadii)
     }
 }
 extension Capsule: InsettableShape, RetainedClipShape {

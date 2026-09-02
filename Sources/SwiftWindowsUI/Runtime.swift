@@ -1035,6 +1035,7 @@ public struct RetainedAccessibilityCustomContent: Sendable, Equatable {
 public enum RetainedContentShapeStyle: Sendable, Equatable {
     case rectangle
     case roundedRectangle(Double)
+    case unevenRoundedRectangle(RetainedCornerRadii)
     case capsule
     case ellipse
 
@@ -1048,6 +1049,8 @@ public enum RetainedContentShapeStyle: Sendable, Equatable {
             return true
         case .roundedRectangle(let radius):
             return roundedRectContains(point, in: rect, radius: max(0, radius))
+        case .unevenRoundedRectangle(let radii):
+            return unevenRoundedRectContains(point, in: rect, radii: radii)
         case .capsule:
             return roundedRectContains(
                 point,
@@ -1065,6 +1068,12 @@ public enum RetainedContentShapeStyle: Sendable, Equatable {
             return 0
         case .roundedRectangle(let radius):
             return max(0, radius)
+        case .unevenRoundedRectangle(let radii):
+            // Hover/focus effects still consume one radius. Keep that explicit
+            // compatibility maximum; this is not per-corner effect geometry.
+            return max(
+                max(0, radii.topLeft), max(0, radii.topRight),
+                max(0, radii.bottomRight), max(0, radii.bottomLeft))
         case .capsule, .ellipse:
             return max(0, min(rect.size.width, rect.size.height) * 0.5)
         }
@@ -1123,6 +1132,19 @@ public struct PhaseAnimatorState: Sendable {
         self.previousTrigger = previousTrigger
         self.phaseStartTime = phaseStartTime
     }
+}
+private func unevenRoundedRectContains(_ point: Point, in rect: Rect, radii: RetainedCornerRadii) -> Bool {
+    // Every circular corner is clamped to half the shorter extent by the
+    // uniform predicate, so only the point's own quadrant can exclude it.
+    // Reuse that predicate to retain its exact boundary and invalid-radius
+    // policy: max(0, radius), then the finite extent cap (including +infinity).
+    let radius: Double
+    if point.x > rect.midX {
+        radius = point.y > rect.midY ? radii.bottomRight : radii.topRight
+    } else {
+        radius = point.y > rect.midY ? radii.bottomLeft : radii.topLeft
+    }
+    return roundedRectContains(point, in: rect, radius: max(0, radius))
 }
 private func roundedRectContains(_ point: Point, in rect: Rect, radius: Double) -> Bool {
     let radius = min(radius, rect.size.width * 0.5, rect.size.height * 0.5)

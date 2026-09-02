@@ -82,7 +82,7 @@ final class TransformZeroColumnTests: XCTestCase {
         let matrix = AffineMatrix(a: 0, b: 0, c: 0, d: 1, tx: 0, ty: 0)
         let composed = [
             Transform2D.identity.concatenating(authored),
-            authored.concatenating(.identity),
+            authored.concatenating(Transform2D.identity),
         ]
         for transform in composed {
             XCTAssertEqual(transform, authored)

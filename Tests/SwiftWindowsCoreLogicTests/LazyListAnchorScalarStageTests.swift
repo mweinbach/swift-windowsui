@@ -1,3 +1,4 @@
+import SwiftWindowsCore
 import XCTest
 
 @testable import SwiftWindowsUI

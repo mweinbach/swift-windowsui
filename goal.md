@@ -14447,3 +14447,114 @@ has not yet run. Phase output may be capped, unavailable physical activity is
 not zero work, and a last-work summary alone can be stale without a new scope.
 Its allocation/stdout overhead cannot serve as performance evidence. The
 original keyboard failure and all nine completion gates remain open.
+
+
+### Ninth integration: ordinary reference withdrawal and fresh 4cc03c8 tests (2026-09-02)
+
+The original scope, pinned baseline, performance targets, and nine unchecked
+completion gates above are unchanged. The following evidence adds detail; it
+does not turn focused execution or source review into release qualification.
+
+At `4cc03c80672bb0d22d7489dd08bdcaae57accf63` / tree
+`923cc5432ff09fb9267c7b5a3c8cc3c4488f4418`, the six complete newly added
+regression classes ran **68/68 passing, zero failures or skips**: corner-radii
+reconciliation 2, exact image texel sampling 11, stack configuration 20,
+environment sampling 9, content-blur reconciliation 3, and fixed-frame overflow
+23. The selected XCTest interval was 1.313 seconds; the controller's child
+wait/cleanup interval was 8.235 seconds. These are test timings, not UI frame or
+hardware performance measurements. The exact-roster reconciliation is
+`artifacts/goal-ninth-new68-4cc03c8-reconciled-v1.json`; raw log SHA-256 is
+`19b44c07e006460518f81a9d886f94979021955a29be54466c05f53fa99a84a9`.
+Existing collateral, original failing clip cases, gallery and native behavior
+remain separate obligations.
+
+The same commit's complete CanvasSymbolMixedDepth selection compiled in
+473.11 seconds but did not complete: two original cases passed, and the deepest
+blur/group case started without an XCTest terminal result. Its classification
+remains **2 passed, 1 unknown**, not three passes or an assertion failure. The
+first recording-holder repair is therefore insufficient. The natural child
+exit was 1, without timeout, after 481.797 seconds. The strict partial receipt
+is `artifacts/goal-ninth-canvas3-4cc03c8-partial-reconciled-v1.json`, SHA-256
+`3db8f104efb46b2e771ee8ed427ad11d3da640dc63734143a4e6f82ec2c3fb11`.
+Application Error 8481 at 13:03:19.0500709 UTC records `c00000fd` for the same
+image path; path/time correlation is not a proven process ancestry or stack
+trace. Static symbolization of the frozen 696,000,512-byte test image, SHA-256
+`c7d61369b2e2193ca6e1f5ce50e47bcfd9e8e28e25e3ce6558af7fd2fee51606`,
+maps RVA `0x05df5412` to a stack write at
+`ViewNode.hoverEffectShadowCommand` + `0x22`. PE reserve is 1,048,576 bytes;
+`paintNode` has a 3,400-byte local allocation plus eight register pushes, and
+`appendIsolatedContentBlur` 1,552 bytes plus three pushes. These finite static
+facts guide the next repair; they do not establish the full live call chain,
+measured stack margin, or a successful maximum-depth render. The original
+three cases and depth 32 remain unchanged.
+
+The passive ListKeyboardPhase diagnostic also ran completely at 4cc03c8 and
+failed its one original-behavior method with three assertions: selection stayed
+899 instead of 900, and no physical row 900 was found. The returned summary was
+`workRemaining`, consumed rounds 1, consumed elements 0; its five records were
+layout, round debit, measurement, reader, and provider. All used pass 6,
+sequence 3, geometry 29, mutation 0; three rounds and 128 elements remained
+after debit. Physical activity count was unavailable, not zero. This evidence
+narrows the observed early return; it must not be replaced by the earlier
+source-only five-round estimate. The complete receipt is
+`artifacts/goal-ninth-keyboard1-4cc03c8-reconciled-v1.json`; raw log SHA-256
+`56696e7cfa5d02d8aa8d42d5bf216e4962375e571c45b8c99e6be00f490d1bca`.
+Original immediate 900/899 assertions and the four-round/128-element limits
+remain required. Each of the three runners preserved its source/index at the
+recorded endpoints, closed its retained direct child naturally, and was followed
+by an independent empty process census. A point-in-time census is not continuous
+descendant attestation.
+
+The ordinary physical-reference repair is now staged independently from the
+held mounted-overlay proposal. A sparse node-owned native holder records exact
+accepted field-family aliases for slot permissions and component presence.
+The inverse indexes and UI associations are weak. Actual binding/attachment
+withdrawal invalidates the original aliases before terminal decisions;
+regionless descriptor retirement requires both no remaining accepted native
+reference and no outstanding admitted member debt. A temporary empty parent
+child table does not erase a surviving child's accepted reference. A bare proof
+rotation remains distinct from actual storage withdrawal. Empty-holder reads
+neither grant ownership nor invalidate an original physical-map observation;
+real map writes and storage-binding changes have separate original witnesses.
+
+Existing physical snapshots and declared tickets retain exact per-member
+cleanup debts, including zero-slot component presence. The ordinary queue admits
+and publishes the original snapshot after duplicate rejection but before weak
+selection. Partitioning transfers those same debts; after weak reads, only the
+same unconsumed original identity can be substituted in the current queue.
+Refusal or missing custody consumes only the fixed original/partition debts and
+never appends a new ticket after a nested drain. Cleanup removes captured spent
+identities from the current queue without dropping callback-admitted siblings.
+These facts convey retirement custody, never fresh construction or write rights.
+
+The root applied the sealed ordinary source patch only to Runtime.swift,
+RetainedLazyListActivity.swift and the new 15-method
+OrdinaryOwnedPhysicalReferenceTests.swift. All 699 preexisting Tests entries and
+raw files were preserved. The source-only staged tree was
+`49ca7ee3bb99bb3978f574b1fbe93d5634e22a83`; its complete inverse restored
+4cc03c8's original tree. Strict lint initially reported four formatting sites.
+The reviewed correction wraps three production calls and one new-test call,
+without changing tokens or assertions. The resulting source tree is
+`297d858692cff733c07348d5db544ca8be979f53`; the corrected format inverse and
+original source inverse restore both exact trees. The first diagnostic inverse
+used the wrong Git option and was rejected before any inverse application;
+`goal-ninth-ordinary-format-proof-v2.json` records the corrected proof, rather
+than accepting that failed check. The formatted new test is 27,207 bytes,
+SHA-256 `cd2fbda6d83f4691e6d4ac868a918f1246fe99c2ddd5d0352579f6c88e6eaec2`.
+Strict three-file lint and unchanged contracts pass. Compilation and execution
+of this repair remain pending: all 15 new cases, unchanged Raw3, and the complete
+76-method publication collateral selection are still required, followed by the
+applicable ordinary, declared, cold, region, task and broader validation.
+
+The new owned terminal prefix has the bounded native closure described by its
+source proof. The whole attachment-revoke helper still includes existing weak
+UI queries, and the exact weak ordinary-selection interval has no deterministic
+forced-callback regression. The unchecked final child-list write after a callback
+installs another accepted child remains a separate open defect. The composed
+mounted-overlay candidate is **not integrated**: a new sampled-proof recorder
+could acknowledge a callback-created successor after the inherited weak revoke
+interval. Calling that interval inherited does not discharge the new recorder's
+obligation. It needs original-to-known-successor transport adjacent to its own
+native writes, including review of initial post-revoke task-setup captures.
+The original 22 proposed overlay tests are retained; no stale-ownership gap is
+closed by a source-composition pass or a later current-proof recapture.

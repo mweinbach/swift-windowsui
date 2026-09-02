@@ -2149,6 +2149,7 @@ private final class ViewNodeLifecycleHandlers {
     var geometryReaderConstructionIdentity: RetainedLazyListAttachmentIdentity?
     var retainedTasks: RetainedTaskNodeState?
     var retainedLazyListActivity: RetainedLazyListNodeActivityStorage?
+    var retainedOwnedPhysicalReferences: RetainedOwnedPhysicalReferenceHolder?
     var completedLazyTaskAppearance: RetainedLazyListActualAttachment?
     var retainedLazyListAdapter: RetainedLazyListRuntimeAdapter?
     var retainedLazyListGap: RetainedLazyListGap?
@@ -2692,6 +2693,10 @@ public final class ViewNode {
         get { lifecycleHandlers?.retainedLazyListActivity }
         set {
             if let lifecycleHandlers {
+                if lifecycleHandlers.retainedLazyListActivity !== newValue {
+                    lifecycleHandlers.retainedLazyListActivity?.withdrawOwnedPhysicalReferences()
+                    lifecycleHandlers.retainedOwnedPhysicalReferences = nil
+                }
                 lifecycleHandlers.retainedLazyListActivity = newValue
             } else if let newValue {
                 let handlers = ViewNodeLifecycleHandlers()
@@ -2699,6 +2704,16 @@ public final class ViewNode {
                 lifecycleHandlers = handlers
             }
         }
+    }
+
+    func captureOwnedPhysicalReferences(
+        for storage: RetainedLazyListNodeActivityStorage
+    ) -> RetainedOwnedPhysicalReferenceHolder? {
+        guard let lifecycleHandlers, lifecycleHandlers.retainedLazyListActivity === storage else { return nil }
+        if let holder = lifecycleHandlers.retainedOwnedPhysicalReferences, holder.matches(storage) { return holder }
+        let holder = storage.captureOwnedPhysicalReferenceHolder()
+        lifecycleHandlers.retainedOwnedPhysicalReferences = holder
+        return holder
     }
 
     /// Native presence only: reading these stored values executes no authored
@@ -5277,7 +5292,10 @@ public final class ViewNode {
     fileprivate func revokeLazyListAttachmentProofs() {
         // Detached source transfers have never published physical activity.
         // Their reserved insertion IDs must survive until that first write.
-        if runtime != nil { retainedLazyListActivityStorage?.revokeAttachment() }
+        if runtime != nil {
+            retainedLazyListActivityStorage?.withdrawOwnedPhysicalReferences()
+            retainedLazyListActivityStorage?.revokeAttachment()
+        }
         lifecycleHandlers?.completedLazyTaskAppearance = nil
         hasPaintedCurrentAttachment = false
         lifecycleHandlers?.lazyListAttachmentIdentity = nil

@@ -635,6 +635,7 @@ package final class RetainedLazyListActualAttachment {
     private let identity: RetainedLazyListViewIdentityProof
     weak var node: ViewNode?
     weak var runtime: RetainedViewRuntime?
+    fileprivate weak var ownedPhysicalReferences: RetainedOwnedPhysicalReferenceHolder?
 
     init(
         node: ViewNode, runtime: RetainedViewRuntime,
@@ -651,6 +652,13 @@ package final class RetainedLazyListActualAttachment {
     package var isAttached: Bool {
         guard let node, let runtime, node.isRetainedLazyListAttached(in: runtime) else { return false }
         return matchesCurrentAttachment(on: node)
+    }
+
+    fileprivate var originalOwnedReferenceStorage: RetainedLazyListNodeActivityStorage? {
+        guard let holder = ownedPhysicalReferences, let storage = holder.storage,
+            holder.matches(storage), holder.targetID === target, holder.attachmentID === attachment
+        else { return nil }
+        return storage
     }
 
     func isAttached(using query: inout RetainedLazyListAttachmentQuery) -> Bool {
@@ -1515,6 +1523,269 @@ enum RetainedLazyListDescriptorCopyPreparation {
     case rejected
 }
 
+// These records describe completed native metadata writes. They never admit
+// construction, continuation, a field copy, or an owned write.
+@MainActor
+fileprivate final class RetainedOwnedPhysicalMapObservation {}
+
+@MainActor
+fileprivate final class RetainedOwnedPhysicalBindingID {}
+
+fileprivate enum RetainedOwnedPhysicalReferenceField: Hashable {
+    case payload(AnyKeyPath)
+    case structural
+    case empty(ObjectIdentifier)
+    case declaration(ObjectIdentifier)
+    case region(ObjectIdentifier)
+
+    func facet(target: RetainedLazyListTargetID, attachment: RetainedLazyListAttachmentID)
+        -> RetainedOwnedPhysicalFacetKey
+    {
+        switch self {
+        case .payload(let field):
+            return RetainedOwnedPhysicalFacetKey(
+                target: ObjectIdentifier(target), attachment: ObjectIdentifier(attachment), field: field)
+        case .region(let region):
+            return RetainedOwnedPhysicalFacetKey(
+                target: ObjectIdentifier(target), attachment: ObjectIdentifier(attachment), field: nil, region: region)
+        case .structural, .empty, .declaration:
+            return RetainedOwnedPhysicalFacetKey(
+                target: ObjectIdentifier(target), attachment: ObjectIdentifier(attachment), field: nil)
+        }
+    }
+}
+
+@MainActor
+fileprivate enum RetainedOwnedPhysicalReferenceMember {
+    case slot(RetainedOwnedSlotPermission)
+    case component(RetainedOwnedComponentPresence)
+
+    var identity: ObjectIdentifier {
+        switch self {
+        case .slot(let permission): return ObjectIdentifier(permission)
+        case .component(let presence): return ObjectIdentifier(presence)
+        }
+    }
+
+    var isSlot: Bool {
+        if case .slot = self { return true }
+        return false
+    }
+
+    var index: RetainedOwnedPhysicalReferenceIndex {
+        switch self {
+        case .slot(let permission):
+            if let index = permission.ownedReferenceIndex { return index }
+            let index = RetainedOwnedPhysicalReferenceIndex()
+            permission.ownedReferenceIndex = index
+            return index
+        case .component(let presence):
+            if let index = presence.ownedReferenceIndex { return index }
+            let index = RetainedOwnedPhysicalReferenceIndex()
+            presence.ownedReferenceIndex = index
+            return index
+        }
+    }
+
+    func retireAfterRawWithdrawalIfUnreferenced() {
+        guard !index.hasCurrentReference, !index.hasPendingRetirement else { return }
+        switch self {
+        case .slot(let permission):
+            guard case .descriptor = permission.lifetime,
+                permission.owner.nativePresence?.deferredRegion == nil,
+                permission.owner.nativePresence?.declaredRegions.isEmpty != false
+            else { return }
+            permission.revoke()
+        case .component(let presence):
+            guard case .descriptor = presence.lifetime,
+                presence.deferredRegion == nil, presence.declaredRegions.isEmpty
+            else { return }
+            presence.revoke()
+        }
+    }
+}
+
+@MainActor
+fileprivate final class RetainedOwnedWeakPhysicalReference {
+    weak var reference: RetainedOwnedPhysicalReference?
+    init(_ reference: RetainedOwnedPhysicalReference) { self.reference = reference }
+}
+
+@MainActor
+fileprivate final class RetainedOwnedWeakRetirementDebt {
+    weak var debt: RetainedOwnedRetirementDebt?
+    init(_ debt: RetainedOwnedRetirementDebt) { self.debt = debt }
+}
+
+@MainActor
+fileprivate final class RetainedOwnedPhysicalReferenceIndex {
+    var references: [ObjectIdentifier: RetainedOwnedWeakPhysicalReference] = [:]
+    var debts: [ObjectIdentifier: RetainedOwnedWeakRetirementDebt] = [:]
+
+    var hasCurrentReference: Bool {
+        references.values.contains { $0.reference?.isCurrent == true }
+    }
+
+    var hasPendingRetirement: Bool {
+        debts.values.contains { $0.debt?.wasSpent == false }
+    }
+
+    func contains(_ facet: RetainedOwnedPhysicalFacetKey) -> Bool {
+        references.values.contains {
+            guard let reference = $0.reference else { return false }
+            return reference.isCurrent && reference.facet == facet
+        }
+    }
+
+    func insert(_ reference: RetainedOwnedPhysicalReference) {
+        // Prune only expired weak bookkeeping, not an outstanding obligation.
+        references = references.filter { $0.value.reference != nil }
+        references[ObjectIdentifier(reference)] = RetainedOwnedWeakPhysicalReference(reference)
+    }
+}
+
+@MainActor
+fileprivate final class RetainedOwnedRetirementDebt {
+    private let index: RetainedOwnedPhysicalReferenceIndex
+    private(set) var wasSpent = false
+
+    init(member: RetainedOwnedPhysicalReferenceMember) {
+        index = member.index
+        index.debts[ObjectIdentifier(self)] = RetainedOwnedWeakRetirementDebt(self)
+    }
+
+    func spend() {
+        guard !wasSpent else { return }
+        wasSpent = true
+        index.debts.removeValue(forKey: ObjectIdentifier(self))
+    }
+}
+
+@MainActor
+fileprivate final class RetainedOwnedPhysicalReference {
+    let member: RetainedOwnedPhysicalReferenceMember
+    let field: RetainedOwnedPhysicalReferenceField
+    let facet: RetainedOwnedPhysicalFacetKey
+    let actual: RetainedLazyListActualAttachment
+    private weak var holder: RetainedOwnedPhysicalReferenceHolder?
+    private var wasWithdrawn = false
+
+    init(
+        member: RetainedOwnedPhysicalReferenceMember, field: RetainedOwnedPhysicalReferenceField,
+        actual: RetainedLazyListActualAttachment, holder: RetainedOwnedPhysicalReferenceHolder
+    ) {
+        self.member = member
+        self.field = field
+        self.actual = actual
+        self.holder = holder
+        facet = field.facet(target: holder.targetID, attachment: holder.attachmentID)
+        member.index.insert(self)
+    }
+
+    var isCurrent: Bool { !wasWithdrawn && holder?.contains(self) == true }
+
+    func withdraw() {
+        guard !wasWithdrawn else { return }
+        wasWithdrawn = true
+        member.index.references.removeValue(forKey: ObjectIdentifier(self))
+    }
+}
+
+/// The node owns this sparse native holder; neither it nor its aliases retain a
+/// node, runtime, storage, journal, or application payload. A parent temporarily
+/// publishing [] does not withdraw an unchanged child's accepted reference.
+@MainActor
+final class RetainedOwnedPhysicalReferenceHolder {
+    fileprivate let identity = RetainedOwnedPhysicalBindingID()
+    fileprivate let targetID: RetainedLazyListTargetID
+    fileprivate let attachmentID: RetainedLazyListAttachmentID
+    fileprivate weak var storage: RetainedLazyListNodeActivityStorage?
+    private var fields: [RetainedOwnedPhysicalReferenceField: [RetainedOwnedPhysicalReference]] = [:]
+
+    init(storage: RetainedLazyListNodeActivityStorage) {
+        self.storage = storage
+        targetID = storage.targetID
+        attachmentID = storage.attachmentID
+        storage.ownedPhysicalReferences = self
+    }
+
+    func matches(_ storage: RetainedLazyListNodeActivityStorage) -> Bool {
+        self.storage === storage && targetID === storage.targetID && attachmentID === storage.attachmentID
+    }
+
+    fileprivate func contains(_ reference: RetainedOwnedPhysicalReference) -> Bool {
+        guard let storage, matches(storage) else { return false }
+        return fields[reference.field]?.contains(where: { $0 === reference }) == true
+    }
+
+    fileprivate var originalReferences: [RetainedOwnedPhysicalReference] {
+        fields.values.flatMap { $0 }
+    }
+
+    fileprivate func replace(
+        _ members: [RetainedOwnedPhysicalReferenceMember], slots: Bool,
+        field: RetainedOwnedPhysicalReferenceField, actual: RetainedLazyListActualAttachment
+    ) {
+        guard let storage, matches(storage), actual.target === targetID, actual.attachment === attachmentID,
+            actual.ownedPhysicalReferences === self
+        else { return }
+        let previous = fields[field] ?? []
+        for reference in previous where reference.member.isSlot == slots { reference.withdraw() }
+        var next = previous.filter { $0.member.isSlot != slots }
+        var seen: Set<ObjectIdentifier> = []
+        for member in members where seen.insert(member.identity).inserted {
+            next.append(RetainedOwnedPhysicalReference(member: member, field: field, actual: actual, holder: self))
+        }
+        fields[field] = next.isEmpty ? nil : next
+    }
+
+    fileprivate func remove(
+        field: RetainedOwnedPhysicalReferenceField, slots: Bool? = nil,
+        member: ObjectIdentifier? = nil
+    ) {
+        let previous = fields[field] ?? []
+        var retained: [RetainedOwnedPhysicalReference] = []
+        for reference in previous {
+            if (slots == nil || reference.member.isSlot == slots)
+                && (member == nil || reference.member.identity == member)
+            {
+                reference.withdraw()
+            } else {
+                retained.append(reference)
+            }
+        }
+        fields[field] = retained.isEmpty ? nil : retained
+    }
+
+    fileprivate func removeAllFields() {
+        let original = originalReferences
+        for reference in original { reference.withdraw() }
+        fields.removeAll()
+    }
+
+    fileprivate func removeDeclarationFields() {
+        for field in Array(fields.keys) {
+            if case .declaration = field { remove(field: field) }
+        }
+    }
+
+    /// Proof-only rotation invalidates aliases without deciding root-owned
+    /// declaration lifetime. An actual native withdrawal additionally settles
+    /// only this original cohort's regionless descriptor members.
+    func invalidateBinding(retiringOwnedReferences: Bool) {
+        let original = originalReferences
+        storage = nil
+        for reference in original { reference.withdraw() }
+        fields.removeAll()
+        if retiringOwnedReferences {
+            var seen: Set<ObjectIdentifier> = []
+            for reference in original where seen.insert(reference.member.identity).inserted {
+                reference.member.retireAfterRawWithdrawalIfUnreferenced()
+            }
+        }
+    }
+}
+
 /// Sparse native metadata only. Source stamps never retain source nodes or
 /// executable declarations. Committed payloads remain owned by existing nodes.
 @MainActor
@@ -1527,21 +1798,54 @@ final class RetainedLazyListNodeActivityStorage {
     fileprivate var descriptorOutputs: [RetainedDescriptorSourceOutput] = []
     var committedDescriptorContributions: [ObjectIdentifier: RetainedDescriptorContributionReceipt] = [:]
     fileprivate var wasRejectedSource = false
-    fileprivate var ownedPayloadPermissions: [AnyKeyPath: [RetainedOwnedSlotPermission]] = [:]
-    fileprivate var ownedStructuralPermissions: [RetainedOwnedSlotPermission] = []
-    fileprivate var ownedEmptyStructuralPermissions: [ObjectIdentifier: [RetainedOwnedSlotPermission]] = [:]
-    fileprivate var ownedEmptyStructuralNamespaces: [ObjectIdentifier: RetainedOwnedMarkerNamespaces] = [:]
-    fileprivate var ownedDeclaredStructuralPermissions: [ObjectIdentifier: [RetainedOwnedSlotPermission]] = [:]
-    fileprivate var ownedDeclaredStructuralNamespaces: [ObjectIdentifier: RetainedOwnedMarkerNamespaces] = [:]
-    fileprivate var ownedPayloadComponents: [AnyKeyPath: [RetainedOwnedComponentPresence]] = [:]
-    fileprivate var ownedStructuralComponents: [RetainedOwnedComponentPresence] = []
-    fileprivate var ownedEmptyStructuralComponents: [ObjectIdentifier: RetainedOwnedComponentPresence] = [:]
-    fileprivate var ownedEmptyRowRevisions: [ObjectIdentifier: RetainedOwnedEmptyRowRevision] = [:]
-    fileprivate var ownedDeclaredStructuralComponents: [ObjectIdentifier: RetainedOwnedComponentPresence] = [:]
-    fileprivate var ownedDeclaredStructuralRevision: UInt64 = 0
-    fileprivate var ownedRegionStructuralPermissions: [ObjectIdentifier: [RetainedOwnedSlotPermission]] = [:]
-    fileprivate var ownedRegionStructuralComponents: [ObjectIdentifier: [RetainedOwnedComponentPresence]] = [:]
-    fileprivate var ownedDeferredRegions: [ObjectIdentifier: RetainedOwnedStructuralRegion] = [:]
+    fileprivate weak var ownedPhysicalReferences: RetainedOwnedPhysicalReferenceHolder?
+    private weak var ownedMapObservation: RetainedOwnedPhysicalMapObservation?
+    private weak var ownedBindingObservation: RetainedOwnedPhysicalMapObservation?
+    fileprivate var ownedPayloadPermissions: [AnyKeyPath: [RetainedOwnedSlotPermission]] = [:] {
+        willSet { ownedMapObservation = nil }
+    }
+    fileprivate var ownedStructuralPermissions: [RetainedOwnedSlotPermission] = [] {
+        willSet { ownedMapObservation = nil }
+    }
+    fileprivate var ownedEmptyStructuralPermissions: [ObjectIdentifier: [RetainedOwnedSlotPermission]] = [:] {
+        willSet { ownedMapObservation = nil }
+    }
+    fileprivate var ownedEmptyStructuralNamespaces: [ObjectIdentifier: RetainedOwnedMarkerNamespaces] = [:] {
+        willSet { ownedMapObservation = nil }
+    }
+    fileprivate var ownedDeclaredStructuralPermissions: [ObjectIdentifier: [RetainedOwnedSlotPermission]] = [:] {
+        willSet { ownedMapObservation = nil }
+    }
+    fileprivate var ownedDeclaredStructuralNamespaces: [ObjectIdentifier: RetainedOwnedMarkerNamespaces] = [:] {
+        willSet { ownedMapObservation = nil }
+    }
+    fileprivate var ownedPayloadComponents: [AnyKeyPath: [RetainedOwnedComponentPresence]] = [:] {
+        willSet { ownedMapObservation = nil }
+    }
+    fileprivate var ownedStructuralComponents: [RetainedOwnedComponentPresence] = [] {
+        willSet { ownedMapObservation = nil }
+    }
+    fileprivate var ownedEmptyStructuralComponents: [ObjectIdentifier: RetainedOwnedComponentPresence] = [:] {
+        willSet { ownedMapObservation = nil }
+    }
+    fileprivate var ownedEmptyRowRevisions: [ObjectIdentifier: RetainedOwnedEmptyRowRevision] = [:] {
+        willSet { ownedMapObservation = nil }
+    }
+    fileprivate var ownedDeclaredStructuralComponents: [ObjectIdentifier: RetainedOwnedComponentPresence] = [:] {
+        willSet { ownedMapObservation = nil }
+    }
+    fileprivate var ownedDeclaredStructuralRevision: UInt64 = 0 {
+        willSet { ownedMapObservation = nil }
+    }
+    fileprivate var ownedRegionStructuralPermissions: [ObjectIdentifier: [RetainedOwnedSlotPermission]] = [:] {
+        willSet { ownedMapObservation = nil }
+    }
+    fileprivate var ownedRegionStructuralComponents: [ObjectIdentifier: [RetainedOwnedComponentPresence]] = [:] {
+        willSet { ownedMapObservation = nil }
+    }
+    fileprivate var ownedDeferredRegions: [ObjectIdentifier: RetainedOwnedStructuralRegion] = [:] {
+        willSet { ownedMapObservation = nil }
+    }
     fileprivate var ownedScopeDeclaredSlots: [ObjectIdentifier: RetainedOwnedWeakSlotPermission] = [:]
     fileprivate var ownedScopeDeclaredComponents: [ObjectIdentifier: RetainedOwnedWeakComponentPresence] = [:]
     var acceptedLogicalDeclaration: RetainedLazyListAcceptedLogicalDeclaration?
@@ -1558,8 +1862,59 @@ final class RetainedLazyListNodeActivityStorage {
 
     func captureActualAttachment(of node: ViewNode, in runtime: RetainedViewRuntime) -> RetainedLazyListActualAttachment
     {
-        RetainedLazyListActualAttachment(
+        let actual = RetainedLazyListActualAttachment(
             node: node, runtime: runtime, target: targetID, attachment: attachmentID)
+        actual.ownedPhysicalReferences = node.captureOwnedPhysicalReferences(for: self)
+        return actual
+    }
+
+    func captureOwnedPhysicalReferenceHolder() -> RetainedOwnedPhysicalReferenceHolder {
+        if let holder = ownedPhysicalReferences, holder.matches(self) { return holder }
+        return RetainedOwnedPhysicalReferenceHolder(storage: self)
+    }
+
+    fileprivate func captureOwnedMapObservation() -> RetainedOwnedPhysicalMapObservation {
+        if let observation = ownedMapObservation { return observation }
+        let observation = RetainedOwnedPhysicalMapObservation()
+        ownedMapObservation = observation
+        return observation
+    }
+
+    fileprivate func matchesOwnedMapObservation(_ observation: RetainedOwnedPhysicalMapObservation) -> Bool {
+        ownedMapObservation === observation
+    }
+
+    fileprivate func captureOwnedBindingObservation() -> RetainedOwnedPhysicalMapObservation {
+        if let observation = ownedBindingObservation { return observation }
+        let observation = RetainedOwnedPhysicalMapObservation()
+        ownedBindingObservation = observation
+        return observation
+    }
+
+    fileprivate func matchesOwnedBindingObservation(_ observation: RetainedOwnedPhysicalMapObservation) -> Bool {
+        ownedBindingObservation === observation
+    }
+
+    fileprivate func publishOwnedReferences(
+        _ permissions: [RetainedOwnedSlotPermission], field: RetainedOwnedPhysicalReferenceField,
+        actual: RetainedLazyListActualAttachment
+    ) {
+        guard let holder = actual.ownedPhysicalReferences, holder.matches(self) else { return }
+        holder.replace(permissions.map { .slot($0) }, slots: true, field: field, actual: actual)
+    }
+
+    fileprivate func publishOwnedReferences(
+        components: [RetainedOwnedComponentPresence], field: RetainedOwnedPhysicalReferenceField,
+        actual: RetainedLazyListActualAttachment
+    ) {
+        guard let holder = actual.ownedPhysicalReferences, holder.matches(self) else { return }
+        holder.replace(components.map { .component($0) }, slots: false, field: field, actual: actual)
+    }
+
+    func withdrawOwnedPhysicalReferences() {
+        ownedMapObservation = nil
+        ownedBindingObservation = nil
+        ownedPhysicalReferences?.invalidateBinding(retiringOwnedReferences: true)
     }
 
     fileprivate func registerPhysicalAttachment(
@@ -1592,6 +1947,7 @@ final class RetainedLazyListNodeActivityStorage {
 
     func revokeAttachment() {
         let previousAttachment = attachmentID
+        ownedPhysicalReferences?.invalidateBinding(retiringOwnedReferences: false)
         descriptorOwnerLifetime.revoke()
         for receipt in committedContributions.values {
             receipt.revoke()
@@ -2966,6 +3322,7 @@ final class RetainedLazyListAdoptionJournal {
             if pendingOwnedDepartures[key]?.contains(where: {
                 $0.targetID === snapshot.targetID && $0.attachmentID === snapshot.attachmentID && !$0.wasConsumed
             }) != true {
+                snapshot.admitOriginalRetirementDebts()
                 snapshot.suspendOwnedWrites()
                 pendingOwnedDepartures[key, default: []].append(snapshot)
             }
@@ -2992,13 +3349,29 @@ final class RetainedLazyListAdoptionJournal {
                     $0.targetID === original.targetID && $0.attachmentID === original.attachmentID && !$0.wasConsumed
                 } == true
             if !alreadyPending {
+                original.admitOriginalRetirementDebts()
+                // Publish custody before weak continuation queries. A nested
+                // seal/release must be able to consume this same original.
+                pendingOwnedDepartures[key, default: []].append(original)
                 if canContinueAdoption, let partition = ledger.partitionOrdinaryDeparture(original) {
-                    partition.pending.suspendOwnedWrites()
-                    pendingOwnedDepartures[key, default: []].append(partition.pending)
-                    ticket = RetainedOrdinaryOwnedDeparture(attempt: attempt, node: key, snapshot: partition.pending)
-                    ledger.recordPhysicalDeparture(partition.immediate)
+                    if var current = pendingOwnedDepartures[key],
+                        let position = current.firstIndex(where: { $0 === original })
+                    {
+                        partition.pending.suspendOwnedWrites()
+                        current[position] = partition.pending
+                        pendingOwnedDepartures[key] = current
+                        ticket = RetainedOrdinaryOwnedDeparture(
+                            attempt: attempt, node: key, snapshot: partition.pending)
+                        ledger.recordPhysicalDeparture(partition.immediate)
+                    } else {
+                        // No new queue entry or write permission may be created
+                        // after loss of the original custody association.
+                        ledger.recordPhysicalDeparture(partition.immediate)
+                        ledger.recordPhysicalDeparture(partition.pending)
+                    }
                 } else {
                     ledger.recordPhysicalDeparture(original)
+                    removeSpentOwnedDepartures([original], at: key)
                 }
             }
         }
@@ -3054,15 +3427,24 @@ final class RetainedLazyListAdoptionJournal {
             if ownedLedger?.awaitsReplacementDeclaration(snapshot) == true { continue }
             ownedLedger?.recordPhysicalDeparture(snapshot)
         }
-        let remaining = snapshots.filter { !$0.wasConsumed }
-        pendingOwnedDepartures[key] = remaining.isEmpty ? nil : remaining
+        removeSpentOwnedDepartures(snapshots, at: key)
     }
 
     private func finishPendingOwnedDepartures() {
-        for snapshots in pendingOwnedDepartures.values {
+        let original = pendingOwnedDepartures
+        for snapshots in original.values {
             for snapshot in snapshots where !snapshot.wasConsumed { ownedLedger?.recordPhysicalDeparture(snapshot) }
         }
-        pendingOwnedDepartures.removeAll()
+        for (key, snapshots) in original { removeSpentOwnedDepartures(snapshots, at: key) }
+    }
+
+    private func removeSpentOwnedDepartures(
+        _ original: [RetainedOwnedPhysicalDepartureSnapshot], at key: ObjectIdentifier
+    ) {
+        let spent = Set(original.filter(\.wasConsumed).map { ObjectIdentifier($0) })
+        guard !spent.isEmpty, let current = pendingOwnedDepartures[key] else { return }
+        let remaining = current.filter { !spent.contains(ObjectIdentifier($0)) }
+        pendingOwnedDepartures[key] = remaining.isEmpty ? nil : remaining
     }
 
     @discardableResult
@@ -3320,6 +3702,8 @@ final class RetainedLazyListAdoptionJournal {
         finishPendingOwnedDepartures()
         ownedLedger?.finishPendingDeclaredMarkerRetirements()
         finishRowReplacementHandoffs()
+        finishPendingOwnedDepartures()
+        ownedLedger?.finishPendingDeclaredMarkerRetirements()
         guard !hasAcceptedContributions, !didMutate else { return }
         wasRevoked = true
         boundDescriptorScope?.revoke()
@@ -3333,6 +3717,8 @@ final class RetainedLazyListAdoptionJournal {
         ownedLedger?.finishPendingDeclaredMarkerRetirements()
         finishRowReplacementHandoffs()
         let ordinary = ordinaryLedger?.seal()
+        finishPendingOwnedDepartures()
+        ownedLedger?.finishPendingDeclaredMarkerRetirements()
         for cleanup in ordinary?.cleanup ?? [] { recordCleanupID(cleanup) }
         var partial: [RetainedLazyListPartialGroup] = []
         var unadopted: [RetainedLazyListGroupID] = []
@@ -3396,6 +3782,7 @@ final class RetainedLazyListAdoptionJournal {
             descriptorSources.removeAll()
             existingLogicalDeclarations.removeAll()
             ordinaryLedger?.releaseUnadoptedTransport()
+            finishPendingOwnedDepartures()
             ownedLedger?.finish()
             phase = .finished
         }
@@ -4604,6 +4991,7 @@ fileprivate final class RetainedOwnedComponentPresence {
     private(set) var wasRevoked = false
     var payloadFacets: [RetainedOwnedPhysicalFacetKey: RetainedLazyListActualAttachment] = [:]
     var structuralFacets: [RetainedOwnedPhysicalFacetKey: RetainedLazyListActualAttachment] = [:]
+    var ownedReferenceIndex: RetainedOwnedPhysicalReferenceIndex?
     var deferredRegion: RetainedOwnedStructuralRegion?
     var declaredRegions: [ObjectIdentifier: RetainedOwnedStructuralRegion] = [:]
 
@@ -4718,6 +5106,7 @@ fileprivate final class RetainedOwnedSlotPermission {
     fileprivate var payloadFacets: [RetainedOwnedPhysicalFacetKey: RetainedLazyListActualAttachment] = [:]
     fileprivate var structuralFacets: [RetainedOwnedPhysicalFacetKey: RetainedLazyListActualAttachment] = [:]
     fileprivate var pendingDepartures: [ObjectIdentifier: RetainedOwnedPhysicalFacetKey] = [:]
+    fileprivate var ownedReferenceIndex: RetainedOwnedPhysicalReferenceIndex?
 
     init(
         owner: RetainedOwnedComponentID,
@@ -5249,6 +5638,10 @@ final class RetainedOwnedPhysicalDepartureRemoval {
     private weak var originalStorage: RetainedLazyListNodeActivityStorage?
     private let targetID: RetainedLazyListTargetID
     private let attachmentID: RetainedLazyListAttachmentID
+    private let originalObservation: RetainedOwnedPhysicalMapObservation?
+    private let originalBindingObservation: RetainedOwnedPhysicalMapObservation?
+    private let originalBinding: RetainedOwnedPhysicalBindingID?
+    private let originalReferences: [RetainedOwnedPhysicalReference]
     private var wasClaimed = false
     private var didClearOriginalMaps = false
 
@@ -5259,14 +5652,22 @@ final class RetainedOwnedPhysicalDepartureRemoval {
         originalStorage = storage
         self.targetID = targetID
         self.attachmentID = attachmentID
+        originalObservation = storage?.captureOwnedMapObservation()
+        originalBindingObservation = storage?.captureOwnedBindingObservation()
+        originalBinding = storage?.ownedPhysicalReferences?.identity
+        originalReferences = storage?.ownedPhysicalReferences?.originalReferences ?? []
     }
 
     func removeOriginalMapsOnce() {
         guard !wasClaimed else { return }
         wasClaimed = true
-        guard let storage = originalStorage, storage.targetID === targetID, storage.attachmentID === attachmentID else {
+        guard let storage = originalStorage, storage.targetID === targetID, storage.attachmentID === attachmentID,
+            let originalObservation, storage.matchesOwnedMapObservation(originalObservation),
+            matchesOriginalBinding(on: storage)
+        else {
             return
         }
+        for reference in originalReferences { reference.withdraw() }
         Self.removePhysicalMaps(from: storage)
         // This is evidence of a completed native clear, not a permission cache.
         // A refused clear never establishes absence and cannot be retried.
@@ -5283,12 +5684,26 @@ final class RetainedOwnedPhysicalDepartureRemoval {
 
     var successfullyClearedOriginalStorage: RetainedLazyListNodeActivityStorage? {
         guard didClearOriginalMaps, let storage = originalStorage,
-            storage.targetID === targetID, storage.attachmentID === attachmentID
+            storage.targetID === targetID, storage.attachmentID === attachmentID,
+            matchesOriginalBinding(on: storage)
         else { return nil }
         return storage
     }
 
+    private func matchesOriginalBinding(on storage: RetainedLazyListNodeActivityStorage) -> Bool {
+        // Arming an empty holder is a read, not a native field mutation. The
+        // binding observation remains original even after a successful map
+        // clear; actual storage withdrawal invalidates it before release.
+        guard let originalBindingObservation, storage.matchesOwnedBindingObservation(originalBindingObservation) else {
+            return false
+        }
+        guard let originalBinding else { return true }
+        guard let holder = storage.ownedPhysicalReferences, holder.identity === originalBinding else { return false }
+        return holder.matches(storage)
+    }
+
     fileprivate static func removePhysicalMaps(from storage: RetainedLazyListNodeActivityStorage) {
+        storage.ownedPhysicalReferences?.removeAllFields()
         storage.ownedPayloadPermissions.removeAll()
         storage.ownedStructuralPermissions.removeAll()
         storage.ownedEmptyStructuralPermissions.removeAll()
@@ -5321,7 +5736,8 @@ fileprivate final class RetainedOwnedPhysicalDepartureSnapshot {
     let regionSlots: [ObjectIdentifier: [RetainedOwnedSlotPermission]]
     let regionComponents: [ObjectIdentifier: [RetainedOwnedComponentPresence]]
     var wasConsumed = false
-    private var sharedRemoval: RetainedOwnedPhysicalDepartureRemoval?
+    private let sharedRemoval: RetainedOwnedPhysicalDepartureRemoval
+    private var retirementDebts: [ObjectIdentifier: RetainedOwnedRetirementDebt] = [:]
     private var isPendingPartition = false
 
     var permissions: [RetainedOwnedSlotPermission] {
@@ -5349,6 +5765,8 @@ fileprivate final class RetainedOwnedPhysicalDepartureSnapshot {
         regions = storage.ownedDeferredRegions
         regionSlots = storage.ownedRegionStructuralPermissions
         regionComponents = storage.ownedRegionStructuralComponents
+        sharedRemoval = RetainedOwnedPhysicalDepartureRemoval(
+            storage: storage, targetID: targetID, attachmentID: attachmentID)
     }
 
     private init(
@@ -5378,6 +5796,9 @@ fileprivate final class RetainedOwnedPhysicalDepartureSnapshot {
         regions = [:]
         regionSlots = [:]
         regionComponents = [:]
+        retirementDebts = original.retirementDebts.filter { identifier, _ in
+            (permissions.contains(identifier) || components.contains(identifier)) == keepingMembers
+        }
     }
 
     func partition(
@@ -5386,8 +5807,7 @@ fileprivate final class RetainedOwnedPhysicalDepartureSnapshot {
         guard !wasConsumed, regions.isEmpty, regionSlots.isEmpty, regionComponents.isEmpty,
             !permissions.isEmpty || !components.isEmpty
         else { return nil }
-        let removal = RetainedOwnedPhysicalDepartureRemoval(
-            storage: storage, targetID: targetID, attachmentID: attachmentID)
+        let removal = sharedRemoval
         let immediate = RetainedOwnedPhysicalDepartureSnapshot(
             original: self, permissions: permissions, components: components, keepingMembers: false, removal: removal)
         let pending = RetainedOwnedPhysicalDepartureSnapshot(
@@ -5395,20 +5815,39 @@ fileprivate final class RetainedOwnedPhysicalDepartureSnapshot {
         // Transfer this one capture, without recapturing either physical maps
         // or authored payloads when the second cohort eventually retires.
         wasConsumed = true
+        retirementDebts.removeAll()
         return (immediate, pending)
     }
 
     func removePhysicalMaps() {
-        if let sharedRemoval {
-            sharedRemoval.removeOriginalMapsOnce()
-        } else if let storage, storage.targetID === targetID, storage.attachmentID === attachmentID {
-            RetainedOwnedPhysicalDepartureRemoval.removePhysicalMaps(from: storage)
-        }
+        sharedRemoval.removeOriginalMapsOnce()
     }
 
     var laterPublicationStorage: RetainedLazyListNodeActivityStorage? {
         guard isPendingPartition else { return nil }
-        return sharedRemoval?.successfullyClearedOriginalStorage
+        return sharedRemoval.successfullyClearedOriginalStorage
+    }
+
+    /// Admission happens after the queue's duplicate check and before any
+    /// weak-UI continuation selection. Partitioning transfers these same debts.
+    func admitOriginalRetirementDebts() {
+        guard !wasConsumed else { return }
+        for permission in permissions {
+            let identifier = ObjectIdentifier(permission)
+            if retirementDebts[identifier] == nil {
+                retirementDebts[identifier] = RetainedOwnedRetirementDebt(member: .slot(permission))
+            }
+        }
+        for presence in components {
+            let identifier = ObjectIdentifier(presence)
+            if retirementDebts[identifier] == nil {
+                retirementDebts[identifier] = RetainedOwnedRetirementDebt(member: .component(presence))
+            }
+        }
+    }
+
+    func spendOriginalRetirementDebts() {
+        for debt in retirementDebts.values { debt.spend() }
     }
 
     func suspendOwnedWrites() {
@@ -5483,6 +5922,7 @@ private final class RetainedOwnedDeclaredMarkerRetirement {
     let formerActual: RetainedLazyListActualAttachment
     let removalFacet: RetainedLazyListSourceFacetID
     var wasConsumed = false
+    let retirementDebt: RetainedOwnedRetirementDebt
 
     init(
         attempt: RetainedLazyListAttemptID, member: Member, plans: [RetainedOwnedComponentDeclarationPlan],
@@ -5493,6 +5933,10 @@ private final class RetainedOwnedDeclaredMarkerRetirement {
         self.plans = plans
         self.formerActual = formerActual
         self.removalFacet = removalFacet
+        switch member {
+        case .slot(let permission): retirementDebt = RetainedOwnedRetirementDebt(member: .slot(permission))
+        case .component(let presence): retirementDebt = RetainedOwnedRetirementDebt(member: .component(presence))
+        }
     }
 
     func suspendOwnedWrite() {
@@ -6361,12 +6805,17 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
                 let permissions = successfulPermissions(publication.permissions, declarations: declarations)
                 let oldPermissions = storage.ownedDeclaredStructuralPermissions.values.flatMap { $0 }
                 let oldPresences = Array(storage.ownedDeclaredStructuralComponents.values)
+                storage.ownedPhysicalReferences?.removeDeclarationFields()
                 storage.ownedDeclaredStructuralPermissions.removeAll()
                 storage.ownedDeclaredStructuralComponents.removeAll()
                 storage.ownedDeclaredStructuralNamespaces.removeAll()
                 for plan in declarations {
                     let owner = ObjectIdentifier(plan.receipt.owner)
+                    storage.publishOwnedReferences(
+                        plan.receipt.slotPermissions, field: .declaration(owner), actual: actual)
                     storage.ownedDeclaredStructuralPermissions[owner] = plan.receipt.slotPermissions
+                    storage.publishOwnedReferences(
+                        components: [plan.receipt.componentPresence], field: .declaration(owner), actual: actual)
                     storage.ownedDeclaredStructuralComponents[owner] = plan.receipt.componentPresence
                     storage.ownedDeclaredStructuralNamespaces[owner, default: RetainedOwnedMarkerNamespaces()].include(
                         plan.structuralRegions)
@@ -6399,12 +6848,16 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
             facet: publication.facet, kind: .structuralEntry)
         let oldPermissions = storage.ownedDeclaredStructuralPermissions.values.flatMap { $0 }
         let oldPresences = Array(storage.ownedDeclaredStructuralComponents.values)
+        storage.ownedPhysicalReferences?.removeDeclarationFields()
         storage.ownedDeclaredStructuralPermissions.removeAll()
         storage.ownedDeclaredStructuralComponents.removeAll()
         storage.ownedDeclaredStructuralNamespaces.removeAll()
         for plan in publication.declarations {
             let owner = ObjectIdentifier(plan.receipt.owner)
+            storage.publishOwnedReferences(plan.receipt.slotPermissions, field: .declaration(owner), actual: actual)
             storage.ownedDeclaredStructuralPermissions[owner] = plan.receipt.slotPermissions
+            storage.publishOwnedReferences(
+                components: [plan.receipt.componentPresence], field: .declaration(owner), actual: actual)
             storage.ownedDeclaredStructuralComponents[owner] = plan.receipt.componentPresence
             storage.ownedDeclaredStructuralNamespaces[owner, default: RetainedOwnedMarkerNamespaces()].include(
                 plan.structuralRegions)
@@ -6483,16 +6936,19 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
                 })
             else { continue }
             ticket.wasConsumed = true
+            ticket.retirementDebt.spend()
             ticket.finishOwnedWriteSuspension()
         }
     }
 
     func finishPendingDeclaredMarkerRetirements() {
-        for ticket in declaredMarkerRetirements.values where !ticket.wasConsumed {
+        let original = Array(declaredMarkerRetirements.values)
+        for ticket in original where !ticket.wasConsumed {
             // Mark it spent before retirement so no helper can defer it again.
             // Keep the original member entry until finish; reentry cannot rearm
             // this journal's already claimed handoff after an accepted prefix.
             ticket.wasConsumed = true
+            ticket.retirementDebt.spend()
             switch ticket.member {
             case .slot(let permission): retireIfUnreferenced(permission, preservingCold: false)
             case .component(let presence): retireIfUnreferenced(presence, preservingCold: false)
@@ -6548,6 +7004,7 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
             let owner = ObjectIdentifier(plan.receipt.owner)
             let previous = storage.ownedEmptyStructuralPermissions[owner] ?? []
             let next = plan.receipt.slotPermissions
+            storage.publishOwnedReferences(next, field: .empty(owner), actual: anchor)
             storage.ownedEmptyStructuralPermissions[owner] = next
             let key = RetainedOwnedPhysicalFacetKey(
                 target: ObjectIdentifier(storage.targetID), attachment: ObjectIdentifier(storage.attachmentID),
@@ -6558,6 +7015,7 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
                 retireIfUnreferenced(permission, preservingCold: false)
             }
             let presence = plan.receipt.componentPresence
+            storage.publishOwnedReferences(components: [presence], field: .empty(owner), actual: anchor)
             storage.ownedEmptyStructuralComponents[owner] = presence
             storage.ownedEmptyStructuralNamespaces[owner, default: RetainedOwnedMarkerNamespaces()].include(
                 plan.structuralRegions)
@@ -6586,10 +7044,12 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
                 target: ObjectIdentifier(marker.actual.target), attachment: ObjectIdentifier(marker.actual.attachment),
                 field: nil)
             for (owner, permissions) in marker.permissions {
+                storage.ownedPhysicalReferences?.remove(field: .empty(owner), slots: true)
                 storage.ownedEmptyStructuralPermissions.removeValue(forKey: owner)
                 for permission in permissions { removeStructuralReference(permission, storage: storage, key: key) }
             }
             for (owner, presence) in marker.components {
+                storage.ownedPhysicalReferences?.remove(field: .empty(owner), slots: false)
                 storage.ownedEmptyStructuralComponents.removeValue(forKey: owner)
                 storage.ownedEmptyStructuralNamespaces.removeValue(forKey: owner)
                 removeComponentStructuralReference(presence, storage: storage, key: key)
@@ -6638,7 +7098,10 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
             region.revision += 1
             boundary.deferredRegion = region
             storage.ownedDeferredRegions[identifier] = region
+            storage.publishOwnedReferences(Array(slots.values), field: .region(identifier), actual: actual)
             storage.ownedRegionStructuralPermissions[identifier] = Array(slots.values)
+            storage.publishOwnedReferences(
+                components: Array(components.values), field: .region(identifier), actual: actual)
             storage.ownedRegionStructuralComponents[identifier] = Array(components.values)
             let key = RetainedOwnedPhysicalFacetKey(
                 target: ObjectIdentifier(actual.target), attachment: ObjectIdentifier(actual.attachment),
@@ -6668,10 +7131,11 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
     private func removeRegionStructuralMarker(
         _ region: RetainedOwnedStructuralRegion, at actual: RetainedLazyListActualAttachment
     ) {
-        guard let storage = actual.node?.retainedLazyListActivityStorage,
+        guard let storage = actual.originalOwnedReferenceStorage,
             storage.targetID === actual.target, storage.attachmentID === actual.attachment
         else { return }
         let identifier = ObjectIdentifier(region)
+        storage.ownedPhysicalReferences?.remove(field: .region(identifier))
         let slots = storage.ownedRegionStructuralPermissions.removeValue(forKey: identifier) ?? []
         let components = storage.ownedRegionStructuralComponents.removeValue(forKey: identifier) ?? []
         storage.ownedDeferredRegions.removeValue(forKey: identifier)
@@ -6687,7 +7151,7 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
     ) {
         let references = permission.structuralFacets
         for (key, actual) in references where key.field == nil && key.region == nil {
-            guard let storage = actual.node?.retainedLazyListActivityStorage,
+            guard let storage = actual.originalOwnedReferenceStorage,
                 storage.targetID === actual.target, storage.attachmentID === actual.attachment
             else { continue }
             let owner = ObjectIdentifier(permission.owner)
@@ -6697,6 +7161,8 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
                 let previous = storage.ownedEmptyStructuralPermissions[owner]
             {
                 let next = previous.filter { $0 !== permission }
+                storage.ownedPhysicalReferences?.remove(
+                    field: .empty(owner), slots: true, member: ObjectIdentifier(permission))
                 storage.ownedEmptyStructuralPermissions[owner] = next.isEmpty ? nil : next
                 if next.count != previous.count, case .lazy(let logical) = permission.lifetime {
                     advanceEmptyRowRevision(on: storage, membership: logical.id)
@@ -6708,6 +7174,8 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
                 let previous = storage.ownedDeclaredStructuralPermissions[owner]
             {
                 let next = previous.filter { $0 !== permission }
+                storage.ownedPhysicalReferences?.remove(
+                    field: .declaration(owner), slots: true, member: ObjectIdentifier(permission))
                 storage.ownedDeclaredStructuralPermissions[owner] = next.isEmpty ? nil : next
             }
             removeStructuralReference(permission, storage: storage, key: key)
@@ -6719,7 +7187,7 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
     ) {
         let references = presence.structuralFacets
         for (key, actual) in references where key.field == nil && key.region == nil {
-            guard let storage = actual.node?.retainedLazyListActivityStorage,
+            guard let storage = actual.originalOwnedReferenceStorage,
                 storage.targetID === actual.target, storage.attachmentID === actual.attachment
             else { continue }
             let owner = ObjectIdentifier(presence.owner)
@@ -6731,6 +7199,8 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
                 if namespaces.holds(presence, outside: region) {
                     storage.ownedEmptyStructuralNamespaces[owner] = namespaces
                 } else {
+                    storage.ownedPhysicalReferences?.remove(
+                        field: .empty(owner), slots: false, member: ObjectIdentifier(presence))
                     storage.ownedEmptyStructuralComponents.removeValue(forKey: owner)
                     storage.ownedEmptyStructuralNamespaces.removeValue(forKey: owner)
                 }
@@ -6746,6 +7216,8 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
                 if namespaces.holds(presence, outside: region) {
                     storage.ownedDeclaredStructuralNamespaces[owner] = namespaces
                 } else {
+                    storage.ownedPhysicalReferences?.remove(
+                        field: .declaration(owner), slots: false, member: ObjectIdentifier(presence))
                     storage.ownedDeclaredStructuralComponents.removeValue(forKey: owner)
                     storage.ownedDeclaredStructuralNamespaces.removeValue(forKey: owner)
                 }
@@ -6850,6 +7322,7 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
                 return nil
             }
             for owner in removedOwners {
+                storage.ownedPhysicalReferences?.remove(field: .empty(owner))
                 let permissions = storage.ownedEmptyStructuralPermissions.removeValue(forKey: owner) ?? []
                 let presence = storage.ownedEmptyStructuralComponents.removeValue(forKey: owner)
                 storage.ownedEmptyStructuralNamespaces.removeValue(forKey: owner)
@@ -6865,6 +7338,7 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
 
     func recordPhysicalDeparture(of node: ViewNode, cause: RetainedLazyListDepartureCause) {
         guard let snapshot = capturePhysicalDeparture(of: node, cause: cause) else { return }
+        snapshot.admitOriginalRetirementDebts()
         recordPhysicalDeparture(snapshot)
     }
 
@@ -6953,23 +7427,20 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
     func recordPhysicalDeparture(_ snapshot: RetainedOwnedPhysicalDepartureSnapshot) {
         guard !snapshot.wasConsumed else { return }
         snapshot.wasConsumed = true
+        snapshot.spendOriginalRetirementDebts()
         defer { snapshot.finishOwnedWriteSuspension() }
         let cause = snapshot.cause
         snapshot.removePhysicalMaps()
-        // Only a pending partition whose shared clear actually succeeded may
-        // preserve a matching local member. All such tables were empty at that
-        // boundary, so this membership proves a later native publication even
-        // when it reused the same permission, presence, or empty anchor object.
-        // Recheck the original weak storage/IDs per member, after any preceding
-        // retirement query's weak loads and releases; do not cache that match.
+        // A refused clear leaves its original aliases intact. A successful
+        // clear withdraws them before map release; any remaining alias names a
+        // separate accepted field publication. Neither case needs a weak UI
+        // lookup or treats duplicate facts as independent physical references.
         for (field, permissions) in snapshot.payloads {
             let key = RetainedOwnedPhysicalFacetKey(
                 target: ObjectIdentifier(snapshot.targetID), attachment: ObjectIdentifier(snapshot.attachmentID),
                 field: field)
             for permission in permissions {
-                if snapshot.laterPublicationStorage?.ownedPayloadPermissions[field]?.contains(where: {
-                    $0 === permission
-                }) != true {
+                if permission.ownedReferenceIndex?.contains(key) != true {
                     permission.payloadFacets.removeValue(forKey: key)
                 }
                 retireIfUnreferenced(permission, preservingCold: cause == .viewportEviction)
@@ -6979,9 +7450,7 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
             target: ObjectIdentifier(snapshot.targetID), attachment: ObjectIdentifier(snapshot.attachmentID),
             field: nil)
         for permission in snapshot.structural + snapshot.emptyStructural {
-            if let laterPublicationStorage = snapshot.laterPublicationStorage {
-                removeStructuralReference(permission, storage: laterPublicationStorage, key: key)
-            } else {
+            if permission.ownedReferenceIndex?.contains(key) != true {
                 permission.structuralFacets.removeValue(forKey: key)
             }
             retireIfUnreferenced(permission, preservingCold: cause == .viewportEviction)
@@ -6991,18 +7460,14 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
                 target: ObjectIdentifier(snapshot.targetID), attachment: ObjectIdentifier(snapshot.attachmentID),
                 field: field)
             for presence in presences {
-                if snapshot.laterPublicationStorage?.ownedPayloadComponents[field]?.contains(where: {
-                    $0 === presence
-                }) != true {
+                if presence.ownedReferenceIndex?.contains(key) != true {
                     presence.payloadFacets.removeValue(forKey: key)
                 }
                 retireIfUnreferenced(presence, preservingCold: cause == .viewportEviction)
             }
         }
         for presence in snapshot.componentStructural {
-            if let laterPublicationStorage = snapshot.laterPublicationStorage {
-                removeComponentStructuralReference(presence, storage: laterPublicationStorage, key: key)
-            } else {
+            if presence.ownedReferenceIndex?.contains(key) != true {
                 presence.structuralFacets.removeValue(forKey: key)
             }
             retireIfUnreferenced(presence, preservingCold: cause == .viewportEviction)
@@ -7012,11 +7477,15 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
                 target: ObjectIdentifier(snapshot.targetID), attachment: ObjectIdentifier(snapshot.attachmentID),
                 field: nil, region: identifier)
             for permission in snapshot.regionSlots[identifier] ?? [] {
-                permission.structuralFacets.removeValue(forKey: regionKey)
+                if permission.ownedReferenceIndex?.contains(regionKey) != true {
+                    permission.structuralFacets.removeValue(forKey: regionKey)
+                }
                 retireIfUnreferenced(permission, preservingCold: cause == .viewportEviction)
             }
             for presence in snapshot.regionComponents[identifier] ?? [] {
-                presence.structuralFacets.removeValue(forKey: regionKey)
+                if presence.ownedReferenceIndex?.contains(regionKey) != true {
+                    presence.structuralFacets.removeValue(forKey: regionKey)
+                }
                 retireIfUnreferenced(presence, preservingCold: cause == .viewportEviction)
             }
             if cause != .viewportEviction, region.owner.nativePresence?.hasDeclaredComponent != true {
@@ -7097,6 +7566,7 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         let key = RetainedOwnedPhysicalFacetKey(
             target: ObjectIdentifier(storage.targetID), attachment: ObjectIdentifier(storage.attachmentID), field: field
         )
+        storage.publishOwnedReferences(incoming, field: .payload(field), actual: actual)
         storage.ownedPayloadPermissions[field] = incoming.isEmpty ? nil : incoming
         for permission in incoming { permission.payloadFacets[key] = actual }
         for permission in previous where !incoming.contains(where: { $0 === permission }) {
@@ -7112,6 +7582,7 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         let previous = storage.ownedStructuralPermissions
         let key = RetainedOwnedPhysicalFacetKey(
             target: ObjectIdentifier(storage.targetID), attachment: ObjectIdentifier(storage.attachmentID), field: nil)
+        storage.publishOwnedReferences(incoming, field: .structural, actual: actual)
         storage.ownedStructuralPermissions = incoming
         for permission in incoming { permission.structuralFacets[key] = actual }
         for permission in previous where !incoming.contains(where: { $0 === permission }) {
@@ -7122,8 +7593,8 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
 
     private func retireIfUnreferenced(_ permission: RetainedOwnedSlotPermission, preservingCold: Bool) {
         if preservingCold, case .lazy = permission.lifetime { return }
-        guard !permission.payloadFacets.values.contains(where: \.isAttached),
-            !permission.structuralFacets.values.contains(where: \.isAttached)
+        guard permission.ownedReferenceIndex?.hasCurrentReference != true,
+            permission.ownedReferenceIndex?.hasPendingRetirement != true
         else { return }
         guard !awaitsDeclaredMarkerReplacement(ObjectIdentifier(permission)) else { return }
         retire(permission)
@@ -7131,27 +7602,17 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
 
     private func removeStructuralReference(
         _ permission: RetainedOwnedSlotPermission,
-        storage: RetainedLazyListNodeActivityStorage, key: RetainedOwnedPhysicalFacetKey
+        storage _: RetainedLazyListNodeActivityStorage, key: RetainedOwnedPhysicalFacetKey
     ) {
-        guard !storage.ownedStructuralPermissions.contains(where: { $0 === permission }),
-            !storage.ownedEmptyStructuralPermissions.values.contains(where: {
-                $0.contains(where: { $0 === permission })
-            }),
-            !storage.ownedDeclaredStructuralPermissions.values.contains(where: {
-                $0.contains(where: { $0 === permission })
-            })
-        else { return }
+        guard permission.ownedReferenceIndex?.contains(key) != true else { return }
         permission.structuralFacets.removeValue(forKey: key)
     }
 
     private func removeComponentStructuralReference(
-        _ presence: RetainedOwnedComponentPresence, storage: RetainedLazyListNodeActivityStorage,
+        _ presence: RetainedOwnedComponentPresence, storage _: RetainedLazyListNodeActivityStorage,
         key: RetainedOwnedPhysicalFacetKey
     ) {
-        guard !storage.ownedStructuralComponents.contains(where: { $0 === presence }),
-            storage.ownedEmptyStructuralComponents[ObjectIdentifier(presence.owner)] !== presence,
-            storage.ownedDeclaredStructuralComponents[ObjectIdentifier(presence.owner)] !== presence
-        else { return }
+        guard presence.ownedReferenceIndex?.contains(key) != true else { return }
         presence.structuralFacets.removeValue(forKey: key)
     }
 
@@ -7165,6 +7626,7 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         )
         let previous = storage.ownedPayloadComponents[field] ?? []
         let next = hasPayload ? incoming : []
+        storage.publishOwnedReferences(components: next, field: .payload(field), actual: actual)
         storage.ownedPayloadComponents[field] = next.isEmpty ? nil : next
         for presence in next { presence.payloadFacets[key] = actual }
         for presence in previous where !next.contains(where: { $0 === presence }) {
@@ -7180,6 +7642,7 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         let previous = storage.ownedStructuralComponents
         let key = RetainedOwnedPhysicalFacetKey(
             target: ObjectIdentifier(storage.targetID), attachment: ObjectIdentifier(storage.attachmentID), field: nil)
+        storage.publishOwnedReferences(components: incoming, field: .structural, actual: actual)
         storage.ownedStructuralComponents = incoming
         for presence in incoming { presence.structuralFacets[key] = actual }
         for presence in previous where !incoming.contains(where: { $0 === presence }) {
@@ -7190,8 +7653,8 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
 
     private func retireIfUnreferenced(_ presence: RetainedOwnedComponentPresence, preservingCold: Bool) {
         if preservingCold, case .lazy = presence.lifetime { return }
-        guard !presence.payloadFacets.values.contains(where: \.isAttached),
-            !presence.structuralFacets.values.contains(where: \.isAttached)
+        guard presence.ownedReferenceIndex?.hasCurrentReference != true,
+            presence.ownedReferenceIndex?.hasPendingRetirement != true
         else { return }
         guard !awaitsDeclaredMarkerReplacement(ObjectIdentifier(presence)) else { return }
         retire(presence)
@@ -7231,6 +7694,7 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
     }
 
     func finish() {
+        let originalRetirements = declaredMarkerRetirements
         finishPendingDeclaredMarkerRetirements()
         wasFinished = true
         propertyPublications.removeAll()
@@ -7238,7 +7702,10 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         structuralPublications.removeAll()
         insertedRegionPublications.removeAll()
         completedRegionPublications.removeAll()
-        declaredMarkerRetirements.removeAll()
+        for (member, ticket) in originalRetirements
+        where ticket.wasConsumed && declaredMarkerRetirements[member] === ticket {
+            declaredMarkerRetirements.removeValue(forKey: member)
+        }
         registrations.removeAll()
         sources.removeAll()
         componentParents.removeAll()

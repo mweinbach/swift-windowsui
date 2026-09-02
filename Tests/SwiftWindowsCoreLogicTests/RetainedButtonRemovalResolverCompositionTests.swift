@@ -218,6 +218,11 @@ final class RetainedButtonRemovalResolverCompositionTests: XCTestCase {
             XCTAssertTrue(row.hasAppeared)
             XCTAssertTrue(row.parent === list)
             XCTAssertNotEqual(row.transition.removal.kind, .identity)
+            // Observe refusal by this original attempt. The separate default-budget
+            // retry fixture checks that a later round starts with fresh admission.
+            if clearsOwner {
+                XCTAssertTrue(host.runtime.configureLazyListResolutionBudget(elementLimit: 128, roundLimit: 1))
+            }
             var events: [String] = []
             var disappearances = 0
             row.onDisappear = { disappearances += 1 }

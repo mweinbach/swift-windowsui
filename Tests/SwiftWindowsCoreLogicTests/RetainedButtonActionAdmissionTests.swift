@@ -2,6 +2,7 @@ import SwiftWindowsCore
 import XCTest
 
 @testable import SwiftWindowsUI
+@testable import WinSwiftUI
 
 @MainActor
 final class RetainedButtonActionAdmissionTests: XCTestCase {
@@ -73,9 +74,40 @@ private final class ButtonFinalAdmissionFixture {
     let lease: ButtonFinalAdmissionLease
     let events: ButtonFinalAdmissionEvents
     let savedIncoming: (() -> Void)?
+    private let stateCoordinator: StateMountCoordinator
+    private let activity: any RetainedLazyListBuildActivity
+    private let descriptorScope: RetainedLazyListDescriptorBuildScope
+    private let descriptorSource: ViewNode
 
     init() throws {
         let runtime = RetainedViewRuntime(root: ViewNode(frame: Rect(x: 0, y: 0, width: 200, height: 100)))
+        let container = ViewNode(frame: Rect(x: 0, y: 0, width: 100, height: 60))
+        let stateCoordinator = StateMountCoordinator(
+            invalidate: {}, observeObject: { _ in }, updateObservedObjects: { _, _, _ in })
+        let build = try XCTUnwrap(stateCoordinator.beginBuild())
+        var setupCompleted = false
+        defer {
+            if !setupCompleted {
+                build.abandon()
+                build.finishAfterCallbacks()
+                stateCoordinator.close()
+            }
+        }
+        let activity = try XCTUnwrap(build as? any RetainedLazyListBuildActivity)
+        let descriptorScope = RetainedLazyListDescriptorBuildScope(
+            origin: .componentHostRoot, hostLifetime: runtime.lazyListLogicalHostLifetime,
+            ownerLifetime: container.lazyListActivityStorage().descriptorOwnerLifetime)
+        defer { if !setupCompleted { descriptorScope.finish() } }
+        guard activity.bindLazyListDescriptorScope(descriptorScope) else {
+            throw ButtonFinalAdmissionError.noAdmission
+        }
+        var buildContext = ViewBuildContext(
+            stateMountCoordinator: stateCoordinator, canvasSizeProvider: { Size(width: 200, height: 100) },
+            invalidateHandler: {}
+        ).withViewIdentityType(ButtonFinalAdmissionRoot.self)
+        _ = try XCTUnwrap(stateCoordinator.install(ButtonFinalAdmissionRoot(), context: &buildContext))
+        let descriptorReceipt = try XCTUnwrap(stateCoordinator.descriptorResolutionReceipt(in: buildContext))
+        let descriptorIdentity = buildContext.retainedViewIdentity.appending(.role(.content))
         let events = ButtonFinalAdmissionEvents()
         let retained = Self.button(runtime: runtime) {}
         let incoming = Self.button(runtime: runtime) { events.activations += 1 }
@@ -99,8 +131,12 @@ private final class ButtonFinalAdmissionFixture {
         let provider = RetainedLazyListDataSource<Int, [ViewNode]>()
         XCTAssertTrue(
             provider.replaceData(
-                [0], id: \.self, identityRoot: .init(segments: [.role(.content)]),
+                [0], id: \.self, identityRoot: descriptorIdentity, descriptorBuildScope: descriptorScope,
                 rowContent: { _, _ in [incoming, sourceNested] }))
+        let metadata = try XCTUnwrap(provider.metadata)
+        let proposal = try XCTUnwrap(
+            stateCoordinator.stageLazyMembership(
+                at: descriptorIdentity, metadata: metadata, context: buildContext, receipt: descriptorReceipt))
         let row = try XCTUnwrap(provider.metadata?.rows.first)
         let request = try XCTUnwrap(provider.request(for: row.token))
         let prefix = try XCTUnwrap(provider.identityPrefix(for: request))
@@ -111,7 +147,11 @@ private final class ButtonFinalAdmissionFixture {
             RetainedLazyListRuntimeAdapter(
                 provider: provider, estimatedExtent: 20, prefetchExtent: 0,
                 maximumMountedRecords: 4, maximumMountedLeaves: 8, maximumProtectedRecords: 1))
-        let container = ViewNode(frame: Rect(x: 0, y: 0, width: 100, height: 60))
+        guard adapter.installManagedLogicalDescriptor(proposal.nativeBinding) else {
+            throw ButtonFinalAdmissionError.noAdmission
+        }
+        let descriptorSource = ViewNode()
+        descriptorSource.retainedLazyListAdapter = adapter
         container.addChild(retained)
         container.addChild(previousNested)
         runtime.root.addChild(container)
@@ -120,30 +160,41 @@ private final class ButtonFinalAdmissionFixture {
         container.retainedLazyListAdapter = adapter
         let coordinator = runtime.retainedBuildCoordinator
         let sequence = try XCTUnwrap(coordinator.beginBuild())
+        coordinator.install(build, startedAt: sequence)
         let admission = RetainedLazyListAdoptionAdmission(
             adapter: adapter, container: container, runtime: runtime, coordinator: coordinator, sequence: sequence)
-        var setupCompleted = false
         defer {
             if !setupCompleted {
                 admission.revoke()
                 coordinator.finishBuild()
             }
         }
+        // A selected-row journal requires the same managed descriptor and real
+        // build activity as Runtime. An unmanaged adapter refuses reconciliation
+        // before copying any Button, so it cannot test final admission cleanup.
+        let journal = RetainedLazyListAdoptionJournal(admission: admission, transaction: RetainedBuildTransaction())
+        guard journal.bindDescriptorScope(descriptorScope),
+            journal.registerSourceDescriptor(proposal.nativeBinding, on: descriptorSource) != nil
+        else { throw ButtonFinalAdmissionError.noAdmission }
         let context = try XCTUnwrap(
             RetainedLazyListMeasurementContext(width: 100, displayScale: 1, contentRevision: 0, environmentRevision: 0))
         let viewport = try XCTUnwrap(RetainedLazyListRuntimeAdapter.Viewport(context: context, offset: 0, extent: 60))
         let budget = try XCTUnwrap(RetainedLazyListWorkBudget(elementLimit: 4, roundLimit: 2))
         guard
             case .ready(let candidate) = adapter.prepare(
-                viewport: viewport, protectedRoots: [], budget: budget, admission: admission)
+                viewport: viewport, protectedRoots: [], budget: budget, admission: admission,
+                activity: activity, journal: journal)
         else { throw ButtonFinalAdmissionError.noCandidate }
         guard admission.installCandidate(candidate), admission.isCurrent else {
             throw ButtonFinalAdmissionError.noAdmission
         }
-        let journal = RetainedLazyListAdoptionJournal(admission: admission, transaction: RetainedBuildTransaction())
         let preparation = try XCTUnwrap(journal.preparation())
-        let activity = RetainedLazyListPreparedActivity(preparation: preparation, logicalMembershipPlans: [])
-        guard journal.beginAdoption(preparation, preparedActivity: activity) else {
+        let prepared = try XCTUnwrap(activity.willAdoptLazyList(preparation))
+        guard journal.beginAdoption(preparation, preparedActivity: prepared),
+            candidate.configureManagedPublication(preparation), journal.markMutationStarted(),
+            case .ready(let publication) = journal.prepareDescriptorCopy(from: descriptorSource, to: container),
+            journal.recordAcceptedLogicalDeclaration(publication) != nil
+        else {
             throw ButtonFinalAdmissionError.noAdmission
         }
         self.runtime = runtime
@@ -156,6 +207,10 @@ private final class ButtonFinalAdmissionFixture {
         self.journal = journal
         self.coordinator = coordinator
         self.lease = lease
+        self.stateCoordinator = stateCoordinator
+        self.activity = activity
+        self.descriptorScope = descriptorScope
+        self.descriptorSource = descriptorSource
         savedIncoming = incoming.onActivate
         setupCompleted = true
     }
@@ -169,11 +224,15 @@ private final class ButtonFinalAdmissionFixture {
     func finish() {
         events.onRelease = nil
         admission.revoke()
-        _ = journal.seal()
+        let disposition = journal.seal()
         journal.finishAcceptedTaskCleanup()
         journal.releaseUnadoptedTransport()
         candidate.discardBuiltContent()
+        activity.commitLazyList(disposition)
+        activity.finishAfterCallbacks()
+        descriptorScope.finish()
         coordinator.finishBuild()
+        stateCoordinator.close()
         provider.close()
         runtime.stopRenderLifecycleCallbacks()
         runtime.cancelRenderLifecycleTasks()
@@ -191,6 +250,8 @@ private final class ButtonFinalAdmissionFixture {
         return button(runtime: runtime) { [probe] in withExtendedLifetime(probe) {} }
     }
 }
+
+private struct ButtonFinalAdmissionRoot {}
 
 @MainActor
 private final class ButtonFinalAdmissionEvents {

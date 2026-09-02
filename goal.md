@@ -12255,3 +12255,42 @@ The independent native reconciliation is 3,813 bytes, SHA256
 All nine original completion gates remain open. No current full validation,
 visual parity, complete API census, native fairness, hardware, hosted CI,
 packaging, or clean-machine release qualification is inferred from these runs.
+
+
+### 2026-09-01: Authentic Button admission and separate removal retry fixtures
+
+Three test files now carry the reviewed Button fixture repairs from private
+sources `063d1ea60eddccc6d26b6e91d7a345c7d0494b97` and
+`bea342546a7327c5960d84a4977198cea4ab82c7`. The admission fixture supplies the
+real managed descriptor, selected-row build activity, and checked publication
+that its existing reconciliation path requires. Its three test bodies,
+17 assertions, original Button callbacks, and destructor probe are unchanged.
+No authority is replaced after the destructor callout.
+
+The owner-clearing removal fixture now isolates its original rejected attempt
+with one round; its other branch retains the default. All 69 original XCTest
+calls remain. A separate new regression retains the default 128-element,
+four-round allowance and requires a strictly later provider round and layout
+pass before the later modifier or retirement can occur. The original physical
+attachments must survive the rejection, followed by exactly one valid
+disappearance and retired paint in the successor attempt. The next fixed
+Button/Table selection is the original 166 methods plus this new method, not
+a replacement or reduced selection.
+
+Root formatting and contracts passed. The complete staged source diff matches
+the reviewed 19,394-byte patch, SHA256
+`ff366eb0fe37c81da17d6b7c705389e23bea243612dc6c6e3b9942a14eefb5b2`;
+the staged source tree is `353f09c64ebb5b44b8203b93ab5a1c99cc3875ac`.
+The remaining 639 original test files, production, and Package.swift are
+unchanged. Source proof and the two imported packets are retained under
+`artifacts/goal-ninth-button-fixtures4ae-staged-proof-v1.json`,
+`goal-ninth-button-admission063d-intake-v1`, and
+`goal-ninth-button-removalbea3-intake-v1`. These repairs have not yet been
+compiled or run; the earlier four failures remain the actual result.
+
+Correction to the preceding 525c6e7 budget description: the explicit allowances
+are EIGHT and sixteen rounds, as fixed in
+`ManagedListUIARealizationBudgetTests.swift:17` and `:21`. Both runs consumed
+six rounds. Six was the observed consumption, not the first configured
+allowance. This clarification changes neither source nor test expectations.
+All nine original completion gates remain open.

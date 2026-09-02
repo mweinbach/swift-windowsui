@@ -250,3 +250,35 @@ Seven new pure encoding tests supplement the existing 101-method focused
 cohort; fresh compilation and execution remain required. All 27 predicates,
 64 commands, ordinal-31 query, turn budgets, deadlines and trace caps remain
 unchanged. A later native attempt also needs a fresh executable binding.
+
+## Passive foreground activation result
+
+The first existing `SetForegroundWindow` return in this fixture is recorded as
+the appended `nativeForegroundActivationResult` event (85). Its `value` is 1
+when the call brought the window to the foreground and 0 when it did not.
+No event means unrecorded; zero is a recorded outcome, not a native error code.
+Window identity and the current copied surface generation/native sequence name
+the source context after the API returns. The normal recorder supplies its
+timestamp and executing thread ID. No extra Win32 query or HWND is recorded.
+
+The observation object reserves one attempt for the entire fixture before
+calling the unchanged recorder, including when its fixed capacity or invalidity
+state rejects that attempt. Later activation results do not replace it. Normal
+applications have no observer and perform no diagnostic call. The activation
+call, its return value, window/input behavior and all timer policies stay intact.
+
+Windows documents a taskbar-flashing fallback for restricted foreground
+activation, but this scalar cannot identify a message producer or prove that
+flashing occurred. A successful result also does not prove continued foreground
+status. See [SetForegroundWindow](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setforegroundwindow).
+The diagnostic never qualifies idle, exempts `0x118`, or supplies fairness
+evidence. All 27 predicates, workload, deadlines, turn limits and trace caps
+remain unchanged.
+
+Eight new recorder/vocabulary/parser source tests supplement the existing
+tests without changing them. They are not native observations and remain
+unexecuted at this private source handoff. Appending the event and recorder
+method changes the observation source pin: an output-contract successor must
+pin the exact reviewed file and retain the earlier 0...84 event encodings.
+Any later compilation, test run, binding or native attempt remains a separate
+root-owned decision.

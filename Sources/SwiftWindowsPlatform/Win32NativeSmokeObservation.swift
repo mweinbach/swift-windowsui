@@ -93,6 +93,7 @@ package enum Win32NativeSmokeEventKind: UInt16, CaseIterable, Sendable {
     case ingressSnapshot
     case smokeProbeEmitted
     case publicationGateReleaseRequested
+    case nativeForegroundActivationResult
 }
 
 /// Receiver association sampled from this owner's existing state before message dispatch.
@@ -227,6 +228,7 @@ package final class Win32NativeSmokeObservation: Sendable {
         var overflowed = false
         var hasNonfiniteTiming = false
         var deliveredProbeCount: UInt64 = 0
+        var didAttemptForegroundActivationResult = false
         var counts = Array(repeating: UInt64(0), count: Win32NativeSmokeEventKind.allCases.count)
         var latest = [Win32NativeSmokeRecord?](
             repeating: nil, count: Win32NativeSmokeEventKind.allCases.count)
@@ -241,6 +243,24 @@ package final class Win32NativeSmokeObservation: Sendable {
     private let state = Mutex(State())
 
     package init(runID: Foundation.UUID) { self.runID = runID }
+
+    /// Capture only the first actual SetForegroundWindow return for this fixture.
+    /// Reserving before record() also spends the attempt if the recorder rejects it.
+    /// This scalar is not proof of continued foreground status, flashing, or idle.
+    @discardableResult
+    package func recordForegroundActivationResult(
+        _ didActivate: Bool, windowKey: NativeWindowKey, generation: UInt64?, nativeSequence: UInt64?
+    ) -> Bool {
+        let shouldRecord = state.withLock { stored in
+            guard !stored.didAttemptForegroundActivationResult else { return false }
+            stored.didAttemptForegroundActivationResult = true
+            return true
+        }
+        guard shouldRecord else { return false }
+        return record(
+            .nativeForegroundActivationResult, windowKey: windowKey, generation: generation,
+            nativeSequence: nativeSequence, value: didActivate ? 1 : 0)
+    }
 
     @discardableResult
     package func record(

@@ -1527,6 +1527,9 @@ final class Win32NativeWindowState: NativeWindowOwnerContext {
             enableInteractiveInput()
             ShowWindow(handle, IsIconic(handle) ? SW_RESTORE : SW_SHOW)
             let activated = SetForegroundWindow(handle)
+            owner.mailbox.smokeObservation?.recordForegroundActivationResult(
+                activated, windowKey: creation.key, generation: currentSurface?.generation,
+                nativeSequence: currentSurface?.geometry.nativeSequence)
             UpdateWindow(handle)
             InvalidateRect(handle, nil, false)
             return .activated(activated)

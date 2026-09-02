@@ -111,7 +111,7 @@ limits still apply; this is not the completed product in `goal.md`.
 | `LinearGradient` | **Partial** | Axis-aligned shape fills preserve authored intermediate colors, nonuniform stop positions, duplicate-position hard stops, transparent stops, and reversed endpoints on CPU, the D3D11 scene path, and both live frame-fallback presenters; promoted rectangular Canvas fills additionally preserve diagonal, inset, transformed, and rounded gradient vectors on the CPU and D3D11 scene paths |
 | `RadialGradient`, `AngularGradient` | **Partial** | Retained shape fills preserve authored multistop colors, hard stops, opacity, unit-space centers, radial start/end radii, angular start/end angles and signed partial or reversed sweeps on CPU snapshots and native D3D11 GPU quads, including rounded/transformed/clipped surfaces; the legacy frame fallback degrades to a solid base color, and Canvas radial/conic path shading remains unavailable |
 | `StrokeStyle` on any outline | **Partial** | Retained shape producers preserve authored width, cap, join, miter, dash and phase metadata. The scene route resolves border dashes through `BorderSegments` and custom-path dashes through `PathDashing`; legacy background-path commands preserve width/cap/join/miter but currently omit dash/phase. Exact `strokeBorder`, trim geometry and native parity remain unqualified |
-| `UnevenRoundedRectangle` | **Implemented** | Per-corner radii end-to-end (RTL-aware); uniform-only consumers (shadow/outline/clip) fall back to max radius |
+| `UnevenRoundedRectangle` | **Partial** | Direct fill/border and retained interaction content shapes preserve four RTL-aware radii; public paths use circular corner arcs. Continuous corners, maximum-radius visual clip/shadow/outline fallbacks, and other shape-composition limits remain open |
 | `Canvas` + `GraphicsContext` | **Partial** | Scene-path drawing; `Path(_:)` / `Path(roundedRect:cornerRadius:)` / `Path(ellipseIn:)` build a fillable path without a `Shape`, and a convex fill is emitted as one unbroken span per row. Multistop linear-gradient path fills **and strokes** preserve authored stops, inset or diagonal endpoint vectors, and context transforms on the CPU and D3D11 scene paths; rectangle and rounded-rectangle gradient fills promote directly to instanced GPU quads while retaining diagonal/inset/transformed endpoints, rounded coverage, hard stops, transparency, and clips. Complex fills and gradient strokes retain the bounded cached CPU-path lane; the legacy `RenderFrame` fallback uses the first stop for gradient-shaded paths. Tagged `symbols:` resolve in the inherited environment and draw through scene-backed images; copied contexts share draw order with independent graphics state, and authored symbol affine placement is retained. See [Canvas symbols](CanvasSymbols.md) for bounds and unqualified native semantics. Full blend/filter/layer behavior, `withCGContext`, and radial/conic path gradients remain unsupported |
 | `ContentUnavailableView` | **Implemented** | Retained empty-state chrome |
 
@@ -168,9 +168,12 @@ The sibling-allowance repair fixes the earlier retraced-quadratic rejection
 without changing tolerances or limits. The complete 98-case shape/selection
 cohort passed, and one fresh retained CPU gallery image was visually inspected;
 neither establishes native parity or an approved baseline.
-Bounds-dependent custom shapes, nested/inset
-shape composition, trim hit/clip behavior, animated fractions and native parity
-remain unqualified; see [path trimming](PathTrimming.md).
+The rectangle/ordered-point-inset trim route now preserves point units through
+erasure and resolves geometry at actual inner paint bounds, including full range.
+Its eighteen new analytic/retained-pixel controls are not yet compiled or run;
+the earlier results do not qualify this source. Bounds-dependent custom shapes,
+nested trims, other inset shape composition, trim hit/clip behavior, animated
+fractions and native parity remain unqualified; see [path trimming](PathTrimming.md).
 Inset's existing `.inset(by:)` reconstruction can discard stored styling.
 General path clipping, arbitrary custom component paint ownership, shape-path
 gradient fidelity, dashes, antialiasing and native rendering parity remain separate.

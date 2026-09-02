@@ -45,15 +45,33 @@ boundaries; full-range copying does not repair those consumers. An arc after
 `close` starts its own contour. General line/curve continuation after `close`
 is outside partial admission.
 
-Retained `TrimmedShape` builds value geometry once from its content's unit
-rectangle. Its layout callback reads the live inner paint size, scales the
-untrimmed path, trims in that resolved metric and normalizes the result for one
-presentation transform. It captures no authored shape, build context or temporary
-node and does not call authored `path(in:)` during layout. Paint metadata and
-passive erasure remain intact. Collapsed dimensions and rejected selections keep
-an explicit empty path so they cannot fall back to a rectangular background.
-The exact full-range route remains unchanged. Existing retained arc flattening
-is still an approximation and is not a general arc rendering fix.
+Retained `TrimmedShape` recognizes a rectangle and its ordered point insets,
+including `AnyShape` erasure. Construction preserves an immutable descriptor;
+layout applies its scalar insets to the live inner paint rectangle before
+trimming. An inset of ten points stays ten points when the view resizes. This
+route also resolves full-range inset rectangles. Raw negative derived dimensions
+keep the existing public rectangle path's reversed edges, rather than introducing
+a new clamp. Nonfinite intermediate coordinates, dimensions or extents reject
+the whole geometry.
+
+The descriptor admits at most 65,536 inset operations, including zero amounts.
+This is separate from the unchanged Core path-element and work limits. Immutable
+balanced blocks share their scalar storage across erasure and descriptor copies;
+each prepend copies at most 17 root references, not the entire inset sequence.
+Construction flattens the admitted sequence once. Layout retains only that array
+and trim fractions, with no authored shape, callback, build context or temporary
+paint owner. These representation bounds are not a measured performance result.
+A recognized rejection remains rejected through wrappers and never retries an
+authored or unit-rectangle fallback.
+
+Other retained content still builds value geometry once in its unit rectangle,
+then scales and trims that geometry in the live inner paint metric. Its existing
+full-range route, and the plain rectangle's full-range route, remain unchanged.
+Neither route calls authored `path(in:)` during layout. Paint metadata and passive
+erasure remain intact. Collapsed paint dimensions and rejected selections keep
+an explicit empty path so they cannot become rectangular backgrounds. The result
+is normalized for one presentation transform. Existing retained arc flattening
+remains an approximation and is not a general arc rendering fix.
 
 There are 26 original analytic portable tests, six additional reversal controls
 and 12 retained geometry/pixel tests. At `a3dfc5f`, fresh execution passed all
@@ -68,6 +86,14 @@ controls. This is focused execution, not a full-suite or native parity result.
 Exact source, raw logs and outcomes are recorded in the append-only
 [goal ledger](../goal.md).
 
+Eighteen additional `RetainedRectangleInsetTrimTests` are source-only controls
+pending compilation and execution. Their independent line-length and pixel
+oracles cover point insets, full/half/empty fills, raw reversed edges, ordered
+floating-point arithmetic, descriptor sharing and bounds, rejection, resizing,
+live stroke width, origin/DPI placement, erasure, reconciliation and lifetime.
+All twelve existing `TrimmedShapeGeometryTests` remain unchanged. The earlier
+44-case result does not establish a pass for these new controls or this source.
+
 The `shape-trim-static` gallery entry provides a 600-by-400 dark fixture with
 wide and tall quarter outlines, a half quadratic curve, and full/half/empty
 fills against untrimmed references. Its shared demo source uses ordinary shape
@@ -78,7 +104,8 @@ expected panels; the gray complete-curve reference still shows segment faceting.
 This adds no approved baseline, D3D11 execution, macOS reference comparison or
 performance qualification.
 
-Bounds-dependent custom shapes, literal and nested retained geometry, inset and
-`strokeBorder` composition, hit/clip semantics, animated fractions, arbitrary
-transforms, gradient/dash/antialiasing fidelity and native parity remain open.
+Bounds-dependent custom shapes, literal paths, nested trimmed geometry, other
+built-in inset geometry, the trimmed-shape inset no-op, and `strokeBorder`
+composition remain open. So do hit/clip semantics, animated fractions, arbitrary
+transforms, gradient/dash/antialiasing fidelity and native parity.
 This implementation does not complete the shape or rendering acceptance gates.

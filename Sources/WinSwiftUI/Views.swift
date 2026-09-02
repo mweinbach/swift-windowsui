@@ -2601,7 +2601,7 @@ public struct ContainerRelativeShape: View {
     }
 }
 @MainActor
-public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
+public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider, RetainedRectangleTrimGeometryProvider {
     public typealias Body = Never
 
     private let buildComponent: (ViewBuildContext) -> Component
@@ -2609,6 +2609,7 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
     private let buildPath: (Rect) -> Path
     private let clipShapeStyle: RetainedClipShapeStyle
     private let contentShapeDescriptor: RetainedContentShapeDescriptor
+    private let rectangleTrimGeometry: RetainedRectangleTrimGeometry
     private var fillStyle: ForegroundStyle?
     private var fillRuleStyle: RetainedClipFillStyle?
     private var strokeStyle: ForegroundStyle?
@@ -2623,6 +2624,7 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
         self.buildPath = { rect in shape.path(in: rect) }
         self.clipShapeStyle = (shape as? any RetainedClipShape)?.retainedClipShapeStyle ?? .rectangle
         self.contentShapeDescriptor = resolvedRetainedContentShapeDescriptor(for: shape)
+        self.rectangleTrimGeometry = resolvedRectangleTrimGeometry(for: shape)
         self.fillStyle = nil
         self.fillRuleStyle = nil
         self.strokeStyle = nil
@@ -2644,6 +2646,10 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
 
     var retainedContentShapeDescriptor: RetainedContentShapeDescriptor {
         contentShapeDescriptor
+    }
+
+    var retainedRectangleTrimGeometry: RetainedRectangleTrimGeometry {
+        rectangleTrimGeometry
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
@@ -2826,7 +2832,9 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
     }
 }
 @MainActor
-public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, RetainedContentShapeProvider {
+public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, RetainedContentShapeProvider,
+    RetainedRectangleTrimGeometryProvider
+{
     public typealias Body = Never
 
     private let content: Content
@@ -2834,6 +2842,7 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
     private let amount: Double
     private let clipShapeStyle: RetainedClipShapeStyle
     private let contentShapeDescriptor: RetainedContentShapeDescriptor
+    private let rectangleTrimGeometry: RetainedRectangleTrimGeometry
     private var fillStyle: ForegroundStyle?
     private var fillRuleStyle: RetainedClipFillStyle?
     private var strokeStyle: ForegroundStyle?
@@ -2848,6 +2857,7 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
         self.amount = amount
         self.clipShapeStyle = (content as? any RetainedClipShape)?.retainedClipShapeStyle ?? .rectangle
         self.contentShapeDescriptor = resolvedRetainedContentShapeDescriptor(for: content)
+        self.rectangleTrimGeometry = resolvedRectangleTrimGeometry(for: content).prependingInset(amount)
         self.fillStyle = nil
         self.fillRuleStyle = nil
         self.strokeStyle = nil
@@ -2865,6 +2875,10 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
 
     var retainedContentShapeDescriptor: RetainedContentShapeDescriptor {
         contentShapeDescriptor.inset(by: amount)
+    }
+
+    var retainedRectangleTrimGeometry: RetainedRectangleTrimGeometry {
+        rectangleTrimGeometry
     }
 
     private var adjustedClipShapeStyle: RetainedClipShapeStyle {
@@ -3128,6 +3142,19 @@ public struct TrimmedShape<Content: Shape>: Shape, RetainedClipShape, RetainedCo
         let paint = ResolvedShapePaint(
             fillStyle: fillStyle, fillRuleStyle: fillRuleStyle, strokeStyle: strokeStyle,
             lineWidth: lineWidth, strokeLineStyle: strokeLineStyle, foregroundStyle: context.foregroundStyle)
+        switch resolvedRectangleTrimGeometry(for: content).resolve() {
+        case .unavailable: break
+        case .rejected:
+            return Self.rectangleTrimComponent(
+                paint: paint, insets: nil, from: Double(startFraction), to: Double(endFraction))
+        case .rectangle(let insets):
+            // A point inset depends on actual paint dimensions even for [0,1].
+            // Keep the existing full-range route for the plain rectangle.
+            if !insets.isEmpty || startFraction != 0 || endFraction != 1 {
+                return Self.rectangleTrimComponent(
+                    paint: paint, insets: insets, from: Double(startFraction), to: Double(endFraction))
+            }
+        }
         // Authored geometry runs only during construction. Layout callbacks
         // below retain value geometry, not Content or a temporary paint owner.
         let unitPath = content.path(in: Rect(x: 0, y: 0, width: 1, height: 1))
@@ -3197,6 +3224,36 @@ public struct TrimmedShape<Content: Shape>: Shape, RetainedClipShape, RetainedCo
                 // the unit rectangle. ScenePainter applies the origin once.
                 let scaled = untrimmed.scaled(to: Rect(x: 0, y: 0, width: width, height: height))
                 let trimmed = Self.coreTrimPath(scaled).trimmedPath(from: trimStart, to: trimEnd)
+                let normalized = RenderPath(path: trimmed).scaled(
+                    to: Rect(x: 0, y: 0, width: 1 / width, height: 1 / height))
+                node.backgroundPath = Self.isFiniteTrimPath(normalized) ? normalized : RenderPath()
+            }
+            return node
+        }
+    }
+
+    private static func rectangleTrimComponent(
+        paint: ResolvedShapePaint, insets: [Double]?, from: Double, to: Double
+    ) -> Component {
+        Component { _ in
+            let node = Controls.panel(backgroundColor: .clear, isHitTestVisible: false)
+            node.layoutFillAxes = .both
+            paint.apply(to: ShapePaintOwner(node: node))
+            node.backgroundPath = RenderPath()
+            guard let insets, from.isFinite, to.isFinite, from >= 0, to <= 1, from <= to else { return node }
+            node.onLayoutWithNode = { node, bounds in
+                let inset = node.borderWidth > 0 ? node.borderWidth : 0
+                let width = bounds.size.width - 2 * inset
+                let height = bounds.size.height - 2 * inset
+                guard width.isFinite, height.isFinite, width > 0, height > 0,
+                    (1 / width).isFinite, (1 / height).isFinite,
+                    let rectangle = RetainedRectangleTrimGeometry.path(
+                        in: Rect(x: 0, y: 0, width: width, height: height), insets: insets)
+                else {
+                    node.backgroundPath = RenderPath()
+                    return
+                }
+                let trimmed = rectangle.trimmedPath(from: from, to: to)
                 let normalized = RenderPath(path: trimmed).scaled(
                     to: Rect(x: 0, y: 0, width: 1 / width, height: 1 / height))
                 node.backgroundPath = Self.isFiniteTrimPath(normalized) ? normalized : RenderPath()
@@ -3645,8 +3702,12 @@ extension Shape where Self == ContainerRelativeShape {
         ContainerRelativeShape()
     }
 }
-extension Rectangle: InsettableShape, RetainedClipShape {
+extension Rectangle: InsettableShape, RetainedClipShape, RetainedRectangleTrimGeometryProvider {
     var retainedClipShapeStyle: RetainedClipShapeStyle {
+        .rectangle
+    }
+
+    var retainedRectangleTrimGeometry: RetainedRectangleTrimGeometry {
         .rectangle
     }
 }

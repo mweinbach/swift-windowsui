@@ -12179,3 +12179,79 @@ staged source tree. The sealed UIA source packet is retained in
 Compiler acceptance and runtime behavior of these captures still require the
 next serial run. This entry changes no completion criterion: all nine original
 gates remain open, and the other prepared focused cohorts remain unrun.
+
+
+### 2026-09-01: Fresh selected cohorts and one native attempt at 525c6e7
+
+All five selected XCTest cohorts below used the same clean commit
+`525c6e72148e1cc5fd56fa2f3ab38d911d0ed5f0`, tree
+`737feefa5a4685c042ce1fffb19a51ad8d259944`. Each selected method had an
+independently reconciled start and terminal result. None skipped a case; each
+also recorded the separate zero-test Swift Testing footer. Source and index
+endpoints matched. These are focused results, not a full-suite pass.
+
+| Fixed cohort | Passed | Failed | Direct-child result and elapsed time |
+| --- | ---: | ---: | --- |
+| Ordinary ownership/membership, 152 cases | 135 | 17 | Natural exit 1; 399.719 s |
+| Button/Table, 166 cases | 162 | 4 | Natural exit 1; 12.735 s |
+| UIA continuation/readers/origins, 122 cases | 104 | 18 | Natural exit 1; 266.234 s |
+| Public UIA and realization budgets, 19 cases | 7 | 12 | Natural exit 1; 204.062 s |
+| Native dispatch/shutdown/smoke validation, 94 cases | 94 | 0 | Natural exit 0; 6.875 s |
+
+The previous compiler failures remain in this ledger. The 525c6e7 capture
+corrections were accepted by this build. All original 132 ordinary cases and
+the three bare-empty diagnostics passed. The remaining 17 ordinary failures
+throw `candidate` during the shared fixture's unsupported plain-adapter setup;
+the reviewed two-line identified-source fixture correction is not yet applied
+or executed. All 56 Table cases passed. The four Button failures comprise
+three unsupported managed-admission fixture setups and one removal assertion
+that conflates the rejected attempt with a later default-budget attempt.
+Separate fixture repairs, including a new default-budget removal regression,
+remain unexecuted at this checkpoint.
+
+The UIA failures still prevent qualification. Static review correlates several
+positive failures with an unchanged provider build invalidating an otherwise
+current actual layout pass. Reader construction, original slot resolution,
+mounted State, and binding assertions pass in the reader cohort; synchronous
+request settlement does not. The reader fixture performs 301 fresh projection
+queries when finding row 300; no per-Realize latency was measured. The public
+budget diagnostics remain distinct: the default allowance uses four rounds
+and reports budget exhaustion; both explicit six- and sixteen-round allowances
+use six rounds and complete construction but remain unsettled. No allowance,
+assertion, settlement guard, or acceptance criterion was relaxed.
+
+The 94 passing tests permitted a separate, single bounded native attempt on
+the same source and index. Its pinned executable was 95,502,848 bytes,
+SHA256 `84cfa98e6c757193baa4f8ad1e22e5f6dda7acbeb12584f216fc94a7aab17ed5`.
+The incremental focused invocation did not relink that executable; the binding
+retains the observed successful build inputs and existing PE bytes without
+claiming a new link or loaded-DLL attestation. All 135 explicit DLL input pins
+were preserved during the attempt.
+
+The actual native attempt failed: 24 of 27 predicates passed. Thread separation
+now passes. `actor-progress-between-backlogged-turns`,
+`backlogged-32-record-turn-and-continuation`, and
+`three-second-unforced-settled-idle` failed. The validator reports insufficient
+fairness exercise; the idle failure requires separate trace diagnosis. The
+native child and controller exited 1 naturally after 11.25 seconds, with no
+timeout, termination attempt, fixture failure, or source/input change. The
+original controller's cleanup-required flag remains recorded, not rewritten.
+A later CIM observation found no matching child/toolchain process or formatter;
+this is a point observation, not continuous descendant attestation. No retry,
+larger workload, added delay, or predicate relaxation is authorized by this
+failed result.
+
+Evidence is retained under `artifacts/`: the five
+`goal-ninth-*-525c6e7-reconciled-v1.json` records and corresponding closure
+records; `goal-ninth-native94-525c6e7-binding-v1.json` and build association;
+and `goal-ninth-native-smoke-525c6e7-failed-reconciled-v1.json`. The native
+attempt directory is
+`goal-ninth-native-owned-smoke-11744293cdab4997ad57001b701add15`; its 2,812-record,
+652,011-byte trace has SHA256
+`44f6c44f4a5777034b49de91e01af6b44e5a0917c980ee461c7ec61bff14a680`.
+The independent native reconciliation is 3,813 bytes, SHA256
+`aaed50755070370d3dc61a9a935919a3b42cc89c2490761ffe9047b13d883aac`.
+
+All nine original completion gates remain open. No current full validation,
+visual parity, complete API census, native fairness, hardware, hosted CI,
+packaging, or clean-machine release qualification is inferred from these runs.

@@ -14745,3 +14745,54 @@ A smaller compiled coordinator frame alone will not prove sufficient stack
 margin or close the original crash. Any incomplete case remains unknown;
 no depth, tolerance, cohort membership or acceptance gate is changed. All
 nine original product gates remain open.
+
+
+### Fresh Canvas, clipping, ownership, and calendar qualification at bb755b5 (2026-09-02)
+
+This entry records execution of the previously frozen selections at commit `bb755b566d830eb277a49b34618cb83b3b234032`, tree `5dfe034b197ed58340da3675ada54d9ed065c98c`. It adds evidence without changing the original product definition, acceptance thresholds, or nine open completion gates. The ten attempts ran serially with unchanged tracked source and index endpoints. Each retained direct child closed naturally; a separate point-in-time process census found no matching compiler, test, or formatter before the next run. That census is not continuous descendant attestation. No timeout was enlarged and no original test was skipped.
+
+| Frozen selection | Selected | Passed | Failed | Started without result | Unrun | Runner seconds |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `canvas3` | 3 | 3 | 0 | 0 | 0 | 501.297 |
+| `clip-c06` | 212 | 212 | 0 | 0 | 0 | 169.000 |
+| `material24` | 24 | 24 | 0 | 0 | 0 | 8.391 |
+| `d3dmaterial16` | 16 | 16 | 0 | 0 | 0 | 11.016 |
+| `nativefacts77` | 77 | 77 | 0 | 0 | 0 | 7.516 |
+| `multipicker67` | 67 | 34 | 1 | 1 | 31 | 184.375 |
+| `publication94` | 94 | 94 | 0 | 0 | 0 | 40.375 |
+| `collateral46` | 46 | 46 | 0 | 0 | 0 | 12.547 |
+| `clip-c02` | 215 | 215 | 0 | 0 | 0 | 15.109 |
+| `clip-c05` | 209 | 209 | 0 | 0 | 0 | 31.734 |
+
+These are 963 selected case executions, with 932 starts: 930 passing terminals, one failing terminal, one unknown result, 31 unrun cases, and no skips. They contain 944 distinct selected method identifiers: 911 passed, one failed, one is unknown, and 31 remain unrun. The three Canvas cases repeat inside C06, and the sixteen D3D material cases repeat inside C05; those nineteen repetitions are not additional unique tests. The machine-readable accounting is `artifacts/goal-ninth-bb755b5-focused-validation-ledger-v1.json`.
+
+The unchanged deep Canvas regression now passes at its original depth and assertions. The three-case attempt built the combined source in 493.98 seconds and completed all three cases; the original 212-case C06 roster subsequently completed too, including the 191 cases the earlier abnormal attempt never entered. The separate 24 material and 16 D3D material cases also passed. The earlier 4cc03c8 abnormal attempt and its unknown result remain historical evidence; a new pass does not rewrite them.
+
+Static inspection of the exact resulting 701,313,536-byte XCTest image (SHA-256 `56a432d5a6cdeffeb2439feff5929555bed27923c8c65782288b913a4784c3b2`) found a 600-byte paintNode stack subtraction plus 64 bytes of register pushes, versus the earlier 3,400-byte subtraction plus the same pushes. The separate traversal seed and selector return before recursive paint work. This comparison is not a bound on peak stack usage, a general recursion guarantee, or a performance measurement. The evidence is under `artifacts/goal-ninth-canvas3-bb755b5-prologues-v1/`.
+
+All 215 original C02 and all 209 original C05 cases passed on this commit. Together with C06, these are 636 passing cases from three unchanged original clipping rosters. This covers the earlier corner-radii failure and the corrected nested-effect fixture in their full original selections. C01 and C03 retain their earlier evidence, not fresh bb755b5 results; C04 and its remaining keyboard/public scrolling failures still require execution after their own corrections. This is not a fresh six-cohort or full-suite pass.
+
+The 94 ordinary publication cases passed, including all three original raw-withdrawal tests, the earlier 76-case set, and the fifteen new physical-reference regressions. All 46 separate handoff/state/task collateral cases also passed, making 140 distinct methods. This validates the integrated physical-reference slice in those selections. It does not validate the unintegrated mounted successor changes or the callback-installed final-children withdrawal gap.
+
+All 77 NativeDisplayMeasurement tests passed. These validate the supplied-fact checker only. No native acquisition, OS display-event join, authenticated frame identity, input-effect association, deadline or latency threshold, 60/120/144 Hz run, or hardware qualification is established. The next acquisition implementation remains a separate private work item, with opt-in/default-off behavior and no output after incomplete or failed shutdown.
+
+The 67-case calendar attempt is NOT a pass. All fifteen DatePickerCalendarModel and twelve GraphicalDatePickerControl tests passed. GraphicalDatePickerMountedTests completed seven passes and one failed case: `testRejectedCandidateAndRemovalDoNotKeepProvisionalMonthState` observed January 2024 instead of February 2024, then failed to unwrap the requested day node. That is one failed case with two assertion lines. No assumption about which admission, write, or rebuild branch caused it has been accepted without the planned passive diagnostic.
+
+The next case, `MultiDatePickerAccessibleLabelTests.testHiddenAndIgnoredLabelSubtreesCannotOverrideTheVisibleAccessibleName`, started but has no terminal XCTest result. The process reported a fatal duplicate-DateComponents Set error and exited with code 1 after 184.375 seconds, without a timeout. The seven new selection, thirteen control, and eleven mounted cases never started. The unchanged complete-cohort reconciler correctly refused the incomplete start roster; a distinct partial receipt records 34 passed, one failed, one unknown, and 31 unrun without weakening that reconciler.
+
+Application Error record 8493 correlates by executable path and time and reports swiftCore.dll exception c000001d. This is not itself a stack or process-ancestry proof. Separately, read-only PE/COFF inspection of the exact pinned binary attributes the first logged application frame, RVA 0x06841515, to MultiDatePickerDaySelection.init(day:calendar:) at displacement 0x1425. All ten requested function mappings agree with their containing PE runtime-function ranges. The source builds a mixed alias set containing both absent and explicit false leap-month markers; that path and the corresponding test oracle are under repair. Both supported representations, all sixteen candidate combinations, and the public Set<DateComponents> API remain required. Dropping an alias, weakening the expected selection, or treating an unrun test as passing is not a repair. Mapping evidence is `artifacts/goal-ninth-multipicker-symbols-intake-v1/`.
+
+Raw logs and exact SHA-256 pins for these attempts are:
+
+- `artifacts/canvas3-bb755b5-b43c95607bb7406ba2fcb284c71a298d/raw.log`: 4228741 bytes, SHA-256 `2ecd995bc4c7d1acf1277d5c39a5507f665bb7f330212a0779546639dc2fc497`; receipt `artifacts/goal-ninth-canvas3-bb755b5-reconciled-v1.json`.
+- `artifacts/clipc06-bb755b5-63baf4fb05714186bed8cf446cd1b4ed/raw.log`: 59384 bytes, SHA-256 `8c52d51a9de5788d551e8a6e3657c2b56d0afbf46e16e645b845ddfed9eeb7cc`; receipt `artifacts/goal-ninth-clip-c06-bb755b5-reconciled-v1.json`.
+- `artifacts/material24-bb755b5-89a2982d466b42a2a4cbabfb387c16f6/raw.log`: 7407 bytes, SHA-256 `b9ecbaa1956eb39903c9495e8280563ae3586de0a670d57ec28dd73c925877f7`; receipt `artifacts/goal-ninth-material24-bb755b5-reconciled-v1.json`.
+- `artifacts/d3dmaterial16-bb755b5-b18b1588f5af4783848cd66d47ade51c/raw.log`: 5231 bytes, SHA-256 `9822f1d2165654b90859802b315926849b0d525434c681eddd1278afc78f69c4`; receipt `artifacts/goal-ninth-d3dmaterial16-bb755b5-reconciled-v1.json`.
+- `artifacts/nativefacts77-bb755b5-d106fbd4e9044f27a2b9c14fd3325812/raw.log`: 20947 bytes, SHA-256 `2fe4f864c957719c366bc772fc0d5eeba85b102805056a3cdba767efa466858b`; receipt `artifacts/goal-ninth-nativefacts77-bb755b5-reconciled-v1.json`.
+- `artifacts/multipicker67-bb755b5-a04215fa9d464a029dc0532bc60cba63/raw.log`: 22143 bytes, SHA-256 `8aba927cb909e96f5b8e9874d3f30ddcb802c904c0174c036587985dfc840062`; receipt `artifacts/goal-ninth-multipicker67-bb755b5-partial-reconciled-v1.json`.
+- `artifacts/publication94-bb755b5-5ba2e44f18a14e159ae720028a0e1822/raw.log`: 31827 bytes, SHA-256 `69222d77f905cbc1b34a0b250c9a03b1bebb7cd68d207e91393c66b719d60e32`; receipt `artifacts/goal-ninth-publication94-bb755b5-reconciled-v1.json`.
+- `artifacts/collateral46-bb755b5-ebf486723d3b4ddd84f28066339261c2/raw.log`: 14881 bytes, SHA-256 `6c61609b853a5985e1421cb76bb9ad71f7cae658feda45998f136c550a910162`; receipt `artifacts/goal-ninth-collateral46-bb755b5-reconciled-v1.json`.
+- `artifacts/clipc02-bb755b5-df675019286941f98af91628eb2908d6/raw.log`: 58486 bytes, SHA-256 `ca263c7720c42bd0ab696abe2e14588480d6d8e6d4c2ac2ad54479d63ca77c92`; receipt `artifacts/goal-ninth-clip-c02-bb755b5-reconciled-v1.json`.
+- `artifacts/clipc05-bb755b5-040f25f0d1e348a4af83f7c2e6efce38/raw.log`: 56406 bytes, SHA-256 `b207064e47d55436dbb74928e84b907fc3bae0b76463944bd3a8ce6c13ff4118`; receipt `artifacts/goal-ninth-clip-c05-bb755b5-reconciled-v1.json`.
+
+After all attempts closed, the compatibility documents were updated to report compilation and the calendar failures accurately. PublicScrollSettlement33, the unchanged-keyboard-body diagnostic, and six new final-children tests (original plan cases 1, 2, 3, 4, 5, 7) have full source reviews but no integration or runtime result at this checkpoint. The other ten final-children cases remain pending. Source review neither closes their regressions nor authorizes the held final-children production changes. Broader environment/frame/image/stack collateral, the stock full-class obligations, retained visual inspection, native interaction/accessibility, and release qualification remain open. No push or completion-gate change accompanies this entry.

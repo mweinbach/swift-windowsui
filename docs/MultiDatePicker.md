@@ -1,8 +1,10 @@
 # MultiDatePicker
 
 The existing unbounded `MultiDatePicker` initializers now use retained month
-browsing and day buttons. This remains a partial Windows implementation, and
-the new source has not yet been compiled or exercised in this combined tree.
+browsing and day buttons. The source compiles at `bb755b5`, but the first new
+control test terminates with a fatal `DateComponents` set error during calendar
+construction. This remains an unqualified partial Windows implementation. The
+policies below describe its source, not a passing interaction or parity result.
 Its presence in WinSwiftUI does not establish availability in the pinned macOS
 SwiftUI API or qualify a shared-source example on that platform.
 
@@ -81,7 +83,24 @@ tests, eleven mounted tests, and one accessible-label regression. The focused
 preservation selection adds all 35 existing calendar/graphical DatePicker
 methods, for 67 methods total. All 701 existing tracked test entries at the
 integration base remain unchanged. Strict formatting and architecture
-contracts pass; compilation and these executions are still pending.
+contracts pass, and the combined source compiles at `bb755b5`.
+
+The first 67-case attempt is partial: 34 tests passed, one failed,
+one started without a terminal result, and 31 never started. All 15 calendar
+model and 12 graphical control tests passed. Seven of eight graphical mounted
+tests passed; `testRejectedCandidateAndRemovalDoNotKeepProvisionalMonthState`
+observed January where February was expected, then failed to find its day node.
+The new accessible-label test then started before the process terminated with
+the fatal set error. Static attribution of the recorded stack places its first
+application frame in `MultiDatePickerDaySelection.init(day:calendar:)`; it does
+not identify an exact source line or independently prove the cause.
+
+No new MultiDatePicker test has a passing result from this attempt. All seven
+selection, thirteen control, and eleven mounted methods remain unrun, and the
+accessible-label result is unknown. The internal alias set and its test oracle
+are being reviewed for equal date components with different optional leap-month
+representations. Both supported representations remain in scope; no selection
+policy or original assertion may be dropped to make the run pass.
 
 Range overloads, unrestricted alias normalization, native calendar focus and
 style behavior, complete action localization, platform API availability,

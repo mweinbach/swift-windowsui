@@ -146,7 +146,7 @@ final class ListImplicitSelectionTagTests: XCTestCase {
     func testOverwrittenTagPayloadIsReleasedBeforeSourceValidation() async throws {
         let probe = ListSelectionTagReleaseProbe()
         let runtime = RetainedViewRuntime(root: ViewNode())
-        let context = ViewBuildContext(canvasSizeProvider: { Size(width: 400, height: 400) })
+        let context = ViewBuildContext(canvasSizeProvider: { Size(width: 400, height: 400) }, invalidateHandler: {})
         let replacement = ListSelectionTagReleaseValue(value: 1, payload: nil)
         let result = List.materializedRow(
             AnyView(ListSelectionTagReleaseRow(probe: probe)), index: 0,
@@ -172,7 +172,7 @@ final class ListImplicitSelectionTagTests: XCTestCase {
     private func makeRoot(_ list: List) -> (runtime: RetainedViewRuntime, node: ViewNode) {
         let size = Size(width: 400, height: 400)
         let runtime = RetainedViewRuntime(root: ViewNode())
-        let context = ViewBuildContext(canvasSizeProvider: { size })
+        let context = ViewBuildContext(canvasSizeProvider: { size }, invalidateHandler: {})
         let node = AnyView(list).makeComponent(context: context).makeNode(runtime: runtime)
         runtime.root.addChild(node)
         runtime.setRootSize(IntSize(width: 400, height: 400))

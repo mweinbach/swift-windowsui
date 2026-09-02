@@ -13035,3 +13035,30 @@ selection also preserves the 16 ShapePaintProducer, 10 ShapeFillRule and seven
 RetainedLazyListShapeCallback cases: 71 shape cases total. The nine new List tag
 cases are an additional separate selection, not shape coverage. No fresh full
 suite, gallery, hardware presentation or native-platform result is claimed.
+
+
+### Ninth integration: first shape and List-tag build failure and fixture repair
+
+The 80-case attempt on `e261998c5997ce6dff6361c70df07ff2447263e8`
+closed naturally with child/runner exit1 after 162.563 seconds. Compilation
+failed before XCTest began: the new ListImplicitSelectionTagTests omitted the
+required ViewBuildContext.invalidateHandler argument at two call sites. All80
+selected methods remain not run; no shape or tag test pass/fail is inferred.
+The 36 emitted diagnostics repeat those same two source errors. The raw log is
+3,739,949 bytes, SHA256
+`dd360e92463327811e59c7f9e9294679888a5cf7b0e28573fadf8f8fb4719e0b`.
+`artifacts/goal-ninth-shape-tag80-e261998-compile-failure-v1.json` independently
+compares the source/index endpoints, exact filter, selected source pins and raw
+bytes. The subsequent CIM snapshot found no remaining matching process; it is
+a point-in-time check, not continuous descendant attestation. There was no
+timeout, process termination or source mutation during the attempt.
+
+The repair adds the required empty invalidation callbacks only to those two
+static test contexts, matching the surrounding shape-test fixture convention.
+It changes no production code, test method, assertion or selected count. Removing
+those two arguments reproduces the entire original test blob exactly; the proof
+is `artifacts/goal-ninth-list-tag-context-repair-v1/proof.json`. All other653-era
+test paths remain unchanged. Strict lint and architecture contracts pass for the
+one changed Swift file. The identical 71 shape plus nine tag selection must run
+again on the repaired commit. All nine original goal gates remain open, and no
+full-suite, gallery, native or performance qualification is added here.

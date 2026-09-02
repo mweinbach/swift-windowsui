@@ -17,8 +17,13 @@ final class OriginalAnchorClipRetainedTransportTests: XCTestCase {
         radii: RetainedCornerRadii? = nil, uniformRadius: Double = 0,
         cropAboveShape: Bool = false, deferred: Bool = false
     ) -> (root: ViewNode, rounded: ViewNode) {
+        let localCrop = crop.offsetBy(dx: -shape.minX, dy: -shape.minY)
+        let leafFrame =
+            cropAboveShape
+            ? Rect(origin: .zero, size: shape.size)
+            : Rect(x: -localCrop.minX, y: -localCrop.minY, width: shape.size.width, height: shape.size.height)
         let leaf = ViewNode(
-            frame: Rect(origin: .zero, size: shape.size), backgroundColor: .white,
+            frame: leafFrame, backgroundColor: .white,
             paintsInDeferredPhase: deferred)
         if cropAboveShape {
             let rounded = ViewNode(
@@ -26,8 +31,6 @@ final class OriginalAnchorClipRetainedTransportTests: XCTestCase {
                 cornerRadius: uniformRadius, cornerRadii: radii, clipsToBounds: true, children: [leaf])
             return (ViewNode(frame: crop, clipsToBounds: true, children: [rounded]), rounded)
         }
-        let localCrop = crop.offsetBy(dx: -shape.minX, dy: -shape.minY)
-        leaf.frame = Rect(x: -localCrop.minX, y: -localCrop.minY, width: shape.size.width, height: shape.size.height)
         let cropNode = ViewNode(frame: localCrop, clipsToBounds: true, children: [leaf])
         let rounded = ViewNode(
             frame: shape, cornerRadius: uniformRadius, cornerRadii: radii,

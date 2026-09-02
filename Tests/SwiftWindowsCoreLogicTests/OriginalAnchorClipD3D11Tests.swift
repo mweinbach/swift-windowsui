@@ -226,9 +226,14 @@ final class OriginalAnchorClipD3D11Tests: XCTestCase {
         var child = GPUIScene(clearColor: .clear)
         child.addQuad(quad(.white, body: Rect(x: 0, y: 0, width: 128, height: 128)))
         child.finish()
+        var filteredChild = GPUIScene(clearColor: .clear)
+        let filteredID = filteredChild.registerImageRenderPass(
+            child, size: Self.surface, colorEffects: [.brightness(-0.25), .contrast(2)])
+        filteredChild.addImage(image(filteredID, body: Rect(x: 0, y: 0, width: 128, height: 128)))
+        filteredChild.finish()
         var value = GPUIScene(clearColor: .clear)
         let textureID = value.registerImageRenderPass(
-            child, size: Self.surface, colorEffects: [.brightness(-0.25), .contrast(2)], contentBlurRadius: 3)
+            filteredChild, size: Self.surface, input: .isolatedBackdrop, contentBlurRadius: 3)
         var output = image(textureID, body: Rect(x: 0, y: 0, width: 128, height: 128))
         apply(tinyCrop, to: &output)
         value.addImage(output)

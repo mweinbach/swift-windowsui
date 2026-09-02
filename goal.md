@@ -14299,3 +14299,31 @@ formatting receipts are `artifacts/goal-ninth-fixed-frame-apply-v1.json` and
 `artifacts/goal-ninth-fixed-frame-format-proof-v1.json`. Compilation, the 23 new
 tests, collateral runs and the proposed gallery fixture remain pending. No
 baseline or completion gate changes accompany this source repair.
+
+
+### Ninth integration: repair two clipping test constructions (2026-09-02)
+
+Two failures exposed invalid fixture construction, independently of the
+production repairs. The direct-paint crop-order helper assigned its leaf's
+requested frame after construction without a layout pass, so the painter still
+used the initial resolved frame. It now initializes the leaf with the intended
+negative crop offset. Both compared trees retain the same clip shape, crop,
+scales and original full-buffer pixel assertions; no resolved-frame injection
+or production change was made.
+
+The D3D11 one-pixel effect test registered content blur on an independent image
+pass. The unchanged scene contract requires isolated-backdrop input for content
+blur and forbids a post-filter chain on that input. Its corrected setup places
+the existing brightness/contrast chain in an inner independent pass, then feeds
+that finished transparent scene to an outer isolated-backdrop blur pass. Only
+the final image receives the original one-pixel clip. All original validation,
+readback, tolerance and pixel assertions remain intact.
+
+Root's application receipt `artifacts/goal-ninth-clip-fixtures-apply-v1.json`
+records only these two test files, all 30 unchanged method declarations and
+assertion-call lines, all other 693 existing test entries/raw bytes unchanged,
+and complete inverse recovery of `a650b2e`'s tree. Strict lint of both files and
+contracts passed. The 18 transport and 12 D3D11 tests are not yet rerun. The
+separate transport color-effect mismatch still needs the production sampler
+repair; none of the earlier failed results is reclassified by editing fixtures.
+All nine original completion gates remain open.

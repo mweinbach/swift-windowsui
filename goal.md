@@ -16266,3 +16266,59 @@ The immutable packet is `artifacts/goal-ninth-text-range-values-intake-v1`.
 Fresh compilation and all twenty-five tests remain to be run alongside the
 selected control and ownership regressions. **All nine original completion
 gates remain open.**
+
+### Ninth batch: 118 selected regressions executed on 1be9295
+
+The four preceding integrations compiled together and their fixed selection
+actually executed: **117 passed, 1 failed, 0 skipped**. This is not a green
+full-suite or release gate. The exact selected groups were:
+
+| Selected group | Passed | Failed |
+| --- | ---: | ---: |
+| New portable Unicode range values | 25 | 0 |
+| New primary-action Menu routing plus thirteen old Menu regressions | 29 | 0 |
+| New bundle/table lookup plus eight old Text regressions | 20 | 0 |
+| Five corrected cancellation/cleanup methods | 5 | 0 |
+| Existing button action ownership class | 38 | 0 |
+| Restored-button construction diagnostic | 0 | 1 |
+
+The sole failure remains the restored Button's missing accessibility projection
+at the existing unwrap. Its newly recorded first refusal is **epochRefused**.
+The original request was bound once; composition entered and returned, but node
+construction, descriptor registration and reconciliation were not reached.
+Generation stayed 1, content entries advanced from 2 to 3, and the root stayed
+empty. This narrows the existing guard failure to its epoch input, not to a
+specific epoch subpredicate or invalidation cause. The later request and
+sequence predicates were not evaluated by that guard and are not independently
+cleared by this result. Source investigation must preserve this distinction and
+must not revive a retired action or weaken candidate admission.
+
+The build completed in 359.90 seconds; the selected tests took 28.491 seconds.
+The actual execution tool closed with code 1 (`5dad7c`), matching the child and
+runner. Total child wait/cleanup time was 394.25 seconds. No timeout, forced
+termination, runner error or cleanup-required flag occurred. All source and
+index endpoint observations matched. Root independently reconciled all 118
+starts and terminal outcomes across ten distinct classes, and the zero-test
+Swift Testing footer, in
+`artifacts/goal-ninth-cohort118-1be9295-reconciled-v1.json`.
+The run is
+`artifacts/cohort118-1be9295-d45b34730fe34a02b531151c57ab8943`.
+Its complete raw log is 4,747,433 bytes, SHA256
+`6a360580d9604ca17a1fefe912e149024b082523ea0b91796abd098b5a4a337d`.
+A fresh process census after actual closure found no matching workers or direct
+child 75348. This normal runner proves direct-child closure and source
+endpoints, not owned-Job or continuous descendant closure. Existing build
+warnings and all earlier failed/timeout records remain visible.
+
+The exact 118-method selection, ten final source pins, and reversible two-literal
+runner derivation are retained under
+`artifacts/goal-ninth-cohort118-1be9295-runner-v1` and
+`artifacts/goal-ninth-cohort118-source-prep-intake-v1`. Root and an independent
+reviewer checked the actual runner against its donor, all source pins and all
+118 method headers; no production runner policy or 900-second limit changed.
+Compatibility documentation now records the passing bounded Text, Menu and
+range-value results. It retains their earlier native, locale, state-lifetime
+and TextPattern limitations. Architecture checks also passed after those
+documentation updates. The prepared calendar and keyboard candidates were not
+part of this commit or this execution. **All nine original completion gates
+remain open.**

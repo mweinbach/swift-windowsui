@@ -101,7 +101,7 @@ limits still apply; this is not the completed product in `goal.md`.
 
 | API | Status | Notes |
 | --- | --- | --- |
-| `Text` (string / verbatim / key) | **Partial** | Native glyphs preserve shrinking transforms and bidirectional placement; wrapped text measures at its allocated width, and weight modifiers preserve inherited fonts. Explicit `LocalizedStringKey` Text initializers now use Foundation bundle/string-table lookup; stored String/StringProtocol and verbatim inputs remain literal. Lookup happens at initialization, not through the inherited locale. The lookup change has 12 new source-reviewed tests awaiting repository execution |
+| `Text` (string / verbatim / key) | **Partial** | Native glyphs preserve shrinking transforms and bidirectional placement; wrapped text measures at its allocated width, and weight modifiers preserve inherited fonts. Explicit `LocalizedStringKey` Text initializers now use Foundation bundle/string-table lookup; stored String/StringProtocol and verbatim inputs remain literal. Lookup happens at initialization, not through the inherited locale. The 12 new lookup tests and eight unchanged Text regressions passed in the focused selection on `1be9295`; unfinished locale and formatting paths remain unqualified |
 | `Text` date / format / attributed | **Partial** | Deterministic string resolution; rich runs / live timers incomplete |
 | `Label`, `Image(systemName:)` | **Partial** | System icons render as real Segoe Fluent/MDL2 glyphs (native bitmap) with a drawn-vector fallback — never `?`; ~40 common SF Symbols mapped, variants/scale honored |
 | `Image(_:)` named / file / resource | **Partial** | WIC PNG/JPEG/BMP; no full asset-catalog pipeline |

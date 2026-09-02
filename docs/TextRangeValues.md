@@ -76,6 +76,9 @@ provider's qualification rather than inferred as universal UIA requirements.
 boundaries, combining marks, ZWJ sequences, bidi text in logical order, CRLF, NUL,
 empty values, invalid endpoints, clamping, crossing, copies, comparisons,
 retrieval limits, first/last search, explicit unit tables, and signed extremes.
+All twenty-five methods compiled and passed in the focused selection on
+`1be9295`. The whole 118-case run still had one unrelated restored-button
+diagnostic failure; it was not a full-suite pass.
 Those tests do not establish complete Unicode search behavior, provider
 authority, text-generation tracking, editor behavior, or native ABI correctness.
 

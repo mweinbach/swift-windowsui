@@ -86,13 +86,21 @@ controls. This is focused execution, not a full-suite or native parity result.
 Exact source, raw logs and outcomes are recorded in the append-only
 [goal ledger](../goal.md).
 
-Eighteen additional `RetainedRectangleInsetTrimTests` are source-only controls
-pending compilation and execution. Their independent line-length and pixel
-oracles cover point insets, full/half/empty fills, raw reversed edges, ordered
-floating-point arithmetic, descriptor sharing and bounds, rejection, resizing,
-live stroke width, origin/DPI placement, erasure, reconciliation and lifetime.
-All twelve existing `TrimmedShapeGeometryTests` remain unchanged. The earlier
-44-case result does not establish a pass for these new controls or this source.
+All eighteen `RetainedRectangleInsetTrimTests` passed at `b09f0a2`, within a
+fresh 144-case geometry and selection run with no failures or skips. Their
+independent line-length and pixel oracles cover point insets, full/half/empty
+fills, raw reversed edges, ordered floating-point arithmetic, descriptor sharing
+and bounds, rejection, resizing, live stroke width, origin/DPI placement,
+erasure, reconciliation and lifetime. All twelve existing
+`TrimmedShapeGeometryTests` remain unchanged and passed in that same run.
+
+The preceding run at `15119eb` passed 143 cases and failed one new fixture:
+its expected emitted stroke width did not follow the live border width. The
+correction preserves the stored style assertion and adds before/after pixels
+that distinguish stale geometry from the correct live-width stroke. Production
+code, the other seventeen new methods, all helpers and every existing test were
+unchanged. Both runs remain recorded in the goal ledger. These focused results
+do not establish full-suite, D3D11, native SwiftUI or performance qualification.
 
 The `shape-trim-static` gallery entry provides a 600-by-400 dark fixture with
 wide and tall quarter outlines, a half quadratic curve, and full/half/empty

@@ -13987,3 +13987,44 @@ Its separate 10:44:02 UTC process census was empty. This is static CPU rendering
 evidence only: it does not resolve the dashboard interaction timeout or qualify
 D3D11 execution, hardware timing, native input, macOS parity, or the full suite.
 All nine completion gates remain open.
+
+
+### 2026-09-02: live rectangle inset/trim validation at b09f0a2
+
+Fresh serial execution of the unchanged 144-case geometry selection passed
+**144 started, 144 passed, zero failures and zero skips** at
+`b09f0a2ea09f5e2982a4811514992102559bac49`, tree
+`0da8f14e9267625ee573f681a19a09f5d9876783`. This includes all eighteen
+`RetainedRectangleInsetTrimTests`, the twelve existing retained trim tests,
+the 32 portable trim/reversal tests, and the same arc, shape paint/fill,
+lazy callback, selection and uneven-corner classes selected before the
+fixture correction. The selection, 900-second budget and 144 identifiers
+were unchanged; no retry or skip was used inside this attempt.
+
+The direct child exited naturally with code 0 after 244.922 seconds;
+SwiftPM reported a 236.58-second build, and XCTest reported 2.214 seconds.
+Those durations describe this test invocation, not rendering performance.
+The independently reconciled source and index endpoints matched. A separate
+post-closure process census at 11:00:41 UTC found no compiler, formatter or
+XCTest process remaining; it is a point-in-time observation, not continuous
+process attestation.
+
+Evidence remains under
+`artifacts/shape144-b09f0a2-f9aaf2be39a54ba5b89b73ce5282128f`.
+The complete raw log is 42,736 bytes, SHA256
+`f7e09e22fc2d1f509b68ea8a9ce4001e41ba1209483348b132f47758a8d4abf5`.
+`goal-ninth-shape144-b09f0a2-reconciled-v1.json` is 21,785 bytes, SHA256
+`36ec79c6b8b484a42a3697272de9e1d526bb078d1b73b6d6c15ff6f384cca6dc`.
+The earlier 143-pass/one-failure run remains unchanged. Independent source
+review of the one-method correction found no actionable issue and verified
+that production, all helpers, the other seventeen methods and the other
+686 test files were unchanged; that review did not execute the successor.
+
+`docs/PathTrimming.md` now distinguishes this observed pass from the earlier
+source-only status. This documentation update changes no production or test
+source. Raw3 remains one pass and two failures on nine terminal ownership
+assertions. Dashboard UI11 remains unknown after its recorded timeout; its
+successful static CPU snapshot is not interaction evidence. The pending
+visual clipping implementation, full joined validation, native timing,
+macOS behavior and release qualification remain separate work. All nine
+original completion gates remain open, with their original criteria intact.

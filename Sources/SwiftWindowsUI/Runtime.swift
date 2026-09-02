@@ -7394,6 +7394,8 @@ public final class ViewNode {
                     continue
                 }
                 ViewNode.traversalDepth = baseDepth + finishContext.depth + 1
+                finishContext.node.validateLazyListAssignedVerticalGeometry(
+                    context: finishContext, afterChildLayout: true)
                 finishContext.node.finishLayoutPass()
                 continue
 
@@ -7420,7 +7422,8 @@ public final class ViewNode {
             // Sanitize before the cache key is minted so the key, the geometry
             // the painter reads, and the geometry the next pass compares
             // against are all the same finite values.
-            node.resolvedFrame = sanitizedLayoutRect(node.resolvedFrame)
+            node.resolvedFrame = node.sanitizedLazyListLayoutFrame(node.resolvedFrame)
+            guard node.validateLazyListLogicalVerticalInputs() else { continue }
 
             // Collected here rather than at build time because this is the
             // first point at which the reader's frame is both resolved and
@@ -7449,7 +7452,7 @@ public final class ViewNode {
             // computed here; `finish` closes the pass once they have been laid
             // out. Pushed before the children so it pops after all of them.
             traversal.append(.finish(context))
-            node.placeChildren(into: &traversal, depth: context.depth, layoutKey: layoutKey)
+            node.placeChildren(into: &traversal, depth: context.depth, layoutKey: layoutKey, context: context)
         }
     }
 
@@ -7497,7 +7500,8 @@ public final class ViewNode {
     private func placeChildren(
         into traversal: inout [LayoutTraversalStep],
         depth: Int,
-        layoutKey: ViewLayoutCacheKey
+        layoutKey: ViewLayoutCacheKey,
+        context: LayoutTraversalContext
     ) {
         pendingLayoutKey = layoutKey
         var descendants: [ViewNode] = []
@@ -7522,8 +7526,32 @@ public final class ViewNode {
             }
         }
 
+        validateLazyListAssignedVerticalGeometry(context: context)
         for child in descendants.reversed() {
             traversal.append(.enter(LayoutTraversalContext(node: child, depth: depth + 1)))
+        }
+    }
+
+    /// Inspect actual placement output before a child can sanitize it. The
+    /// original parent context still owns this rejection after any callback;
+    /// no replacement owner or estimated child size can qualify it.
+    private func validateLazyListAssignedVerticalGeometry(
+        context: LayoutTraversalContext, afterChildLayout: Bool = false
+    ) {
+        guard retainedLazyListAdapter == nil, context.node === self, context.isCurrent,
+            let checkedRuntime = context.checkedRuntime, runtime === checkedRuntime,
+            children.count == 1, let child = children.first, !child.isHidden,
+            child.parent === self, child.runtime === checkedRuntime,
+            !child.resolvedFrame.origin.y.isFinite || !child.resolvedFrame.height.isFinite
+                || !child.resolvedFrame.maxY.isFinite,
+            hasLazyListLogicalVerticalContent() != false
+        else { return }
+        rejectLazyListLogicalGeometry()
+        if afterChildLayout {
+            // Its key describes the pre-callback slot. Do not let a clean
+            // repeat skip the same child's still-authored invalid position.
+            child.pendingLayoutKey = nil
+            child.cachedLayoutKey = nil
         }
     }
 
@@ -7548,7 +7576,7 @@ public final class ViewNode {
             )
         }
 
-        resolvedContentSize = sanitizedLayoutSize(resolvedContentSize)
+        resolvedContentSize = sanitizedLazyListContentSize(resolvedContentSize)
         applyDefaultScrollAnchorAfterLayout()
         if let pendingLayoutKey {
             cachedLayoutKey = pendingLayoutKey
@@ -7556,6 +7584,129 @@ public final class ViewNode {
         pendingLayoutKey = nil
         resolvedScrollOffset = effectiveScrollOffset
         lastLayoutVisitPassID = runtime?.layoutPassID ?? 0
+    }
+
+    /// Logical prefixes can exceed the scene's primitive coordinate range.
+    /// Recognize only the native list and its existing single-child carrier
+    /// chain. A nested scroll owns a different coordinate space. This is a
+    /// native topology read, not a construction or settlement permission.
+    fileprivate func hasLazyListLogicalVerticalContent() -> Bool? {
+        if retainedLazyListAdapter != nil { return true }
+        if parent?.retainedLazyListAdapter != nil, scrollAxis == nil { return false }
+        if let scrollAxis, scrollAxis != .vertical { return false }
+        var node = self
+        var depth = 0
+        while depth < Self.maximumTraversalDepth {
+            if node !== self, node.scrollAxis != nil { return false }
+            if node.retainedLazyListAdapter != nil { return true }
+            guard node.children.count == 1, let child = node.children.first, !child.isHidden else { return false }
+            guard child.parent === node, child.runtime === runtime else { return nil }
+            node = child
+            depth += 1
+        }
+        return nil
+    }
+
+    /// A cache hit must not hide invalid original vertical inputs. This reads
+    /// only the native single-child path and stored stack values; it neither
+    /// measures descendants nor estimates their allocated sizes.
+    private func validateLazyListLogicalVerticalInputs() -> Bool {
+        guard let stack = layoutMode.stackLayout, stack.axis == .vertical else { return true }
+        guard let isContent = hasLazyListLogicalVerticalContent() else {
+            rejectLazyListLogicalGeometry()
+            return false
+        }
+        guard isContent else { return true }
+        let padding = stack.padding.top + stack.padding.bottom
+        let afterTop = resolvedFrame.height - stack.padding.top
+        let afterBottom = afterTop - stack.padding.bottom
+        guard stack.padding.top.isFinite, stack.padding.bottom.isFinite, stack.spacing.isFinite,
+            padding.isFinite, afterTop.isFinite, afterBottom.isFinite
+        else {
+            rejectLazyListLogicalGeometry()
+            return false
+        }
+        return true
+    }
+
+    /// Do not publish a sanitized failed sum into the existing layout cache.
+    /// A later ordinary query must perform the same actual arithmetic again;
+    /// an explicitly dirtied finite repair keeps the ordinary layout path.
+    private func rejectLazyListLogicalGeometry() {
+        runtime?.rejectLazyListLayoutVisit()
+        pendingLayoutKey = nil
+        cachedLayoutKey = nil
+    }
+
+    /// Keep authored row dimensions, horizontal geometry, and unrelated
+    /// layout on their existing sanitation path. Only a native row prefix or
+    /// list-to-scroll carrier may keep a larger finite vertical coordinate.
+    private func sanitizedLazyListLayoutFrame(_ frame: Rect) -> Rect {
+        var result = sanitizedLayoutRect(frame)
+        let limit = Double(GPUISceneLimits.maxCoordinate)
+        let changesOrigin = !frame.origin.y.isFinite || abs(frame.origin.y) > limit
+        let changesHeight = !frame.height.isFinite || frame.height > limit
+        guard changesOrigin || changesHeight else { return result }
+        let isNativeRow = parent?.retainedLazyListAdapter != nil
+        var isContent = false
+        if scrollAxis == nil, changesHeight || (changesOrigin && !isNativeRow) {
+            guard let content = hasLazyListLogicalVerticalContent() else {
+                runtime?.rejectLazyListLayoutVisit()
+                return result
+            }
+            isContent = content
+        }
+        let preservesOrigin = isNativeRow || isContent
+        let preservesHeight = isContent && scrollAxis == nil
+        guard preservesOrigin || preservesHeight else { return result }
+        guard !preservesOrigin || frame.origin.y.isFinite,
+            !preservesHeight || (frame.height.isFinite && frame.height >= 0)
+        else {
+            runtime?.rejectLazyListLayoutVisit()
+            return result
+        }
+        if preservesOrigin { result.origin.y = frame.origin.y }
+        if preservesHeight { result.size.height = frame.height }
+        guard result.maxY.isFinite else {
+            runtime?.rejectLazyListLayoutVisit()
+            return sanitizedLayoutRect(frame)
+        }
+        return result
+    }
+
+    /// The extent index already checks its sums. Preserve that logical height
+    /// through measurement and the owning scroll's content range instead of
+    /// replacing it with a renderer limit before the exact UIA proof reads it.
+    fileprivate func sanitizedLazyListContentSize(_ size: Size) -> Size {
+        var result = sanitizedLayoutSize(size)
+        guard !size.height.isFinite || size.height > Double(GPUISceneLimits.maxCoordinate) else { return result }
+        guard let isContent = hasLazyListLogicalVerticalContent() else {
+            runtime?.rejectLazyListLayoutVisit()
+            return result
+        }
+        guard isContent else { return result }
+        guard size.height.isFinite, size.height >= 0 else {
+            runtime?.rejectLazyListLayoutVisit()
+            return result
+        }
+        result.height = size.height
+        return result
+    }
+
+    fileprivate func sanitizedLazyListScrollCoordinate(_ value: Double) -> Double {
+        guard scrollAxis == .vertical,
+            !value.isFinite || abs(value) > Double(GPUISceneLimits.maxCoordinate)
+        else { return sanitizedLayoutCoordinate(value) }
+        guard let isContent = hasLazyListLogicalVerticalContent() else {
+            runtime?.rejectLazyListLayoutVisit()
+            return sanitizedLayoutCoordinate(value)
+        }
+        guard isContent else { return sanitizedLayoutCoordinate(value) }
+        guard value.isFinite else {
+            runtime?.rejectLazyListLayoutVisit()
+            return sanitizedLayoutCoordinate(value)
+        }
+        return value
     }
 
     /// A clean node still has to let its dirty or newly-visible descendants
@@ -8174,7 +8325,7 @@ public final class ViewNode {
     @inline(never)
     private func layoutRetainedLazyListChildren(descendants: inout [ViewNode]) {
         guard let adapter = retainedLazyListAdapter else { return }
-        resolvedContentSize = sanitizedLayoutSize(
+        resolvedContentSize = sanitizedLazyListContentSize(
             Size(width: resolvedFrame.width, height: adapter.contentExtent))
         guard let runtime, let (visit, plan) = runtime.lazyListLayoutPlan(for: self) else { return }
         if plan.hasLogicalOmissions || plan.requiresResolution {
@@ -8303,6 +8454,13 @@ public final class ViewNode {
         let contentMainExtent =
             mainSizes.reduce(0, +) + allocation.spacingTotal + stackMainPadding(for: stackLayout)
         let contentCrossExtent = maxCrossExtent + stackCrossPadding(for: stackLayout)
+        if stackLayout.axis == .vertical, !contentMainExtent.isFinite,
+            hasLazyListLogicalVerticalContent() != false
+        {
+            // Inspect the actual allocated sum before max() can conceal a
+            // nonfinite value. Ordinary stacks retain their sanitation policy.
+            rejectLazyListLogicalGeometry()
+        }
 
         switch stackLayout.axis {
         case .vertical:
@@ -10759,7 +10917,7 @@ public final class ViewNode {
                 ? max(0, effectiveConstraints.maxWidth) : max(0, explicitWidth ?? frame.width)
             let measured = applyingExplicitDimensions(
                 to: Size(width: width, height: adapter.contentExtent), constraints: effectiveConstraints)
-            let resolved = sanitizedLayoutSize(measured)
+            let resolved = sanitizedLazyListContentSize(measured)
             cachedMeasurement = ViewMeasurementCacheEntry(
                 key: cacheKey,
                 result: ViewMeasurementResult(
@@ -16648,19 +16806,22 @@ public final class RetainedViewRuntime {
             leading: sanitizedLayoutCoordinate(authoredInsets.leading),
             bottom: sanitizedLayoutCoordinate(authoredInsets.bottom),
             trailing: sanitizedLayoutCoordinate(authoredInsets.trailing))
-        // Natural extents are captured before the viewport floor and before
-        // layout sanitation. Observers must receive the same finite coordinate
-        // range as presentation, including malformed application margins.
-        let extent = sanitizedLayoutSize(node.scrollContainerState?.contentSize ?? node.resolvedContentSize)
+        // Keep the native lazy list's logical range and offset together.
+        // Insets and unrelated scrollers retain their existing sanitation.
+        let naturalExtent = node.scrollContainerState?.contentSize ?? node.resolvedContentSize
+        let extent =
+            node.scrollAxis == .vertical
+            ? node.sanitizedLazyListContentSize(naturalExtent) : sanitizedLayoutSize(naturalExtent)
         let offset = useResolvedOffset ? node.resolvedScrollOffset : node.effectiveScrollOffset
+        let contentSize = Size(
+            width: extent.width - insets.leading - insets.trailing,
+            height: extent.height - insets.top - insets.bottom)
         return RetainedScrollGeometry(
             contentOffset: Point(
                 x: sanitizedLayoutCoordinate((node.scrollAxis == .horizontal ? offset : 0) - insets.leading),
-                y: sanitizedLayoutCoordinate((node.scrollAxis == .vertical ? offset : 0) - insets.top)),
-            contentSize: sanitizedLayoutSize(
-                Size(
-                    width: extent.width - insets.leading - insets.trailing,
-                    height: extent.height - insets.top - insets.bottom)),
+                y: node.sanitizedLazyListScrollCoordinate((node.scrollAxis == .vertical ? offset : 0) - insets.top)),
+            contentSize: node.scrollAxis == .vertical
+                ? node.sanitizedLazyListContentSize(contentSize) : sanitizedLayoutSize(contentSize),
             contentInsets: insets,
             containerSize: node.resolvedFrame.size)
     }

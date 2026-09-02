@@ -3383,6 +3383,11 @@ public final class ViewNode {
     /// Allocated only on views carrying scroll observation callbacks. Kept
     /// separately from diagnostic metadata so reconciliation can retain values.
     internal var scrollObserverStorage: RetainedScrollObserverStorage? {
+        willSet {
+            // A new payload can reuse the existing membership. Retire only
+            // recorded cleanup permission before the old payload is released.
+            runtime?.revokeRecordedScrollObservationInsertion(self)
+        }
         didSet {
             if scrollObserverStorage != nil {
                 runtime?.registerScrollObservationNode(self)
@@ -4323,6 +4328,12 @@ public final class ViewNode {
     /// starts animating without the runtime knowing about it never gets ticked
     /// and freezes mid-transition.
     public var animationStates: [AnimatableProperty: AnimationState] = [:] {
+        willSet {
+            // Even a nonempty-to-nonempty write can adopt the registration for
+            // new motion. The old insertion must no longer be removable by a
+            // pending caller; membership and animation payloads stay untouched.
+            runtime?.revokeRecordedAnimatingNodeRegistration(self)
+        }
         didSet {
             guard oldValue.isEmpty != animationStates.isEmpty else { return }
             if animationStates.isEmpty {
@@ -12579,6 +12590,55 @@ private struct WeakViewNodeRef {
     weak var node: ViewNode?
 }
 
+/// Native registry membership only; this never authorizes payload cleanup.
+enum RetainedNativeRegistrationRemovalResult: Equatable {
+    case removed
+    case notCurrent
+    case alreadyConsumed
+}
+
+@MainActor
+enum RetainedAnimatingNodeRegistrationResult {
+    case registered(RetainedAnimatingNodeRegistrationReceipt)
+    case unavailable
+}
+
+/// Allocated only beside an explicitly recorded registry write. The runtime
+/// and node payloads are not kept alive by this original-publication identity.
+@MainActor
+final class RetainedAnimatingNodeRegistrationReceipt {
+    private enum State {
+        case available
+        case revoked
+        case consumed
+    }
+
+    fileprivate weak var runtime: RetainedViewRuntime?
+    fileprivate let identifier: ObjectIdentifier
+    private var state = State.available
+
+    fileprivate init(runtime: RetainedViewRuntime, identifier: ObjectIdentifier) {
+        self.runtime = runtime
+        self.identifier = identifier
+    }
+
+    fileprivate func revoke() {
+        if state == .available { state = .revoked }
+    }
+
+    /// Consume before checking any current owner or registry entry. Aliases
+    /// share this terminal state, including a failed attempt on another host.
+    fileprivate func consume() -> RetainedNativeRegistrationRemovalResult? {
+        let previous = state
+        state = .consumed
+        switch previous {
+        case .available: return nil
+        case .revoked: return .notCurrent
+        case .consumed: return .alreadyConsumed
+        }
+    }
+}
+
 /// Original construction membership for ordinary reconciliation's completion
 /// replay. This carries no attachment or publication permission. Weak referents
 /// neither prolong authored payloads nor let address reuse name a new source.
@@ -13551,6 +13611,10 @@ public final class RetainedViewRuntime {
     /// node dropped mid-animation cannot pin the animation driver on for the
     /// rest of the session; stale slots are swept in `tickAnimations`.
     private var animatingNodes: [ObjectIdentifier: WeakViewNodeRef] = [:]
+    private var recordedAnimatingNodeRegistrations: [ObjectIdentifier: RetainedAnimatingNodeRegistrationReceipt] = [:]
+
+    var recordedAnimatingNodeRegistrationCount: Int { recordedAnimatingNodeRegistrations.count }
+    var animatingNodeRegistrationCount: Int { animatingNodes.count }
 
     private var hasNodeAnimationsInFlight: Bool {
         for entry in animatingNodes.values where entry.node != nil {
@@ -13560,16 +13624,65 @@ public final class RetainedViewRuntime {
     }
 
     fileprivate func registerAnimatingNode(_ node: ViewNode) {
-        animatingNodes[ObjectIdentifier(node)] = WeakViewNodeRef(node: node)
+        publishAnimatingNode(node)
+    }
+
+    /// This additive entry point requires an already-installed runtime field.
+    /// It does not cover ordinary setRuntime's earlier registration write.
+    /// Rejected nil/foreign origins do not write or allocate a receipt.
+    func registerAnimatingNodeRecordingPublication(_ node: ViewNode) -> RetainedAnimatingNodeRegistrationResult {
+        guard node.runtime === self else { return .unavailable }
+        let receipt = RetainedAnimatingNodeRegistrationReceipt(runtime: self, identifier: ObjectIdentifier(node))
+        publishAnimatingNode(node, recording: receipt)
+        return .registered(receipt)
+    }
+
+    private func publishAnimatingNode(
+        _ node: ViewNode, recording receipt: RetainedAnimatingNodeRegistrationReceipt? = nil
+    ) {
+        let identifier = ObjectIdentifier(node)
+        revokeRecordedAnimatingNodeRegistration(identifier: identifier)
+        animatingNodes[identifier] = WeakViewNodeRef(node: node)
+        if let receipt { recordedAnimatingNodeRegistrations[identifier] = receipt }
+    }
+
+    fileprivate func revokeRecordedAnimatingNodeRegistration(_ node: ViewNode) {
+        guard !recordedAnimatingNodeRegistrations.isEmpty else { return }
+        revokeRecordedAnimatingNodeRegistration(identifier: ObjectIdentifier(node))
+    }
+
+    private func revokeRecordedAnimatingNodeRegistration(identifier: ObjectIdentifier) {
+        recordedAnimatingNodeRegistrations.removeValue(forKey: identifier)?.revoke()
     }
 
     fileprivate func unregisterAnimatingNode(_ node: ViewNode) {
-        animatingNodes.removeValue(forKey: ObjectIdentifier(node))
+        let identifier = ObjectIdentifier(node)
+        revokeRecordedAnimatingNodeRegistration(identifier: identifier)
+        animatingNodes.removeValue(forKey: identifier)
+    }
+
+    @discardableResult
+    func removeOriginalAnimatingNodeRegistration(
+        _ receipt: RetainedAnimatingNodeRegistrationReceipt
+    ) -> RetainedNativeRegistrationRemovalResult {
+        if let result = receipt.consume() { return result }
+        guard receipt.runtime === self,
+            recordedAnimatingNodeRegistrations[receipt.identifier] === receipt,
+            animatingNodes[receipt.identifier] != nil
+        else { return .notCurrent }
+        recordedAnimatingNodeRegistrations.removeValue(forKey: receipt.identifier)
+        animatingNodes.removeValue(forKey: receipt.identifier)
+        return .removed
     }
 
     private func sweepAnimatingNodes() {
         guard !animatingNodes.isEmpty else { return }
-        animatingNodes = animatingNodes.filter { $0.value.node != nil }
+        let surviving = animatingNodes.filter { $0.value.node != nil }
+        for (identifier, receipt) in recordedAnimatingNodeRegistrations where surviving[identifier] == nil {
+            receipt.revoke()
+            recordedAnimatingNodeRegistrations.removeValue(forKey: identifier)
+        }
+        animatingNodes = surviving
     }
 
     // Gap/Fix: Granular dirty tracking — DirtyFlags replaces single boolean.
@@ -13606,7 +13719,16 @@ public final class RetainedViewRuntime {
     private var isWaitingForPresentationBuildSettlement = false
     private let presentationBuildSettlementOwner = NSObject()
     private var afterLayoutGeometryInvalidations: [WeakViewNodeRef] = []
-    private var scrollObserverRegistry: RetainedScrollObserverRegistry?
+    private var scrollObserverRegistry: RetainedScrollObserverRegistry? {
+        willSet {
+            if scrollObserverRegistry !== newValue {
+                scrollObserverRegistry?.revokeRecordedInsertions()
+            }
+        }
+    }
+
+    var recordedScrollObservationInsertionCount: Int { scrollObserverRegistry?.recordedInsertionCount ?? 0 }
+    var scrollObservationRegistrationCount: Int { scrollObserverRegistry?.registrationCount ?? 0 }
     private struct PendingPreciseScrollAlignment {
         weak var target: ViewNode?
         weak var coarseTarget: ViewNode?
@@ -16754,10 +16876,44 @@ public final class RetainedViewRuntime {
         scrollObserverRegistry = registry
     }
 
+    /// Native origin only, not proof of membership in the attached view tree.
+    /// Recording requires this field to be installed before any callback.
+    func isNativeRegistrationOrigin(of node: ViewNode) -> Bool { node.runtime === self }
+
+    /// The handle comes from the actual insertion, never from a subsequent
+    /// lookup of a callback-created or previously registered entry.
+    func registerScrollObservationNodeRecordingInsertion(_ node: ViewNode) -> RetainedScrollRegistrationResult {
+        guard node.runtime === self else { return .unavailable }
+        let registry = scrollObserverRegistry ?? RetainedScrollObserverRegistry()
+        scrollObserverRegistry = registry
+        return registry.registerRecordingInsertion(node, runtime: self)
+    }
+
+    fileprivate func revokeRecordedScrollObservationInsertion(_ node: ViewNode) {
+        scrollObserverRegistry?.revokeRecordedInsertion(for: node)
+    }
+
     fileprivate func unregisterScrollObservationNode(_ node: ViewNode) {
         guard let registry = scrollObserverRegistry else { return }
         registry.unregister(node)
         if registry.isEmpty, !registry.isDelivering {
+            scrollObserverRegistry = nil
+        }
+    }
+
+    @discardableResult
+    func removeOriginalScrollObservationInsertion(
+        _ receipt: RetainedScrollRegistrationReceipt
+    ) -> RetainedNativeRegistrationRemovalResult {
+        receipt.removeOriginal(in: self)
+    }
+
+    func isCurrentScrollObserverRegistry(_ registry: RetainedScrollObserverRegistry) -> Bool {
+        scrollObserverRegistry === registry
+    }
+
+    func discardEmptyScrollObserverRegistry(_ registry: RetainedScrollObserverRegistry) {
+        if scrollObserverRegistry === registry, registry.isEmpty, !registry.isDelivering {
             scrollObserverRegistry = nil
         }
     }

@@ -793,6 +793,64 @@ final class RetainedScrollObserverStorage {
 }
 
 @MainActor
+enum RetainedScrollRegistrationResult {
+    case inserted(RetainedScrollRegistrationReceipt)
+    case alreadyRegistered
+    case unavailable
+}
+
+/// A native insertion identity, not an observer payload or history claim.
+/// Neither the registry, its runtime, nor any node is retained by this handle.
+@MainActor
+final class RetainedScrollRegistrationReceipt {
+    private enum State {
+        case available
+        case revoked
+        case consumed
+    }
+
+    private(set) weak var runtime: RetainedViewRuntime?
+    private(set) weak var registry: RetainedScrollObserverRegistry?
+    fileprivate let identifier: ObjectIdentifier
+    private var state = State.available
+
+    fileprivate init(
+        runtime: RetainedViewRuntime, registry: RetainedScrollObserverRegistry, identifier: ObjectIdentifier
+    ) {
+        self.runtime = runtime
+        self.registry = registry
+        self.identifier = identifier
+    }
+
+    fileprivate var isConsumed: Bool { state == .consumed }
+
+    fileprivate func revoke() {
+        if state == .available { state = .revoked }
+    }
+
+    /// Called before the runtime checks its current registry. Failed origin
+    /// checks also consume the original handle, so a later alias cannot retry.
+    private func consume() -> RetainedNativeRegistrationRemovalResult? {
+        let previous = state
+        state = .consumed
+        switch previous {
+        case .available: return nil
+        case .revoked: return .notCurrent
+        case .consumed: return .alreadyConsumed
+        }
+    }
+
+    func removeOriginal(in runtime: RetainedViewRuntime) -> RetainedNativeRegistrationRemovalResult {
+        if let result = consume() { return result }
+        guard self.runtime === runtime, let registry,
+            runtime.isCurrentScrollObserverRegistry(registry), registry.removeConsumedInsertion(self)
+        else { return .notCurrent }
+        runtime.discardEmptyScrollObserverRegistry(registry)
+        return .removed
+    }
+}
+
+@MainActor
 final class RetainedScrollObserverRegistry {
     struct NodeRef {
         weak var node: ViewNode?
@@ -805,34 +863,102 @@ final class RetainedScrollObserverRegistry {
         }
     }
 
-    var nodes: [NodeRef] = []
+    private(set) var nodes: [NodeRef] = []
     private var indices: [ObjectIdentifier: Int] = [:]
+    private var recordedInsertions: [ObjectIdentifier: RetainedScrollRegistrationReceipt] = [:]
     private var emptySlots = 0
     var isDelivering = false
     var renderedDuringDelivery = false
 
     var isEmpty: Bool { indices.isEmpty }
+    var registrationCount: Int { indices.count }
+    var recordedInsertionCount: Int { recordedInsertions.count }
 
     func register(_ node: ViewNode) {
         let identifier = ObjectIdentifier(node)
         guard indices[identifier] == nil else { return }
+        insert(node, identifier: identifier)
+    }
+
+    func registerRecordingInsertion(
+        _ node: ViewNode, runtime: RetainedViewRuntime
+    ) -> RetainedScrollRegistrationResult {
+        guard runtime.isNativeRegistrationOrigin(of: node), runtime.isCurrentScrollObserverRegistry(self) else {
+            return .unavailable
+        }
+        let identifier = ObjectIdentifier(node)
+        guard indices[identifier] == nil else { return .alreadyRegistered }
+        let receipt = RetainedScrollRegistrationReceipt(runtime: runtime, registry: self, identifier: identifier)
+        insert(node, identifier: identifier, recording: receipt)
+        return .inserted(receipt)
+    }
+
+    private func insert(
+        _ node: ViewNode, identifier: ObjectIdentifier, recording receipt: RetainedScrollRegistrationReceipt? = nil
+    ) {
+        revokeRecordedInsertion(identifier: identifier)
         indices[identifier] = nodes.count
         nodes.append(NodeRef(node: node))
+        if let receipt { recordedInsertions[identifier] = receipt }
+    }
+
+    func revokeRecordedInsertion(for node: ViewNode) {
+        guard !recordedInsertions.isEmpty else { return }
+        revokeRecordedInsertion(identifier: ObjectIdentifier(node))
+    }
+
+    private func revokeRecordedInsertion(identifier: ObjectIdentifier) {
+        recordedInsertions.removeValue(forKey: identifier)?.revoke()
+    }
+
+    func revokeRecordedInsertions() {
+        for receipt in recordedInsertions.values { receipt.revoke() }
+        recordedInsertions.removeAll(keepingCapacity: false)
     }
 
     func unregister(_ node: ViewNode) {
-        guard let index = indices.removeValue(forKey: ObjectIdentifier(node)) else { return }
+        let identifier = ObjectIdentifier(node)
+        guard let index = indices[identifier] else { return }
+        remove(identifier: identifier, index: index)
+    }
+
+    /// The runtime has already consumed the handle and checked the exact
+    /// registry instance. An index is only a location, never entry identity.
+    fileprivate func removeConsumedInsertion(_ receipt: RetainedScrollRegistrationReceipt) -> Bool {
+        guard receipt.isConsumed, receipt.registry === self,
+            recordedInsertions[receipt.identifier] === receipt,
+            let index = indices[receipt.identifier]
+        else { return false }
+        remove(identifier: receipt.identifier, index: index)
+        return true
+    }
+
+    private func remove(identifier: ObjectIdentifier, index: Int) {
+        revokeRecordedInsertion(identifier: identifier)
+        indices.removeValue(forKey: identifier)
         nodes[index].node = nil
         emptySlots += 1
         if emptySlots > 64, emptySlots > indices.count { compact() }
     }
 
+    private func revokeMissingRecordedInsertions() {
+        for (identifier, receipt) in recordedInsertions {
+            if let index = indices[identifier], nodes[index].node != nil { continue }
+            receipt.revoke()
+            recordedInsertions.removeValue(forKey: identifier)
+        }
+    }
+
     func compact() {
+        revokeMissingRecordedInsertions()
         nodes.removeAll { $0.node == nil }
         indices.removeAll(keepingCapacity: true)
         for (index, reference) in nodes.enumerated() {
             if let node = reference.node { indices[ObjectIdentifier(node)] = index }
         }
+        // A weak node may also expire while the index is rebuilt. No surviving
+        // insertion gets a new identity merely because its position moved.
+        revokeMissingRecordedInsertions()
         emptySlots = 0
     }
 }

@@ -16568,3 +16568,39 @@ Source review found no demonstrated owner-renewal loop, so no speculative
 production change is attributed to this timeout. Calendar/selected-content,
 text snapshot, and dashboard timing candidates remain separately reviewed but
 unintegrated at this checkpoint. All nine original completion gates remain open.
+### 2026-09-02: timeout localization references and preserved integration candidates
+
+The previous entry's GitHub line anchors used indices from web views that
+compressed blank lines. Root retained the complete downloaded release sources
+as passive text, verified all six report/source files and nineteen literal
+physical anchors (`553977/0`), and preserved them under
+`artifacts/goal-ninth-cohort155-localization-source-intake-v1`. The corrected
+physical references are [AsyncProcess lines 511-533](https://github.com/swiftlang/swift-package-manager/blob/swift-6.3-RELEASE/Sources/Basics/Concurrency/AsyncProcess.swift#L511-L533),
+[FileHandle's read loop at 278-300](https://github.com/swiftlang/swift-corelibs-foundation/blob/swift-6.3-RELEASE/Sources/Foundation/FileHandle.swift#L278-L300),
+[its until-EOF call at 511-515](https://github.com/swiftlang/swift-corelibs-foundation/blob/swift-6.3-RELEASE/Sources/Foundation/FileHandle.swift#L511-L515),
+and [XCTest's flush at 76-80](https://github.com/swiftlang/swift-corelibs-xctest/blob/swift-6.3-RELEASE/Sources/XCTest/Private/PrintObserver.swift#L76-L80).
+This corrects navigation to the supporting source; it does not establish
+installed-binary equivalence or change the timeout's unknown test outcomes.
+
+Independent source reviews found no synchronous loop in descriptor renewal or
+the newly added keyboard replay drain. Each replay drain uses its initial weak
+snapshot and excludes newly queued records; this bounds one drain, not progress
+across arbitrary future frames or work inside callbacks. No speculative runtime
+fix, extra retry, larger budget, or reduced test roster was introduced.
+
+The calendar/selected-content candidate was projected onto `8c6770e` without
+overwriting the new four-line budget accessor, current Keyboard tests, or goal
+append. Root retained its 24 payloads under
+`artifacts/goal-ninth-calendar-native-projection8c6770e-intake-v1`
+(`60d94a/0`). Independent assembly review verified all 484 source hunks, 33 new
+test files, 731 preserved existing test paths, and the unchanged 136-method
+roster. This is source preservation evidence, not compilation or behavioral
+validation. The separate text composition and three-mode renderer work also
+remain unintegrated; their existing open scope has not been reclassified.
+
+Future localization must use a separately reviewed process-ownership and
+capture path. A direct invocation of the same XCTest identifiers would be
+diagnostic evidence, not a substitute for the original script and strict
+155-outcome requirements. Cleanup approval remains pending at this checkpoint;
+no subsequent SwiftPM, formatter, native, or test run has begun. All nine
+original completion gates remain open and their requirements are unchanged.

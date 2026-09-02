@@ -346,7 +346,13 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
         let retainedBox = Unmanaged.passRetained(callbackContext).toOpaque()
         var callbacks = Self.makeCallbacks(
             context: retainedBox, supportsLogicalItems: source is any UIAItemContainerSource)
-        let nativeContext = SWU_UIACreateProviderContext(&callbacks, releaseUIAProviderCallbackContext)
+        let nativeContext = SWU_UIACreateProviderContextWithInvokeResult(
+            &callbacks, releaseUIAProviderCallbackContext,
+            { context, element in
+                UIAProviderBridge.withBridge(from: context, unavailable: Int32(0)) {
+                    $0.invokeDefaultActionForUIA(element)
+                }
+            })
         self.nativeContext = nativeContext
         if nativeContext == nil {
             // Creation adopts the retained box only when it succeeds.
@@ -614,7 +620,7 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
         }
         callbacks.invokeDefaultAction = { context, element in
             UIAProviderBridge.withBridge(from: context, unavailable: ()) {
-                $0.invokeDefaultActionForUIA(element)
+                _ = $0.invokeDefaultActionForUIA(element)
             }
         }
         callbacks.supportsPattern = { context, element, pattern in
@@ -815,8 +821,7 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
         case .hasInvokeAction(let element):
             return .integer(try nativeQuerySnapshot(geometry).hasInvokeAction(element))
         case .invokeDefaultAction(let element):
-            invokeDefaultActionForUIA(element)
-            return .completed
+            return .integer(invokeDefaultActionForUIA(element))
         case .supportsPattern(let element, let pattern):
             return .integer(
                 try nativeQuerySnapshot(geometry).supportsPattern(element, pattern: pattern))
@@ -900,8 +905,8 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
         UIAQuerySnapshot(source.uiaElementSnapshots()).hasInvokeAction(element)
     }
 
-    private func invokeDefaultActionForUIA(_ element: UInt64) {
-        _ = source.uiaInvokeDefaultAction(elementID: element)
+    private func invokeDefaultActionForUIA(_ element: UInt64) -> Int32 {
+        source.uiaInvokeDefaultAction(elementID: element) ? 1 : 0
     }
 
     private func supportsPatternForUIA(_ element: UInt64, pattern: Int32) -> Int32 {

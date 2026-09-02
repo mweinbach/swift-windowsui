@@ -51,7 +51,7 @@ enum UIANativeProviderCallbacks {
             UIANativeProviderCallbacks.integerReply(call, .hasInvokeAction(element: element), unavailable: 0)
         }
         callbacks.invokeDefaultAction = { call, element in
-            UIANativeProviderCallbacks.completeReply(call, .invokeDefaultAction(element: element))
+            _ = UIANativeProviderCallbacks.invokeDefaultActionResult(call, element)
         }
         callbacks.supportsPattern = { call, element, pattern in
             UIANativeProviderCallbacks.integerReply(
@@ -164,6 +164,10 @@ enum UIANativeProviderCallbacks {
             return nil
         }
         return value
+    }
+
+    static func invokeDefaultActionResult(_ call: OpaquePointer?, _ element: UInt64) -> Int32 {
+        integerReply(call, .invokeDefaultAction(element: element), unavailable: 0)
     }
 
     private static func integerReply(

@@ -1040,6 +1040,24 @@ leaving pending layout. That invocation is rejected without a second query;
 a later independent query or render can settle the change and admit the
 current modal. The rejected action is not queued or replayed automatically.
 
+Invoke carries its original bounded query budget through dispatch and may use
+remaining rounds for one post-action settlement. Completion still requires
+the original logical token and physical node; it cannot authorize a replacement
+or replay the action. The public lazy-list accessibility cases passed at the
+`3fe8af6` checkpoint, but the new deletion/reinsertion case remains unresolved.
+
+The native bridge now carries Invoke's Boolean result through the original
+full-call lease. After preserving any transport failure and checking post-action
+logical availability, it maps an ordinary false result to
+`UIA_E_INVALIDOPERATION` and true to `S_OK`. A false result can follow an effect;
+it does not trigger a retry or undo. The original C callback tables and factories
+retain their void behavior; additive factories accept an optional result
+callback. Focus and other mutation patterns keep their existing contracts.
+This source change and its new headless tests still await execution. It also
+retains synchronous actor/effect dispatch, so Microsoft's requirement for
+[nonblocking asynchronous Invoke](https://learn.microsoft.com/en-us/windows/win32/api/uiautomationcore/nf-uiautomationcore-iinvokeprovider-invoke)
+remains unmet.
+
 Toggle and SelectionItem Select, AddToSelection, and RemoveFromSelection use
 that same post-query element for their role and selected-state decisions.
 A current selection that already satisfies the request succeeds without an

@@ -54,6 +54,7 @@ static_assert(SWU_UIA_CONTROL_TYPE_HEADER == UIA_HeaderControlTypeId, "control t
 
 namespace {
 SWUUIACallbacks makeCallAdapters(const SWUUIACallCallbacks &callbacks);
+int32_t invokeCallResult(void *raw, uint64_t element);
 }
 
 // Admission and the one drain notification share a short lock. No callback,
@@ -64,14 +65,22 @@ struct SWUUIAProviderContext {
     const bool usesExplicitCalls;
     void (*const releaseContext)(void *);
     const SWUUIADrainWake drainWake;
-
-    SWUUIAProviderContext(const SWUUIACallbacks &value, void (*release)(void *))
-        : callbacks(value), callCallbacks{}, usesExplicitCalls(false), releaseContext(release), drainWake{} {}
+    int32_t (*const invokeDefaultActionResult)(void *, uint64_t);
+    int32_t (*const callInvokeDefaultActionResult)(SWUUIACall *, uint64_t);
 
     SWUUIAProviderContext(
-        const SWUUIACallCallbacks &value, void (*release)(void *), const SWUUIADrainWake &wake)
+        const SWUUIACallbacks &value, void (*release)(void *),
+        int32_t (*invokeResult)(void *, uint64_t) = nullptr)
+        : callbacks(value), callCallbacks{}, usesExplicitCalls(false), releaseContext(release), drainWake{},
+          invokeDefaultActionResult(invokeResult), callInvokeDefaultActionResult(nullptr) {}
+
+    SWUUIAProviderContext(
+        const SWUUIACallCallbacks &value, void (*release)(void *), const SWUUIADrainWake &wake,
+        int32_t (*invokeResult)(SWUUIACall *, uint64_t) = nullptr)
         : callbacks(makeCallAdapters(value)), callCallbacks(value), usesExplicitCalls(true),
-          releaseContext(release), drainWake(wake) {}
+          releaseContext(release), drainWake(wake),
+          invokeDefaultActionResult(invokeResult != nullptr ? invokeCallResult : nullptr),
+          callInvokeDefaultActionResult(invokeResult) {}
 
     void retain() { references.fetch_add(1, std::memory_order_relaxed); }
 
@@ -298,6 +307,11 @@ bool validPublicationGateTimeout(uint32_t timeoutMilliseconds) {
 
 // Keep one implementation of the existing payload mapping. These adapters
 // replace only the callback context argument; status remains out of band.
+int32_t invokeCallResult(void *raw, uint64_t element) {
+    auto *call = static_cast<SWUUIACall *>(raw);
+    return call->context->callInvokeDefaultActionResult(call, element);
+}
+
 SWUUIACallbacks makeCallAdapters(const SWUUIACallCallbacks &value) {
     SWUUIACallbacks result{};
     result.context = value.context;
@@ -927,6 +941,14 @@ public:
         HRESULT result = isEnabled(call, enabled);
         if (FAILED(result)) return result;
         if (!enabled) return UIA_E_ELEMENTNOTENABLED;
+        if (context_->invokeDefaultActionResult != nullptr) {
+            int32_t performed = 0;
+            result = readCallback(call, context_->invokeDefaultActionResult, performed, element_);
+            if (FAILED(result)) return result;
+            result = logicalAvailability(call);
+            if (FAILED(result)) return result;
+            return performed != 0 ? S_OK : UIA_E_INVALIDOPERATION;
+        }
         result = invokeCallback(call, callbacks().invokeDefaultAction, element_);
         return FAILED(result) ? result : logicalAvailability(call);
     }
@@ -1456,6 +1478,21 @@ SWUUIAProviderContext *SWU_UIACreateProviderContextWithCalls(
     if (callbacks == nullptr) return nullptr;
     return new (std::nothrow) SWUUIAProviderContext(
         *callbacks, releaseContext, drainWake != nullptr ? *drainWake : SWUUIADrainWake{});
+}
+
+SWUUIAProviderContext *SWU_UIACreateProviderContextWithInvokeResult(
+    const SWUUIACallbacks *callbacks, void (*releaseContext)(void *),
+    int32_t (*invokeResult)(void *context, uint64_t element)) {
+    if (callbacks == nullptr) return nullptr;
+    return new (std::nothrow) SWUUIAProviderContext(*callbacks, releaseContext, invokeResult);
+}
+
+SWUUIAProviderContext *SWU_UIACreateProviderContextWithCallsAndInvokeResult(
+    const SWUUIACallCallbacks *callbacks, void (*releaseContext)(void *), const SWUUIADrainWake *drainWake,
+    int32_t (*invokeResult)(SWUUIACall *call, uint64_t element)) {
+    if (callbacks == nullptr) return nullptr;
+    return new (std::nothrow) SWUUIAProviderContext(
+        *callbacks, releaseContext, drainWake != nullptr ? *drainWake : SWUUIADrainWake{}, invokeResult);
 }
 
 void SWU_UIARetainProviderContext(SWUUIAProviderContext *context) {

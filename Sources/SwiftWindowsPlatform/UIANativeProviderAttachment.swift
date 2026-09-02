@@ -52,8 +52,11 @@ struct UIANativeProviderFactory: NativeWindowOwnerAttachmentFactory {
         wake.signal = signalUIANativeDrainWake
         wake.releaseContext = releaseUIANativeDrainWake
         guard
-            let nativeContext = SWU_UIACreateProviderContextWithCalls(
-                &callbacks, releaseUIANativeCallbackContext, &wake)
+            let nativeContext = SWU_UIACreateProviderContextWithCallsAndInvokeResult(
+                &callbacks, releaseUIANativeCallbackContext, &wake,
+                { call, element in
+                    UIANativeProviderCallbacks.invokeDefaultActionResult(call, element)
+                })
         else {
             // The factory adopts both boxes only on success.
             releaseUIANativeCallbackContext(retainedCallback)

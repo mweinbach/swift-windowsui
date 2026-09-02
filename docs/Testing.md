@@ -266,6 +266,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   are unrun at source handoff. Their actor-isolated XCTest methods are async;
   generated registration adapters still require inspection after compilation.
   An existing Quick or Full filter is not evidence that every new class ran.
+- `UIAInvokeResultPropagationTests` adds 12 async methods using real C provider
+  vtables in headless fixtures. They distinguish ordinary false/true results,
+  effects followed by refusal, transport and logical-availability failures,
+  disabled state, close during a full call, and the original void/nil-result
+  factory behavior. Only two corresponding expected values change in
+  `UIANativeRequestTests`; Focus and action ordering stay unchanged. These tests
+  are unrun at source handoff and do not establish native-window delivery,
+  worker/modal behavior, or asynchronous Invoke compliance.
 - `NativeListInvocationContextTests` joins the native invocation helper to
   genuine descriptor and deferred-row build contexts. It checks construction
   attribution removal, retained native owner hooks, deferred file-dialog

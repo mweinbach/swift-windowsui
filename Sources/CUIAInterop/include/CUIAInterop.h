@@ -237,6 +237,17 @@ SWUUIAProviderContext *SWU_UIACreateProviderContext(
 // Full-call admission covers native output marshalling and retained actor work.
 SWUUIAProviderContext *SWU_UIACreateProviderContextWithCalls(
     const SWUUIACallCallbacks *callbacks, void (*releaseContext)(void *), const SWUUIADrainWake *drainWake);
+// Optional Invoke result extensions preserve both original callback layouts.
+// Nonzero means the action succeeded, not an HRESULT. Transport failures still
+// use CallFail; post-action unavailability takes precedence over this payload.
+// A null result callback preserves the original void Invoke behavior. Creation
+// retains the same adopt-only-on-success rules as the corresponding old factory.
+SWUUIAProviderContext *SWU_UIACreateProviderContextWithInvokeResult(
+    const SWUUIACallbacks *callbacks, void (*releaseContext)(void *),
+    int32_t (*invokeResult)(void *context, uint64_t element));
+SWUUIAProviderContext *SWU_UIACreateProviderContextWithCallsAndInvokeResult(
+    const SWUUIACallCallbacks *callbacks, void (*releaseContext)(void *), const SWUUIADrainWake *drainWake,
+    int32_t (*invokeResult)(SWUUIACall *call, uint64_t element));
 void SWU_UIARetainProviderContext(SWUUIAProviderContext *context);
 void SWU_UIAReleaseProviderContext(SWUUIAProviderContext *context);
 void SWU_UIARevokeProviderContext(SWUUIAProviderContext *context);

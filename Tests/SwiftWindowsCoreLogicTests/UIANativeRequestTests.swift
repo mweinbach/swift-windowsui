@@ -354,7 +354,7 @@ final class UIANativeRequestTests: XCTestCase {
         }
         XCTAssertEqual(
             try bridge.replyForNativeRequest(
-                .invokeDefaultAction(element: 0), geometry: geometry, isAvailable: { true }), .completed)
+                .invokeDefaultAction(element: 0), geometry: geometry, isAvailable: { true }), .integer(0))
         XCTAssertEqual(
             try bridge.replyForNativeRequest(.setFocus(element: 0), geometry: geometry, isAvailable: { true }),
             .completed)
@@ -414,7 +414,8 @@ final class UIANativeRequestTests: XCTestCase {
             UIANativeActorEntry.withScope { SWU_UIAToggleProviderToggleResult(toggle) }, Int32(bitPattern: 0x8013_1509))
         let invoke = try XCTUnwrap(UIANativeActorEntry.withScope { SWU_UIAProviderGetInvokePattern(fixture.root) })
         defer { SWU_UIAReleaseProvider(invoke) }
-        XCTAssertEqual(UIANativeActorEntry.withScope { SWU_UIAProviderInvokeResult(invoke) }, 0)
+        XCTAssertEqual(
+            UIANativeActorEntry.withScope { SWU_UIAProviderInvokeResult(invoke) }, Int32(bitPattern: 0x8013_1509))
         XCTAssertEqual(UIANativeActorEntry.withScope { SWU_UIAProviderSetFocusResult(fixture.root) }, 0)
         XCTAssertEqual(fixture.source.actions, ["toggle", "invoke", "focus"])
     }

@@ -66,14 +66,15 @@ final class LazyListUIAInsertionOriginTests: XCTestCase {
     func testOriginalCaptureIncludesAppendedPredecessorAndKeepsItsExpiredEvent() async throws {
         let fixture = try InsertionOriginManagedFixture()
         defer { fixture.close() }
+        try fixture.introduce(Array(0..<1000))
+        let target = try fixture.originalSourceToken(300)
+        let predecessor = try fixture.originalSourceToken(299)
+        let prefetch = try fixture.originalSourceToken(2)
+        let outsideOriginalChoices = try fixture.originalSourceToken(298)
         fixture.probe.onNode = { [weak fixture] row, _ in
             guard let fixture, row == 0, fixture.probe.interventions == 0 else { return }
             fixture.probe.interventions += 1
             do {
-                let target = try fixture.token(300)
-                let predecessor = try fixture.token(299)
-                let prefetch = try fixture.token(2)
-                let outsideOriginalChoices = try fixture.token(298)
                 let original = try XCTUnwrap(fixture.adapter.pendingInsertionEvent(for: predecessor))
                 let factories = fixture.probe.factories
                 let capture = try XCTUnwrap(
@@ -95,7 +96,6 @@ final class LazyListUIAInsertionOriginTests: XCTestCase {
                 XCTFail("The original native event must be available before these factories: \(error)")
             }
         }
-        try fixture.introduce(Array(0..<1000))
 
         XCTAssertNotNil(fixture.host.layout())
 
@@ -107,12 +107,13 @@ final class LazyListUIAInsertionOriginTests: XCTestCase {
     func testOriginalSelectionPrefetchKeepsTheSameClaimedEventWithoutReclassification() async throws {
         let fixture = try InsertionOriginManagedFixture()
         defer { fixture.close() }
+        try fixture.introduce(Array(0..<1000))
+        let target = try fixture.originalSourceToken(300)
+        let prefetch = try fixture.originalSourceToken(2)
         fixture.probe.onNode = { [weak fixture] row, _ in
             guard let fixture, row == 0, fixture.probe.interventions == 0 else { return }
             fixture.probe.interventions += 1
             do {
-                let target = try fixture.token(300)
-                let prefetch = try fixture.token(2)
                 let original = try XCTUnwrap(fixture.adapter.pendingInsertionEvent(for: prefetch))
                 let capture = try XCTUnwrap(
                     fixture.adapter.captureUIAInsertionOrigins(initial: [target], selection: [prefetch]))
@@ -131,7 +132,6 @@ final class LazyListUIAInsertionOriginTests: XCTestCase {
                 XCTFail("Selection prefetch must retain its original event: \(error)")
             }
         }
-        try fixture.introduce(Array(0..<1000))
 
         _ = fixture.host.layout()
 
@@ -473,6 +473,13 @@ private final class InsertionOriginManagedFixture {
 
     func token(_ id: Int) throws -> RetainedLazyListRowToken {
         try XCTUnwrap(adapter.token(for: RetainedViewIdentity.Key(id)))
+    }
+
+    /// Capture original tokens before preparation makes provider lookup unavailable.
+    /// The callback retains only native tokens, never a new request or row admission.
+    func originalSourceToken(_ id: Int) throws -> RetainedLazyListRowToken {
+        let source = try XCTUnwrap(adapter.dataSource(for: Int.self))
+        return try XCTUnwrap(source.token(for: RetainedViewIdentity.Key(id)))
     }
 
     func introduce(_ rows: [Int]) throws {

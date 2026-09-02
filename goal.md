@@ -12294,3 +12294,31 @@ are EIGHT and sixteen rounds, as fixed in
 six rounds. Six was the observed consumption, not the first configured
 allowance. This clarification changes neither source nor test expectations.
 All nine original completion gates remain open.
+
+
+### 2026-09-01: Original lazy-list identities before row construction
+
+The reviewed empty-membership fixture correction now supplies the identified
+source prefix already used by its managed descriptor. The original empty-row
+factory callback is unchanged. This addresses the shared setup failure before
+the 17 membership tests reached their assertions; all 17 methods, 128 assertions,
+and 20 unwrap calls remain intact.
+
+Two insertion-origin fixtures now obtain their original source tokens after
+descriptor introduction and before the first factory. Lookup inside a running
+factory is correctly unavailable. Only native token values cross that boundary;
+the insertion event lookup, capture, claim/expiry, and all assertions still run
+inside the original row-zero callback. The other eight insertion-origin methods
+and existing adapter-token helper are unchanged. This does not repair the
+separate request-settlement or cancelled-source failures.
+
+Root strict formatting and contracts passed for both files. The complete
+4,889-byte staged diff has SHA256
+`31a3ea88ed470357b284415cca67ddc10c487bf93f911fc5fe4c3373f63a61ed`,
+and source tree `1e166fea8a24b6b667bdbf869631a987c695208b`. All other
+640 current test files, production, and Package.swift are unchanged. Root proof
+is `artifacts/goal-ninth-list-fixtures1a96-staged-proof-v1.json`; source packets
+are `goal-ninth-empty-membership7989-intake-v1` and
+`goal-ninth-uia-insertion4dd1-intake-v1`. No compiler or XCTest has yet validated
+these changes. The original selected methods remain required, and all nine
+completion gates remain open.

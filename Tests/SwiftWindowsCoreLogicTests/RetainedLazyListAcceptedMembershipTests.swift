@@ -380,8 +380,8 @@ private final class EmptyMembershipFixture {
         let provider = RetainedLazyListDataSource<Int, [ViewNode]>()
         XCTAssertTrue(
             provider.replaceData(
-                rows, id: \.self,
-                rowContent: { value in
+                rows, id: \.self, identityRoot: RetainedViewIdentity(segments: [.role(.content)]),
+                rowContent: { value, _ in
                     calls.values.append(value)
                     return []
                 }))

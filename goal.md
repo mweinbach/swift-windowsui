@@ -12517,3 +12517,47 @@ The generic and binding packets remain separate in
 `goal-ninth-projection-binding-d857-intake-v1`. The four new methods and existing
 projection/binding/UIA regressions still require root execution. All nine
 original completion gates remain open.
+
+
+### 2026-09-01: Add bounded construction diagnostics for the unresolved FileBrowser run
+
+The retained runtime and component host now have an opt-in construction trace.
+With its environment variable absent or empty, no writer or XCTest observer
+is created. An explicitly configured writer opens only an existing empty local
+file without creating, truncating, or replacing it. The diagnostic controller
+must supply an exclusively created file inside its fresh attempt directory.
+The trace holds native scalar IDs and runtime birth tokens, not view payloads,
+current-case ownership, admission, or a new source of authority.
+
+Complete newline records are written synchronously under a lock. The 64 MiB
+cap reserves space for an explicit PARTIAL terminal record; an actual write
+error is sticky and does not invent completion or retry. Readers must tolerate
+an incomplete final write. This is not an atomic-write, durable-flush, timing,
+or hardware-performance guarantee. Default-off tracing does not excuse later
+behavior or performance validation.
+
+The FileBrowser observer records actual XCTest start/finish callbacks and
+explicit fixture associations. Runtime layout, reader and component boundaries
+can identify where a stopped run was active. A callback-finish event is not an
+XCTest pass. All 14 original method bodies, assertions, order, and the original
+900-second attempt limit remain unchanged. The earlier timed-out attempt still
+has 14 unknown individual outcomes and is not retrospectively reclassified.
+
+Eleven writer regressions cover configuration, visible writes before close,
+rejected files, bounded-cap and rejected-record behavior, a closed-handle write
+failure, escaped case metadata, and distinct runtime births. Small-cap and
+closed-handle tests do not claim actual 64 MiB saturation or every OS IO fault.
+Root must execute these and a small visibility smoke before deciding on one
+instrumented FileBrowser attempt. No retry or new timeout is approved here.
+
+Root contracts and strict formatting passed. The five-file patch is 40,943
+bytes, SHA256 `0b4a6c2ddcf603a516af52049db4e9421ac1baa9a669432bb795d4ace2cf07ba`;
+source tree is `438632ca89fb24b7ee0a9965ca34b05df6d18752`.
+`artifacts/goal-ninth-file14-bf7-source-composition-proof-v1.json` independently
+confirms that only five Git/index or hunk-start metadata lines differ from the
+previously reviewed patch and all five approved postimages match. The staged
+proof `goal-ninth-file14-bf7-staged-proof-v1.json` preserves 644 of the 645
+existing test files, with only the approved FileBrowser instrumentation in the
+remaining file. The 18 earlier Runtime corrections remain intact. Compiler,
+writer, visibility, FileBrowser, and release qualification are still pending.
+All nine original completion gates remain open.

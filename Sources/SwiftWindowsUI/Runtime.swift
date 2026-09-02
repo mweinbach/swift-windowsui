@@ -13099,6 +13099,8 @@ public final class RetainedViewRuntime {
     private static let buttonRepeatInterval = 0.08
 
     public let root: ViewNode
+    /// Nil without the explicit diagnostic environment. Contains no UI owner.
+    package private(set) var constructionTrace: RetainedConstructionTrace?
     private var sceneGeometryDiagnosticRequest: RetainedSceneGeometryDiagnosticRequest?
 
     /// Arms one diagnostic only. It never refreshes layout, a cache, or a font probe.
@@ -15028,6 +15030,8 @@ public final class RetainedViewRuntime {
         self.root = root
         self.displayScale = displayScale
         self.textSystem = WindowTextSystem()
+        constructionTrace = RetainedConstructionDiagnostics.writer?.runtimeTrace(
+            nativeID: UInt(bitPattern: ObjectIdentifier(self)))
         self.root.setRuntime(self)
         RetainedButtonActionTree.publishStandalone(in: [self.root])
     }
@@ -15154,6 +15158,11 @@ public final class RetainedViewRuntime {
 
     /// Render the current view tree as a GPUIScene for batch rendering.
     public func renderScene(at timestamp: Double = 0) -> GPUIScene {
+        let trace = constructionTrace
+        let sceneSpan = trace?.record("scene.enter")
+        // This defer owns only diagnostic scalars, not self or render payloads.
+        // A body exit boundary is not proof that the caller has resumed.
+        defer { trace?.record("scene.returnBoundary", span: sceneSpan) }
         let geometryRequest = sceneGeometryDiagnosticRequest
         if isRendering, let geometryRequest {
             geometryRequest.finish(.unavailable("nestedRender"))
@@ -15225,7 +15234,9 @@ public final class RetainedViewRuntime {
         let ownsRenderPass = beginRenderPass()
         defer { endRenderPass(ownsPass: ownsRenderPass) }
         let phaseStartedAt = collectsPhaseTimings ? PlatformClock.now() : 0
+        let layoutCallSpan = trace?.record("scene.layout.enter")
         updateResolvedLayout()
+        trace?.record("scene.layout.returned", span: layoutCallSpan)
         applyMatchedGeometryAnimations()
         deliverRenderLifecycleCallbacks(ownsRenderPass: ownsRenderPass)
         // Another window can recycle the process atlas during a layout or
@@ -19794,6 +19805,9 @@ public final class RetainedViewRuntime {
     }
 
     private func updateResolvedLayout(resuming phase: LazyListUIAUnusedProviderPhase? = nil) {
+        let trace = constructionTrace
+        let layoutSpan = trace?.record("layout.enter")
+        defer { trace?.record("layout.returnBoundary", span: layoutSpan) }
         if phase == nil { revokeUnenteredLazyListUIAProviderPhase() }
         lazyListResolutionDepth += 1
         lazyListRegistrations = lazyListRegistrations.filter { _, registration in
@@ -19844,16 +19858,24 @@ public final class RetainedViewRuntime {
                     // Demand already invalidated layout. This is the one
                     // post-provider actual pass, even for an unchanged build;
                     // no second measurement batch uses the saved debit.
+                    let passSpan = trace?.record("layout.pass.enter")
                     runLayoutPass()
+                    trace?.record("layout.pass.returned", span: passSpan)
+                    let convergeSpan = trace?.record("layout.converge.enter")
                     convergeResolvedSubtrees()
+                    trace?.record("layout.converge.returned", span: convergeSpan)
                 }
             }
         } else {
+            let passSpan = trace?.record("layout.pass.enter")
             runLayoutPass()
+            trace?.record("layout.pass.returned", span: passSpan)
 
             // A reader's slot is decided by its parent, then the existing
             // bounded loop supplies that size and lays out accepted changes.
+            let convergeSpan = trace?.record("layout.converge.enter")
             convergeResolvedSubtrees()
+            trace?.record("layout.converge.returned", span: convergeSpan)
         }
 
         // A request may use only the pass captured by the paid first phase.
@@ -20233,8 +20255,12 @@ public final class RetainedViewRuntime {
 
             if let budget = lazyListResolutionBudget, !budget.consumeElement() { break }
 
+            let trace = constructionTrace
+            let rebuildSpan = trace?.record("geometry.rebuild.enter", node: UInt(bitPattern: ObjectIdentifier(node)))
             let rebuilt = rebuildGeometryReader(
                 node, slot: slot, uiaAuthority: uiaAuthority, readerWitness: readerWitness)
+            trace?.record(
+                "geometry.rebuild.returned", span: rebuildSpan, node: UInt(bitPattern: ObjectIdentifier(node)))
             // The old body/lease and throwaway candidate scopes have unwound.
             // Their capture destruction cannot supply a completed UIA pass.
             let readerIsCurrent = readerWitness?.auditAfterScope() != false
@@ -20255,9 +20281,14 @@ public final class RetainedViewRuntime {
         defer { buttonConstruction.finish() }
         guard uiaAuthority?.isCurrent != false, let build = node.geometryReaderBuild else { return false }
         if let lease = node.retainedSubtreeBuildLease {
-            return rebuildManagedGeometryReader(
+            let trace = constructionTrace
+            let managedSpan = trace?.record("geometry.managed.enter", node: UInt(bitPattern: ObjectIdentifier(node)))
+            let rebuilt = rebuildManagedGeometryReader(
                 node, slot: slot, build: build, lease: lease, uiaAuthority: uiaAuthority,
                 readerWitness: readerWitness)
+            trace?.record(
+                "geometry.managed.returned", span: managedSpan, node: UInt(bitPattern: ObjectIdentifier(node)))
+            return rebuilt
         }
         let admission =
             readerWitness?.original
@@ -20964,8 +20995,11 @@ public final class RetainedViewRuntime {
         guard nativeAdmission.uiaAuthority == nil || nativeConstructionIsCurrent() else { return false }
         let canAdoptBeforeBody = epoch.canAdopt
         guard nativeConstructionIsCurrent(), canAdoptBeforeBody else { return false }
+        let trace = constructionTrace
+        let contentSpan = trace?.record("geometry.content.enter", node: UInt(bitPattern: ObjectIdentifier(node)))
         let candidates = buildGeometryDescriptorContent(
             slot: slot, build: build, descriptorBuild: descriptorBuild)
+        trace?.record("geometry.content.returned", span: contentSpan, node: UInt(bitPattern: ObjectIdentifier(node)))
         guard nativeConstructionIsCurrent(), candidates.count == 1,
             !ViewNode.containsRejectedRetainedSource(in: candidates), let rebuilt = candidates.first
         else { return false }
@@ -20990,9 +21024,11 @@ public final class RetainedViewRuntime {
         }
         let taskAdoption = RetainedTaskAdoptionContext(runtime: self, epoch: epoch, transaction: transaction)
         let expectedLease = rebuilt.retainedSubtreeBuildLease
+        let adoptionSpan = trace?.record("geometry.adopt.enter", node: UInt(bitPattern: ObjectIdentifier(node)))
         let result = ComponentHost.adopt(
             source: rebuilt, into: node, taskAdoption: taskAdoption, lazyJournal: journal,
             uiaAuthority: nativeAdmission.uiaAuthority)
+        trace?.record("geometry.adopt.returned", span: adoptionSpan, node: UInt(bitPattern: ObjectIdentifier(node)))
         descriptorBuild.didAcceptPublication = result.didMutate || journal.hasAcceptedContributions
         if !journal.isOrdinaryAdoption || nativeAdmission.uiaAuthority != nil {
             guard result.completed, nativeAdmission.isPhysicallyCurrent,

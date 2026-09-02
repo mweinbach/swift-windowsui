@@ -12,6 +12,24 @@ import XCTest
 /// dialog, Explorer/OLE, Narrator, macOS or frame-time qualification.
 @MainActor
 final class DemoFileBrowserInteractionTests: XCTestCase {
+    // XCTest invokes these synchronous class hooks before/after its cases.
+    // They touch only the nonactor diagnostic observer, with no actor hop.
+    nonisolated override class func setUp() {
+        super.setUp()
+        if let observer = FileBrowserConstructionTraceObserver.configured {
+            XCTestObservationCenter.shared.addTestObserver(observer)
+            observer.recordRegistered()
+        }
+    }
+
+    nonisolated override class func tearDown() {
+        if let observer = FileBrowserConstructionTraceObserver.configured {
+            XCTestObservationCenter.shared.removeTestObserver(observer)
+            observer.recordRemoved()
+        }
+        super.tearDown()
+    }
+
     func testPublicTypedURLDropSelectsAFileAndDisplaysDecodedText() async throws {
         let gate = DemoFilePreviewGate()
         let model = DemoFileBrowserModel(service: gate.service, includesSamples: false)
@@ -537,6 +555,33 @@ final class DemoFileBrowserInteractionTests: XCTestCase {
     }
 }
 
+/// The immutable observer owns only the locked diagnostic writer. It stores no
+/// case, current-case slot, runtime, fixture, or application callback.
+private final class FileBrowserConstructionTraceObserver: XCTestObservation, Sendable {
+    static let configured: FileBrowserConstructionTraceObserver? = {
+        guard let writer = RetainedConstructionDiagnostics.writer else { return nil }
+        return FileBrowserConstructionTraceObserver(writer: writer)
+    }()
+
+    private let writer: RetainedConstructionTraceWriter
+
+    private init(writer: RetainedConstructionTraceWriter) { self.writer = writer }
+
+    func recordRegistered() { writer.record("observer.registered") }
+    func recordRemoved() { writer.record("observer.removed") }
+
+    func testCaseWillStart(_ testCase: XCTestCase) {
+        guard testCase is DemoFileBrowserInteractionTests else { return }
+        writer.record("case.enter", caseID: UInt(bitPattern: ObjectIdentifier(testCase)), caseName: testCase.name)
+    }
+
+    func testCaseDidFinish(_ testCase: XCTestCase) {
+        guard testCase is DemoFileBrowserInteractionTests else { return }
+        // A callback exit is not a passing assertion or a successful body.
+        writer.record("case.exit", caseID: UInt(bitPattern: ObjectIdentifier(testCase)), caseName: testCase.name)
+    }
+}
+
 private enum FileBrowserFixtureError: Error { case missingRead, missingCompletion }
 
 @MainActor
@@ -556,6 +601,8 @@ private final class FileBrowserFixture {
         scheme: ColorScheme = .dark, scale: Double = 1,
         gallery: (DemoDashboardModel, DemoWindowState)? = nil
     ) {
+        let writer = RetainedConstructionDiagnostics.writer
+        let fixtureSpan = writer?.record("fixture.init.enter")
         let visibility = FileBrowserVisibility()
         self.visibility = visibility
         let runtime = RetainedViewRuntime(root: ViewNode(), displayScale: scale)
@@ -569,6 +616,8 @@ private final class FileBrowserFixture {
             updateObservedObjects: { _, _, _ in })
         self.coordinator = coordinator
         host.buildLifecycle = coordinator
+        let trace = runtime.constructionTrace
+        trace?.record("fixture.runtime", span: fixtureSpan)
         let context = ViewBuildContext(
             stateMountCoordinator: coordinator,
             canvasSizeProvider: { Size(width: Double(size.width), height: Double(size.height)) },
@@ -587,6 +636,7 @@ private final class FileBrowserFixture {
             return [makeViewComponent(DemoFileBrowserTemplate(model: model), context: context)]
         }
         settle()
+        trace?.record("fixture.init.returnBoundary", span: fixtureSpan)
     }
 
     var nodes: [ViewNode] { Self.descendants(runtime.root) }
@@ -594,10 +644,18 @@ private final class FileBrowserFixture {
     var selectableRows: [ViewNode] { nodes.filter { $0.accessibilityTraits.contains(.isSelectable) } }
 
     func rebuild() {
+        let trace = runtime.constructionTrace
+        let span = trace?.record("fixture.rebuild.enter")
         host.reload()
         settle()
+        trace?.record("fixture.rebuild.returnBoundary", span: span)
     }
-    func close() { coordinator.close() }
+    func close() {
+        let trace = runtime.constructionTrace
+        let span = trace?.record("fixture.close.enter")
+        coordinator.close()
+        trace?.record("fixture.close.returnBoundary", span: span)
+    }
     func setVisible(_ visible: Bool) {
         visibility.isVisible = visible
         rebuild()
@@ -619,6 +677,9 @@ private final class FileBrowserFixture {
     }
 
     func activate(_ identifier: String) throws {
+        let trace = runtime.constructionTrace
+        let span = trace?.record("fixture.activate.enter")
+        defer { trace?.record("fixture.activate.returnBoundary", span: span) }
         let identified = try node(identifier)
         var candidate: ViewNode? = Self.descendants(identified).first { $0.onActivate != nil && $0.isFocusable }
         if candidate == nil {
@@ -644,8 +705,13 @@ private final class FileBrowserFixture {
     }
 
     private func settle() {
+        let trace = runtime.constructionTrace
+        let firstSpan = trace?.record("render.first.enter")
         _ = runtime.renderScene(at: 1)
+        trace?.record("render.first.returned", span: firstSpan)
+        let secondSpan = trace?.record("render.second.enter")
         _ = runtime.renderScene(at: 1)
+        trace?.record("render.second.returned", span: secondSpan)
         XCTAssertNil(coordinator.latestInstallationError)
     }
 

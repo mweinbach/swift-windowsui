@@ -345,8 +345,11 @@ public final class ComponentHost {
     }
 
     public func setComponents(_ content: @escaping () -> [Component]) {
+        let trace = runtime.constructionTrace
+        let span = trace?.record("components.set.enter", host: UInt(bitPattern: ObjectIdentifier(self)))
         buildComponents = content
         reload()
+        trace?.record("components.set.returnBoundary", span: span, host: UInt(bitPattern: ObjectIdentifier(self)))
     }
 
     public func setContent(@ComponentBuilder _ content: @escaping () -> [Component]) {
@@ -545,17 +548,25 @@ public final class ComponentHost {
         let reloadStartedAt = isProfiling ? PlatformClock.now() : 0
 
         let oldChildren = runtime.root.children
+        let trace = runtime.constructionTrace
+        let composeSpan = trace?.record("compose.enter", host: UInt(bitPattern: ObjectIdentifier(self)))
         let components = buildComponents?() ?? []
+        trace?.record("compose.returned", span: composeSpan, host: UInt(bitPattern: ObjectIdentifier(self)))
         let composeEndedAt = isProfiling ? PlatformClock.now() : 0
         if isProfiling { lastComposeSeconds = composeEndedAt - reloadStartedAt }
         guard candidateCanAdopt(epoch: epoch, sequence: sequence, validity: validity) else { return false }
+        let nodesSpan = trace?.record("nodes.enter", host: UInt(bitPattern: ObjectIdentifier(self)))
         let newNodes = components.map { $0.makeNode(runtime: runtime) }
+        trace?.record("nodes.returned", span: nodesSpan, host: UInt(bitPattern: ObjectIdentifier(self)))
         let nodesEndedAt = isProfiling ? PlatformClock.now() : 0
         if isProfiling { lastNodeConstructionSeconds = nodesEndedAt - composeEndedAt }
 
         guard candidateCanAdopt(epoch: epoch, sequence: sequence, validity: validity) else { return false }
         if let journal = lazyBuild?.journal {
-            guard journal.registerSourceDescriptors(in: newNodes) else { return false }
+            let descriptorsSpan = trace?.record("descriptors.enter", host: UInt(bitPattern: ObjectIdentifier(self)))
+            let registeredDescriptors = journal.registerSourceDescriptors(in: newNodes)
+            trace?.record("descriptors.returned", span: descriptorsSpan, host: UInt(bitPattern: ObjectIdentifier(self)))
+            guard registeredDescriptors else { return false }
             lazyBuild?.preparation = journal.preparation()
             if journal.hasManagedContributions {
                 lazyBuild?.usesManagedPublication = true
@@ -594,9 +605,11 @@ public final class ComponentHost {
         } else {
             taskAdoption = nil
         }
+        let reconcileSpan = trace?.record("reconcile.enter", host: UInt(bitPattern: ObjectIdentifier(self)))
         let result = Self.reconcileChildren(
             of: runtime.root, oldChildren: oldChildren, newNodes: newNodes, taskAdoption: taskAdoption,
             lazyJournal: lazyBuild?.journal)
+        trace?.record("reconcile.returned", span: reconcileSpan, host: UInt(bitPattern: ObjectIdentifier(self)))
         if let journal = lazyBuild?.journal {
             if result.completed {
                 let anchor = runtime.root.lazyListActivityStorage().captureActualAttachment(

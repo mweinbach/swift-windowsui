@@ -16524,3 +16524,47 @@ execution establishes otherwise. All nine original goal gates stay open.
 - The separate calendar/selected-content and text-snapshot packets remain
   unintegrated and unexecuted. All nine original completion gates remain open;
   this entry adds evidence and detail without changing their requirements.
+### 2026-09-02: corrected combined cohort compiled but timed out without reported outcomes
+
+The same fixed 155 methods in fourteen complete classes were rebound to clean
+commit `990d1010371cb62376e0eaa02de4a57d2ad49a60`, tree
+`2edb149966233286cbc795d430e74719a5f3d26e`. The runner and its exact selection
+were byte-identical to the first attempt; only the separately documented source
+mapping changed for the guarded test-configuration correction. No case,
+assertion, original keyboard budget, or timeout was removed or relaxed.
+
+The run at `artifacts/cohort155-990d101-f6fb2adb07e04f2a9ed13262b661b6be`
+completed compilation in 328.02 seconds, then reached the unchanged 900-second
+runner deadline. Waiting and direct-child cleanup took 900.015 seconds. The
+runner terminated only its retained direct PowerShell child; that child's exit
+was 1, the recorded logical runner exit was 124, and the outer execution tool
+reported exit 1 (`a73431` / `dd7f80/1`). The cleanup-required flag remains set.
+A subsequent point census still found the same Swift, swift-test, and selected
+XCTest processes alive; it does not establish descendant closure. Root requested
+permission to stop only the verified test-run processes and did not issue a
+PID/name kill or begin another SwiftPM run.
+
+The timeout observation contains zero captured XCTest suite/case starts or
+terminals, not proof that zero tests executed. A read-only command-line check
+confirmed 155 unique selected test identifiers and no discovery/list flags.
+The upstream Swift 6.3 Windows process relay reads its pipe with an unbounded
+count before forwarding data, and Foundation's corresponding implementation
+continues until EOF. This supplies a source-supported explanation for hidden
+output, not a location or cause of the stalled test, nor proof that the installed
+binaries exactly match upstream. See the release sources for
+[AsyncProcess](https://github.com/swiftlang/swift-package-manager/blob/swift-6.3-RELEASE/Sources/Basics/Concurrency/AsyncProcess.swift#L472-L493),
+[FileHandle](https://github.com/swiftlang/swift-corelibs-foundation/blob/swift-6.3-RELEASE/Sources/Foundation/FileHandle.swift#L262-L282),
+and [XCTest flushing](https://github.com/swiftlang/swift-corelibs-xctest/blob/swift-6.3-RELEASE/Sources/XCTest/Private/PrintObserver.swift#L68-L72).
+
+The partial raw observation is 2,471,887 bytes, SHA256
+`316890691b8316393be31f3bbaa95e2e372af07daab0edc260cb913346cf9c16`.
+`goal-ninth-cohort155-990d101-timeout-observation-v1.json` records its separate
+raw copy, source/index endpoint comparison, and fresh rehash of all 1,204 tracked
+files before further edits (`66392b` / `ded20c/0`). The original run log may still
+change while descendants live. The receipt neither clears cleanup nor upgrades
+missing outcomes to passes, failures, skips, or a completed suite.
+
+Source review found no demonstrated owner-renewal loop, so no speculative
+production change is attributed to this timeout. Calendar/selected-content,
+text snapshot, and dashboard timing candidates remain separately reviewed but
+unintegrated at this checkpoint. All nine original completion gates remain open.

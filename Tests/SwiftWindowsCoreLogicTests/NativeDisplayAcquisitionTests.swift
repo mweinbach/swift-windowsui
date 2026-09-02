@@ -767,7 +767,11 @@ final class NativeDisplayAcquisitionTests: XCTestCase {
                 windowKey: owner.surface.key, attachmentID: attachment,
                 expectedSurfaceGeneration: nil, requestID: id, operation: .poll,
                 reply: NativeWindowReply { result in nested.receivedReply(result) }, acquisition: nested)
-            XCTAssertThrowsError(try command.execute(in: owner))
+            do {
+                try XCTAssertThrowsError(try command.execute(in: owner))
+            } catch {
+                XCTFail("Nested rejection assertion unexpectedly threw: \(error)")
+            }
             command.reject(.execution("Expected fake reentry rejection"))
             nested.beginActorDelivery(rejected: true)
             nested.endActorDelivery()
@@ -887,7 +891,11 @@ final class NativeDisplayAcquisitionTests: XCTestCase {
             queue.submit(.poll, surface: acquisitionTestSurface(), requiresSurfaceGeneration: false) { result in
                 if case .failure(.closing) = result {} else { XCTFail("Expected Core terminal reply") }
                 XCTAssertEqual(fixture.recorder.diagnostics.pendingActorDeliveries, 1)
-                XCTAssertThrowsError(try fixture.recorder.finishAfterDrain())
+                do {
+                    try XCTAssertThrowsError(try fixture.recorder.finishAfterDrain())
+                } catch {
+                    XCTFail("Pending delivery assertion unexpectedly threw: \(error)")
+                }
             }
             queue.whenDrained { done.resume() }
             guard let command = sink.commands.values.first else {

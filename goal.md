@@ -15260,3 +15260,33 @@ all test bytes without widening the private field's visibility. A literal
 inverse restores the entire prior lifecycle file. Strict formatting and
 architecture contracts pass; the corrected source still needs compilation
 and test execution. **All nine original completion gates remain open.**
+
+
+### 2026-09-02: native acquisition callback compilation correction
+
+The next nineteen-method diagnostic-writer attempt at committed `a179c98`
+compiled the retained runtime and application executables, but test-target
+compilation failed at two NativeDisplayAcquisitionTests callbacks. Swift 6.3
+inferred throwing closures from their existing expected-error assertions even
+though the callback contracts are nonthrowing. No XCTest method started:
+zero passed, zero failed, and nineteen remained unrun. The direct child exited
+naturally with code 1, source preservation passed, and the separate closure
+snapshot found no matching process at that instant. This is compiler evidence,
+not a successful writer prerequisite or an original dashboard interaction run.
+
+An isolated check using the installed XCTest module reproduced the inference
+error. Explicit callback types and an explicit empty assertion handler still
+failed; a scoped do/try/catch compiled, with redundant-try and unreachable-catch
+warnings. The two repository assertions now use that containment, reporting
+an unexpected escaping error with XCTFail before continuing the same cleanup.
+All thirty-three methods and all 170 original XCTest calls (including eighteen
+XCTUnwrap calls) remain; only two conditional XCTFail calls were added. A literal
+two-replacement check and complete inverse verify every other source byte.
+All other 716 test files are unchanged, and strict formatting and architecture
+contracts pass. Repository execution remains pending after this correction.
+
+The preceding mounted-capture accessor correction did not change ownership:
+DestinationTask.runtime remains weak, and its getter returns the same runtime
+value. It introduced no new strong lifetime pin. These compiler corrections
+change neither the required behavioral evidence nor the product definition.
+**All nine original completion gates remain open.**

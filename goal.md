@@ -15486,3 +15486,51 @@ the correction remains pending. The interrupted original regression and all 108 
 still complete under the unchanged expectations. No release, accessibility,
 rendering, or performance qualification follows from this source correction.
 **All nine original completion gates remain open.**
+
+
+### 2026-09-02: terminal cancellation follows actual launched task attempts
+
+The 88-method mounted-lifetime selection at committed `f419123` completed with
+87 passes and one failure. All 22 mounted-capture regressions passed. In the
+original E2 earlier-root-clock/later-root case, all stale-successor refusal
+assertions passed, but closing the runtime failed to cancel an already launched
+replacement task after raw child-table writes made it unreachable from the
+mounted tree. The original five-second cancellation deadline and all assertions
+remain unchanged. The runner exited naturally with code 1, source preservation
+passed, and a separate post-closure snapshot found no matching process.
+
+Each runtime now keeps an internal ledger of its actual launched task attempts.
+Both existing launch paths retain their original admission guards, create the
+same Task, and register that exact attempt immediately after obtaining its task
+handle in the same synchronous MainActor segment. No callback or suspension is
+inserted between creation and registration. Completion holds the ledger and
+attempt weakly and removes only that exact attempt; completion of an older
+attempt cannot remove a newer attempt for the same logical declaration.
+
+Terminal cancellation first takes and clears this ledger before cancellation
+handlers can reenter. Existing mounted-tree, group, and physical-departure
+cleanup retains its ordering. The captured attempts then receive their existing
+once-only cancellation operation while lifecycle cancellation depth remains
+active. Reentrant close sees no repeated ledger debt. The ledger does not retain
+a node, declaration, slot, or runtime through its asynchronous completion path,
+and settled attempts leave it normally.
+
+Eight new tests were frozen before the production change. They cover no launch
+debt for undelivered/unrendered declarations, an orphaned ordinary task, multiple
+orphaned managed tasks and recursive close, old completion versus a newer
+attempt, already-cancelled work that has not settled, cancellation before the
+first body execution, weak runtime/node ownership, and isolation between two
+runtimes. All 718 prior test files remain unchanged. Root reviewed the full
+implementation and tests, including the separate registration-order amendment;
+the complete inverse preserves the preceding source tree.
+
+This ledger addresses running task cancellation. It does not claim to retire
+orphaned pending declaration slots, their action payloads or associations, and
+does not repair the underlying raw child-table overwrite. It neither refreshes
+an old mounted witness nor grants a stale operation permission to act on a
+replacement. Root integrated the three source files, verified that their complete
+inverse restores the preceding committed tree, and passed formatting lint and
+architecture contracts (`goal-ninth-task-attempt-ledger-lint-contracts.log`).
+Execution of the original 88 methods and the new eight remains pending. No native
+host, visual, assistive-technology, performance, or full-suite result is inferred.
+**All nine original completion gates remain open.**

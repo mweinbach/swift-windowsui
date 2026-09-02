@@ -327,10 +327,62 @@ fileprivate final class RetainedTaskAttempt {
     var task: Task<Void, Never>?
     private var wasCancelled = false
 
+    func launch(
+        in ledger: RetainedTaskAttemptLedger, priority: TaskPriority,
+        action: @escaping @Sendable () async -> Void
+    ) {
+        // The caller has completed its unchanged native launch admission. This
+        // records cancellation debt only; it grants no attachment or Task right.
+        task = Task(priority: priority) { [weak ledger, weak self] in
+            // Cancellation is cooperative. An admitted Task may first execute
+            // after it was cancelled; do not turn that into an uncreated run.
+            await action()
+            if let self { ledger?.settle(self) }
+        }
+        ledger.register(self)
+    }
+
     func cancel() {
         guard !wasCancelled else { return }
         wasCancelled = true
         task?.cancel()
+    }
+}
+
+/// Running attempts remain terminal cancellation debt even when a later raw
+/// child-table write makes their old native owner unreachable. This ledger owns
+/// only the already-created Task records, never a node, declaration or slot.
+@MainActor
+final class RetainedTaskAttemptLedger {
+    private var attempts: [ObjectIdentifier: RetainedTaskAttempt] = [:]
+
+    var count: Int { attempts.count }
+
+    fileprivate func register(_ attempt: RetainedTaskAttempt) {
+        attempts[ObjectIdentifier(attempt)] = attempt
+    }
+
+    fileprivate func settle(_ attempt: RetainedTaskAttempt) {
+        let key = ObjectIdentifier(attempt)
+        guard attempts[key] === attempt else { return }
+        let completed = attempts.removeValue(forKey: key)
+        withExtendedLifetime(completed) {}
+    }
+
+    func takeForTerminal() -> RetainedTaskAttemptRetirement {
+        let captured = RetainedTaskAttemptRetirement(attempts: Array(attempts.values))
+        // Keep every record alive outside this mutation, before any handler.
+        attempts.removeAll()
+        return captured
+    }
+}
+
+@MainActor
+struct RetainedTaskAttemptRetirement {
+    fileprivate let attempts: [RetainedTaskAttempt]
+
+    func cancel() {
+        for attempt in attempts { attempt.cancel() }
     }
 }
 
@@ -476,12 +528,8 @@ final class RetainedTaskNodeState {
         }
         let attempt = RetainedTaskAttempt()
         slot.attempt = attempt
-        let action = slot.declaration.action
-        attempt.task = Task(priority: slot.declaration.priority) {
-            // Cancellation is cooperative. An admitted Task may first execute
-            // after it was cancelled; do not turn that into an uncreated run.
-            await action()
-        }
+        attempt.launch(
+            in: runtime.retainedTaskAttempts, priority: slot.declaration.priority, action: slot.declaration.action)
     }
 
     func beginAppearance(in runtime: RetainedViewRuntime, revision: UInt64) -> RetainedTaskAppearance {
@@ -956,8 +1004,9 @@ fileprivate final class RetainedTaskGroupLaunchOwner {
             else { return }
             let attempt = RetainedTaskAttempt()
             candidate.attempt = attempt
-            let action = candidate.declaration.action
-            attempt.task = Task(priority: candidate.declaration.priority) { await action() }
+            attempt.launch(
+                in: runtime.retainedTaskAttempts, priority: candidate.declaration.priority,
+                action: candidate.declaration.action)
         }
     }
 

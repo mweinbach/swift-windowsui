@@ -14312,6 +14312,7 @@ public final class RetainedViewRuntime {
     private var retiredPreparedListNavigationRetirements: [@MainActor () -> Void] = []
     private var hasFinishedRenderLifecycleTaskCancellation = false
     private var renderLifecycleTaskCancellationDepth = 0
+    let retainedTaskAttempts = RetainedTaskAttemptLedger()
     private var isDrainingAfterLayoutActions = false
     private var isUpdatingResolvedLayout = false
     private var isResolvingPresentationAction = false
@@ -20688,6 +20689,7 @@ public final class RetainedViewRuntime {
     public func cancelRenderLifecycleTasks() {
         renderLifecycleTaskCancellationDepth += 1
         if renderLifecycleTaskCancellationDepth == 1 { hasFinishedRenderLifecycleTaskCancellation = false }
+        let launchedTaskRetirement = retainedTaskAttempts.takeForTerminal()
         let navigationRetirements = retiredPreparedListNavigationRetirements
         retiredPreparedListNavigationRetirements.removeAll()
         let capturedPhysicalDepartures = physicalTaskDepartures
@@ -20713,6 +20715,8 @@ public final class RetainedViewRuntime {
         for retirement in scopedRetirements { retirement.cancel() }
         for cleanup in groupTaskCleanup { cleanup.finish() }
         finishPhysicalTaskDeparturesForTerminal()
+        launchedTaskRetirement.cancel()
+        withExtendedLifetime(launchedTaskRetirement) {}
         withExtendedLifetime(scopedRetirements) {}
         withExtendedLifetime(capturedPhysicalDepartures) {}
         renderLifecycleTaskCancellationDepth -= 1

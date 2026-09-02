@@ -55,7 +55,7 @@ private final class NativeCoordinatorTestDriver {
     func hooks() -> WindowCoordinatorNativeHooks {
         WindowCoordinatorNativeHooks(
             startOwner: { self.ownerStarts += 1 },
-            startWindow: { host in
+            startWindow: { host, _ in
                 try await withCheckedThrowingContinuation { continuation in
                     self.permits[ObjectIdentifier(host)] = continuation
                     self.starts.append(host)

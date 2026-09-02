@@ -1362,7 +1362,7 @@ public final class Win32Window: PlatformWindow {
     }
 
     /// Creates a hidden HWND on the native owner. Host installation and native
-    /// presenter attachment happen before the coordinator explicitly activates
+    /// presenter attachment happen before the coordinator shows or activates
     /// it, so initial input cannot reach legacy dialog or presentation hooks.
     package func startNative(on pump: Win32NativePump) async throws -> NativeWindowSurface {
         if let surface = nativeSurface { return surface }
@@ -1449,6 +1449,15 @@ public final class Win32Window: PlatformWindow {
             let failure = error as? NativeWindowOwnerFailure ?? .execution(String(describing: error))
             recordNativeFailure(failure)
             throw error
+        }
+    }
+
+    /// Waits for native showing, invalidation, and geometry sampling to finish.
+    /// Explicit foreground requests remain a separate activation operation.
+    package func showNative() async throws {
+        let result = try await performNativeOperation(.show)
+        guard case .completed = result else {
+            throw NativeWindowOwnerFailure.execution("Showing completed without its native result")
         }
     }
 

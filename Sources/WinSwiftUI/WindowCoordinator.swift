@@ -87,12 +87,36 @@ struct WindowCoordinatorHooks {
     }
 }
 
+/// Primary launch realizes a window without an extra foreground request.
+/// Requested secondary windows keep their explicit activation behavior.
+enum WindowCoordinatorNativeStartupIntent: Equatable, Sendable {
+    case primaryLaunch
+    case requestedWindow
+
+    @MainActor
+    func perform(
+        prepare: @MainActor () async throws -> Void,
+        show: @MainActor () async throws -> Void,
+        activate: @MainActor () async throws -> Bool,
+        finishPresentation: @MainActor () async throws -> Void
+    ) async throws {
+        try await prepare()
+        switch self {
+        case .primaryLaunch:
+            try await show()
+        case .requestedWindow:
+            _ = try await activate()
+        }
+        try await finishPresentation()
+    }
+}
+
 /// The production owner's operations complete only after their native result
 /// is known. This separate seam also permits deterministic, headless tests;
 /// the legacy synchronous hooks keep their original contract.
 struct WindowCoordinatorNativeHooks {
     var startOwner: @MainActor () async throws -> Void
-    var startWindow: @MainActor (WinSwiftUIWindowHost) async throws -> Void
+    var startWindow: @MainActor (WinSwiftUIWindowHost, WindowCoordinatorNativeStartupIntent) async throws -> Void
     var activateWindow: @MainActor (WinSwiftUIWindowHost) async throws -> Bool
     var requestCloseWindow: @MainActor (WinSwiftUIWindowHost) -> Void
     var discardFailedWindow: @MainActor (WinSwiftUIWindowHost) async throws -> Void
@@ -102,12 +126,14 @@ struct WindowCoordinatorNativeHooks {
     static func win32(_ pump: Win32NativePump) -> WindowCoordinatorNativeHooks {
         WindowCoordinatorNativeHooks(
             startOwner: { try await pump.start() },
-            startWindow: { host in
+            startWindow: { host, intent in
                 try host.validateNativeActivation()
                 host.platformWindow.postsQuitMessageOnDestroy = false
-                try await host.startNative(on: pump)
-                _ = try await host.platformWindow.activateNative()
-                try await host.finishNativeStartupPresentation()
+                try await intent.perform(
+                    prepare: { try await host.startNative(on: pump) },
+                    show: { try await host.platformWindow.showNative() },
+                    activate: { try await host.platformWindow.activateNative() },
+                    finishPresentation: { try await host.finishNativeStartupPresentation() })
             },
             activateWindow: { host in try await host.platformWindow.activateNative() },
             requestCloseWindow: { host in host.platformWindow.requestClose() },
@@ -1037,7 +1063,7 @@ final class WinSwiftUIWindowCoordinator {
                 self.terminateIfNoWindows()
             }
             do {
-                try await nativeHooks.startWindow(host)
+                try await nativeHooks.startWindow(host, isPrimary ? .primaryLaunch : .requestedWindow)
                 try host.validateDocumentAdmission(expected: nil)
                 guard self.windows.contains(where: { $0.host === host }) else {
                     throw WindowCoordinatorError.windowClosedDuringStartup

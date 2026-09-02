@@ -1519,10 +1519,17 @@ final class Win32NativeWindowState: NativeWindowOwnerContext {
         guard let handle, !observedDestroy else { throw NativeWindowOwnerFailure.closed }
         switch operation {
         case .show:
-            enableInteractiveInput()
-            ShowWindow(handle, SW_SHOW)
-            UpdateWindow(handle)
-            if !InvalidateRect(handle, nil, false) { throw nativeFailure("InvalidateRect") }
+            return try Win32NativeWindowShowOperation.execute(
+                enableInteractiveInput: { self.enableInteractiveInput() },
+                showWindow: { ShowWindow(handle, SW_SHOW) },
+                updateWindow: { UpdateWindow(handle) },
+                invalidate: {
+                    if !InvalidateRect(handle, nil, false) { throw nativeFailure("InvalidateRect") }
+                },
+                sampleGeometry: {
+                    self.sampleGeometry()
+                    return self.lastGeometryFailure
+                })
         case .activate:
             enableInteractiveInput()
             ShowWindow(handle, IsIconic(handle) ? SW_RESTORE : SW_SHOW)
@@ -1698,6 +1705,27 @@ enum Win32NativeWindowOperation: Sendable {
 enum Win32NativeWindowOperationResult: Sendable {
     case completed
     case activated(Bool)
+}
+
+/// Runs the existing show sequence synchronously. These closures do not escape
+/// or outlive the owned operation, including any nested native dispatch.
+enum Win32NativeWindowShowOperation {
+    static func execute(
+        enableInteractiveInput: () -> Void,
+        showWindow: () -> Bool,
+        updateWindow: () -> Bool,
+        invalidate: () throws -> Void,
+        sampleGeometry: () -> NativeWindowOwnerFailure?
+    ) throws -> Win32NativeWindowOperationResult {
+        enableInteractiveInput()
+        // ShowWindow reports previous visibility. UpdateWindow's result was
+        // already ignored by this operation; neither Bool is a new failure.
+        _ = showWindow()
+        _ = updateWindow()
+        try invalidate()
+        if let failure = sampleGeometry() { throw failure }
+        return .completed
+    }
 }
 
 struct Win32NativeWindowOperationCommand: NativeWindowOwnerCommand {

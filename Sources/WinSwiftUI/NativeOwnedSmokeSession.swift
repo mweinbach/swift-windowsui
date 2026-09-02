@@ -146,8 +146,8 @@ final class NativeOwnedSmokeSession {
         let platform = Win32PlatformHostFactory()
         var hooks = WindowCoordinatorNativeHooks.win32(pump)
         let startWindow = hooks.startWindow
-        hooks.startWindow = { [shared] host in
-            try await startWindow(host)
+        hooks.startWindow = { [shared] host, intent in
+            try await startWindow(host, intent)
             shared.observation.record(
                 .hostReady, windowKey: host.platformWindow.nativeWindowKey,
                 generation: host.platformWindow.nativeSurface?.generation)

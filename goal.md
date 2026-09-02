@@ -12763,3 +12763,77 @@ A fresh exact-source 101-case run and its closure/provenance checks are required
 before a new native binding; the old 94-case receipt cannot be reused. This source
 change is diagnostic, not a native fairness fix or a qualifying native pass.
 All nine original completion gates remain open.
+
+
+### Ninth integration: fresh focused and native evidence on 922ff21
+
+The integrated source at `922ff21` completed the original 167-case Button/Table
+selection with **167 passed, zero failed and zero skipped**. The three admission
+checks now observe both sides of cleanup correctly; the original removal cases
+and the separate later-round retry regression also pass. This is fresh execution
+evidence, not a reinterpretation of earlier failing runs. The natural process
+run lasted 15.219 seconds, with unchanged source/index endpoints; reconciliation
+is `artifacts/goal-ninth-button167-922ff21-reconciled-v1.json`.
+
+The same source completed all 155 accessibility cases: **135 passed, 20 failed,
+zero skipped**, in a natural 543.984-second run. Of the original 141 methods,
+124 now pass and 17 fail, improving two previous failures. The fourteen added
+measurement checks contribute eleven passes and three failures. Their phase
+observations confirm the intended saved/resumed second round in the two positive
+cases, but final realization and settlement still fail. The third new failure
+shows that the intended unchanged-provider setup actually admits optional
+prefetch; that premise needs correction without suppressing legitimate provider
+work or weakening its pass/debit assertions. Managed final settlement, public
+anchor correction, successor ownership and actual visible-row receipts remain
+unresolved. No allowance, retry or guard is relaxed by this result. The receipt
+is `artifacts/goal-ninth-uia155-922ff21-reconciled-v1.json`.
+
+The existing eight builder classes completed **72 passed, six failed and zero
+skipped**, with all 78 methods executed in a natural 9.547-second run. The fourteen
+public builder methods pass; failures concern mounted optional/conditional/
+iteration updates, a re-erased inactive array, and projected List tags/state.
+`View.body` already inherits `@ViewBuilder`, so the compatibility table's claim
+that it does not is corrected while these behavioral failures and Foundation
+geometry limits remain explicit. The source-method lexer had refused nested
+quoted interpolation before any test launch. It was not loosened: a separate
+runner derivative used the exact generated registration roster, corroborated
+against eight current source hashes and declarations, and changed only the two
+original filter literals. Its 900-second deadline and other wrapper bytes were
+preserved. The observed incremental-build association is not a sealed compiler
+input or loader attestation. Actual outcomes are recorded in
+`artifacts/goal-ninth-builder78-922ff21-reconciled-v1.json`.
+
+All **101 native unit cases passed**, including the unchanged original 94 and
+seven new message-target cases, with zero failures or skips in a natural
+394.281-second process run. Exact case IDs, compile association and source
+preservation were checked before creating one fresh native binding. The real
+64-probe/query-31 smoke then again passed **24 of the unchanged 27 predicates**.
+Its natural 11.25-second run still fails the backlogged 32-record turn, progress
+between backlogged turns, and three-second unforced settled-idle checks. The new
+scalar associates all six idle dispatch/return pairs with a registered recorded
+window; it identifies neither sender nor timer/caret cause. The 64 probes were
+automatic FIFO deliveries, with no synchronous probe flush this time, yet the
+maximum beginning actor queue was seven and maximum consumed turn was seven.
+Thus removing query-flush consumption as an explanation does not supply the
+missing backlog evidence. No message exemption or workload/predicate change is
+introduced. Receipts are `artifacts/goal-ninth-native101-922ff21-reconciled-v1.json`
+and `artifacts/goal-ninth-native-owned-e6726ed-reconciled-v1.json`; the bounded
+comparison is `artifacts/goal-ninth-native922-vs525-readonly-review-intake-v1/REPORT.md`.
+
+After the earlier FileBrowser timeout and verified cleanup on `3a704bf`, the
+final trace contains 648 complete records in 71,353 bytes. Its 34 records beyond
+the timeout snapshot include the previously outstanding content return. All
+seventeen content spans are paired; the last adoption entry is unmatched. Four
+test callbacks have entry/exit observations, one has only entry, and nine have
+none, but **all fourteen XCTest outcomes remain unknown**. There are no marker
+timestamps or internal adoption boundaries to establish cost, deadlock or a
+source fault. Final parsing and source/closure reconciliation are retained in
+`artifacts/goal-ninth-file14-3a704bf-timeout-reconciled-v1.json`.
+
+Each completed run had a separate subsequent CIM absence observation before the
+next workload or source edit; these are point-in-time checks, not continuous
+descendant attestations. The native failure receipt's original cleanup-required
+flag remains unchanged alongside the later closure evidence. There is no fresh
+Full/gallery, hardware-motion, native-workflow, hosted-CI or clean-machine
+qualification in these focused results. All nine original completion gates stay
+open, and the original product scope and numerical targets remain unchanged.

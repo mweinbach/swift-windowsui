@@ -15934,3 +15934,37 @@ timeout and cleanup record are unchanged. Neither these pure checks nor the four
 focused Swift methods constitute Quick, Full, visual, native, macOS, performance,
 CI or clean-machine qualification. **All nine original completion gates remain
 open, and the original goal and every earlier ledger byte remain intact.**
+### Ninth batch: locate declaration changes around cancelled target cleanup
+
+Two additive `ManagedListTargetCleanupPhaseDiagnosticsTests` methods now copy
+the two late-cancellation cases without changing their original failing tests.
+All sixty copied assertion/unwrap/failure sites and the original action order
+remain. Each still performs one target resolution with the unchanged four-round,
+128-element budget and its existing completion observer. No production change
+or passing cleanup result is claimed by this addition.
+
+Four Bool/Int snapshots record the original source and receipt at callback
+entry, immediately after target release, inside that completion observer, and
+after resolution returns. They distinguish an absent owner from a replacement,
+and declaration permission from continuing physical attachment. A counter in
+the existing factory callback identifies later construction of source row zero.
+At the existing accepted-roots read, the first two roots are classified using
+stored gap and row metadata; no root is filtered or given new authority. The
+`completed` output label means the existing build-cleanup observer was reached,
+not that the cancelled target became ready.
+
+Root read the complete candidate and the native getter chain, reconstructed
+all twelve diagnostic edits in both directions, and rechecked thirteen source
+pins against the unchanged checkout. No added getter invokes authored logic,
+queries layout or prepares another action. Output consists of one line per case
+after the original assertions, bounded to 741 ASCII bytes with LF. The packet
+is retained in `artifacts/goal-ninth-target-cleanup-phase-diag-intake-v1`.
+
+Formatting required only moving the closing print parenthesis to a new line;
+the frozen packet remains intact and the exact formatting delta is recorded
+separately. Whole-tree inverse checks passed before and after that change.
+Formatting lint and architecture checks then passed in
+`artifacts/goal-ninth-target-cleanup-phase-diag-lint-contracts-v2.log`.
+Fresh compilation and execution are still required. The earlier two failing
+cases and their raw evidence remain unchanged. **All nine original completion
+gates remain open.**

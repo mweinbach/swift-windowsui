@@ -183,9 +183,12 @@ final class OwnedRootViewContentTests: XCTestCase {
         _ = try await coordinator.bootPrimaryNativeWindow()
         var rejections = 0
         probe.onRoot = {
-            XCTAssertThrowsError(try coordinator.beginNativeWindowRequest(payload: WindowActionPayload(id: "main"))) {
-                guard case NativeWindowCoordinatorError.reentrantWindowPreparation = $0 else {
-                    return XCTFail("Expected the original preparation's reentry rejection, got \($0)")
+            do {
+                _ = try coordinator.beginNativeWindowRequest(payload: WindowActionPayload(id: "main"))
+                XCTFail("Expected the original preparation's reentry rejection")
+            } catch {
+                guard case NativeWindowCoordinatorError.reentrantWindowPreparation = error else {
+                    return XCTFail("Expected the original preparation's reentry rejection, got \(error)")
                 }
                 rejections += 1
             }

@@ -9,11 +9,35 @@ public struct GPUIContentMask: Equatable, Sendable {
     }
 }
 
+/// Unlike a content mask, an explicit malformed anchor must remain present so
+/// scene admission can reject it. A positive Double extent can also disappear
+/// during Float conversion; keep that case distinct from the nil sentinel.
+private enum GPUIClipShapeEncoding {
+    static func bounds(x: Float, y: Float, width: Float, height: Float) -> Rect? {
+        guard !GPUIClipEncoding.isAbsent(clipX: x, clipY: y, clipWidth: width, clipHeight: height) else {
+            return nil
+        }
+        return Rect(x: Double(x), y: Double(y), width: Double(width), height: Double(height))
+    }
+
+    static func encode(
+        _ bounds: Rect?, into x: inout Float, _ y: inout Float, _ width: inout Float, _ height: inout Float
+    ) {
+        GPUIClipEncoding.encode(bounds, into: &x, &y, &width, &height)
+        guard bounds != nil else { return }
+        guard x.isFinite, y.isFinite, width.isFinite, height.isFinite, width > 0, height > 0 else {
+            width = GPUIClipEncoding.emptyExtent
+            height = GPUIClipEncoding.emptyExtent
+            return
+        }
+    }
+}
+
 // MARK: - Quad Primitive
 
 /// A rounded rectangle with optional gradient fill, designed for direct upload
 /// to a D3D11 structured buffer. All fields are `Float` for GPU compatibility.
-/// Total: 36 floats = 144 bytes (divisible by 16 for StructuredBuffer alignment).
+/// Total: 44 floats = 176 bytes (divisible by 16 for StructuredBuffer alignment).
 @frozen
 public struct QuadPrimitive: Equatable, Sendable {
     // Position & size (pixels)
@@ -77,13 +101,24 @@ public struct QuadPrimitive: Equatable, Sendable {
     public var cornerRadiusBottomRight: Float
     public var cornerRadiusBottomLeft: Float
     // These three existing ABI slots carry piecewise-linear gradient
-    // intervals without changing the 144-byte structured-buffer stride.
+    // intervals at their original offsets before the appended clip geometry.
     // Their stored names remain stable because existing layout probes pin
     // offsets 132, 136 and 140. Zero in the final slot means the original
     // single-quad gradient path, preserving every existing scene byte-for-byte.
     public var _reserved0: Float
     public var _reserved1: Float
     public var _reserved2: Float
+    // Original clip radii in physical TL/TR/BR/BL order. Any positive value
+    // overrides clipCornerRadius; all zero keeps the current scalar fallback.
+    public var clipCornerRadiusTopLeft: Float
+    public var clipCornerRadiusTopRight: Float
+    public var clipCornerRadiusBottomRight: Float
+    public var clipCornerRadiusBottomLeft: Float
+    // Original shape anchor. All zero falls back to the current clip bounds.
+    public var clipShapeX: Float
+    public var clipShapeY: Float
+    public var clipShapeWidth: Float
+    public var clipShapeHeight: Float
 
     public init(
         x: Float = 0, y: Float = 0, width: Float = 0, height: Float = 0,
@@ -106,7 +141,12 @@ public struct QuadPrimitive: Equatable, Sendable {
         cornerRadiusTopLeft: Float = 0,
         cornerRadiusTopRight: Float = 0,
         cornerRadiusBottomRight: Float = 0,
-        cornerRadiusBottomLeft: Float = 0
+        cornerRadiusBottomLeft: Float = 0,
+        clipCornerRadiusTopLeft: Float = 0,
+        clipCornerRadiusTopRight: Float = 0,
+        clipCornerRadiusBottomRight: Float = 0,
+        clipCornerRadiusBottomLeft: Float = 0,
+        clipShapeBounds: Rect? = nil
     ) {
         self.x = x
         self.y = y
@@ -144,6 +184,15 @@ public struct QuadPrimitive: Equatable, Sendable {
         self._reserved0 = 0
         self._reserved1 = 0
         self._reserved2 = 0
+        self.clipCornerRadiusTopLeft = clipCornerRadiusTopLeft
+        self.clipCornerRadiusTopRight = clipCornerRadiusTopRight
+        self.clipCornerRadiusBottomRight = clipCornerRadiusBottomRight
+        self.clipCornerRadiusBottomLeft = clipCornerRadiusBottomLeft
+        self.clipShapeX = 0
+        self.clipShapeY = 0
+        self.clipShapeWidth = 0
+        self.clipShapeHeight = 0
+        self.clipShapeBounds = clipShapeBounds
     }
 
     public static var byteSize: Int { MemoryLayout<Self>.size }
@@ -375,6 +424,19 @@ public struct QuadPrimitive: Equatable, Sendable {
             || cornerRadiusBottomRight > 0 || cornerRadiusBottomLeft > 0
     }
 
+    /// Nil preserves the dynamic clip-rectangle fallback. A present empty or
+    /// unrepresentable shape stays explicit and is rejected at scene admission.
+    public var clipShapeBounds: Rect? {
+        get {
+            GPUIClipShapeEncoding.bounds(
+                x: clipShapeX, y: clipShapeY, width: clipShapeWidth, height: clipShapeHeight)
+        }
+        set {
+            GPUIClipShapeEncoding.encode(
+                newValue, into: &clipShapeX, &clipShapeY, &clipShapeWidth, &clipShapeHeight)
+        }
+    }
+
     public var contentMask: GPUIContentMask {
         get {
             GPUIClipEncoding.contentMask(
@@ -390,7 +452,7 @@ public struct QuadPrimitive: Equatable, Sendable {
 // MARK: - Glyph Primitive
 
 /// A single glyph from a font atlas, designed for direct upload to a D3D11
-/// structured buffer. Total: 20 floats = 80 bytes (divisible by 16).
+/// structured buffer. Total: 28 floats = 112 bytes (divisible by 16).
 @frozen
 public struct GlyphPrimitive: Equatable, Sendable {
     // Screen destination
@@ -421,12 +483,22 @@ public struct GlyphPrimitive: Equatable, Sendable {
     // historic fast path). Non-zero turns the sampled cell, so a run of
     // text inside a `.rotationEffect` subtree reads along the rotated
     // baseline instead of staying upright inside a turned card. This slot
-    // used to be `_pad0`, so the stride is unchanged at 80 bytes.
+    // used to be `_pad0`, so its original offset remains unchanged.
     public var rotationRadians: Float
     // Padding to a 16-byte multiple, which HLSL structured buffers require
     // for their element stride. 18 floats round up to 20.
     public var _pad1: Float
     public var _pad2: Float
+    // Any positive clip corner selects TL/TR/BR/BL; all zero uses the scalar.
+    public var clipCornerRadiusTopLeft: Float
+    public var clipCornerRadiusTopRight: Float
+    public var clipCornerRadiusBottomRight: Float
+    public var clipCornerRadiusBottomLeft: Float
+    // All zero means the current rejection rectangle supplies the anchor.
+    public var clipShapeX: Float
+    public var clipShapeY: Float
+    public var clipShapeWidth: Float
+    public var clipShapeHeight: Float
 
     public init(
         screenX: Float = 0, screenY: Float = 0, screenW: Float = 0, screenH: Float = 0,
@@ -434,7 +506,12 @@ public struct GlyphPrimitive: Equatable, Sendable {
         colorR: Float = 1, colorG: Float = 1, colorB: Float = 1, colorA: Float = 1,
         clipX: Float = 0, clipY: Float = 0, clipWidth: Float = 0, clipHeight: Float = 0,
         clipCornerRadius: Float = 0,
-        rotationRadians: Float = 0
+        rotationRadians: Float = 0,
+        clipCornerRadiusTopLeft: Float = 0,
+        clipCornerRadiusTopRight: Float = 0,
+        clipCornerRadiusBottomRight: Float = 0,
+        clipCornerRadiusBottomLeft: Float = 0,
+        clipShapeBounds: Rect? = nil
     ) {
         self.screenX = screenX
         self.screenY = screenY
@@ -456,6 +533,15 @@ public struct GlyphPrimitive: Equatable, Sendable {
         self.rotationRadians = rotationRadians
         self._pad1 = 0
         self._pad2 = 0
+        self.clipCornerRadiusTopLeft = clipCornerRadiusTopLeft
+        self.clipCornerRadiusTopRight = clipCornerRadiusTopRight
+        self.clipCornerRadiusBottomRight = clipCornerRadiusBottomRight
+        self.clipCornerRadiusBottomLeft = clipCornerRadiusBottomLeft
+        self.clipShapeX = 0
+        self.clipShapeY = 0
+        self.clipShapeWidth = 0
+        self.clipShapeHeight = 0
+        self.clipShapeBounds = clipShapeBounds
     }
 
     public static var byteSize: Int { MemoryLayout<Self>.size }
@@ -472,10 +558,24 @@ public struct GlyphPrimitive: Equatable, Sendable {
     }
 }
 
+extension GlyphPrimitive {
+    /// Original rounded-shape bounds; nil keeps the dynamic rejection-rect fallback.
+    public var clipShapeBounds: Rect? {
+        get {
+            GPUIClipShapeEncoding.bounds(
+                x: clipShapeX, y: clipShapeY, width: clipShapeWidth, height: clipShapeHeight)
+        }
+        set {
+            GPUIClipShapeEncoding.encode(
+                newValue, into: &clipShapeX, &clipShapeY, &clipShapeWidth, &clipShapeHeight)
+        }
+    }
+}
+
 // MARK: - Image Primitive
 
 /// A texture-mapped quad, designed for direct upload to a D3D11 structured
-/// buffer. Total: 32 fields = 128 bytes (divisible by 16). The original
+/// buffer. Total: 40 fields = 160 bytes (divisible by 16). The original
 /// placement/UV fields retain their offsets; sampling occupies bytes 80...127.
 @frozen
 public struct ImagePrimitive: Equatable, Sendable {
@@ -529,6 +629,16 @@ public struct ImagePrimitive: Equatable, Sendable {
     public var centerRepeatY: Float
     public var samplingKind: Int32
     public var samplingPadding: Float
+    // Any positive clip corner selects TL/TR/BR/BL; all zero uses the scalar.
+    public var clipCornerRadiusTopLeft: Float
+    public var clipCornerRadiusTopRight: Float
+    public var clipCornerRadiusBottomRight: Float
+    public var clipCornerRadiusBottomLeft: Float
+    // All zero means the current rejection rectangle supplies the anchor.
+    public var clipShapeX: Float
+    public var clipShapeY: Float
+    public var clipShapeWidth: Float
+    public var clipShapeHeight: Float
 
     public init(
         screenX: Float = 0, screenY: Float = 0, screenW: Float = 0, screenH: Float = 0,
@@ -539,7 +649,12 @@ public struct ImagePrimitive: Equatable, Sendable {
         textureID: Int32 = 0,
         rotationRadians: Float = 0,
         affineA: Float = 1, affineB: Float = 0, affineC: Float = 0, affineD: Float = 1,
-        sampling: ImageSamplingDescriptor = .legacy
+        sampling: ImageSamplingDescriptor = .legacy,
+        clipCornerRadiusTopLeft: Float = 0,
+        clipCornerRadiusTopRight: Float = 0,
+        clipCornerRadiusBottomRight: Float = 0,
+        clipCornerRadiusBottomLeft: Float = 0,
+        clipShapeBounds: Rect? = nil
     ) {
         self.screenX = screenX
         self.screenY = screenY
@@ -573,6 +688,15 @@ public struct ImagePrimitive: Equatable, Sendable {
         centerRepeatY = sampling.centerRepeatY
         samplingKind = sampling.samplingKind
         samplingPadding = sampling.samplingPadding
+        self.clipCornerRadiusTopLeft = clipCornerRadiusTopLeft
+        self.clipCornerRadiusTopRight = clipCornerRadiusTopRight
+        self.clipCornerRadiusBottomRight = clipCornerRadiusBottomRight
+        self.clipCornerRadiusBottomLeft = clipCornerRadiusBottomLeft
+        self.clipShapeX = 0
+        self.clipShapeY = 0
+        self.clipShapeWidth = 0
+        self.clipShapeHeight = 0
+        self.clipShapeBounds = clipShapeBounds
     }
 
     public static var byteSize: Int { MemoryLayout<Self>.size }
@@ -616,6 +740,18 @@ public struct ImagePrimitive: Equatable, Sendable {
 }
 
 extension ImagePrimitive {
+    /// Original rounded-shape bounds; nil keeps the dynamic rejection-rect fallback.
+    public var clipShapeBounds: Rect? {
+        get {
+            GPUIClipShapeEncoding.bounds(
+                x: clipShapeX, y: clipShapeY, width: clipShapeWidth, height: clipShapeHeight)
+        }
+        set {
+            GPUIClipShapeEncoding.encode(
+                newValue, into: &clipShapeX, &clipShapeY, &clipShapeWidth, &clipShapeHeight)
+        }
+    }
+
     var hasIdentityAffineTransform: Bool {
         affineA == 1 && affineB == 0 && affineC == 0 && affineD == 1
     }
@@ -741,7 +877,7 @@ struct ImagePlacementGeometry {
 // MARK: - Shadow Primitive
 
 /// A soft shadow rectangle, designed for direct upload to a D3D11 structured
-/// buffer. Total: 20 floats = 80 bytes (divisible by 16).
+/// buffer. Total: 28 floats = 112 bytes (divisible by 16).
 @frozen
 public struct ShadowPrimitive: Equatable, Sendable {
     // Shadow rect
@@ -775,12 +911,21 @@ public struct ShadowPrimitive: Equatable, Sendable {
     // rotated card's `.shadow()` haloed the card's bounding box, which at
     // 45° is √2 too large on each axis and square where the card is
     // diamond. The soft envelope is concentric with the rect, so one angle
-    // turns both. The slot used to be `_pad0`; the stride is unchanged at
-    // 80 bytes.
+    // turns both. The slot used to be `_pad0`; its offset stays unchanged.
     public var rotationRadians: Float
     // Padding to a 16-byte multiple: 18 floats round up to 20.
     public var _pad1: Float
     public var _pad2: Float
+    // Any positive clip corner selects TL/TR/BR/BL; all zero uses the scalar.
+    public var clipCornerRadiusTopLeft: Float
+    public var clipCornerRadiusTopRight: Float
+    public var clipCornerRadiusBottomRight: Float
+    public var clipCornerRadiusBottomLeft: Float
+    // All zero means the current rejection rectangle supplies the anchor.
+    public var clipShapeX: Float
+    public var clipShapeY: Float
+    public var clipShapeWidth: Float
+    public var clipShapeHeight: Float
 
     public init(
         x: Float = 0, y: Float = 0, width: Float = 0, height: Float = 0,
@@ -790,7 +935,12 @@ public struct ShadowPrimitive: Equatable, Sendable {
         offsetX: Float = 0, offsetY: Float = 0,
         clipX: Float = 0, clipY: Float = 0, clipWidth: Float = 0, clipHeight: Float = 0,
         clipCornerRadius: Float = 0,
-        rotationRadians: Float = 0
+        rotationRadians: Float = 0,
+        clipCornerRadiusTopLeft: Float = 0,
+        clipCornerRadiusTopRight: Float = 0,
+        clipCornerRadiusBottomRight: Float = 0,
+        clipCornerRadiusBottomLeft: Float = 0,
+        clipShapeBounds: Rect? = nil
     ) {
         self.x = x
         self.y = y
@@ -812,6 +962,15 @@ public struct ShadowPrimitive: Equatable, Sendable {
         self.rotationRadians = rotationRadians
         self._pad1 = 0
         self._pad2 = 0
+        self.clipCornerRadiusTopLeft = clipCornerRadiusTopLeft
+        self.clipCornerRadiusTopRight = clipCornerRadiusTopRight
+        self.clipCornerRadiusBottomRight = clipCornerRadiusBottomRight
+        self.clipCornerRadiusBottomLeft = clipCornerRadiusBottomLeft
+        self.clipShapeX = 0
+        self.clipShapeY = 0
+        self.clipShapeWidth = 0
+        self.clipShapeHeight = 0
+        self.clipShapeBounds = clipShapeBounds
     }
 
     public static var byteSize: Int { MemoryLayout<Self>.size }
@@ -824,6 +983,20 @@ public struct ShadowPrimitive: Equatable, Sendable {
         set {
             GPUIClipEncoding.encode(
                 newValue.bounds, into: &clipX, &clipY, &clipWidth, &clipHeight)
+        }
+    }
+}
+
+extension ShadowPrimitive {
+    /// Original rounded-shape bounds; nil keeps the dynamic rejection-rect fallback.
+    public var clipShapeBounds: Rect? {
+        get {
+            GPUIClipShapeEncoding.bounds(
+                x: clipShapeX, y: clipShapeY, width: clipShapeWidth, height: clipShapeHeight)
+        }
+        set {
+            GPUIClipShapeEncoding.encode(
+                newValue, into: &clipShapeX, &clipShapeY, &clipShapeWidth, &clipShapeHeight)
         }
     }
 }
@@ -910,6 +1083,15 @@ public struct PathPrimitive: Equatable, Sendable {
     /// its bounding box. Logical points, scaled with everything else by
     /// `scaled(by:)`.
     public var clipCornerRadius: Double
+    /// Original physical TL/TR/BR/BL clip radii. Any positive corner overrides
+    /// the scalar; all zero retains its current value as a uniform fallback.
+    public var clipCornerRadiusTopLeft: Double
+    public var clipCornerRadiusTopRight: Double
+    public var clipCornerRadiusBottomRight: Double
+    public var clipCornerRadiusBottomLeft: Double
+    /// Original rounded-shape bounds, independent of rectangular crops.
+    /// Nil uses clipBounds, or the render target when clipBounds is also nil.
+    public var clipShapeBounds: Rect?
 
     /// Internal because path placement owns subsequent translation, scaling
     /// and rotation; callers author explicit endpoints through
@@ -929,7 +1111,12 @@ public struct PathPrimitive: Equatable, Sendable {
         lineJoin: StrokeStyle.LineJoin = .miter,
         miterLimit: Double = 10,
         clipBounds: Rect? = nil,
-        clipCornerRadius: Double = 0
+        clipCornerRadius: Double = 0,
+        clipCornerRadiusTopLeft: Double = 0,
+        clipCornerRadiusTopRight: Double = 0,
+        clipCornerRadiusBottomRight: Double = 0,
+        clipCornerRadiusBottomLeft: Double = 0,
+        clipShapeBounds: Rect? = nil
     ) {
         self.elements = elements
         self.bounds = bounds
@@ -944,6 +1131,11 @@ public struct PathPrimitive: Equatable, Sendable {
         self.miterLimit = miterLimit
         self.clipBounds = clipBounds
         self.clipCornerRadius = clipCornerRadius
+        self.clipCornerRadiusTopLeft = clipCornerRadiusTopLeft
+        self.clipCornerRadiusTopRight = clipCornerRadiusTopRight
+        self.clipCornerRadiusBottomRight = clipCornerRadiusBottomRight
+        self.clipCornerRadiusBottomLeft = clipCornerRadiusBottomLeft
+        self.clipShapeBounds = clipShapeBounds
         self.gradientSpace =
             fillGradient != nil || strokeGradient != nil ? PathGradientSpace(bounds: bounds) : nil
     }
@@ -1268,6 +1460,12 @@ public struct PathPrimitive: Equatable, Sendable {
                 size: clip.size
             )
         }
+        let translatedShape = clipShapeBounds.map { shape in
+            Rect(
+                origin: Point(x: shape.origin.x + offset.x, y: shape.origin.y + offset.y),
+                size: shape.size
+            )
+        }
 
         var result = PathPrimitive(
             elements: translatedElements,
@@ -1282,7 +1480,12 @@ public struct PathPrimitive: Equatable, Sendable {
             lineJoin: lineJoin,
             miterLimit: miterLimit,
             clipBounds: translatedClip,
-            clipCornerRadius: clipCornerRadius
+            clipCornerRadius: clipCornerRadius,
+            clipCornerRadiusTopLeft: clipCornerRadiusTopLeft,
+            clipCornerRadiusTopRight: clipCornerRadiusTopRight,
+            clipCornerRadiusBottomRight: clipCornerRadiusBottomRight,
+            clipCornerRadiusBottomLeft: clipCornerRadiusBottomLeft,
+            clipShapeBounds: translatedShape
         )
         result.gradientSpace = resolvedGradientSpace?.mapped {
             Point(x: $0.x + offset.x, y: $0.y + offset.y)
@@ -1342,7 +1545,12 @@ public struct PathPrimitive: Equatable, Sendable {
             // leaves the limit it is measured against unchanged.
             miterLimit: miterLimit,
             clipBounds: clipBounds.map { $0.scaled(by: factor) },
-            clipCornerRadius: clipCornerRadius * factor
+            clipCornerRadius: clipCornerRadius * factor,
+            clipCornerRadiusTopLeft: clipCornerRadiusTopLeft * factor,
+            clipCornerRadiusTopRight: clipCornerRadiusTopRight * factor,
+            clipCornerRadiusBottomRight: clipCornerRadiusBottomRight * factor,
+            clipCornerRadiusBottomLeft: clipCornerRadiusBottomLeft * factor,
+            clipShapeBounds: clipShapeBounds.map { $0.scaled(by: factor) }
         )
         result.gradientSpace = resolvedGradientSpace?.mapped(scale)
         return result
@@ -1364,8 +1572,8 @@ public struct PathPrimitive: Equatable, Sendable {
     ///
     /// What is deliberately **not** rotated:
     ///
-    /// - `clipBounds` and `clipCornerRadius`. The scene contract's clip is an
-    ///   axis-aligned screen-space rect for every family; the caller has
+    /// - `clipBounds`, `clipShapeBounds` and all clip radii. The clip stays in
+    ///   axis-aligned screen space for every family; the caller has
     ///   already narrowed it in that space and rotating it here would put the
     ///   path's clip in a space no other primitive shares.
     /// - `lineWidth` and `miterLimit`. A rotation is rigid, so a stroke keeps
@@ -1431,7 +1639,12 @@ public struct PathPrimitive: Equatable, Sendable {
             lineJoin: lineJoin,
             miterLimit: miterLimit,
             clipBounds: clipBounds,
-            clipCornerRadius: clipCornerRadius
+            clipCornerRadius: clipCornerRadius,
+            clipCornerRadiusTopLeft: clipCornerRadiusTopLeft,
+            clipCornerRadiusTopRight: clipCornerRadiusTopRight,
+            clipCornerRadiusBottomRight: clipCornerRadiusBottomRight,
+            clipCornerRadiusBottomLeft: clipCornerRadiusBottomLeft,
+            clipShapeBounds: clipShapeBounds
         )
         result.gradientSpace = resolvedGradientSpace?.mapped(turn)
         return result

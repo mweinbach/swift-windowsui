@@ -202,6 +202,15 @@ public enum GPUISceneSanitizer {
         x.isFinite && y.isFinite && width.isFinite && height.isFinite
     }
 
+    /// All-zero shape fields mean dynamic fallback to R. Every other shape
+    /// must remain finite and nonempty, even when the rejection clip is absent.
+    @inline(__always)
+    private static func clipShapeIsRepresentable(_ x: Float, _ y: Float, _ width: Float, _ height: Float) -> Bool {
+        guard clipIsRepresentable(x, y, width, height) else { return false }
+        return GPUIClipEncoding.isAbsent(clipX: x, clipY: y, clipWidth: width, clipHeight: height)
+            || (width > 0 && height > 0)
+    }
+
     public static func sanitized(_ quad: QuadPrimitive) -> QuadPrimitive? {
         guard quad.x.isFinite, quad.y.isFinite, quad.width.isFinite, quad.height.isFinite else {
             return nil
@@ -209,6 +218,10 @@ public enum GPUISceneSanitizer {
         guard clipIsRepresentable(quad.clipX, quad.clipY, quad.clipWidth, quad.clipHeight) else {
             return nil
         }
+        guard
+            clipShapeIsRepresentable(
+                quad.clipShapeX, quad.clipShapeY, quad.clipShapeWidth, quad.clipShapeHeight)
+        else { return nil }
 
         var result = quad
         result.x = GPUISceneValue.clamped(quad.x, to: coordinateLimit)
@@ -228,6 +241,18 @@ public enum GPUISceneSanitizer {
         result.clipWidth = GPUISceneValue.clamped(quad.clipWidth, to: coordinateLimit)
         result.clipHeight = GPUISceneValue.clamped(quad.clipHeight, to: coordinateLimit)
         result.clipCornerRadius = GPUISceneValue.clamped(quad.clipCornerRadius, lower: 0, upper: coordinateLimit)
+        result.clipCornerRadiusTopLeft = GPUISceneValue.clamped(
+            quad.clipCornerRadiusTopLeft, lower: 0, upper: coordinateLimit)
+        result.clipCornerRadiusTopRight = GPUISceneValue.clamped(
+            quad.clipCornerRadiusTopRight, lower: 0, upper: coordinateLimit)
+        result.clipCornerRadiusBottomRight = GPUISceneValue.clamped(
+            quad.clipCornerRadiusBottomRight, lower: 0, upper: coordinateLimit)
+        result.clipCornerRadiusBottomLeft = GPUISceneValue.clamped(
+            quad.clipCornerRadiusBottomLeft, lower: 0, upper: coordinateLimit)
+        result.clipShapeX = GPUISceneValue.clamped(quad.clipShapeX, to: coordinateLimit)
+        result.clipShapeY = GPUISceneValue.clamped(quad.clipShapeY, to: coordinateLimit)
+        result.clipShapeWidth = GPUISceneValue.clamped(quad.clipShapeWidth, to: coordinateLimit)
+        result.clipShapeHeight = GPUISceneValue.clamped(quad.clipShapeHeight, to: coordinateLimit)
         result.startR = GPUISceneValue.clamped(quad.startR, lower: 0, upper: 1)
         result.startG = GPUISceneValue.clamped(quad.startG, lower: 0, upper: 1)
         result.startB = GPUISceneValue.clamped(quad.startB, lower: 0, upper: 1)
@@ -283,6 +308,10 @@ public enum GPUISceneSanitizer {
         guard clipIsRepresentable(glyph.clipX, glyph.clipY, glyph.clipWidth, glyph.clipHeight) else {
             return nil
         }
+        guard
+            clipShapeIsRepresentable(
+                glyph.clipShapeX, glyph.clipShapeY, glyph.clipShapeWidth, glyph.clipShapeHeight)
+        else { return nil }
 
         var result = glyph
         result.screenX = GPUISceneValue.clamped(glyph.screenX, to: coordinateLimit)
@@ -294,6 +323,18 @@ public enum GPUISceneSanitizer {
         result.clipWidth = GPUISceneValue.clamped(glyph.clipWidth, to: coordinateLimit)
         result.clipHeight = GPUISceneValue.clamped(glyph.clipHeight, to: coordinateLimit)
         result.clipCornerRadius = GPUISceneValue.clamped(glyph.clipCornerRadius, lower: 0, upper: coordinateLimit)
+        result.clipCornerRadiusTopLeft = GPUISceneValue.clamped(
+            glyph.clipCornerRadiusTopLeft, lower: 0, upper: coordinateLimit)
+        result.clipCornerRadiusTopRight = GPUISceneValue.clamped(
+            glyph.clipCornerRadiusTopRight, lower: 0, upper: coordinateLimit)
+        result.clipCornerRadiusBottomRight = GPUISceneValue.clamped(
+            glyph.clipCornerRadiusBottomRight, lower: 0, upper: coordinateLimit)
+        result.clipCornerRadiusBottomLeft = GPUISceneValue.clamped(
+            glyph.clipCornerRadiusBottomLeft, lower: 0, upper: coordinateLimit)
+        result.clipShapeX = GPUISceneValue.clamped(glyph.clipShapeX, to: coordinateLimit)
+        result.clipShapeY = GPUISceneValue.clamped(glyph.clipShapeY, to: coordinateLimit)
+        result.clipShapeWidth = GPUISceneValue.clamped(glyph.clipShapeWidth, to: coordinateLimit)
+        result.clipShapeHeight = GPUISceneValue.clamped(glyph.clipShapeHeight, to: coordinateLimit)
         result.atlasU0 = GPUISceneValue.clamped(glyph.atlasU0, to: GPUISceneLimits.maxTextureCoordinate)
         result.atlasV0 = GPUISceneValue.clamped(glyph.atlasV0, to: GPUISceneLimits.maxTextureCoordinate)
         result.atlasU1 = GPUISceneValue.clamped(glyph.atlasU1, to: GPUISceneLimits.maxTextureCoordinate)
@@ -325,6 +366,10 @@ public enum GPUISceneSanitizer {
         guard clipIsRepresentable(image.clipX, image.clipY, image.clipWidth, image.clipHeight) else {
             return nil
         }
+        guard
+            clipShapeIsRepresentable(
+                image.clipShapeX, image.clipShapeY, image.clipShapeWidth, image.clipShapeHeight)
+        else { return nil }
 
         var result = image
         result.screenX = GPUISceneValue.clamped(image.screenX, to: coordinateLimit)
@@ -336,6 +381,18 @@ public enum GPUISceneSanitizer {
         result.clipWidth = GPUISceneValue.clamped(image.clipWidth, to: coordinateLimit)
         result.clipHeight = GPUISceneValue.clamped(image.clipHeight, to: coordinateLimit)
         result.clipCornerRadius = GPUISceneValue.clamped(image.clipCornerRadius, lower: 0, upper: coordinateLimit)
+        result.clipCornerRadiusTopLeft = GPUISceneValue.clamped(
+            image.clipCornerRadiusTopLeft, lower: 0, upper: coordinateLimit)
+        result.clipCornerRadiusTopRight = GPUISceneValue.clamped(
+            image.clipCornerRadiusTopRight, lower: 0, upper: coordinateLimit)
+        result.clipCornerRadiusBottomRight = GPUISceneValue.clamped(
+            image.clipCornerRadiusBottomRight, lower: 0, upper: coordinateLimit)
+        result.clipCornerRadiusBottomLeft = GPUISceneValue.clamped(
+            image.clipCornerRadiusBottomLeft, lower: 0, upper: coordinateLimit)
+        result.clipShapeX = GPUISceneValue.clamped(image.clipShapeX, to: coordinateLimit)
+        result.clipShapeY = GPUISceneValue.clamped(image.clipShapeY, to: coordinateLimit)
+        result.clipShapeWidth = GPUISceneValue.clamped(image.clipShapeWidth, to: coordinateLimit)
+        result.clipShapeHeight = GPUISceneValue.clamped(image.clipShapeHeight, to: coordinateLimit)
         result.uvX = GPUISceneValue.clamped(image.uvX, to: GPUISceneLimits.maxTextureCoordinate)
         result.uvY = GPUISceneValue.clamped(image.uvY, to: GPUISceneLimits.maxTextureCoordinate)
         result.uvW = GPUISceneValue.clamped(image.uvW, to: GPUISceneLimits.maxTextureCoordinate)
@@ -356,6 +413,10 @@ public enum GPUISceneSanitizer {
         guard clipIsRepresentable(shadow.clipX, shadow.clipY, shadow.clipWidth, shadow.clipHeight) else {
             return nil
         }
+        guard
+            clipShapeIsRepresentable(
+                shadow.clipShapeX, shadow.clipShapeY, shadow.clipShapeWidth, shadow.clipShapeHeight)
+        else { return nil }
 
         var result = shadow
         result.x = GPUISceneValue.clamped(shadow.x, to: coordinateLimit)
@@ -372,6 +433,18 @@ public enum GPUISceneSanitizer {
         result.clipWidth = GPUISceneValue.clamped(shadow.clipWidth, to: coordinateLimit)
         result.clipHeight = GPUISceneValue.clamped(shadow.clipHeight, to: coordinateLimit)
         result.clipCornerRadius = GPUISceneValue.clamped(shadow.clipCornerRadius, lower: 0, upper: coordinateLimit)
+        result.clipCornerRadiusTopLeft = GPUISceneValue.clamped(
+            shadow.clipCornerRadiusTopLeft, lower: 0, upper: coordinateLimit)
+        result.clipCornerRadiusTopRight = GPUISceneValue.clamped(
+            shadow.clipCornerRadiusTopRight, lower: 0, upper: coordinateLimit)
+        result.clipCornerRadiusBottomRight = GPUISceneValue.clamped(
+            shadow.clipCornerRadiusBottomRight, lower: 0, upper: coordinateLimit)
+        result.clipCornerRadiusBottomLeft = GPUISceneValue.clamped(
+            shadow.clipCornerRadiusBottomLeft, lower: 0, upper: coordinateLimit)
+        result.clipShapeX = GPUISceneValue.clamped(shadow.clipShapeX, to: coordinateLimit)
+        result.clipShapeY = GPUISceneValue.clamped(shadow.clipShapeY, to: coordinateLimit)
+        result.clipShapeWidth = GPUISceneValue.clamped(shadow.clipShapeWidth, to: coordinateLimit)
+        result.clipShapeHeight = GPUISceneValue.clamped(shadow.clipShapeHeight, to: coordinateLimit)
         result.colorR = GPUISceneValue.clamped(shadow.colorR, lower: 0, upper: 1)
         result.colorG = GPUISceneValue.clamped(shadow.colorG, lower: 0, upper: 1)
         result.colorB = GPUISceneValue.clamped(shadow.colorB, lower: 0, upper: 1)
@@ -393,6 +466,12 @@ public enum GPUISceneSanitizer {
                 return nil
             }
         }
+        if let shape = path.clipShapeBounds {
+            guard shape.origin.x.isFinite, shape.origin.y.isFinite,
+                shape.size.width.isFinite, shape.size.height.isFinite,
+                shape.size.width > 0, shape.size.height > 0
+            else { return nil }
+        }
         guard path.elements.count <= GPUISceneLimits.maxPathElements else {
             return nil
         }
@@ -400,6 +479,7 @@ public enum GPUISceneSanitizer {
         var result = path
         result.bounds = clampedRect(path.bounds)
         result.clipBounds = path.clipBounds.map(clampedRect)
+        result.clipShapeBounds = path.clipShapeBounds.map(clampedRect)
         result.lineWidth = GPUISceneValue.clamped(
             path.lineWidth.isFinite ? max(0, path.lineWidth) : 0, to: Double(coordinateLimit))
         // A limit below 1 would bevel a straight run, and a non-finite one
@@ -411,6 +491,18 @@ public enum GPUISceneSanitizer {
             : 10
         result.clipCornerRadius = GPUISceneValue.clamped(
             path.clipCornerRadius.isFinite ? max(0, path.clipCornerRadius) : 0, to: Double(coordinateLimit))
+        result.clipCornerRadiusTopLeft = GPUISceneValue.clamped(
+            path.clipCornerRadiusTopLeft.isFinite ? max(0, path.clipCornerRadiusTopLeft) : 0,
+            to: Double(coordinateLimit))
+        result.clipCornerRadiusTopRight = GPUISceneValue.clamped(
+            path.clipCornerRadiusTopRight.isFinite ? max(0, path.clipCornerRadiusTopRight) : 0,
+            to: Double(coordinateLimit))
+        result.clipCornerRadiusBottomRight = GPUISceneValue.clamped(
+            path.clipCornerRadiusBottomRight.isFinite ? max(0, path.clipCornerRadiusBottomRight) : 0,
+            to: Double(coordinateLimit))
+        result.clipCornerRadiusBottomLeft = GPUISceneValue.clamped(
+            path.clipCornerRadiusBottomLeft.isFinite ? max(0, path.clipCornerRadiusBottomLeft) : 0,
+            to: Double(coordinateLimit))
         result.elements = clampedElements(path.elements)
         result.fillGradient = path.fillGradient.map(sanitizedGradient)
         result.strokeGradient = path.strokeGradient.map(sanitizedGradient)

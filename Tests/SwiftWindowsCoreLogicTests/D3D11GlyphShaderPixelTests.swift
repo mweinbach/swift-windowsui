@@ -150,7 +150,7 @@ final class D3D11GlyphShaderPixelTests: XCTestCase {
 
         // Structured instance buffer holding one GlyphPrimitive.
         let stride = MemoryLayout<GlyphPrimitive>.stride
-        XCTAssertEqual(stride, 80, "GlyphInstance layout pin drifted")
+        XCTAssertEqual(stride, 112, "GlyphInstance layout pin drifted")
         var bufferDesc = D3D11_BUFFER_DESC()
         bufferDesc.ByteWidth = UINT(stride)
         bufferDesc.Usage = D3D11_USAGE_DEFAULT

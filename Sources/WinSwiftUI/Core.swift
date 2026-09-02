@@ -10940,7 +10940,9 @@ extension Shape {
         TransformedShape(shape: self, transform: transform)
     }
 }
-enum RetainedClipShapeStyle {
+/// Legacy scalar projection retained for existing internal consumers. Actual
+/// visual modifiers resolve RetainedClipShapeDescriptor in their build context.
+enum RetainedClipShapeStyle: Sendable, Equatable {
     case rectangle
     case roundedRectangle(Double)
     case capsule
@@ -10968,6 +10970,59 @@ enum RetainedClipShapeStyle {
 @MainActor
 protocol RetainedClipShape: Shape {
     var retainedClipShapeStyle: RetainedClipShapeStyle { get }
+}
+/// Full visual clip geometry is independent of the legacy scalar projection
+/// and of content-shape hit geometry. Only these immutable values cross the
+/// modifier boundary; authored path callbacks are never retained or evaluated.
+enum RetainedClipShapeDescriptor: Sendable, Equatable {
+    case style(RetainedClipShapeStyle)
+    case unevenRoundedRectangle(RectangleCornerRadii)
+
+    var staticCornerRadius: Double {
+        switch self {
+        case .style(let style):
+            return style.staticCornerRadius
+        case .unevenRoundedRectangle(let radii):
+            return radii.retainedUniformFallbackRadius
+        }
+    }
+
+    func cornerRadii(in layoutDirection: LayoutDirection) -> RetainedCornerRadii? {
+        guard case .unevenRoundedRectangle(let radii) = self else { return nil }
+        let isRTL = layoutDirection == .rightToLeft
+        return RetainedCornerRadii(
+            topLeft: isRTL ? radii.topTrailing : radii.topLeading,
+            topRight: isRTL ? radii.topLeading : radii.topTrailing,
+            bottomRight: isRTL ? radii.bottomLeading : radii.bottomTrailing,
+            bottomLeft: isRTL ? radii.bottomTrailing : radii.bottomLeading)
+    }
+
+    func inset(by amount: Double) -> RetainedClipShapeDescriptor {
+        switch self {
+        case .style(.roundedRectangle(let radius)):
+            return .style(.roundedRectangle(max(0, radius - amount)))
+        case .style(.rectangle), .style(.capsule):
+            return self
+        case .unevenRoundedRectangle(let radii):
+            return .unevenRoundedRectangle(
+                RectangleCornerRadii(
+                    topLeading: max(0, radii.topLeading - amount),
+                    bottomLeading: max(0, radii.bottomLeading - amount),
+                    bottomTrailing: max(0, radii.bottomTrailing - amount),
+                    topTrailing: max(0, radii.topTrailing - amount)))
+        }
+    }
+}
+@MainActor
+protocol RetainedClipShapeProvider: Shape {
+    var retainedClipShapeDescriptor: RetainedClipShapeDescriptor { get }
+}
+@MainActor
+func resolvedRetainedClipShapeDescriptor<S: Shape>(for shape: S) -> RetainedClipShapeDescriptor {
+    if let provider = shape as? any RetainedClipShapeProvider {
+        return provider.retainedClipShapeDescriptor
+    }
+    return .style((shape as? any RetainedClipShape)?.retainedClipShapeStyle ?? .rectangle)
 }
 /// Keeps logical corners intact until a modifier has its actual build context.
 /// Only value geometry is passed to the runtime; no authored path is retained.
@@ -24554,7 +24609,7 @@ extension View {
         in shape: Clip,
         fillStyle: FillStyle = FillStyle()
     ) -> some View {
-        let clipStyle = (shape as? any RetainedClipShape)?.retainedClipShapeStyle ?? .rectangle
+        let clipDescriptor = resolvedRetainedClipShapeDescriptor(for: shape)
         let clipFillStyle = RetainedClipFillStyle(
             eoFill: fillStyle.isEOFilled,
             antialiased: fillStyle.isAntialiased
@@ -24568,11 +24623,12 @@ extension View {
                 let backgroundNode = Controls.panel(
                     backgroundColor: fill.color,
                     backgroundGradient: fill.gradient,
-                    cornerRadius: clipStyle.staticCornerRadius,
+                    cornerRadius: clipDescriptor.staticCornerRadius,
                     clipsToBounds: true,
                     isHitTestVisible: false
                 )
                 backgroundNode.clipFillStyle = clipFillStyle
+                backgroundNode.cornerRadii = clipDescriptor.cornerRadii(in: context.layoutDirection)
                 let preferredSize = baseNode.intrinsicContentSize()
                 let root = Controls.panel(
                     preferredSize: preferredSize,
@@ -24589,7 +24645,7 @@ extension View {
                     if backgroundNode.frame != frame {
                         backgroundNode.frame = frame
                     }
-                    if case .capsule = clipStyle {
+                    if case .style(.capsule) = clipDescriptor {
                         let radius = max(0, min(bounds.size.width, bounds.size.height) * 0.5)
                         if backgroundNode.cornerRadius != radius {
                             backgroundNode.cornerRadius = radius
@@ -24644,7 +24700,7 @@ extension View {
         shape: Clip,
         fillStyle: FillStyle
     ) -> some View {
-        let clipStyle = (shape as? any RetainedClipShape)?.retainedClipShapeStyle ?? .rectangle
+        let clipDescriptor = resolvedRetainedClipShapeDescriptor(for: shape)
         let clipFillStyle = RetainedClipFillStyle(
             eoFill: fillStyle.isEOFilled,
             antialiased: fillStyle.isAntialiased
@@ -24657,11 +24713,12 @@ extension View {
                 let backgroundNode = Controls.panel(
                     backgroundColor: color,
                     backgroundGradient: gradient,
-                    cornerRadius: clipStyle.staticCornerRadius,
+                    cornerRadius: clipDescriptor.staticCornerRadius,
                     clipsToBounds: true,
                     isHitTestVisible: false
                 )
                 backgroundNode.clipFillStyle = clipFillStyle
+                backgroundNode.cornerRadii = clipDescriptor.cornerRadii(in: context.layoutDirection)
                 let preferredSize = baseNode.intrinsicContentSize()
                 let root = Controls.panel(
                     preferredSize: preferredSize,
@@ -24678,7 +24735,7 @@ extension View {
                     if backgroundNode.frame != frame {
                         backgroundNode.frame = frame
                     }
-                    if case .capsule = clipStyle {
+                    if case .style(.capsule) = clipDescriptor {
                         let radius = max(0, min(bounds.size.width, bounds.size.height) * 0.5)
                         if backgroundNode.cornerRadius != radius {
                             backgroundNode.cornerRadius = radius
@@ -24945,7 +25002,7 @@ extension View {
         shape: Clip,
         fillStyle: FillStyle
     ) -> some View {
-        let clipStyle = (shape as? any RetainedClipShape)?.retainedClipShapeStyle ?? .rectangle
+        let clipDescriptor = resolvedRetainedClipShapeDescriptor(for: shape)
         let clipFillStyle = RetainedClipFillStyle(
             eoFill: fillStyle.isEOFilled,
             antialiased: fillStyle.isAntialiased
@@ -24958,11 +25015,12 @@ extension View {
                 let overlayNode = Controls.panel(
                     backgroundColor: color,
                     backgroundGradient: gradient,
-                    cornerRadius: clipStyle.staticCornerRadius,
+                    cornerRadius: clipDescriptor.staticCornerRadius,
                     clipsToBounds: true,
                     isHitTestVisible: false
                 )
                 overlayNode.clipFillStyle = clipFillStyle
+                overlayNode.cornerRadii = clipDescriptor.cornerRadii(in: context.layoutDirection)
                 let preferredSize = baseNode.intrinsicContentSize()
                 let root = Controls.panel(
                     preferredSize: preferredSize,
@@ -24979,7 +25037,7 @@ extension View {
                     if overlayNode.frame != frame {
                         overlayNode.frame = frame
                     }
-                    if case .capsule = clipStyle {
+                    if case .style(.capsule) = clipDescriptor {
                         let radius = max(0, min(bounds.size.width, bounds.size.height) * 0.5)
                         if overlayNode.cornerRadius != radius {
                             overlayNode.cornerRadius = radius
@@ -26802,21 +26860,22 @@ extension View {
     }
 
     public func clipShape<S: Shape>(_ shape: S, style: FillStyle = FillStyle()) -> some View {
-        let clipStyle = (shape as? any RetainedClipShape)?.retainedClipShapeStyle ?? .rectangle
+        let clipDescriptor = resolvedRetainedClipShapeDescriptor(for: shape)
         return ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 let root = Controls.stackPanel(
-                    cornerRadius: clipStyle.staticCornerRadius,
+                    cornerRadius: clipDescriptor.staticCornerRadius,
                     clipsToBounds: true,
                     stackLayout: .vertical(alignment: .stretch),
                     isHitTestVisible: false,
                     children: [childNode]
                 )
                 root.clipFillStyle = RetainedClipFillStyle(eoFill: style.isEOFilled, antialiased: style.isAntialiased)
+                root.cornerRadii = clipDescriptor.cornerRadii(in: context.layoutDirection)
 
-                if case .capsule = clipStyle {
+                if case .style(.capsule) = clipDescriptor {
                     root.onLayout = { [weak root] bounds in
                         let radius = max(0, min(bounds.size.width, bounds.size.height) * 0.5)
                         if root?.cornerRadius != radius {

@@ -4,6 +4,58 @@
 
 import SwiftWindowsGraphics
 
+// Shared by every output clip, including the glyph pipeline. The rejection
+// rectangle bounds the draw; the original shape rectangle anchors its arcs.
+// Neither rectangle gates the helper samples used to derive antialiasing.
+let batchClipShaderSource = #"""
+float4 resolvedClipRadii(float scalarRadius, float4 cornerRadii)
+{
+    return any(cornerRadii > 0.0)
+        ? cornerRadii
+        : float4(scalarRadius, scalarRadius, scalarRadius, scalarRadius);
+}
+
+float4 resolvedClipShapeRect(float4 rejectionRect, float4 shapeRect)
+{
+    // Exact zero is absence, not an eagerly stored copy of rejectionRect.
+    return all(shapeRect == 0.0) ? rejectionRect : shapeRect;
+}
+
+float originalClipDistance(float2 pixelPosition, float4 shapeRect, float4 cornerRadii)
+{
+    float2 halfSize = shapeRect.zw * 0.5;
+    float2 localPoint = pixelPosition - shapeRect.xy - halfSize;
+    float radius = localPoint.x > 0.0
+        ? (localPoint.y > 0.0 ? cornerRadii.z : cornerRadii.y)
+        : (localPoint.y > 0.0 ? cornerRadii.w : cornerRadii.x);
+    // Cap against the ORIGINAL shape, never a thin rectangular crop.
+    float clampedRadius = min(radius, min(halfSize.x, halfSize.y));
+    float2 corner = max(halfSize - float2(clampedRadius, clampedRadius), float2(0.0, 0.0));
+    float2 delta = abs(localPoint) - corner;
+    return length(max(delta, float2(0.0, 0.0))) + min(max(delta.x, delta.y), 0.0) - clampedRadius;
+}
+
+float originalClipCoverage(float2 pixelPosition, float4 rejectionRect, float4 shapeRect, float4 cornerRadii)
+{
+    // Compute geometric distance AND its derivative before either current-
+    // center gate. A one-pixel crop still needs neighbouring helper lanes.
+    float distance = originalClipDistance(pixelPosition, shapeRect, cornerRadii);
+    float aa = max(fwidth(distance), 0.75);
+
+    // Packed rejection bounds retain authority: an anchor cannot activate an
+    // absent clip. Empty/invalid explicit clips are rejected at admission.
+    if (rejectionRect.z <= 0.0 || rejectionRect.w <= 0.0) return 1.0;
+    if (pixelPosition.x < rejectionRect.x || pixelPosition.y < rejectionRect.y ||
+        pixelPosition.x >= rejectionRect.x + rejectionRect.z ||
+        pixelPosition.y >= rejectionRect.y + rejectionRect.w) return 0.0;
+    // This gate is required even for square corners and raw R outside S.
+    if (pixelPosition.x < shapeRect.x || pixelPosition.y < shapeRect.y ||
+        pixelPosition.x >= shapeRect.x + shapeRect.z ||
+        pixelPosition.y >= shapeRect.y + shapeRect.w) return 0.0;
+    return any(cornerRadii > 0.0) ? saturate(0.5 - distance / aa) : 1.0;
+}
+"""#
+
 // Color operations are shared by primitive shading and isolated image passes.
 // Each operation receives straight RGB; the caller clamps between stages and
 // premultiplies only after the full chain has finished.
@@ -49,7 +101,7 @@ float3 applyColorEffect(float3 rgb, float effectType, float intensity, float par
 // shader and the material backdrop-composite pixel shader differ only
 // in their psMain, so both concatenate this prefix to guarantee the
 // vertex stage and instance layout stay in lockstep.
-private let batchQuadShaderSharedSource = batchColorEffectShaderSource + "\n" + #"""
+private let batchQuadShaderSharedSource = batchClipShaderSource + "\n" + batchColorEffectShaderSource + "\n" + #"""
 cbuffer FrameUniforms : register(b0)
 {
     float2 surfaceSize;
@@ -84,10 +136,15 @@ struct QuadInstance
     float cornerRadiusBottomLeft;
     // Existing ABI slots: normalized segment start/end plus mode
     // (0 = legacy whole gradient, 1 = half-open, 2 = final inclusive).
-    // The structured-buffer stride remains 144 bytes.
+    // All earlier field offsets remain unchanged.
     float _reserved0;
     float _reserved1;
     float _reserved2;
+    // Original clip geometry: C=(TL,TR,BR,BL), S=(x,y,width,height).
+    // Together these append 32 bytes for a 176-byte structured-buffer stride.
+    float clipCornerRadiusTopLeft, clipCornerRadiusTopRight;
+    float clipCornerRadiusBottomRight, clipCornerRadiusBottomLeft;
+    float clipShapeX, clipShapeY, clipShapeWidth, clipShapeHeight;
 };
 
 StructuredBuffer<QuadInstance> instances : register(t0);
@@ -111,8 +168,9 @@ struct VSOutput
     float effectParam2 : TEXCOORD11;
     float effectParam3 : TEXCOORD12;
     float effectParam4 : TEXCOORD13;
-    float clipRadius : TEXCOORD14;
+    nointerpolation float4 clipRadii : TEXCOORD14;
     float3 gradientSegment : TEXCOORD15;
+    nointerpolation float4 clipShapeRect : TEXCOORD16;
 };
 
 VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
@@ -190,7 +248,11 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
     output.effectParam2 = inst.effectParam2;
     output.effectParam3 = inst.effectParam3;
     output.effectParam4 = inst.effectParam4;
-    output.clipRadius = inst.clipCornerRadius;
+    output.clipRadii = resolvedClipRadii(inst.clipCornerRadius, float4(
+        inst.clipCornerRadiusTopLeft, inst.clipCornerRadiusTopRight,
+        inst.clipCornerRadiusBottomRight, inst.clipCornerRadiusBottomLeft));
+    output.clipShapeRect = resolvedClipShapeRect(output.clipRect, float4(
+        inst.clipShapeX, inst.clipShapeY, inst.clipShapeWidth, inst.clipShapeHeight));
     output.gradientSegment = float3(inst._reserved0, inst._reserved1, inst._reserved2);
     return output;
 }
@@ -265,34 +327,11 @@ float gradientProgress(VSOutput input)
 let batchQuadShaderSource = batchQuadShaderSharedSource + "\n" + #"""
 float4 psMain(VSOutput input) : SV_Target
 {
-    float clipAlpha = 1.0;
-
-    // Top/left inclusive, bottom/right exclusive, like the rasterized geometry.
-    // Inclusive far edges make adjacent clips both paint a pixel-centre seam.
-    if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
+    float clipAlpha = originalClipCoverage(
+        input.pixelPosition, input.clipRect, input.clipShapeRect, input.clipRadii);
+    if (clipAlpha <= 0.0)
     {
-        if (input.pixelPosition.x < input.clipRect.x || input.pixelPosition.y < input.clipRect.y ||
-            input.pixelPosition.x >= input.clipRect.x + input.clipRect.z ||
-            input.pixelPosition.y >= input.clipRect.y + input.clipRect.w)
-        {
-            discard;
-        }
-
-        if (input.clipRadius > 0.0)
-        {
-            float2 clipLocalPosition = input.pixelPosition - input.clipRect.xy;
-            // Clip corners stay uniform (clipCornerRadius is a single
-            // float); only the quad body supports per-corner radii.
-            float clipDistance = roundedRectDistance(
-                clipLocalPosition, input.clipRect.zw,
-                float4(input.clipRadius, input.clipRadius, input.clipRadius, input.clipRadius));
-            float clipAA = max(fwidth(clipDistance), 0.75);
-            clipAlpha = saturate(0.5 - clipDistance / clipAA);
-            if (clipAlpha <= 0.0)
-            {
-                discard;
-            }
-        }
+        discard;
     }
 
     float distance = roundedRectDistance(input.localPosition, input.size, input.cornerRadii);
@@ -400,31 +439,11 @@ struct MaterialPSOutput
 
 MaterialPSOutput psMain(VSOutput input)
 {
-    float clipAlpha = 1.0;
-
-    // Per-pixel clip check: identical to the plain quad shader.
-    if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
+    float clipAlpha = originalClipCoverage(
+        input.pixelPosition, input.clipRect, input.clipShapeRect, input.clipRadii);
+    if (clipAlpha <= 0.0)
     {
-        if (input.pixelPosition.x < input.clipRect.x || input.pixelPosition.y < input.clipRect.y ||
-            input.pixelPosition.x >= input.clipRect.x + input.clipRect.z ||
-            input.pixelPosition.y >= input.clipRect.y + input.clipRect.w)
-        {
-            discard;
-        }
-
-        if (input.clipRadius > 0.0)
-        {
-            float2 clipLocalPosition = input.pixelPosition - input.clipRect.xy;
-            float clipDistance = roundedRectDistance(
-                clipLocalPosition, input.clipRect.zw,
-                float4(input.clipRadius, input.clipRadius, input.clipRadius, input.clipRadius));
-            float clipAA = max(fwidth(clipDistance), 0.75);
-            clipAlpha = saturate(0.5 - clipDistance / clipAA);
-            if (clipAlpha <= 0.0)
-            {
-                discard;
-            }
-        }
+        discard;
     }
 
     float distance = roundedRectDistance(input.localPosition, input.size, input.cornerRadii);
@@ -496,29 +515,11 @@ MaterialPSOutput psMain(VSOutput input)
 let batchMaterialCoverageShaderSource = batchQuadShaderSharedSource + "\n" + #"""
 float4 psMain(VSOutput input) : SV_Target
 {
-    float clipAlpha = 1.0;
-    if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
+    float clipAlpha = originalClipCoverage(
+        input.pixelPosition, input.clipRect, input.clipShapeRect, input.clipRadii);
+    if (clipAlpha <= 0.0)
     {
-        if (input.pixelPosition.x < input.clipRect.x || input.pixelPosition.y < input.clipRect.y ||
-            input.pixelPosition.x >= input.clipRect.x + input.clipRect.z ||
-            input.pixelPosition.y >= input.clipRect.y + input.clipRect.w)
-        {
-            discard;
-        }
-
-        if (input.clipRadius > 0.0)
-        {
-            float2 clipLocalPosition = input.pixelPosition - input.clipRect.xy;
-            float clipDistance = roundedRectDistance(
-                clipLocalPosition, input.clipRect.zw,
-                float4(input.clipRadius, input.clipRadius, input.clipRadius, input.clipRadius));
-            float clipAA = max(fwidth(clipDistance), 0.75);
-            clipAlpha = saturate(0.5 - clipDistance / clipAA);
-            if (clipAlpha <= 0.0)
-            {
-                discard;
-            }
-        }
+        discard;
     }
 
     float distance = roundedRectDistance(input.localPosition, input.size, input.cornerRadii);
@@ -704,7 +705,7 @@ float4 psMain(VSOutput input) : SV_Target
 
 // MARK: - Instanced Image Shader (StructuredBuffer at t0, Texture2D at t1)
 
-private let batchImageShaderSharedSource = imageSamplingShaderSource + "\n" + #"""
+private let batchImageShaderSharedSource = batchClipShaderSource + "\n" + imageSamplingShaderSource + "\n" + #"""
 cbuffer FrameUniforms : register(b0)
 {
     float2 surfaceSize;
@@ -728,25 +729,17 @@ struct ImageInstance
     // Column basis applied about the centre before rotation. Appended to
     // preserve all earlier offsets.
     float affineA, affineB, affineC, affineD;
-    // Fixed-size nine-region sampling; ImagePrimitive has a 128-byte stride.
+    // Fixed-size nine-region sampling retains all earlier field offsets.
     float sourceCapLeft, sourceCapTop, sourceCapRight, sourceCapBottom;
     float destinationCapLeft, destinationCapTop, destinationCapRight, destinationCapBottom;
     float centerRepeatX, centerRepeatY;
     int samplingKind;
     float samplingPadding;
+    // Original clip geometry, appended for a 160-byte stride.
+    float clipCornerRadiusTopLeft, clipCornerRadiusTopRight;
+    float clipCornerRadiusBottomRight, clipCornerRadiusBottomLeft;
+    float clipShapeX, clipShapeY, clipShapeWidth, clipShapeHeight;
 };
-
-// Shared with the quad shader's roundedRectDistance for a uniform radius; the
-// CPU rasterizer runs the same maths through GPUIClipRegion.
-float imageClipDistance(float2 localPosition, float2 size, float radius)
-{
-    float2 halfSize = size * 0.5;
-    float2 localPoint = localPosition - halfSize;
-    float clampedRadius = min(radius, min(halfSize.x, halfSize.y));
-    float2 corner = max(halfSize - float2(clampedRadius, clampedRadius), float2(0.0, 0.0));
-    float2 delta = abs(localPoint) - corner;
-    return length(max(delta, float2(0.0, 0.0))) + min(max(delta.x, delta.y), 0.0) - clampedRadius;
-}
 
 StructuredBuffer<ImageInstance> instances : register(t0);
 Texture2D imageTexture : register(t1);
@@ -759,12 +752,13 @@ struct VSOutput
     float opacity : TEXCOORD1;
     float4 clipRect : TEXCOORD2;
     float2 pixelPosition : TEXCOORD3;
-    float clipRadius : TEXCOORD4;
+    nointerpolation float4 clipRadii : TEXCOORD4;
     float2 localUnit : TEXCOORD5;
     nointerpolation float4 sourceCaps : TEXCOORD6;
     nointerpolation float4 destinationCaps : TEXCOORD7;
     nointerpolation float2 centerRepeats : TEXCOORD8;
     nointerpolation int samplingKind : TEXCOORD9;
+    nointerpolation float4 clipShapeRect : TEXCOORD10;
 };
 
 VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
@@ -830,7 +824,11 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
     output.opacity = inst.opacity;
     output.clipRect = float4(inst.clipX, inst.clipY, inst.clipWidth, inst.clipHeight);
     output.pixelPosition = pixelPosition;
-    output.clipRadius = inst.clipCornerRadius;
+    output.clipRadii = resolvedClipRadii(inst.clipCornerRadius, float4(
+        inst.clipCornerRadiusTopLeft, inst.clipCornerRadiusTopRight,
+        inst.clipCornerRadiusBottomRight, inst.clipCornerRadiusBottomLeft));
+    output.clipShapeRect = resolvedClipShapeRect(output.clipRect, float4(
+        inst.clipShapeX, inst.clipShapeY, inst.clipShapeWidth, inst.clipShapeHeight));
     output.localUnit = unit;
     output.sourceCaps = float4(inst.sourceCapLeft, inst.sourceCapTop, inst.sourceCapRight, inst.sourceCapBottom);
     output.destinationCaps = float4(
@@ -856,27 +854,11 @@ let batchImageShaderSource = batchImageShaderSharedSource + "\n" + #"""
 float4 psMain(VSOutput input) : SV_Target
 {
     // Per-pixel clip check
-    float clipAlpha = 1.0;
-    if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
+    float clipAlpha = originalClipCoverage(
+        input.pixelPosition, input.clipRect, input.clipShapeRect, input.clipRadii);
+    if (clipAlpha <= 0.0)
     {
-        if (input.pixelPosition.x < input.clipRect.x || input.pixelPosition.y < input.clipRect.y ||
-            input.pixelPosition.x >= input.clipRect.x + input.clipRect.z ||
-            input.pixelPosition.y >= input.clipRect.y + input.clipRect.w)
-        {
-            discard;
-        }
-
-        if (input.clipRadius > 0.0)
-        {
-            float clipDistance = imageClipDistance(
-                input.pixelPosition - input.clipRect.xy, input.clipRect.zw, input.clipRadius);
-            float clipAA = max(fwidth(clipDistance), 0.75);
-            clipAlpha = saturate(0.5 - clipDistance / clipAA);
-            if (clipAlpha <= 0.0)
-            {
-                discard;
-            }
-        }
+        discard;
     }
 
     // Image textures are uploaded premultiplied (BGRA8, see
@@ -902,27 +884,11 @@ struct ImageReplacementPSOutput
 
 ImageReplacementPSOutput psMain(VSOutput input)
 {
-    float clipAlpha = 1.0;
-    if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
+    float clipAlpha = originalClipCoverage(
+        input.pixelPosition, input.clipRect, input.clipShapeRect, input.clipRadii);
+    if (clipAlpha <= 0.0)
     {
-        if (input.pixelPosition.x < input.clipRect.x || input.pixelPosition.y < input.clipRect.y ||
-            input.pixelPosition.x >= input.clipRect.x + input.clipRect.z ||
-            input.pixelPosition.y >= input.clipRect.y + input.clipRect.w)
-        {
-            discard;
-        }
-
-        if (input.clipRadius > 0.0)
-        {
-            float clipDistance = imageClipDistance(
-                input.pixelPosition - input.clipRect.xy, input.clipRect.zw, input.clipRadius);
-            float clipAA = max(fwidth(clipDistance), 0.75);
-            clipAlpha = saturate(0.5 - clipDistance / clipAA);
-            if (clipAlpha <= 0.0)
-            {
-                discard;
-            }
-        }
+        discard;
     }
 
     float coverage = input.opacity * clipAlpha;
@@ -939,27 +905,11 @@ ImageReplacementPSOutput psMain(VSOutput input)
 private let batchImageIsolationClipShaderSource = #"""
 float isolatedImageClipAlpha(VSOutput input)
 {
-    float clipAlpha = 1.0;
-    if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
+    float clipAlpha = originalClipCoverage(
+        input.pixelPosition, input.clipRect, input.clipShapeRect, input.clipRadii);
+    if (clipAlpha <= 0.0)
     {
-        if (input.pixelPosition.x < input.clipRect.x || input.pixelPosition.y < input.clipRect.y ||
-            input.pixelPosition.x >= input.clipRect.x + input.clipRect.z ||
-            input.pixelPosition.y >= input.clipRect.y + input.clipRect.w)
-        {
-            discard;
-        }
-
-        if (input.clipRadius > 0.0)
-        {
-            float clipDistance = imageClipDistance(
-                input.pixelPosition - input.clipRect.xy, input.clipRect.zw, input.clipRadius);
-            float clipAA = max(fwidth(clipDistance), 0.75);
-            clipAlpha = saturate(0.5 - clipDistance / clipAA);
-            if (clipAlpha <= 0.0)
-            {
-                discard;
-            }
-        }
+        discard;
     }
     return clipAlpha;
 }
@@ -1050,7 +1000,7 @@ float4 psMain(VSOutput input) : SV_Target
 
 // MARK: - Instanced Shadow Shader (StructuredBuffer at t0)
 
-let batchShadowShaderSource = #"""
+let batchShadowShaderSource = batchClipShaderSource + "\n" + #"""
 cbuffer FrameUniforms : register(b0)
 {
     float2 surfaceSize;
@@ -1068,11 +1018,14 @@ struct ShadowInstance
     float clipX, clipY, clipWidth, clipHeight;
     float clipCornerRadius;
     // Rotation about the centre of the OFFSET rect (the one this draws).
-    // 8 bytes of padding follow: 18 floats round up to a 20-float (80 byte)
-    // structured-buffer stride. Mirrors ShadowPrimitive in
-    // SwiftWindowsGraphics, pinned by GPUIPrimitiveLayoutCoherenceTests.
+    // The original 8 padding bytes remain at their existing offsets.
     float rotationRadians;
     float pad1, pad2;
+    // Original clip geometry, appended for a 112-byte stride. Mirrors
+    // ShadowPrimitive, pinned by GPUIPrimitiveLayoutCoherenceTests.
+    float clipCornerRadiusTopLeft, clipCornerRadiusTopRight;
+    float clipCornerRadiusBottomRight, clipCornerRadiusBottomLeft;
+    float clipShapeX, clipShapeY, clipShapeWidth, clipShapeHeight;
 };
 
 StructuredBuffer<ShadowInstance> instances : register(t0);
@@ -1088,7 +1041,8 @@ struct VSOutput
     float blurRadius : TEXCOORD4;
     float4 clipRect : TEXCOORD5;
     float2 pixelPosition : TEXCOORD6;
-    float clipRadius : TEXCOORD7;
+    nointerpolation float4 clipRadii : TEXCOORD7;
+    nointerpolation float4 clipShapeRect : TEXCOORD8;
 };
 
 VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
@@ -1147,7 +1101,11 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
     output.blurRadius = inst.blurRadius;
     output.clipRect = float4(inst.clipX, inst.clipY, inst.clipWidth, inst.clipHeight);
     output.pixelPosition = pixelPosition;
-    output.clipRadius = inst.clipCornerRadius;
+    output.clipRadii = resolvedClipRadii(inst.clipCornerRadius, float4(
+        inst.clipCornerRadiusTopLeft, inst.clipCornerRadiusTopRight,
+        inst.clipCornerRadiusBottomRight, inst.clipCornerRadiusBottomLeft));
+    output.clipShapeRect = resolvedClipShapeRect(output.clipRect, float4(
+        inst.clipShapeX, inst.clipShapeY, inst.clipShapeWidth, inst.clipShapeHeight));
     return output;
 }
 
@@ -1163,27 +1121,11 @@ float roundedRectDistanceShadow(float2 localPosition, float2 size, float radius)
 
 float4 psMain(VSOutput input) : SV_Target
 {
-    float clipAlpha = 1.0;
-    if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
+    float clipAlpha = originalClipCoverage(
+        input.pixelPosition, input.clipRect, input.clipShapeRect, input.clipRadii);
+    if (clipAlpha <= 0.0)
     {
-        if (input.pixelPosition.x < input.clipRect.x || input.pixelPosition.y < input.clipRect.y ||
-            input.pixelPosition.x >= input.clipRect.x + input.clipRect.z ||
-            input.pixelPosition.y >= input.clipRect.y + input.clipRect.w)
-        {
-            discard;
-        }
-
-        if (input.clipRadius > 0.0)
-        {
-            float clipDistance = roundedRectDistanceShadow(
-                input.pixelPosition - input.clipRect.xy, input.clipRect.zw, input.clipRadius);
-            float clipAA = max(fwidth(clipDistance), 0.75);
-            clipAlpha = saturate(0.5 - clipDistance / clipAA);
-            if (clipAlpha <= 0.0)
-            {
-                discard;
-            }
-        }
+        discard;
     }
 
     // Map from expanded local coords back to the original rect's local coords

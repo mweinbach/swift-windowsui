@@ -1280,6 +1280,12 @@ extension GPUIScene {
                     x: bounds.minX + offset.x, y: bounds.minY + offset.y,
                     width: bounds.size.width, height: bounds.size.height))
         }
+        func shiftedShape(_ bounds: Rect?) -> Rect? {
+            guard let bounds else { return nil }
+            return Rect(
+                x: bounds.minX + offset.x, y: bounds.minY + offset.y,
+                width: bounds.size.width, height: bounds.size.height)
+        }
         for run in presentationOrder() {
             for index in run.range {
                 switch primitive(kind: run.kind, inLayer: run.layerIndex, at: index) {
@@ -1287,26 +1293,31 @@ extension GPUIScene {
                     value.x += dx
                     value.y += dy
                     value.contentMask = shifted(value.contentMask)
+                    value.clipShapeBounds = shiftedShape(value.clipShapeBounds)
                     result.addQuad(value, toLayer: run.layerIndex)
                 case .glyph(var value):
                     value.screenX += dx
                     value.screenY += dy
                     value.contentMask = shifted(value.contentMask)
+                    value.clipShapeBounds = shiftedShape(value.clipShapeBounds)
                     result.addGlyph(value, toLayer: run.layerIndex)
                 case .pixelGlyph(var value):
                     value.screenX += dx
                     value.screenY += dy
                     value.contentMask = shifted(value.contentMask)
+                    value.clipShapeBounds = shiftedShape(value.clipShapeBounds)
                     result.addPixelGlyph(value, toLayer: run.layerIndex)
                 case .image(var value):
                     value.screenX += dx
                     value.screenY += dy
                     value.contentMask = shifted(value.contentMask)
+                    value.clipShapeBounds = shiftedShape(value.clipShapeBounds)
                     result.addImage(value, toLayer: run.layerIndex)
                 case .shadow(var value):
                     value.x += dx
                     value.y += dy
                     value.contentMask = shifted(value.contentMask)
+                    value.clipShapeBounds = shiftedShape(value.clipShapeBounds)
                     result.addShadow(value, toLayer: run.layerIndex)
                 case .path(let value): result.addPath(value.translated(by: offset), toLayer: run.layerIndex)
                 case nil: break

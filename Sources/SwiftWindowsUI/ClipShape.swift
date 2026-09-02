@@ -48,13 +48,11 @@ import SwiftWindowsCore
 /// is a `let` and every operation returns a new instance, so this is a value in
 /// everything but its 8-byte representation.
 ///
-/// The primitive ABI carries a single axis-aligned clip rect plus one radius,
-/// so `shapeRect` cannot be shipped verbatim;
-/// `resolvedCornerRadius(forQuadRect:)` lowers it exactly where it matters — a
-/// corner of the rejection rect rounds only when it is still a corner of
-/// `shapeRect`, and a primitive that reaches no surviving rounded corner is
-/// emitted square. See `docs/GPURenderingPipeline.md` for the residual that
-/// leaves.
+/// Scene primitives carry both rectangles and all four original radii. A
+/// rectangular crop only narrows `rect`; coverage still evaluates the shape
+/// anchored at `shapeRect`, including partial arcs left by a thin crop.
+/// `resolvedCornerRadius(forQuadRect:)` remains the legacy scalar projection
+/// for callers that cannot carry that geometry; it is not the scene mask.
 final class RuntimeClipShape: Equatable, Sendable {
 
     /// The coordinate space a clip's rects are expressed in.
@@ -113,6 +111,16 @@ final class RuntimeClipShape: Equatable, Sendable {
     /// content outright.
     let rotation: Double
     let space: Space
+
+    /// Complete circular geometry for scene transport. A uniform clip must
+    /// broadcast its ORIGINAL radius, even when the legacy scalar projection
+    /// becomes zero because a rectangular crop removed its original corners.
+    var sceneCornerRadii: RetainedCornerRadii {
+        radii
+            ?? RetainedCornerRadii(
+                topLeft: uniformRadius, topRight: uniformRadius,
+                bottomRight: uniformRadius, bottomLeft: uniformRadius)
+    }
 
     init(
         rect: Rect,
@@ -192,10 +200,9 @@ final class RuntimeClipShape: Equatable, Sendable {
     /// an optional; see `GPUIClipEncoding` in `SwiftWindowsGraphics`.
     ///
     /// A node with its own rounding re-anchors the shape to *its* frame. A node
-    /// without rounding narrows the rejection rect and leaves the anchor alone:
-    /// `resolvedCornerRadius(forQuadRect:)` then squares off exactly the corners
-    /// the narrowing cut away, which is both the nested-square-clip fix and the
-    /// scrolled-rounded-card fix in one rule.
+    /// without rounding narrows the rejection rect and leaves the anchor alone.
+    /// Scene coverage preserves the residual arc at that original anchor; the
+    /// legacy scalar projection still reports only surviving corner zones.
     ///
     /// `frameSpace` is the space `frame` is expressed in and it must be this
     /// clip's. Intersecting two rects from different spaces is arithmetically
@@ -259,7 +266,8 @@ final class RuntimeClipShape: Equatable, Sendable {
             Point(x: pivot.x + cosR * dx - sinR * dy, y: pivot.y + sinR * dx + cosR * dy))
     }
 
-    /// The uniform clip corner radius one emitted primitive should carry.
+    /// Legacy uniform projection retained for scalar compatibility. Scene
+    /// coverage uses `shapeRect` and `sceneCornerRadii` instead.
     func resolvedCornerRadius(forQuadRect quadRect: Rect) -> Double {
         resolvedCornerRadius(forQuadRect: quadRect, rejectingOutside: rect)
     }

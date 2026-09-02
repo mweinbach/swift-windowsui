@@ -2601,13 +2601,16 @@ public struct ContainerRelativeShape: View {
     }
 }
 @MainActor
-public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider, RetainedRectangleTrimGeometryProvider {
+public struct AnyShape: Shape, RetainedClipShape, RetainedClipShapeProvider, RetainedContentShapeProvider,
+    RetainedRectangleTrimGeometryProvider
+{
     public typealias Body = Never
 
     private let buildComponent: (ViewBuildContext) -> Component
     private let resolvePaintOwner: (ViewNode) -> ShapePaintOwner?
     private let buildPath: (Rect) -> Path
     private let clipShapeStyle: RetainedClipShapeStyle
+    private let clipShapeDescriptor: RetainedClipShapeDescriptor
     private let contentShapeDescriptor: RetainedContentShapeDescriptor
     private let rectangleTrimGeometry: RetainedRectangleTrimGeometry
     private var fillStyle: ForegroundStyle?
@@ -2623,6 +2626,7 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider, 
         self.resolvePaintOwner = { node in resolveShapePaintOwner(for: shape, in: node) }
         self.buildPath = { rect in shape.path(in: rect) }
         self.clipShapeStyle = (shape as? any RetainedClipShape)?.retainedClipShapeStyle ?? .rectangle
+        self.clipShapeDescriptor = resolvedRetainedClipShapeDescriptor(for: shape)
         self.contentShapeDescriptor = resolvedRetainedContentShapeDescriptor(for: shape)
         self.rectangleTrimGeometry = resolvedRectangleTrimGeometry(for: shape)
         self.fillStyle = nil
@@ -2642,6 +2646,10 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider, 
 
     var retainedClipShapeStyle: RetainedClipShapeStyle {
         clipShapeStyle
+    }
+
+    var retainedClipShapeDescriptor: RetainedClipShapeDescriptor {
+        clipShapeDescriptor
     }
 
     var retainedContentShapeDescriptor: RetainedContentShapeDescriptor {
@@ -2832,7 +2840,8 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider, 
     }
 }
 @MainActor
-public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, RetainedContentShapeProvider,
+public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, RetainedClipShapeProvider,
+    RetainedContentShapeProvider,
     RetainedRectangleTrimGeometryProvider
 {
     public typealias Body = Never
@@ -2841,6 +2850,7 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
     private let buildComponent: (ViewBuildContext) -> Component
     private let amount: Double
     private let clipShapeStyle: RetainedClipShapeStyle
+    private let clipShapeDescriptor: RetainedClipShapeDescriptor
     private let contentShapeDescriptor: RetainedContentShapeDescriptor
     private let rectangleTrimGeometry: RetainedRectangleTrimGeometry
     private var fillStyle: ForegroundStyle?
@@ -2856,6 +2866,7 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
         }
         self.amount = amount
         self.clipShapeStyle = (content as? any RetainedClipShape)?.retainedClipShapeStyle ?? .rectangle
+        self.clipShapeDescriptor = resolvedRetainedClipShapeDescriptor(for: content)
         self.contentShapeDescriptor = resolvedRetainedContentShapeDescriptor(for: content)
         self.rectangleTrimGeometry = resolvedRectangleTrimGeometry(for: content).prependingInset(amount)
         self.fillStyle = nil
@@ -2871,6 +2882,10 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
 
     var retainedClipShapeStyle: RetainedClipShapeStyle {
         adjustedClipShapeStyle
+    }
+
+    var retainedClipShapeDescriptor: RetainedClipShapeDescriptor {
+        clipShapeDescriptor.inset(by: amount)
     }
 
     var retainedContentShapeDescriptor: RetainedContentShapeDescriptor {
@@ -3095,13 +3110,16 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
     }
 }
 @MainActor
-public struct TrimmedShape<Content: Shape>: Shape, RetainedClipShape, RetainedContentShapeProvider {
+public struct TrimmedShape<Content: Shape>: Shape, RetainedClipShape, RetainedClipShapeProvider,
+    RetainedContentShapeProvider
+{
     public typealias Body = Never
 
     private let content: Content
     private let startFraction: CGFloat
     private let endFraction: CGFloat
     private let clipShapeStyle: RetainedClipShapeStyle
+    private let clipShapeDescriptor: RetainedClipShapeDescriptor
     private let contentShapeDescriptor: RetainedContentShapeDescriptor
     private var fillStyle: ForegroundStyle?
     private var fillRuleStyle: RetainedClipFillStyle?
@@ -3114,6 +3132,7 @@ public struct TrimmedShape<Content: Shape>: Shape, RetainedClipShape, RetainedCo
         self.startFraction = startFraction
         self.endFraction = endFraction
         self.clipShapeStyle = (content as? any RetainedClipShape)?.retainedClipShapeStyle ?? .rectangle
+        self.clipShapeDescriptor = resolvedRetainedClipShapeDescriptor(for: content)
         self.contentShapeDescriptor = resolvedRetainedContentShapeDescriptor(for: content)
         self.fillStyle = nil
         self.fillRuleStyle = nil
@@ -3128,6 +3147,10 @@ public struct TrimmedShape<Content: Shape>: Shape, RetainedClipShape, RetainedCo
 
     var retainedClipShapeStyle: RetainedClipShapeStyle {
         clipShapeStyle
+    }
+
+    var retainedClipShapeDescriptor: RetainedClipShapeDescriptor {
+        clipShapeDescriptor
     }
 
     var retainedContentShapeDescriptor: RetainedContentShapeDescriptor {
@@ -3719,6 +3742,11 @@ extension RoundedRectangle: InsettableShape, RetainedClipShape {
 extension UnevenRoundedRectangle: InsettableShape, RetainedClipShape {
     var retainedClipShapeStyle: RetainedClipShapeStyle {
         .roundedRectangle(cornerRadii.retainedUniformFallbackRadius)
+    }
+}
+extension UnevenRoundedRectangle: RetainedClipShapeProvider {
+    var retainedClipShapeDescriptor: RetainedClipShapeDescriptor {
+        .unevenRoundedRectangle(cornerRadii)
     }
 }
 extension UnevenRoundedRectangle: RetainedContentShapeProvider {

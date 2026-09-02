@@ -560,7 +560,12 @@ private struct RasterTarget {
         }
         let clip = GPUIClipRegion(
             x: quad.clipX, y: quad.clipY, width: quad.clipWidth, height: quad.clipHeight,
-            cornerRadius: quad.clipCornerRadius)
+            cornerRadius: quad.clipCornerRadius,
+            cornerRadii: GPUIQuadCoverage.CornerRadii(
+                topLeft: Double(quad.clipCornerRadiusTopLeft), topRight: Double(quad.clipCornerRadiusTopRight),
+                bottomRight: Double(quad.clipCornerRadiusBottomRight),
+                bottomLeft: Double(quad.clipCornerRadiusBottomLeft)),
+            shapeBounds: quad.clipShapeBounds)
         // Pixel-scan bounds and the (x, y) → local-coords mapping, shared
         // with every other rotation-carrying family. For rotation == 0 the
         // local coords are the pixel center, preserving byte-identical
@@ -888,7 +893,12 @@ private struct RasterTarget {
         }
         let clip = GPUIClipRegion(
             x: shadow.clipX, y: shadow.clipY, width: shadow.clipWidth, height: shadow.clipHeight,
-            cornerRadius: shadow.clipCornerRadius)
+            cornerRadius: shadow.clipCornerRadius,
+            cornerRadii: GPUIQuadCoverage.CornerRadii(
+                topLeft: Double(shadow.clipCornerRadiusTopLeft), topRight: Double(shadow.clipCornerRadiusTopRight),
+                bottomRight: Double(shadow.clipCornerRadiusBottomRight),
+                bottomLeft: Double(shadow.clipCornerRadiusBottomLeft)),
+            shapeBounds: shadow.clipShapeBounds)
         // The envelope is concentric with the offset rect, so one turn about
         // the envelope's centre turns both — which is exactly what the
         // shader's vertex stage does. Local coordinates stay unrotated, so
@@ -952,7 +962,12 @@ private struct RasterTarget {
         }
         let clip = GPUIClipRegion(
             x: glyph.clipX, y: glyph.clipY, width: glyph.clipWidth, height: glyph.clipHeight,
-            cornerRadius: glyph.clipCornerRadius)
+            cornerRadius: glyph.clipCornerRadius,
+            cornerRadii: GPUIQuadCoverage.CornerRadii(
+                topLeft: Double(glyph.clipCornerRadiusTopLeft), topRight: Double(glyph.clipCornerRadiusTopRight),
+                bottomRight: Double(glyph.clipCornerRadiusBottomRight),
+                bottomLeft: Double(glyph.clipCornerRadiusBottomLeft)),
+            shapeBounds: glyph.clipShapeBounds)
         // A glyph inside a `.rotationEffect` subtree carries the subtree's
         // angle; the atlas cell is sampled in unrotated cell coordinates, so
         // the UV lerp below is the same one an upright glyph runs — which is
@@ -1072,7 +1087,12 @@ private struct RasterTarget {
         guard opacity > 0 else { return }
         let clip = GPUIClipRegion(
             x: image.clipX, y: image.clipY, width: image.clipWidth, height: image.clipHeight,
-            cornerRadius: image.clipCornerRadius)
+            cornerRadius: image.clipCornerRadius,
+            cornerRadii: GPUIQuadCoverage.CornerRadii(
+                topLeft: Double(image.clipCornerRadiusTopLeft), topRight: Double(image.clipCornerRadiusTopRight),
+                bottomRight: Double(image.clipCornerRadiusBottomRight),
+                bottomLeft: Double(image.clipCornerRadiusBottomLeft)),
+            shapeBounds: image.clipShapeBounds)
         for row in 0..<region.height {
             let y = region.originY + row
             let sourceY = mapping.childOffsetY + row
@@ -1119,7 +1139,12 @@ private struct RasterTarget {
         guard opacity > 0 else { return }
         let clip = GPUIClipRegion(
             x: image.clipX, y: image.clipY, width: image.clipWidth, height: image.clipHeight,
-            cornerRadius: image.clipCornerRadius)
+            cornerRadius: image.clipCornerRadius,
+            cornerRadii: GPUIQuadCoverage.CornerRadii(
+                topLeft: Double(image.clipCornerRadiusTopLeft), topRight: Double(image.clipCornerRadiusTopRight),
+                bottomRight: Double(image.clipCornerRadiusBottomRight),
+                bottomLeft: Double(image.clipCornerRadiusBottomLeft)),
+            shapeBounds: image.clipShapeBounds)
         for row in 0..<region.height {
             let y = region.originY + row
             for column in 0..<region.width {
@@ -1181,7 +1206,12 @@ private struct RasterTarget {
         }
         let clip = GPUIClipRegion(
             x: image.clipX, y: image.clipY, width: image.clipWidth, height: image.clipHeight,
-            cornerRadius: image.clipCornerRadius)
+            cornerRadius: image.clipCornerRadius,
+            cornerRadii: GPUIQuadCoverage.CornerRadii(
+                topLeft: Double(image.clipCornerRadiusTopLeft), topRight: Double(image.clipCornerRadiusTopRight),
+                bottomRight: Double(image.clipCornerRadiusBottomRight),
+                bottomLeft: Double(image.clipCornerRadiusBottomLeft)),
+            shapeBounds: image.clipShapeBounds)
         // UVs are evaluated in the original destination coordinates after
         // undoing rotation and the affine basis. A shear or reflection must
         // not stretch the image into its axis-aligned bounding rectangle.
@@ -1283,7 +1313,11 @@ private struct RasterTarget {
         let clip = GPUIClipRegion(
             x: clipRect.origin.x, y: clipRect.origin.y,
             width: clipRect.size.width, height: clipRect.size.height,
-            cornerRadius: path.clipCornerRadius)
+            cornerRadius: path.clipCornerRadius,
+            cornerRadii: GPUIQuadCoverage.CornerRadii(
+                topLeft: path.clipCornerRadiusTopLeft, topRight: path.clipCornerRadiusTopRight,
+                bottomRight: path.clipCornerRadiusBottomRight, bottomLeft: path.clipCornerRadiusBottomLeft),
+            shapeBounds: path.clipShapeBounds)
 
         let fillColor = RasterColor(path.fillColor)
         let strokeColor = RasterColor(path.strokeColor)

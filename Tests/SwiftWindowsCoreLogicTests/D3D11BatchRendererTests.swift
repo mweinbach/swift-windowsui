@@ -115,27 +115,27 @@ final class D3D11BatchRendererTests: XCTestCase {
     }
 
     func testQuadPrimitiveStride() {
-        // 144 bytes (36 floats * 4 bytes) after adding per-corner radii
-        // plus three reserved-padding floats — kept divisible by 16 so
+        // 176 bytes (44 floats * 4 bytes), including original clip anchor/radii
+        // after the original 144-byte layout — kept divisible by 16 so
         // HLSL structured-buffer alignment stays correct.
-        XCTAssertEqual(MemoryLayout<QuadPrimitive>.stride, 144)
+        XCTAssertEqual(MemoryLayout<QuadPrimitive>.stride, 176)
     }
 
     func testGlyphPrimitiveStride() {
-        // GlyphPrimitive should be 80 bytes (20 floats * 4 bytes): 16 for
-        // geometry/UV/colour/clip plus the clip corner radius and its padding.
-        XCTAssertEqual(MemoryLayout<GlyphPrimitive>.stride, 80)
+        // GlyphPrimitive is 112 bytes: the original 80-byte layout plus
+        // 32 bytes for the original clip anchor and four corner radii.
+        XCTAssertEqual(MemoryLayout<GlyphPrimitive>.stride, 112)
     }
 
     func testShadowPrimitiveStride() {
-        // ShadowPrimitive should be 80 bytes (20 floats * 4 bytes): the clip
-        // corner radius and its padding follow the clip rect.
-        XCTAssertEqual(MemoryLayout<ShadowPrimitive>.stride, 80)
+        // ShadowPrimitive is 112 bytes: the original 80-byte layout plus
+        // 32 bytes for the original clip anchor and four corner radii.
+        XCTAssertEqual(MemoryLayout<ShadowPrimitive>.stride, 112)
     }
 
     func testImagePrimitiveStride() {
-        // The original 80 bytes plus a fixed 48-byte sampling descriptor.
-        XCTAssertEqual(MemoryLayout<ImagePrimitive>.stride, 128)
+        // The original 128 bytes plus 32 bytes for the clip anchor and radii.
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.stride, 160)
     }
 
     func testMultiLayerScene() {

@@ -73,7 +73,7 @@ final class GradientRenderingFidelityTests: XCTestCase {
         XCTAssertEqual(scene.layers[0].quads[0].gradientSegmentStart, 0)
         XCTAssertEqual(scene.layers[0].quads[0].gradientSegmentEnd, 0)
         XCTAssertEqual(scene.layers[0].quads[0].gradientSegmentMode, 0)
-        XCTAssertEqual(MemoryLayout<QuadPrimitive>.stride, 144)
+        XCTAssertEqual(MemoryLayout<QuadPrimitive>.stride, 176)
 
         // Existing control sheens intentionally let their base fill override
         // the first stop. Direction correction must not rewrite that legacy
@@ -101,7 +101,7 @@ final class GradientRenderingFidelityTests: XCTestCase {
                 to: Point(x: 96, y: 68)))
 
         XCTAssertEqual(quads.count, 2)
-        XCTAssertEqual(MemoryLayout<QuadPrimitive>.stride, 144)
+        XCTAssertEqual(MemoryLayout<QuadPrimitive>.stride, 176)
 
         var scene = GPUIScene(clearColor: .black)
         for quad in quads {
@@ -168,7 +168,7 @@ final class GradientRenderingFidelityTests: XCTestCase {
         XCTAssertEqual(quad.effectParam2, 40, accuracy: 0.0001)
         XCTAssertEqual(quad.effectParam3, 12, accuracy: 0.0001)
         XCTAssertEqual(quad.effectParam4, 48, accuracy: 0.0001)
-        XCTAssertEqual(MemoryLayout<QuadPrimitive>.stride, 144)
+        XCTAssertEqual(MemoryLayout<QuadPrimitive>.stride, 176)
 
         let bitmap = raster(snapshot.scene)
         XCTAssertGreaterThan(pixel(bitmap, x: 60).red, 250)

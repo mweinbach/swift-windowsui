@@ -4027,15 +4027,44 @@ final class D3D11BatchKernel {
                 clipCornerRadius: Float(path.clipCornerRadius),
                 textureID: -1
             )
-            // The rounded part of the clip has to reach the shader: the
-            // rectangular part is already folded into `visible`, but a corner
-            // arc is not expressible as a sub-rect.
-            if let clipBounds = path.clipBounds {
-                GPUIClipEncoding.encode(
-                    clipBounds,
-                    into: &syntheticImage.clipX, &syntheticImage.clipY,
-                    &syntheticImage.clipWidth, &syntheticImage.clipHeight)
+            // The original rounded shape remains a draw parameter. The
+            // visible UV sub-rect only accounts for rectangular rejection.
+            // Paths with nil bounds use the current target as R; packed
+            // images instead treat all-zero R as inactive, so encode it here.
+            GPUIClipEncoding.encode(
+                path.clipBounds ?? surfaceRect,
+                into: &syntheticImage.clipX, &syntheticImage.clipY,
+                &syntheticImage.clipWidth, &syntheticImage.clipHeight)
+            // addPath admits these values through Path sanitation. Hand-built
+            // layers can bypass that door, so retain the same finite floor/cap
+            // here without copying or sanitizing the path's geometry again.
+            func normalizedClipRadius(_ radius: Double) -> Double {
+                radius.isFinite ? min(max(0, radius), Double(GPUISceneLimits.maxCoordinate)) : 0
             }
+            let clipRadii = (
+                topLeft: normalizedClipRadius(path.clipCornerRadiusTopLeft),
+                topRight: normalizedClipRadius(path.clipCornerRadiusTopRight),
+                bottomRight: normalizedClipRadius(path.clipCornerRadiusBottomRight),
+                bottomLeft: normalizedClipRadius(path.clipCornerRadiusBottomLeft)
+            )
+            syntheticImage.clipCornerRadiusTopLeft = Float(clipRadii.topLeft)
+            syntheticImage.clipCornerRadiusTopRight = Float(clipRadii.topRight)
+            syntheticImage.clipCornerRadiusBottomRight = Float(clipRadii.bottomRight)
+            syntheticImage.clipCornerRadiusBottomLeft = Float(clipRadii.bottomLeft)
+            let usesPathClipRadii =
+                clipRadii.topLeft > 0 || clipRadii.topRight > 0
+                || clipRadii.bottomRight > 0 || clipRadii.bottomLeft > 0
+            let usesImageClipRadii =
+                syntheticImage.clipCornerRadiusTopLeft > 0 || syntheticImage.clipCornerRadiusTopRight > 0
+                || syntheticImage.clipCornerRadiusBottomRight > 0 || syntheticImage.clipCornerRadiusBottomLeft > 0
+            if usesPathClipRadii && !usesImageClipRadii {
+                // A selected Double corner can underflow to Float zero. Keep
+                // its square limit instead of reviving the legacy scalar.
+                syntheticImage.clipCornerRadius = 0
+            }
+            // The typed setter preserves explicit empty/underflowed anchors
+            // rather than manufacturing the all-zero fallback sentinel.
+            syntheticImage.clipShapeBounds = path.clipShapeBounds
 
             try renderImageBatch(
                 [syntheticImage],
@@ -4126,6 +4155,11 @@ final class D3D11BatchKernel {
         // draw parameter — an arc is not expressible as a sub-rect.
         normalizedPath.clipBounds = window
         normalizedPath.clipCornerRadius = 0
+        normalizedPath.clipCornerRadiusTopLeft = 0
+        normalizedPath.clipCornerRadiusTopRight = 0
+        normalizedPath.clipCornerRadiusBottomRight = 0
+        normalizedPath.clipCornerRadiusBottomLeft = 0
+        normalizedPath.clipShapeBounds = nil
         guard let bitmap = GPUIRawSceneRasterizer.rasterizePath(normalizedPath) else {
             return .nothing
         }

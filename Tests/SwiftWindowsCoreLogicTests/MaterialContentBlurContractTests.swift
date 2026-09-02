@@ -170,8 +170,8 @@ final class MaterialContentBlurContractTests: XCTestCase {
             XCTAssertNil(pass.isolatedBackdropMapping(for: invalid, parentSize: IntSize(width: 8, height: 8)))
             XCTAssertTrue(hasPassDefect(defects(pass, invalid)))
         }
-        XCTAssertEqual(ImagePrimitive.byteSize, 128)
-        XCTAssertEqual(MemoryLayout<ImagePrimitive>.stride, 128)
+        XCTAssertEqual(ImagePrimitive.byteSize, 160)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.stride, 160)
     }
 
     func testSourceRequiresTransparentClearBoundedRadiusAndNoPostFilters() async {

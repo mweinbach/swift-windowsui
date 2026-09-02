@@ -14028,3 +14028,99 @@ successful static CPU snapshot is not interaction evidence. The pending
 visual clipping implementation, full joined validation, native timing,
 macOS behavior and release qualification remain separate work. All nine
 original completion gates remain open, with their original criteria intact.
+
+
+### Original rounded clip anchors through rectangular crops: source integration, 2026-09-02
+
+This increment preserves one circular rounded shape's original rectangle and
+four corner radii when a same-space, axis-aligned rectangular crop narrows its
+visible region. The existing rejection rectangle remains the crop authority;
+the original rectangle supplies the circular distance and radius cap. Both
+rectangles gate the current pixel with half-open bounds, while derivative
+helpers retain the uncropped shape. This avoids reconstructing a smaller
+rounded rectangle at the crop boundary or replacing unequal corners with their
+maximum. It does not implement arbitrary nested rounded intersections,
+continuous corners, arbitrary path masks, or general transformed-clip parity.
+
+The complete source change has 14 production paths, three documentation paths,
+five new test files, and 12 existing layout-test files. Quad/Glyph/Shadow/Image
+records append eight Float fields without moving any old field; their new
+strides are 176/112/112/160 bytes. This is a coordinated Swift/HLSL binary ABI
+change, not a compatible reinterpretation of old buffers. The 12 existing
+files change only 23 stride expectations and add 32 field-offset assertions;
+their other test code remains unchanged. The other 675 pre-existing Tests
+entries are preserved, including the original raw-withdrawal, task-lifetime,
+native invocation, and recently corrected rectangle-trim fixtures.
+
+Original clip metadata now travels through retained scene painting, direct
+primitives, promoted and residual paths, deferred/frozen sources, translations,
+isolated effects, and the CPU/D3D11 consumers. Own decoration keeps ancestor
+clip ownership so output is not masked twice. Absent packed rejection bounds
+still mean no active clip; nil path rejection bounds retain the actual target
+semantics. Explicit empty, invalid, and Float-underflowed shape bounds cannot
+become absent. Finite positive Double path corners select before conversion,
+so total Float underflow cannot resurrect a larger legacy scalar radius.
+Draw order, resource limits, the capture grid, and existing transform policy
+are unchanged. The legacy public scalar clip projection coexists with the
+immutable four-corner descriptor and inherited layout direction.
+
+The five new files contain 74 source methods (44 async, 30 synchronous).
+Their oracles distinguish asymmetric partial crops, a four-pixel strip,
+approximately 0.538 coverage at a one-pixel circular edge, fractional origins,
+legacy mutation, erasure and RTL, all primitive families, retained replay,
+cache reuse, and native software-adapter readback. These are authored coverage
+at this source commit, not executed results. The integrated test plan retains
+95 complete classes / 1,265 methods in six disjoint cohorts under the unchanged
+32-class, 100-method-per-class, 25,000-character, and 900-second limits.
+Separate stock-script obligations retain 682 XCTest methods and 116 Swift
+Testing declarations that the focused parser cannot represent. No unsupported
+class, shader variant, skip, or old assertion may be silently dropped.
+
+The sealed source originated at private `3cf8b90096832fec6fa7c17d1062f9d2839fa552`
+and applies to root `df212aceef21d21f11465c1834238b70b7324f8b`. Exact source
+postimages and an alternate-index inverse restored the complete previous
+root tree before formatting. The reviewed formatter delta changes 12 files
+through whitespace, collection trailing commas, and equivalent file-scoped
+extension access. Fresh architecture checks and strict lint of all 31 staged
+Swift files passed before this commit. Compiler, CPU/GPU pixel, gallery,
+Quick/Full, hosted-CI, and hardware qualification are still required.
+Evidence is retained in `artifacts/goal-ninth-original-anchor-clip-intake-v2`,
+`goal-ninth-original-anchor-clip-apply-v1.json`, the separate formatting patch,
+and `goal-ninth-original-anchor-clip-validation-plan-v1`.
+
+The broad runs immediately before this source change preserve the following
+failures rather than treating stopped selections as passes:
+
+- At `df212ace`, List402 started 126 methods: 125 passed, one failed, and 276
+  remained unrun. Ten classes used 11 serial SwiftPM invocations and exited
+  naturally in 154.125 seconds. The failed existing method is
+  `MountedTaskIDLifecycleTests.testOutgoingOverlayCancelsAfterItsPhysicalDisappearanceCallback`:
+  its eight assertions expose task cancellation before the fading view's
+  physical disappearance. The expected `disappear,cancel` order remains
+  unchanged. Early group ownership revocation and later physical cancellation
+  need separate custody; that repair is not part of this clipping commit.
+- At the same head, Core320 started 153 methods: 151 passed, two failed, and
+  167 remained unrun. Ten classes used 12 serial SwiftPM invocations and exited
+  naturally in 154.438 seconds. Both `NativeListInvocationContextTests` methods
+  failed their direct environment-provider read counts: a live file-context
+  environment access raised the count from one to three instead of two.
+  Ownership, original providers, live color values, and row-departure assertions
+  passed. The redundant enabled-state provider read is diagnosed separately;
+  no native dialog or environment source is changed by this clipping commit.
+
+The run directories are `artifacts/list402-df212ac-faaadb31d301` and
+`artifacts/core320-df212ac-56bd53b4ce79`. Their existing reconciliation receipts
+compare every entered start/terminal and source/index endpoint and record
+UNRUN explicitly. They do not claim an independent full shard-journal audit.
+Every launched direct child exited naturally, and subsequent independent
+process censuses were empty. These are point-in-time closure observations,
+not continuous descendant attestations or results for this newer source.
+
+The proposed shared gallery fixture still needs a separately tested fixed-frame
+overflow correction before its frame chains can prove the required original
+anchors. The catalog remains 151 fixtures and 85 reviewed baselines; no new
+image or baseline is claimed here. The unresolved raw-withdrawal debt,
+dashboard interaction timeout, native timing, macOS behavior, clean-machine,
+assistive-technology, and exact-release CI obligations remain open. This
+increment adds detail to the original requirements and closes none of the
+nine original completion gates.

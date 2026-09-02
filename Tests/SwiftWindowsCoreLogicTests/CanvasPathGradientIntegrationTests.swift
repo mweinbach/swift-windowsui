@@ -94,7 +94,7 @@ final class CanvasPathGradientIntegrationTests: XCTestCase {
         XCTAssertEqual(result.scene.paintMetrics.pathsPromotedToGPU, 1)
         XCTAssertEqual(result.scene.paintMetrics.quadInstancesFromPromotedPaths, 2)
         XCTAssertEqual(result.scene.paintMetrics.pathsRasterizedOnCPU, 0)
-        XCTAssertEqual(MemoryLayout<QuadPrimitive>.stride, 144)
+        XCTAssertEqual(MemoryLayout<QuadPrimitive>.stride, 176)
 
         let surface = raster(result.scene)
         XCTAssertGreaterThan(pixel(surface, x: 12, y: 50).red, 225)

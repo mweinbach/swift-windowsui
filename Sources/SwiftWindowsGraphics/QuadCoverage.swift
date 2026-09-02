@@ -143,8 +143,8 @@ public enum GPUIQuadCoverage {
     }
 }
 
-/// A primitive's four float clip fields read as one value, with the
-/// shader's acceptance rule attached.
+/// A primitive's rejection rectangle, original shape anchor and clip radii,
+/// with the shader's acceptance rule attached.
 ///
 /// Every quad-family pixel shader starts with the same three lines: a
 /// clip is active when its width and height are both positive; a pixel
@@ -161,19 +161,29 @@ public struct GPUIClipRegion: Equatable, Sendable {
     public var width: Double
     public var height: Double
     public var cornerRadius: Double
+    public var cornerRadii: GPUIQuadCoverage.CornerRadii?
+    public var shapeBounds: Rect?
 
-    public init(x: Double, y: Double, width: Double, height: Double, cornerRadius: Double = 0) {
+    public init(
+        x: Double, y: Double, width: Double, height: Double, cornerRadius: Double = 0,
+        cornerRadii: GPUIQuadCoverage.CornerRadii? = nil, shapeBounds: Rect? = nil
+    ) {
         self.x = x
         self.y = y
         self.width = width
         self.height = height
         self.cornerRadius = cornerRadius
+        self.cornerRadii = cornerRadii
+        self.shapeBounds = shapeBounds
     }
 
-    public init(x: Float, y: Float, width: Float, height: Float, cornerRadius: Float = 0) {
+    public init(
+        x: Float, y: Float, width: Float, height: Float, cornerRadius: Float = 0,
+        cornerRadii: GPUIQuadCoverage.CornerRadii? = nil, shapeBounds: Rect? = nil
+    ) {
         self.init(
             x: Double(x), y: Double(y), width: Double(width), height: Double(height),
-            cornerRadius: Double(cornerRadius))
+            cornerRadius: Double(cornerRadius), cornerRadii: cornerRadii, shapeBounds: shapeBounds)
     }
 
     /// The shader's `input.clipRect.z > 0.0 && input.clipRect.w > 0.0`.
@@ -198,11 +208,29 @@ public struct GPUIClipRegion: Equatable, Sendable {
         if centreX < x || centreY < y || centreX >= x + width || centreY >= y + height {
             return 0
         }
-        guard cornerRadius > 0 else { return 1 }
-        let radii = GPUIQuadCoverage.CornerRadii(uniform: cornerRadius)
+        // R narrows the visible region without moving the original arc. Raw
+        // scene callers can supply S outside R, so S also has a hard gate even
+        // when there is no rounding. An absent S follows later writes to R.
+        let shape = shapeBounds ?? Rect(x: x, y: y, width: width, height: height)
+        guard centreX >= shape.minX, centreX < shape.maxX,
+            centreY >= shape.minY, centreY < shape.maxY
+        else { return 0 }
+        let radii: GPUIQuadCoverage.CornerRadii
+        if let cornerRadii,
+            cornerRadii.topLeft > 0 || cornerRadii.topRight > 0
+                || cornerRadii.bottomRight > 0 || cornerRadii.bottomLeft > 0
+        {
+            radii = cornerRadii
+        } else {
+            guard cornerRadius > 0 else { return 1 }
+            radii = GPUIQuadCoverage.CornerRadii(uniform: cornerRadius)
+        }
+        // Derivative helpers must retain the geometric SDF outside R/S. Only
+        // the current center is gated, so a one-pixel crop keeps its full AA.
         return GPUIQuadCoverage.coverage(pixelX: pixelX, pixelY: pixelY) { sampleX, sampleY in
             GPUIQuadCoverage.signedDistance(
-                localX: sampleX - x, localY: sampleY - y, width: width, height: height, radii: radii)
+                localX: sampleX - shape.minX, localY: sampleY - shape.minY,
+                width: shape.size.width, height: shape.size.height, radii: radii)
         }
     }
 }

@@ -40,7 +40,7 @@ final class PerCornerRadiiTests: XCTestCase {
     }
 
     func testQuadPrimitiveStrideStays16ByteAligned() async {
-        XCTAssertEqual(QuadPrimitive.byteSize, 144)
+        XCTAssertEqual(QuadPrimitive.byteSize, 176)
         XCTAssertEqual(QuadPrimitive.byteSize % 16, 0)
         XCTAssertEqual(MemoryLayout<QuadPrimitive>.stride % 16, 0)
     }

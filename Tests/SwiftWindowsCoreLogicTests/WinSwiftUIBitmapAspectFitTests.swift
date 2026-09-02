@@ -305,7 +305,7 @@ final class WinSwiftUIBitmapAspectFitTests: XCTestCase {
         assertCoverage(result, visibleRect: rect, opaquePixels: 384)
         XCTAssertEqual(source.pixels.count, 96)
         XCTAssertEqual(try imageNode(in: result.runtime).imageResizingMode, .tile)
-        XCTAssertEqual(MemoryLayout<ImagePrimitive>.stride, 128)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.stride, 160)
     }
 
     func testDisplayScaleKeepsLogicalFitCapsAndTilePhase() async throws {

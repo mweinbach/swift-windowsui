@@ -13,7 +13,7 @@ final class AffineImagePlacementTests: XCTestCase {
     private static let surfaceSize = IntSize(width: 40, height: 40)
 
     func testIdentityAffinePreservesTheOriginalImagePixels() async throws {
-        XCTAssertEqual(MemoryLayout<ImagePrimitive>.stride, 128)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.stride, 160)
         let original = image()
         XCTAssertEqual(original.affineA, 1)
         XCTAssertEqual(original.affineB, 0)

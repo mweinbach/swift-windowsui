@@ -2,6 +2,56 @@ import Foundation
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 
+/// Direct scene families share one device-space clip payload. The rejection
+/// rectangle is set by each emitter; this only lowers the original shape and
+/// its full physical radii, so a rectangular crop never re-anchors an arc.
+private protocol RetainedSceneClipPrimitive {
+    var clipCornerRadiusTopLeft: Float { get set }
+    var clipCornerRadiusTopRight: Float { get set }
+    var clipCornerRadiusBottomRight: Float { get set }
+    var clipCornerRadiusBottomLeft: Float { get set }
+    var clipShapeBounds: Rect? { get set }
+}
+
+extension QuadPrimitive: RetainedSceneClipPrimitive {}
+extension GlyphPrimitive: RetainedSceneClipPrimitive {}
+extension ShadowPrimitive: RetainedSceneClipPrimitive {}
+extension ImagePrimitive: RetainedSceneClipPrimitive {}
+
+extension RetainedSceneClipPrimitive {
+    fileprivate func withRetainedClipShape(_ clip: RuntimeClipShape?, displayScale: Double) -> Self {
+        guard let clip else { return self }
+        let radii = clip.sceneCornerRadii
+        var result = self
+        result.clipCornerRadiusTopLeft = Float(radii.topLeft * displayScale)
+        result.clipCornerRadiusTopRight = Float(radii.topRight * displayScale)
+        result.clipCornerRadiusBottomRight = Float(radii.bottomRight * displayScale)
+        result.clipCornerRadiusBottomLeft = Float(radii.bottomLeft * displayScale)
+        // The typed setter preserves explicit invalid/underflowed anchors;
+        // unchecked Float casts could turn them into the absent-shape sentinel.
+        result.clipShapeBounds = Rect(
+            x: clip.shapeRect.minX * displayScale, y: clip.shapeRect.minY * displayScale,
+            width: clip.shapeRect.size.width * displayScale, height: clip.shapeRect.size.height * displayScale)
+        return result
+    }
+}
+
+extension PathPrimitive {
+    /// Paths retain logical coordinates until `ScenePainter.emit` scales the
+    /// complete geometry and clip payload together exactly once.
+    fileprivate func withRetainedClipShape(_ clip: RuntimeClipShape?) -> PathPrimitive {
+        guard let clip else { return self }
+        let radii = clip.sceneCornerRadii
+        var result = self
+        result.clipCornerRadiusTopLeft = radii.topLeft
+        result.clipCornerRadiusTopRight = radii.topRight
+        result.clipCornerRadiusBottomRight = radii.bottomRight
+        result.clipCornerRadiusBottomLeft = radii.bottomLeft
+        result.clipShapeBounds = clip.shapeRect
+        return result
+    }
+}
+
 /// The replay log and the identity owning its cached ranges travel together.
 /// Copies that only attach atlases retain ownership; a new paint attempt does
 /// not, even when its output happens to have the same number of records.
@@ -30,6 +80,8 @@ public enum ScenePainter {
     /// `displayScale` exactly once, before tessellation, so the promoted
     /// quads and the residual CPU path land in the same space the backends
     /// already assume.
+    /// `surfaceSize` is the current target in device pixels. It is needed only
+    /// when a path carries a clip shape without an explicit rejection rectangle.
     ///
     /// It is also the single place a *rotation* reaches path geometry. Paths
     /// never cross the GPU as typed primitives, so there is no
@@ -44,7 +96,8 @@ public enum ScenePainter {
         into scene: inout GPUIScene,
         layerIndex: Int,
         displayScale: Double,
-        placement: PaintPlacement? = nil
+        placement: PaintPlacement? = nil,
+        surfaceSize: Size? = nil
     ) {
         // A dash pattern can resolve to no geometry at all — every run of a
         // short outline landing in an "off" span — and an empty `Path` is a
@@ -76,7 +129,7 @@ public enum ScenePainter {
                 var geometry = path
                 geometry.fillGradient = nil
                 geometry.fillColor = .white
-                if let mixed = PathToQuadTessellator.tessellateMixed(geometry),
+                if let mixed = PathToQuadTessellator.tessellateMixed(geometry, surfaceSize: surfaceSize),
                     mixed.residualPath == nil,
                     mixed.quads.count == 1,
                     let quads = path.gradientFillQuads(covering: mixed.quads[0])
@@ -97,7 +150,7 @@ public enum ScenePainter {
             scene.paintMetrics.pathsRasterizedOnCPU += 1
             return
         }
-        guard let mixed = PathToQuadTessellator.tessellateMixed(path) else {
+        guard let mixed = PathToQuadTessellator.tessellateMixed(path, surfaceSize: surfaceSize) else {
             scene.addPath(path, toLayer: layerIndex)
             scene.paintMetrics.pathsRasterizedOnCPU += 1
             return
@@ -747,12 +800,12 @@ public enum ScenePainter {
         }
         let effectiveClipRect = effectiveClip?.rect
 
-        // Clip rounding for the node's OWN quads (border, background,
+        // Clip geometry for the node's OWN decoration (border, background,
         // overlay): a view's own decoration is shaped by its own corner
         // radii and is not re-rounded by its own clip — only children
-        // are. The clip RECT still applies (own text/content is clipped
-        // to the node's bounds); only the corner rounding reverts to
-        // what ancestors imposed.
+        // are. The effective rejection RECT still applies; both the original
+        // shape and its radii come only from ancestors. The scalar below is
+        // retained as the legacy compatibility projection of that geometry.
         let ownClipCornerRadius: (Rect) -> Double = { quadRect in
             inheritedClip.ancestorCornerRadius(forQuadRect: quadRect, rejectingOutside: effectiveClipRect)
         }
@@ -884,7 +937,9 @@ public enum ScenePainter {
             {
                 scene.addQuad(
                     placement.rotating(
-                        quad(for: hoverShadow, surfaceSize: surfaceSize, displayScale: displayScale),
+                        quad(
+                            for: hoverShadow, surfaceSize: surfaceSize, displayScale: displayScale,
+                            clipShape: inheritedClip),
                         displayScale: displayScale),
                     toLayer: layerIndex
                 )
@@ -941,7 +996,7 @@ public enum ScenePainter {
                             clipCornerRadius: Float(
                                 inheritedClip.resolvedCornerRadius(forQuadRect: shadowRect) * displayScale),
                             rotationRadians: Float(placement.rotation)
-                        ), toLayer: layerIndex)
+                        ).withRetainedClipShape(inheritedClip, displayScale: displayScale), toLayer: layerIndex)
                 }
             }
 
@@ -953,7 +1008,9 @@ public enum ScenePainter {
                 ) {
                     scene.addQuad(
                         placement.rotating(
-                            quad(for: focusEffect, surfaceSize: surfaceSize, displayScale: displayScale),
+                            quad(
+                                for: focusEffect, surfaceSize: surfaceSize, displayScale: displayScale,
+                                clipShape: inheritedClip),
                             displayScale: displayScale),
                         toLayer: layerIndex
                     )
@@ -1052,6 +1109,7 @@ public enum ScenePainter {
                                     displayScale: displayScale,
                                     colorEffects: colorEffects,
                                     clipCornerRadius: ownClipCornerRadius(placement.footprint(of: segment.rect)),
+                                    clipShape: inheritedClip,
                                     blendMode: effectiveBlendMode
                                 ), displayScale: displayScale),
                             gradient: stops.gradient, opacity: opacity, into: &scene, layerIndex: layerIndex)
@@ -1071,6 +1129,7 @@ public enum ScenePainter {
                                 displayScale: displayScale,
                                 colorEffects: colorEffects,
                                 clipCornerRadius: ownClipCornerRadius(paintFrame),
+                                clipShape: inheritedClip,
                                 blendMode: effectiveBlendMode
                             ), displayScale: displayScale),
                         gradient: node.borderGradient, opacity: opacity, into: &scene, layerIndex: layerIndex)
@@ -1112,6 +1171,7 @@ public enum ScenePainter {
                             blurRadius: deviceBlurRadius,
                             blurOpaque: blurOpaque ? 1 : 0,
                             clipCornerRadius: ownClipCornerRadius(fillRect),
+                            clipShape: inheritedClip,
                             blendMode: effectiveBlendMode
                         ), displayScale: displayScale),
                     gradient: node.backgroundGradient, opacity: opacity,
@@ -1154,9 +1214,10 @@ public enum ScenePainter {
                             fillColor: bg,
                             fillRule: node.clipFillStyle?.eoFill == true ? .evenOdd : .nonZero,
                             clipBounds: effectiveClipRect,
-                            clipCornerRadius: effectiveClip.resolvedCornerRadius(forQuadRect: pathBounds)
-                        ), into: &scene, layerIndex: layerIndex, displayScale: displayScale,
-                        placement: placement)
+                            clipCornerRadius: ownClipCornerRadius(pathBounds)
+                        ).withRetainedClipShape(inheritedClip),
+                        into: &scene, layerIndex: layerIndex, displayScale: displayScale,
+                        placement: placement, surfaceSize: surfaceSize)
                 }
                 let effectiveStrokeColor = node.borderColor.multipliedAlpha(by: opacity)
                 if effectiveStrokeColor.alpha > 0, node.borderWidth > 0 {
@@ -1204,9 +1265,10 @@ public enum ScenePainter {
                             lineJoin: strokeStyle.lineJoin,
                             miterLimit: strokeStyle.miterLimit,
                             clipBounds: effectiveClipRect,
-                            clipCornerRadius: effectiveClip.resolvedCornerRadius(forQuadRect: strokeBounds)
-                        ), into: &scene, layerIndex: layerIndex, displayScale: displayScale,
-                        placement: placement)
+                            clipCornerRadius: ownClipCornerRadius(strokeBounds)
+                        ).withRetainedClipShape(inheritedClip),
+                        into: &scene, layerIndex: layerIndex, displayScale: displayScale,
+                        placement: placement, surfaceSize: surfaceSize)
                 }
             }
 
@@ -1218,7 +1280,9 @@ public enum ScenePainter {
             ) {
                 scene.addQuad(
                     placement.rotating(
-                        quad(for: hoverOverlay, surfaceSize: surfaceSize, displayScale: displayScale),
+                        quad(
+                            for: hoverOverlay, surfaceSize: surfaceSize, displayScale: displayScale,
+                            clipShape: inheritedClip),
                         displayScale: displayScale),
                     toLayer: layerIndex
                 )
@@ -1243,6 +1307,7 @@ public enum ScenePainter {
                             surfaceSize: surfaceSize,
                             displayScale: displayScale,
                             clipCornerRadius: ownClipCornerRadius(fillRect),
+                            clipShape: inheritedClip,
                             blendMode: effectiveBlendMode
                         ), displayScale: displayScale), toLayer: layerIndex)
             } else if let bitmapSurface = node.bitmapSurface,
@@ -1272,7 +1337,8 @@ public enum ScenePainter {
                                 effectiveClip.resolvedCornerRadius(forQuadRect: fillRect) * displayScale),
                             textureID: textureID,
                             sampling: sampling
-                        ), displayScale: displayScale), toLayer: layerIndex)
+                        ).withRetainedClipShape(effectiveClip, displayScale: displayScale),
+                        displayScale: displayScale), toLayer: layerIndex)
             }
 
             if !drawsRedactionPlaceholder,
@@ -1305,6 +1371,7 @@ public enum ScenePainter {
                     clip: effectiveClipRect,
                     cullClip: effectiveClipRect.map { placement.unplacedRunFootprint(of: $0) },
                     clipCornerRadius: effectiveClip.resolvedCornerRadius(forQuadRect: fillRect),
+                    clipShape: effectiveClip,
                     surfaceSize: surfaceSize,
                     displayScale: displayScale,
                     contentScale: placement.scale,
@@ -1983,7 +2050,7 @@ public enum ScenePainter {
             clipCornerRadius: Float(
                 compositeClip.resolvedCornerRadius(forQuadRect: buffer.frame) * displayScale),
             textureID: textureID
-        )
+        ).withRetainedClipShape(compositeClip, displayScale: displayScale)
         return routesRotatedClip ? placement.rotating(composite, displayScale: displayScale) : composite
     }
 
@@ -2067,6 +2134,7 @@ public enum ScenePainter {
                             colorEffects: state.colorEffects,
                             clipCornerRadius: state.inheritedClip.ancestorCornerRadius(
                                 forQuadRect: segmentFootprint, rejectingOutside: state.effectiveClip?.rect),
+                            clipShape: state.inheritedClip,
                             blendMode: state.effectiveBlendMode
                         ), displayScale: displayScale),
                     gradient: stops.gradient, opacity: state.opacity,
@@ -2142,6 +2210,7 @@ public enum ScenePainter {
                 blurOpaque: node.contentBlurOpaque ? 1 : 0,
                 clipCornerRadius: state.inheritedClip.ancestorCornerRadius(
                     forQuadRect: bounds, rejectingOutside: state.effectiveClip?.rect),
+                clipShape: state.inheritedClip,
                 blendMode: state.effectiveBlendMode
             ),
             toLayer: state.layerIndex)
@@ -2265,7 +2334,8 @@ public enum ScenePainter {
                     appendFillQuad(
                         quad(
                             for: command, surfaceSize: surfaceSize, displayScale: displayScale,
-                            clipCornerRadius: contentMask.resolvedCornerRadius(forQuadRect: command.rect)),
+                            clipCornerRadius: contentMask.resolvedCornerRadius(forQuadRect: command.rect),
+                            clipShape: contentMask),
                         gradient: command.gradient, opacity: 1, into: &source, layerIndex: 0)
                 }
             }
@@ -2688,7 +2758,7 @@ public enum ScenePainter {
             clipCornerRadius: Float(
                 isolation.effectiveClip.resolvedCornerRadius(forQuadRect: frame) * displayScale),
             textureID: textureID
-        )
+        ).withRetainedClipShape(isolation.effectiveClip, displayScale: displayScale)
     }
 
     /// Paints the blurred subtree into its own scene and rasterizes it.
@@ -3367,6 +3437,7 @@ public enum ScenePainter {
         blurRadius: Float = 0,
         blurOpaque: Float = 0,
         clipCornerRadius: Double = 0,
+        clipShape: RuntimeClipShape? = nil,
         blendMode: BlendMode = .normal
     ) -> QuadPrimitive {
         let scaledRect = scaleRect(rect, by: displayScale)
@@ -3396,7 +3467,7 @@ public enum ScenePainter {
             effectParam4: fx.effectParam4
         )
         applyPerCornerRadii(cornerRadii, displayScale: displayScale, to: &quad)
-        return quad
+        return quad.withRetainedClipShape(clipShape, displayScale: displayScale)
     }
 
     /// Writes per-corner radii onto a quad (scaled to device pixels).
@@ -3498,6 +3569,7 @@ public enum ScenePainter {
         blurRadius: Float = 0,
         blurOpaque: Float = 0,
         clipCornerRadius: Double = 0,
+        clipShape: RuntimeClipShape? = nil,
         blendMode: BlendMode = .normal
     ) -> QuadPrimitive {
         guard case .linear(let gradient) = gradient else {
@@ -3514,6 +3586,7 @@ public enum ScenePainter {
                 blurRadius: blurRadius,
                 blurOpaque: blurOpaque,
                 clipCornerRadius: clipCornerRadius,
+                clipShape: clipShape,
                 blendMode: blendMode
             )
             if case .radial(let radial) = gradient {
@@ -3561,7 +3634,7 @@ public enum ScenePainter {
             effectParam4: fx.effectParam4
         )
         applyPerCornerRadii(cornerRadii, displayScale: displayScale, to: &quad)
-        return quad
+        return quad.withRetainedClipShape(clipShape, displayScale: displayScale)
     }
 
     // MARK: - Canvas
@@ -3728,7 +3801,7 @@ public enum ScenePainter {
 
     private static func appendRejectedCanvasSymbol(
         rect: Rect, opacity: Float, clip: Rect?, into scene: inout GPUIScene,
-        layerIndex: Int, surfaceSize: Size, displayScale: Double
+        layerIndex: Int, surfaceSize: Size, displayScale: Double, clipShape: RuntimeClipShape?
     ) {
         let validRect =
             rect.minX.isFinite && rect.minY.isFinite && rect.maxX.isFinite && rect.maxY.isFinite
@@ -3741,7 +3814,8 @@ public enum ScenePainter {
                 screenX: Float(fallback.minX * displayScale), screenY: Float(fallback.minY * displayScale),
                 screenW: Float(fallback.size.width * displayScale), screenH: Float(fallback.size.height * displayScale),
                 opacity: opacity, clipX: clipR.0, clipY: clipR.1, clipWidth: clipR.2, clipHeight: clipR.3,
-                textureID: textureID), toLayer: layerIndex)
+                textureID: textureID
+            ).withRetainedClipShape(clipShape, displayScale: displayScale), toLayer: layerIndex)
     }
 
     private static func appendCanvasOperations(
@@ -3766,10 +3840,9 @@ public enum ScenePainter {
             textSystem: textSystem, colorEffectPassDepth: colorEffectPassDepth,
             canvasSymbolState: canvasSymbolState)
         // The canvas keeps its own square push/pop clip stack; the enclosing
-        // node's rounding still applies to whatever the canvas draws, resolved
-        // by the same corner-survival rule every other emitter uses — so a
-        // `Canvas` inside a rounded card is cut by the card arc until the
-        // canvas narrows the clip away from it.
+        // node's original shape and full radii still apply to whatever the
+        // canvas draws. Push/pop only narrows rejection, preserving a partial
+        // card arc when a rectangular Canvas crop cuts through it.
         //
         // R-ROT. Two clips, one region. `currentClip` is the screen-space
         // rejection rect the primitives carry; `currentCullClip` is that same
@@ -3883,8 +3956,9 @@ public enum ScenePainter {
                     fillRule: operation.pathFillRule,
                     clipBounds: currentClip,
                     clipCornerRadius: clipRadius(bounds)
-                ), into: &scene, layerIndex: layerIndex, displayScale: displayScale,
-                placement: placement)
+                ).withRetainedClipShape(baseClip),
+                into: &scene, layerIndex: layerIndex, displayScale: displayScale,
+                placement: placement, surfaceSize: surfaceSize)
 
         case .fillPathGradient(let path, let gradient, let startPoint, let endPoint),
             .fillPathGradientWithRule(let path, let gradient, let startPoint, let endPoint, _):
@@ -3903,7 +3977,7 @@ public enum ScenePainter {
                 fillRule: operation.pathFillRule,
                 clipBounds: currentClip,
                 clipCornerRadius: clipRadius(bounds)
-            )
+            ).withRetainedClipShape(baseClip)
             if let startPoint, let endPoint {
                 primitive.setGradientEndpoints(
                     start: Point(x: startPoint.x + origin.x, y: startPoint.y + origin.y),
@@ -3912,7 +3986,7 @@ public enum ScenePainter {
             }
             Self.emit(
                 path: primitive, into: &scene, layerIndex: layerIndex, displayScale: displayScale,
-                placement: placement)
+                placement: placement, surfaceSize: surfaceSize)
 
         case .strokePath(let path, let color, let style):
             let effectiveColor = color.multipliedAlpha(by: opacity)
@@ -3949,8 +4023,9 @@ public enum ScenePainter {
                     miterLimit: style.miterLimit,
                     clipBounds: currentClip,
                     clipCornerRadius: clipRadius(strokeBounds)
-                ), into: &scene, layerIndex: layerIndex, displayScale: displayScale,
-                placement: placement)
+                ).withRetainedClipShape(baseClip),
+                into: &scene, layerIndex: layerIndex, displayScale: displayScale,
+                placement: placement, surfaceSize: surfaceSize)
 
         case .strokePathGradient(let path, let gradient, let style, let startPoint, let endPoint):
             guard opacity > 0, style.lineWidth > 0,
@@ -3983,7 +4058,7 @@ public enum ScenePainter {
                 miterLimit: style.miterLimit,
                 clipBounds: currentClip,
                 clipCornerRadius: clipRadius(strokeBounds)
-            )
+            ).withRetainedClipShape(baseClip)
             if let startPoint, let endPoint {
                 primitive.setGradientEndpoints(
                     start: Point(x: startPoint.x + origin.x, y: startPoint.y + origin.y),
@@ -3992,7 +4067,7 @@ public enum ScenePainter {
             }
             Self.emit(
                 path: primitive, into: &scene, layerIndex: layerIndex, displayScale: displayScale,
-                placement: placement)
+                placement: placement, surfaceSize: surfaceSize)
 
         case .fillRect(let rect, let color):
             let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
@@ -4009,7 +4084,8 @@ public enum ScenePainter {
                         clip: currentClip,
                         surfaceSize: surfaceSize,
                         displayScale: displayScale,
-                        clipCornerRadius: clipRadius(effectiveRect)
+                        clipCornerRadius: clipRadius(effectiveRect),
+                        clipShape: baseClip
                     ), displayScale: displayScale), toLayer: layerIndex)
 
         case .fillRectGradient(let rect, let gradient):
@@ -4026,7 +4102,8 @@ public enum ScenePainter {
                         clip: currentClip,
                         surfaceSize: surfaceSize,
                         displayScale: displayScale,
-                        clipCornerRadius: clipRadius(effectiveRect)
+                        clipCornerRadius: clipRadius(effectiveRect),
+                        clipShape: baseClip
                     ), displayScale: displayScale),
                 gradient: .linear(gradient), opacity: opacity,
                 into: &scene, layerIndex: layerIndex)
@@ -4055,8 +4132,9 @@ public enum ScenePainter {
                     lineWidth: lineWidth,
                     clipBounds: currentClip,
                     clipCornerRadius: clipRadius(strokeBounds)
-                ), into: &scene, layerIndex: layerIndex, displayScale: displayScale,
-                placement: placement)
+                ).withRetainedClipShape(baseClip),
+                into: &scene, layerIndex: layerIndex, displayScale: displayScale,
+                placement: placement, surfaceSize: surfaceSize)
 
         case .drawText(let text, let rect, let style):
             // Canvas coordinates and text metrics receive the inherited
@@ -4076,6 +4154,7 @@ public enum ScenePainter {
                 clip: currentClip,
                 cullClip: currentCullClip,
                 clipCornerRadius: clipRadius(effectiveRect),
+                clipShape: baseClip,
                 surfaceSize: surfaceSize,
                 displayScale: displayScale,
                 pixelFontCoordinateScale: placement.scale,
@@ -4118,7 +4197,8 @@ public enum ScenePainter {
                         clipHeight: clipR.3,
                         clipCornerRadius: Float(clipRadius(effectiveRect) * displayScale),
                         textureID: textureID
-                    ), displayScale: displayScale), toLayer: layerIndex)
+                    ).withRetainedClipShape(baseClip, displayScale: displayScale),
+                    displayScale: displayScale), toLayer: layerIndex)
 
         case .drawSymbol:
             return
@@ -4247,7 +4327,7 @@ public enum ScenePainter {
             appendRejectedCanvasSymbol(
                 rect: rect.offsetBy(dx: origin.x, dy: origin.y), opacity: effectiveOpacity,
                 clip: currentClip, into: &scene, layerIndex: layerIndex,
-                surfaceSize: surfaceSize, displayScale: displayScale)
+                surfaceSize: surfaceSize, displayScale: displayScale, clipShape: context.baseClip)
             return nil
         }
         let key = ObjectIdentifier(symbol)
@@ -4316,7 +4396,7 @@ public enum ScenePainter {
             appendRejectedCanvasSymbol(
                 rect: rect.offsetBy(dx: origin.x, dy: origin.y), opacity: effectiveOpacity,
                 clip: currentClip, into: &scene, layerIndex: layerIndex,
-                surfaceSize: surfaceSize, displayScale: displayScale)
+                surfaceSize: surfaceSize, displayScale: displayScale, clipShape: baseClip)
             return
         }
         let corners = [
@@ -4340,14 +4420,15 @@ public enum ScenePainter {
                 clipX: clipR.0, clipY: clipR.1, clipWidth: clipR.2, clipHeight: clipR.3,
                 clipCornerRadius: Float(clipRadius(footprint) * displayScale), textureID: resource.0,
                 affineA: Float(transform.a), affineB: Float(transform.b),
-                affineC: Float(transform.c), affineD: Float(transform.d)),
+                affineC: Float(transform.c), affineD: Float(transform.d)
+            ).withRetainedClipShape(baseClip, displayScale: displayScale),
             displayScale: displayScale)
         guard let image = GPUISceneSanitizer.sanitized(image) else {
             CanvasSymbolSource.reportRejection("the scene symbol affine placement is not finite or invertible")
             appendRejectedCanvasSymbol(
                 rect: rect.offsetBy(dx: origin.x, dy: origin.y), opacity: effectiveOpacity,
                 clip: currentClip, into: &scene, layerIndex: layerIndex,
-                surfaceSize: surfaceSize, displayScale: displayScale)
+                surfaceSize: surfaceSize, displayScale: displayScale, clipShape: baseClip)
             return
         }
         scene.addImage(image, toLayer: layerIndex)
@@ -4427,8 +4508,9 @@ public enum ScenePainter {
     }
 
     /// Converts a clip shape's rejection rect into four Float values for
-    /// primitive clip fields. The shape's *rounding* is lowered separately,
-    /// per primitive, by `RuntimeClipShape.resolvedCornerRadius(forQuadRect:)`.
+    /// primitive clip fields. `withRetainedClipShape` separately lowers the
+    /// original anchor and full corners; the per-primitive scalar remains a
+    /// compatibility projection, not the scene's shape geometry.
     private static func clipRectFloats(_ clip: RuntimeClipShape?, surfaceSize: Size, displayScale: Double) -> (
         Float, Float, Float, Float
     ) {
@@ -4551,7 +4633,8 @@ public enum ScenePainter {
                 appendFillQuad(
                     quad(
                         for: fillRect, surfaceSize: surfaceSize, displayScale: displayScale,
-                        clipCornerRadius: contentMask.resolvedCornerRadius(forQuadRect: fillRect.rect)),
+                        clipCornerRadius: contentMask.resolvedCornerRadius(forQuadRect: fillRect.rect),
+                        clipShape: contentMask),
                     gradient: fillRect.gradient, opacity: 1,
                     into: &scene, layerIndex: 0
                 )
@@ -4610,7 +4693,8 @@ public enum ScenePainter {
         surfaceSize: Size,
         displayScale: Double,
         colorEffects: [RetainedColorEffect] = [],
-        clipCornerRadius: Double = 0
+        clipCornerRadius: Double = 0,
+        clipShape: RuntimeClipShape? = nil
     ) -> QuadPrimitive {
         let scaledRect = scaleRect(command.rect, by: displayScale)
         let clipR = clipRectFloats(command.clipRect, surfaceSize: surfaceSize, displayScale: displayScale)
@@ -4658,7 +4742,7 @@ public enum ScenePainter {
             effectParam2: fx.effectParam2,
             effectParam3: fx.effectParam3,
             effectParam4: fx.effectParam4
-        )
+        ).withRetainedClipShape(clipShape, displayScale: displayScale)
     }
 
     /// `cullClip` is the clip the *layout* is compared against, which is not
@@ -4683,6 +4767,7 @@ public enum ScenePainter {
         clip: Rect?,
         cullClip: Rect?,
         clipCornerRadius: Double = 0,
+        clipShape: RuntimeClipShape? = nil,
         surfaceSize: Size,
         displayScale: Double,
         contentScale: Double = 1,
@@ -4709,6 +4794,7 @@ public enum ScenePainter {
             clip: clip,
             cullClip: cullClip,
             clipCornerRadius: clipCornerRadius,
+            clipShape: clipShape,
             surfaceSize: surfaceSize,
             displayScale: displayScale,
             contentScale: contentScale,
@@ -4822,7 +4908,7 @@ public enum ScenePainter {
                         clipWidth: clipRect.2,
                         clipHeight: clipRect.3,
                         clipCornerRadius: Float(clipCornerRadius * displayScale)
-                    )
+                    ).withRetainedClipShape(clipShape, displayScale: displayScale)
                 )
             }
 
@@ -4837,6 +4923,7 @@ public enum ScenePainter {
                 opacity: opacity,
                 clip: clip,
                 cullClip: cullClip,
+                clipShape: clipShape,
                 surfaceSize: surfaceSize,
                 displayScale: displayScale,
                 into: &decorationQuads
@@ -4853,6 +4940,7 @@ public enum ScenePainter {
         clip: Rect?,
         cullClip: Rect?,
         clipCornerRadius: Double = 0,
+        clipShape: RuntimeClipShape? = nil,
         surfaceSize: Size,
         displayScale: Double,
         contentScale: Double = 1,
@@ -5011,7 +5099,7 @@ public enum ScenePainter {
                         clipWidth: clipRect.2,
                         clipHeight: clipRect.3,
                         clipCornerRadius: Float(clipCornerRadius * displayScale)
-                    )
+                    ).withRetainedClipShape(clipShape, displayScale: displayScale)
                 )
             }
 
@@ -5026,6 +5114,7 @@ public enum ScenePainter {
                 opacity: opacity,
                 clip: clip,
                 cullClip: cullClip,
+                clipShape: clipShape,
                 surfaceSize: surfaceSize,
                 displayScale: displayScale,
                 into: &appendedDecorationQuads
@@ -5051,6 +5140,7 @@ public enum ScenePainter {
         opacity: Float,
         clip: Rect?,
         cullClip: Rect?,
+        clipShape: RuntimeClipShape?,
         surfaceSize: Size,
         displayScale: Double,
         into quads: inout [QuadPrimitive]
@@ -5070,6 +5160,7 @@ public enum ScenePainter {
                 opacity: opacity,
                 clip: clip,
                 cullClip: cullClip,
+                clipShape: clipShape,
                 surfaceSize: surfaceSize,
                 displayScale: displayScale,
                 into: &quads
@@ -5086,6 +5177,7 @@ public enum ScenePainter {
                 opacity: opacity,
                 clip: clip,
                 cullClip: cullClip,
+                clipShape: clipShape,
                 surfaceSize: surfaceSize,
                 displayScale: displayScale,
                 into: &quads
@@ -5102,6 +5194,7 @@ public enum ScenePainter {
         opacity: Float,
         clip: Rect?,
         cullClip: Rect?,
+        clipShape: RuntimeClipShape?,
         surfaceSize: Size,
         displayScale: Double,
         into quads: inout [QuadPrimitive]
@@ -5123,7 +5216,8 @@ public enum ScenePainter {
                     opacity: opacity,
                     clip: clip,
                     surfaceSize: surfaceSize,
-                    displayScale: displayScale
+                    displayScale: displayScale,
+                    clipShape: clipShape
                 )
             )
         }
@@ -5256,7 +5350,8 @@ public enum ScenePainter {
                         clip: inheritedClip?.rect,
                         surfaceSize: surfaceSize,
                         displayScale: displayScale,
-                        colorEffects: colorEffects
+                        colorEffects: colorEffects,
+                        clipShape: inheritedClip
                     ), displayScale: displayScale), toLayer: layerIndex)
             return
         }
@@ -5273,7 +5368,8 @@ public enum ScenePainter {
                         clip: inheritedClip?.rect,
                         surfaceSize: surfaceSize,
                         displayScale: displayScale,
-                        colorEffects: colorEffects
+                        colorEffects: colorEffects,
+                        clipShape: inheritedClip
                     ), displayScale: displayScale), toLayer: layerIndex)
         }
     }

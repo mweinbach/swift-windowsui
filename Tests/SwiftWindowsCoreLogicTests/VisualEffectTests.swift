@@ -145,9 +145,9 @@ struct VisualEffectTests {
         #expect(quad.effectParam2 == 0.75)
         #expect(quad.effectParam3 == 0)
         #expect(quad.effectParam4 == 0)
-        // 144 after adding per-corner radii + 3 reserved padding floats
+        // 176 after appending original clip anchor/radii to the 144-byte layout
         // for HLSL 16-byte structured-buffer alignment.
-        #expect(QuadPrimitive.byteSize == 144)
+        #expect(QuadPrimitive.byteSize == 176)
     }
 
     // MARK: - Scene Integration Test

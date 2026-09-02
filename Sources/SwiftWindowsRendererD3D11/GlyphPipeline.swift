@@ -5,19 +5,21 @@
 import WinSDK
 import WinSDK.DirectX
 
-private let glyphShaderSource = #"""
+private let glyphShaderSource = batchClipShaderSource + "\n" + #"""
 struct GlyphInstance {
     float screenX, screenY, screenW, screenH;
     float atlasU0, atlasV0, atlasU1, atlasV1;
     float colorR, colorG, colorB, colorA;
     float clipX, clipY, clipWidth, clipHeight;
     float clipCornerRadius;
-    // Rotation about the glyph cell's centre. 8 bytes of padding follow:
-    // 18 floats round up to a 20-float (80 byte) structured-buffer stride.
-    // Mirrors GlyphPrimitive in SwiftWindowsGraphics, pinned by
-    // GPUIPrimitiveLayoutCoherenceTests.
+    // Rotation about the glyph cell's centre; preserve the original padding.
     float rotationRadians;
     float pad1, pad2;
+    // Original clip geometry, appended for a 112-byte stride. Mirrors
+    // GlyphPrimitive, pinned by GPUIPrimitiveLayoutCoherenceTests.
+    float clipCornerRadiusTopLeft, clipCornerRadiusTopRight;
+    float clipCornerRadiusBottomRight, clipCornerRadiusBottomLeft;
+    float clipShapeX, clipShapeY, clipShapeWidth, clipShapeHeight;
 };
 
 StructuredBuffer<GlyphInstance> instances : register(t0);
@@ -39,20 +41,9 @@ struct VSOutput {
     float4 clipRect : TEXCOORD3;
     float2 uv : TEXCOORD4;
     float4 color : COLOR0;
-    float clipRadius : TEXCOORD5;
+    nointerpolation float4 clipRadii : TEXCOORD5;
+    nointerpolation float4 clipShapeRect : TEXCOORD6;
 };
-
-// The quad shader's roundedRectDistance for a uniform radius. Text inside a
-// rounded container has to be cut by the container arc, not by its bounding
-// box; the CPU rasterizer runs the same maths through GPUIClipRegion.
-float glyphClipDistance(float2 localPosition, float2 size, float radius) {
-    float2 halfSize = size * 0.5;
-    float2 localPoint = localPosition - halfSize;
-    float clampedRadius = min(radius, min(halfSize.x, halfSize.y));
-    float2 corner = max(halfSize - float2(clampedRadius, clampedRadius), float2(0.0, 0.0));
-    float2 delta = abs(localPoint) - corner;
-    return length(max(delta, float2(0.0, 0.0))) + min(max(delta.x, delta.y), 0.0) - clampedRadius;
-}
 
 VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID) {
     const float2 quad[6] = {
@@ -99,33 +90,20 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID) {
     output.clipRect = float4(inst.clipX, inst.clipY, inst.clipWidth, inst.clipHeight);
     output.uv = uv;
     output.color = float4(inst.colorR, inst.colorG, inst.colorB, inst.colorA);
-    output.clipRadius = inst.clipCornerRadius;
+    output.clipRadii = resolvedClipRadii(inst.clipCornerRadius, float4(
+        inst.clipCornerRadiusTopLeft, inst.clipCornerRadiusTopRight,
+        inst.clipCornerRadiusBottomRight, inst.clipCornerRadiusBottomLeft));
+    output.clipShapeRect = resolvedClipShapeRect(output.clipRect, float4(
+        inst.clipShapeX, inst.clipShapeY, inst.clipShapeWidth, inst.clipShapeHeight));
     return output;
 }
 
 float4 psMain(VSOutput input) : SV_Target {
-    float clipAlpha = 1.0;
-    if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
+    float clipAlpha = originalClipCoverage(
+        input.pixelPosition, input.clipRect, input.clipShapeRect, input.clipRadii);
+    if (clipAlpha <= 0.0)
     {
-        float2 pixelPos = input.pixelPosition;
-        if (pixelPos.x < input.clipRect.x || pixelPos.y < input.clipRect.y ||
-            pixelPos.x >= input.clipRect.x + input.clipRect.z ||
-            pixelPos.y >= input.clipRect.y + input.clipRect.w)
-        {
-            discard;
-        }
-
-        if (input.clipRadius > 0.0)
-        {
-            float clipDistance = glyphClipDistance(
-                pixelPos - input.clipRect.xy, input.clipRect.zw, input.clipRadius);
-            float clipAA = max(fwidth(clipDistance), 0.75);
-            clipAlpha = saturate(0.5 - clipDistance / clipAA);
-            if (clipAlpha <= 0.0)
-            {
-                discard;
-            }
-        }
+        discard;
     }
 
     float glyphAlpha = glyphAtlas.Sample(glyphSampler, input.uv).a * clipAlpha;

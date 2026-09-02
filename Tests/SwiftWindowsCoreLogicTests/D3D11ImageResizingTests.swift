@@ -10,7 +10,7 @@ import XCTest
 @MainActor
 final class D3D11ImageResizingTests: XCTestCase {
     func testSamplingLayoutsPreserveExistingOffsets() async {
-        XCTAssertEqual(MemoryLayout<ImagePrimitive>.stride, 128)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.stride, 160)
         XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.uvX), 16)
         XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.textureID), 52)
         XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.affineA), 64)
@@ -289,7 +289,7 @@ final class D3D11ImageResizingTests: XCTestCase {
         let scene = imageScene(source: source, destination: destination, descriptor: descriptor)
         XCTAssertEqual(scene.layers[0].images.count, 1)
         XCTAssertEqual(scene.imageResources.count, 1)
-        XCTAssertEqual(scene.layers[0].images.count * MemoryLayout<ImagePrimitive>.stride, 128)
+        XCTAssertEqual(scene.layers[0].images.count * MemoryLayout<ImagePrimitive>.stride, 160)
         // The target stays tiny; the test never allocates a destination bitmap.
         let size = IntSize(width: 8, height: 8)
         let gpu = try WARPBatchRenderer.render(scene, size: size)

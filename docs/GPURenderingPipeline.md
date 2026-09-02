@@ -282,7 +282,8 @@ segment, including diagonal, inset, transformed, and device-scaled directions.
 full-footprint quads, one per disjoint color interval. The footprint retains
 the original rounded coverage, transformed coordinates, clips, and effects.
 The interval start, end, and ownership mode occupy the three existing reserved
-float fields, keeping the structured-buffer stride at 144 bytes. Both the CPU
+float fields at their original offsets. The later original-clip payload makes
+the structured-buffer stride 176 bytes. Both the CPU
 rasterizer and D3D11 pixel shaders reject samples outside the current interval
 and interpolate within it; half-open intervals prevent seams or double
 blending. Ordinary two-stop `[0, 1]` gradients keep their original single quad
@@ -299,8 +300,8 @@ CPU/D3D11 parity.
 Directional gradient quads encode `gradientAxis == 2`; the authored start and
 end points occupy the four existing color-effect parameter slots as quad-local
 pixel coordinates. This mode requires `effectType == 0` and an unrotated quad,
-so its storage never aliases a live effect and `QuadPrimitive` keeps its pinned
-144-byte structured-buffer stride. Both the CPU rasterizer and both D3D11 quad
+so its storage never aliases a live effect or the appended clip geometry in
+the 176-byte `QuadPrimitive`. Both the CPU rasterizer and both D3D11 quad
 pixel shaders project each sample onto the same two-dimensional endpoint
 vector before applying the existing half-open stop intervals. Non-finite,
 out-of-range, rotated, or effect-bearing inputs decline promotion and retain
@@ -323,7 +324,8 @@ and polar gradients rotate with their footprint. Every gradient family shares
 the bounded 64-interval stop lowering, hard-transition ownership, inherited
 opacity, transparent-first-stop handling, and single-pass material fallback;
 unsupported color-effect combinations or non-finite/out-of-range geometry
-degrade safely. The 144-byte quad ABI remains unchanged. `RenderFrame` →
+degrade safely. Gradient field offsets are unchanged by the later 176-byte
+quad clip ABI. `RenderFrame` →
 `GPUIScene` also preserves radial and conic fills, while the independent live
 `RenderFrame` → `D3D11Renderer` fallback retains its documented first-color
 limitation.
@@ -539,7 +541,7 @@ angle:
 R-ROT closed the rest, and all four GPU families now carry a
 `rotationRadians` in a slot that used to be padding. The rotation offsets
 remain unchanged; `GPUIPrimitiveLayoutCoherenceTests` pins each family,
-including the image record's later affine and resize fields (128 bytes):
+including the image record's affine, resize and appended clip fields (160 bytes):
 
 | family | field offset | what turns |
 | --- | --- | --- |
@@ -2345,8 +2347,11 @@ width and extent, and nothing about where it sits or what is cutting it.
 The clip is applied at *draw* time instead — the rectangular part as a UV
 sub-rect of the cached texture (so a tall path under a short viewport does
 not run a full-height pixel shader that discards almost everything), the
-corner arc through the synthetic `ImagePrimitive`'s `clipCornerRadius`,
-which is a shape a sub-rect cannot express. Two consequences:
+corner arcs through the synthetic `ImagePrimitive`'s original shape rectangle
+and four clip radii. The legacy scalar remains fallback metadata, but cannot describe a
+partial corner by itself. Original S/C and the scalar are cleared from the
+cached raster, whose own window still bounds its work; the synthetic image
+applies the current output clip once. Two consequences:
 
 - A chart inside a `ScrollView` is one entry and one upload. The key used
   to be the whole `PathPrimitive`, clip included, so a moving clip produced
@@ -3377,19 +3382,17 @@ flows through `ScenePainter` into four extra fields on `QuadPrimitive`;
 both the HLSL rounded-rect SDF (quadrant-selecting) and the CPU
 rasterizer's coverage function consume them. All-zero per-corner radii
 (or a `nil` node property) preserve the historic uniform path
-byte-for-byte. Consumers that only understand uniform rounding
-(shadow, outline, clip, dashed borders) fall back to `maxRadius`.
+byte-for-byte in the original body fields. Consumers that only understand
+uniform body rounding (shadow, outline, dashed borders) fall back to `maxRadius`.
 `UnevenRoundedRectangle` maps leading/trailing onto absolute corners
 (RTL-aware). Locked by `PerCornerRadiiTests`.
 
-Clip handling is per-corner aware: each emitted quad resolves the exact
-uniform clip radius for the clip corners it actually reaches (0 when it
-reaches no corner zone, the shared radius when all reached corners agree,
-`maxRadius` only for quads spanning differently-rounded corners), so
-deliberately-square corners under `clipsToBounds` stay square. A node's
-own decoration quads (background, borders) take the *inherited* clip
-corner radius — SwiftUI semantics: a view's clip shapes its children,
-not its own background. Locked by `PerCornerClipTests`.
+The legacy scalar clip projection still reports the radius of reached
+corners (or their maximum), as pinned by `PerCornerClipTests`. Scene rendering
+instead transports all four original clip radii and their original rectangle.
+A node's own decoration, including background-path fill/stroke, takes the
+*inherited* clip geometry: its own body already supplies its rounding, so
+applying its own rounded clip again would multiply edge coverage twice.
 
 ## The clip shape
 
@@ -3495,21 +3498,23 @@ intersected rect; a nested *square* `.clipped()` used to inherit the card's
 radii and apply them at its own square corners, biting arcs out of list rows
 nowhere near the card's rounded edge.
 
-The primitive ABI carries one axis-aligned clip rect plus one radius, so
-`shapeRect` cannot be shipped verbatim.
-`RuntimeClipShape.resolvedCornerRadius(forQuadRect:)` lowers it per
-primitive: **a corner of the rejection rect is rounded only when it is still
-a corner of `shapeRect`**, and a primitive reaching no surviving rounded
-corner is emitted square. An *intact* clip (`rect == shapeRect`) answers its
-uniform radius for every primitive exactly as before, so the zone analysis
-only engages once an ancestor has actually cut a corner away.
+The scene ABI carries the narrowed rejection rectangle R, the original
+`shapeRect` S, and all four original physical radii C. CPU and D3D11 coverage
+evaluate the circular geometry against S, with each radius capped by
+S's shorter half-extent. The current pixel center must lie in both half-open
+rectangles R and S. Rectangular crops therefore neither move the arcs nor cap
+them against a thin crop. Antialiasing helper samples evaluate the geometric
+distance outside the crop; HLSL computes derivatives before the hard gates.
 
-Two residuals, documented rather than hidden. A single primitive spanning one
-surviving rounded corner *and* one cut corner still takes the largest reached
-radius, which rounds the cut corner it touches — the historic uniform
-approximation, unchanged. And an ancestor whose corner lands *inside* a
-rounded shape's corner arc (a diagonal cut) is slightly too permissive there;
-exactness would need a second clip rect in every primitive family.
+`RuntimeClipShape.resolvedCornerRadius(forQuadRect:)` remains the existing
+legacy scalar projection, including its zero result when a crop reaches no
+original corner. `sceneCornerRadii` exports full C instead; a uniform clip
+broadcasts its original radius even when that legacy projection is zero.
+`RuntimeClipShape` stored state, narrowing, rectangular `contains`, and the
+existing innermost-rounded-shape selection remain unchanged. This is one
+circular rounded shape under rectangular crops, not an intersection stack of
+arbitrary rounded masks. Continuous corners, general transforms, and the
+separate legacy frame path are not made exact by this transport.
 
 `RuntimeClipShape` is a `final class` with `let` properties — a value in
 everything but its representation. It became one when `appendCommands` was
@@ -3521,25 +3526,44 @@ by every child, so a reference is one word where a value was fifteen.
 
 ### Rounded clips reach every family
 
-`clipCornerRadius` used to exist only on `QuadPrimitive`, so text, images,
-shadows and paths inside a rounded container were rect-clipped on *both*
-backends — consistent, and consistently wrong against macOS.
-`GlyphPrimitive` and `ShadowPrimitive` now carry it (64 → 80 bytes each,
-padded to the 16-byte structured-buffer stride). `ImagePrimitive` initially
-reused a padding slot for rounding; its Canvas affine basis and later bitmap
-sampling descriptor expand the stride to 128 bytes while keeping that slot.
-`PathPrimitive` carries a
-`Double`. The HLSL glyph, image and shadow pixel shaders run the same
-`roundedRectDistance` + `saturate(0.5 - d/aa)` ramp the quad shader does, and
-the CPU rasterizer multiplies `GPUIClipRegion.alpha` into those families'
-coverage instead of using it as a yes/no gate.
-`CrossBackendPixelParityTests` gates a glyph, an image and a shadow inside a
-rounded container.
+Each packed family appends four Float radii in TL/TR/BR/BL order and four
+Float original-rectangle fields after all existing storage. Every original
+field offset remains fixed, but this is a coordinated binary ABI change to
+the `@frozen` primitives and their HLSL structured buffers:
 
-An image, a glyph and a path carry no corner radius of their own, so they are
-rounded by the node's *own* clip; a background or border quad carries its own
-radii and is rounded only by what ancestors imposed. That is the same SwiftUI
-rule the per-corner section states, applied per family.
+| Primitive | Previous stride | Current stride | C offset | S offset |
+| --- | --- | --- | --- | --- |
+| `QuadPrimitive` | 144 | 176 | 144 | 160 |
+| `GlyphPrimitive` | 80 | 112 | 80 | 96 |
+| `ShadowPrimitive` | 80 | 112 | 80 | 96 |
+| `ImagePrimitive` | 128 | 160 | 128 | 144 |
+
+`PathPrimitive` carries Double radii and an optional original rectangle.
+Translation moves explicit S, scaling applies once to S/C, and path rotation
+leaves screen-space clip geometry unchanged. Geometry promotion attaches the
+same payload to every produced quad and residual path without changing the
+geometry helpers' choices or limits. A path with nil R uses the current
+render target for rounding; promotion must receive that target or keep the
+original path rather than manufacture an inactive packed clip.
+
+The shared HLSL helper serves all eight output sites, including glyphs,
+images, shadows, materials and isolated foreground/coverage. All seven CPU
+clip-construction sites pass the same S/C into `GPUIClipRegion`. Source effects
+and blur keep their existing ordering: an isolated source receives its final
+mask only at output, while a fallback that samples already-painted content
+retains ancestor-only clip ownership. Frozen departure paint translates S
+with its scene and does not add rounded coverage to its replay image.
+`GPUIScene.presentationOrder()` and resource/pass budgets remain unchanged.
+
+New `OriginalAnchorClipCoverageTests`, `OriginalAnchorClipSanitationTests`,
+`OriginalAnchorClipRetainedTransportTests`, `OriginalAnchorClipD3D11Tests`,
+and `WinSwiftUIOriginalAnchorClipTests` cover the source change. Their partial
+arc, thin-strip, one-pixel derivative and explicit-anchor probes include
+independent pixel oracles; the buffer layouts also retain old offsets and
+add assertions for every new field. These tests and the changed ABI still
+require root compilation and CPU/D3D11 execution. Earlier recorded shape or
+content-shape passes do not validate this clip change, hardware adapters, or
+macOS fidelity.
 
 ### An empty clip is representable
 
@@ -3553,8 +3577,9 @@ is an *empty* clip and rejects its primitive at `add*`.
 `contentMaskedBounds` used to reject only the asymmetric collapse and read
 the symmetric one as "unclipped", so a container whose clip collapsed to
 nothing did not hide its children — it removed their clip.
-`PathPrimitive` needs none of this: its `clipBounds` is an optional `Rect`,
-where `nil` already means unclipped.
+`PathPrimitive` uses an optional `Rect`; nil means no authored rejection
+rectangle. Its rounded-clip evaluation uses the render target in that case,
+unlike an absent packed clip, which stays inactive.
 
 The writer half has to agree: `GPUIClipEncoding.encode` emits
 `emptyExtent` for a non-positive width or height rather than copying the
@@ -3563,12 +3588,23 @@ public `contentMask` setter reads back as *absent* — the in-band sentinel
 the encoding exists to kill, reintroduced by the one function whose job is
 to avoid it.
 
+The appended original rectangle has a separate checked typed accessor,
+`clipShapeBounds`. All-zero raw S means a dynamic fallback to the current R;
+later writes to the old clip fields therefore keep working. A present empty,
+nonfinite, overflowing or Float-underflowed S stays explicit and is rejected,
+even when R is absent. A valid explicit S alone does not activate absent R.
+Any positive normalized C selects the full four-corner payload; all-zero C
+keeps the current legacy scalar. Packed Float radii retain their existing
+clamping policy, while nonfinite Path Double radii become zero at admission.
+When a Path selects finite positive C that all underflows during Float
+transport, promotion and synthetic-image output suppress scalar fallback;
+conversion must not reactivate an unrelated larger legacy radius.
+
 Producing the radius is held to the same standard as encoding the rect:
 `RuntimeClipShape.init` floors per-corner `RetainedCornerRadii` the way it
 has always floored the uniform scalar (negative and non-finite become 0, a
-square corner), because a corner radius flows through
-`resolvedCornerRadius(forQuadRect:)` into `clipCornerRadius` *and* sizes
-the corner-zone rects that analysis is built from.
+square corner). The legacy projection and corner-zone analysis keep that
+policy; full scene C is exported from the same sanitized runtime values.
 
 Locked by `ClipAbstractionTests`.
 

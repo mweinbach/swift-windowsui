@@ -21,7 +21,7 @@ import XCTest
 /// tessellated to quads before reaching D3D11, so it has no GPU layout.
 final class GPUIPrimitiveLayoutCoherenceTests: XCTestCase {
 
-    // MARK: - QuadPrimitive ↔ QuadInstance (144 bytes, 36 x Float)
+    // MARK: - QuadPrimitive ↔ QuadInstance (176 bytes, 44 x Float)
 
     func testQuadPrimitiveFieldOffsetsMatchQuadInstance() async {
         XCTAssertEqual(MemoryLayout<QuadPrimitive>.offset(of: \.x), 0)
@@ -60,11 +60,19 @@ final class GPUIPrimitiveLayoutCoherenceTests: XCTestCase {
         XCTAssertEqual(MemoryLayout<QuadPrimitive>.offset(of: \._reserved0), 132)
         XCTAssertEqual(MemoryLayout<QuadPrimitive>.offset(of: \._reserved1), 136)
         XCTAssertEqual(MemoryLayout<QuadPrimitive>.offset(of: \._reserved2), 140)
-        XCTAssertEqual(MemoryLayout<QuadPrimitive>.stride, 144)
+        XCTAssertEqual(MemoryLayout<QuadPrimitive>.offset(of: \.clipCornerRadiusTopLeft), 144)
+        XCTAssertEqual(MemoryLayout<QuadPrimitive>.offset(of: \.clipCornerRadiusTopRight), 148)
+        XCTAssertEqual(MemoryLayout<QuadPrimitive>.offset(of: \.clipCornerRadiusBottomRight), 152)
+        XCTAssertEqual(MemoryLayout<QuadPrimitive>.offset(of: \.clipCornerRadiusBottomLeft), 156)
+        XCTAssertEqual(MemoryLayout<QuadPrimitive>.offset(of: \.clipShapeX), 160)
+        XCTAssertEqual(MemoryLayout<QuadPrimitive>.offset(of: \.clipShapeY), 164)
+        XCTAssertEqual(MemoryLayout<QuadPrimitive>.offset(of: \.clipShapeWidth), 168)
+        XCTAssertEqual(MemoryLayout<QuadPrimitive>.offset(of: \.clipShapeHeight), 172)
+        XCTAssertEqual(MemoryLayout<QuadPrimitive>.stride, 176)
         XCTAssertEqual(MemoryLayout<QuadPrimitive>.stride % 16, 0)
     }
 
-    // MARK: - GlyphPrimitive ↔ GlyphInstance (80 bytes, 20 x Float)
+    // MARK: - GlyphPrimitive ↔ GlyphInstance (112 bytes, 28 x Float)
 
     func testGlyphPrimitiveFieldOffsetsMatchGlyphInstance() async {
         XCTAssertEqual(MemoryLayout<GlyphPrimitive>.offset(of: \.screenX), 0)
@@ -87,11 +95,19 @@ final class GPUIPrimitiveLayoutCoherenceTests: XCTestCase {
         XCTAssertEqual(MemoryLayout<GlyphPrimitive>.offset(of: \.rotationRadians), 68)
         XCTAssertEqual(MemoryLayout<GlyphPrimitive>.offset(of: \._pad1), 72)
         XCTAssertEqual(MemoryLayout<GlyphPrimitive>.offset(of: \._pad2), 76)
-        XCTAssertEqual(MemoryLayout<GlyphPrimitive>.stride, 80)
+        XCTAssertEqual(MemoryLayout<GlyphPrimitive>.offset(of: \.clipCornerRadiusTopLeft), 80)
+        XCTAssertEqual(MemoryLayout<GlyphPrimitive>.offset(of: \.clipCornerRadiusTopRight), 84)
+        XCTAssertEqual(MemoryLayout<GlyphPrimitive>.offset(of: \.clipCornerRadiusBottomRight), 88)
+        XCTAssertEqual(MemoryLayout<GlyphPrimitive>.offset(of: \.clipCornerRadiusBottomLeft), 92)
+        XCTAssertEqual(MemoryLayout<GlyphPrimitive>.offset(of: \.clipShapeX), 96)
+        XCTAssertEqual(MemoryLayout<GlyphPrimitive>.offset(of: \.clipShapeY), 100)
+        XCTAssertEqual(MemoryLayout<GlyphPrimitive>.offset(of: \.clipShapeWidth), 104)
+        XCTAssertEqual(MemoryLayout<GlyphPrimitive>.offset(of: \.clipShapeHeight), 108)
+        XCTAssertEqual(MemoryLayout<GlyphPrimitive>.stride, 112)
         XCTAssertEqual(MemoryLayout<GlyphPrimitive>.stride % 16, 0)
     }
 
-    // MARK: - ShadowPrimitive ↔ ShadowInstance (80 bytes, 20 x Float)
+    // MARK: - ShadowPrimitive ↔ ShadowInstance (112 bytes, 28 x Float)
 
     func testShadowPrimitiveFieldOffsetsMatchShadowInstance() async {
         XCTAssertEqual(MemoryLayout<ShadowPrimitive>.offset(of: \.x), 0)
@@ -114,11 +130,19 @@ final class GPUIPrimitiveLayoutCoherenceTests: XCTestCase {
         XCTAssertEqual(MemoryLayout<ShadowPrimitive>.offset(of: \.rotationRadians), 68)
         XCTAssertEqual(MemoryLayout<ShadowPrimitive>.offset(of: \._pad1), 72)
         XCTAssertEqual(MemoryLayout<ShadowPrimitive>.offset(of: \._pad2), 76)
-        XCTAssertEqual(MemoryLayout<ShadowPrimitive>.stride, 80)
+        XCTAssertEqual(MemoryLayout<ShadowPrimitive>.offset(of: \.clipCornerRadiusTopLeft), 80)
+        XCTAssertEqual(MemoryLayout<ShadowPrimitive>.offset(of: \.clipCornerRadiusTopRight), 84)
+        XCTAssertEqual(MemoryLayout<ShadowPrimitive>.offset(of: \.clipCornerRadiusBottomRight), 88)
+        XCTAssertEqual(MemoryLayout<ShadowPrimitive>.offset(of: \.clipCornerRadiusBottomLeft), 92)
+        XCTAssertEqual(MemoryLayout<ShadowPrimitive>.offset(of: \.clipShapeX), 96)
+        XCTAssertEqual(MemoryLayout<ShadowPrimitive>.offset(of: \.clipShapeY), 100)
+        XCTAssertEqual(MemoryLayout<ShadowPrimitive>.offset(of: \.clipShapeWidth), 104)
+        XCTAssertEqual(MemoryLayout<ShadowPrimitive>.offset(of: \.clipShapeHeight), 108)
+        XCTAssertEqual(MemoryLayout<ShadowPrimitive>.stride, 112)
         XCTAssertEqual(MemoryLayout<ShadowPrimitive>.stride % 16, 0)
     }
 
-    // MARK: - ImagePrimitive ↔ ImageInstance (128 bytes; textureID/samplingKind are Int32 ↔ HLSL int)
+    // MARK: - ImagePrimitive ↔ ImageInstance (160 bytes; textureID/samplingKind are Int32 ↔ HLSL int)
 
     func testImagePrimitiveFieldOffsetsMatchImageInstance() async {
         XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.screenX), 0)
@@ -153,7 +177,15 @@ final class GPUIPrimitiveLayoutCoherenceTests: XCTestCase {
         XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.centerRepeatY), 116)
         XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.samplingKind), 120)
         XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.samplingPadding), 124)
-        XCTAssertEqual(MemoryLayout<ImagePrimitive>.stride, 128)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.clipCornerRadiusTopLeft), 128)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.clipCornerRadiusTopRight), 132)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.clipCornerRadiusBottomRight), 136)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.clipCornerRadiusBottomLeft), 140)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.clipShapeX), 144)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.clipShapeY), 148)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.clipShapeWidth), 152)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.clipShapeHeight), 156)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.stride, 160)
         XCTAssertEqual(MemoryLayout<ImagePrimitive>.stride % 16, 0)
     }
 

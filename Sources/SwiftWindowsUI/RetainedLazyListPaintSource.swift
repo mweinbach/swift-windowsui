@@ -489,7 +489,11 @@ struct RetainedLazyListPaintSource: Sendable {
                 case .path(let path):
                     // With no explicit rect, path rounding uses its target.
                     // A root crop must not introduce different rounded edges.
-                    if depth == 1, path.clipBounds == nil, path.clipCornerRadius > 0 {
+                    if depth == 1, path.clipBounds == nil,
+                        path.clipCornerRadius > 0 || path.clipCornerRadiusTopLeft > 0
+                            || path.clipCornerRadiusTopRight > 0 || path.clipCornerRadiusBottomRight > 0
+                            || path.clipCornerRadiusBottomLeft > 0 || path.clipShapeBounds != nil
+                    {
                         result.requiresOriginalSurface = true
                     }
                 case .shadow:
@@ -523,48 +527,107 @@ struct RetainedLazyListPaintSource: Sendable {
 
         private func isClipped(_ primitive: GPUIScenePrimitive) -> Bool {
             let mask: Rect?
+            let shape: Rect?
             let radius: Double
+            let hasCornerRadii: Bool
             var unmasked = GPUIScene(clearColor: .clear)
             switch primitive {
             case .shadow(var value):
                 mask = value.contentMask.bounds
                 radius = Double(value.clipCornerRadius)
+                shape = value.clipShapeBounds
+                hasCornerRadii =
+                    value.clipCornerRadiusTopLeft > 0
+                    || value.clipCornerRadiusTopRight > 0 || value.clipCornerRadiusBottomRight > 0
+                    || value.clipCornerRadiusBottomLeft > 0
                 value.contentMask = GPUIContentMask()
                 value.clipCornerRadius = 0
+                value.clipCornerRadiusTopLeft = 0
+                value.clipCornerRadiusTopRight = 0
+                value.clipCornerRadiusBottomRight = 0
+                value.clipCornerRadiusBottomLeft = 0
+                value.clipShapeBounds = nil
                 unmasked.addShadow(value)
             case .quad(var value):
                 mask = value.contentMask.bounds
                 radius = Double(value.clipCornerRadius)
+                shape = value.clipShapeBounds
+                hasCornerRadii =
+                    value.clipCornerRadiusTopLeft > 0
+                    || value.clipCornerRadiusTopRight > 0 || value.clipCornerRadiusBottomRight > 0
+                    || value.clipCornerRadiusBottomLeft > 0
                 value.contentMask = GPUIContentMask()
                 value.clipCornerRadius = 0
+                value.clipCornerRadiusTopLeft = 0
+                value.clipCornerRadiusTopRight = 0
+                value.clipCornerRadiusBottomRight = 0
+                value.clipCornerRadiusBottomLeft = 0
+                value.clipShapeBounds = nil
                 unmasked.addQuad(value)
             case .glyph(var value), .pixelGlyph(var value):
                 mask = value.contentMask.bounds
                 radius = Double(value.clipCornerRadius)
+                shape = value.clipShapeBounds
+                hasCornerRadii =
+                    value.clipCornerRadiusTopLeft > 0
+                    || value.clipCornerRadiusTopRight > 0 || value.clipCornerRadiusBottomRight > 0
+                    || value.clipCornerRadiusBottomLeft > 0
                 value.contentMask = GPUIContentMask()
                 value.clipCornerRadius = 0
+                value.clipCornerRadiusTopLeft = 0
+                value.clipCornerRadiusTopRight = 0
+                value.clipCornerRadiusBottomRight = 0
+                value.clipCornerRadiusBottomLeft = 0
+                value.clipShapeBounds = nil
                 unmasked.addGlyph(value)
             case .image(var value):
                 mask = value.contentMask.bounds
                 radius = Double(value.clipCornerRadius)
+                shape = value.clipShapeBounds
+                hasCornerRadii =
+                    value.clipCornerRadiusTopLeft > 0
+                    || value.clipCornerRadiusTopRight > 0 || value.clipCornerRadiusBottomRight > 0
+                    || value.clipCornerRadiusBottomLeft > 0
                 value.contentMask = GPUIContentMask()
                 value.clipCornerRadius = 0
+                value.clipCornerRadiusTopLeft = 0
+                value.clipCornerRadiusTopRight = 0
+                value.clipCornerRadiusBottomRight = 0
+                value.clipCornerRadiusBottomLeft = 0
+                value.clipShapeBounds = nil
                 unmasked.addImage(value)
             case .path(var value):
                 // A path can round the target boundary without clipBounds.
-                if value.clipCornerRadius > 0 { return true }
+                shape = value.clipShapeBounds
+                hasCornerRadii =
+                    value.clipCornerRadiusTopLeft > 0
+                    || value.clipCornerRadiusTopRight > 0 || value.clipCornerRadiusBottomRight > 0
+                    || value.clipCornerRadiusBottomLeft > 0
+                if value.clipCornerRadius > 0 || hasCornerRadii || (value.clipBounds == nil && shape != nil) {
+                    return true
+                }
                 mask = value.clipBounds
                 radius = value.clipCornerRadius
                 value.clipBounds = nil
                 value.clipCornerRadius = 0
+                value.clipCornerRadiusTopLeft = 0
+                value.clipCornerRadiusTopRight = 0
+                value.clipCornerRadiusBottomRight = 0
+                value.clipCornerRadiusBottomLeft = 0
+                value.clipShapeBounds = nil
                 unmasked.addPath(value, toLayer: 0)
             }
             guard let mask else { return false }
-            guard radius <= 0, let bounds = unmasked.paintedBounds else { return true }
+            guard !hasCornerRadii, radius <= 0, let bounds = unmasked.paintedBounds else { return true }
             // Coverage can occupy the whole boundary pixel, particularly for
-            // paths. Fractional masks may cut it even when geometry just fits.
-            return floor(bounds.minX) < mask.minX || floor(bounds.minY) < mask.minY
-                || ceil(bounds.maxX) > mask.maxX || ceil(bounds.maxY) > mask.maxY
+            // paths. Test both square gates, including an explicit S when it
+            // is smaller than R. A redundant surface-sized S must not mark
+            // otherwise movable paint as clipped.
+            func cutsCoverage(_ rect: Rect) -> Bool {
+                floor(bounds.minX) < rect.minX || floor(bounds.minY) < rect.minY
+                    || ceil(bounds.maxX) > rect.maxX || ceil(bounds.maxY) > rect.maxY
+            }
+            return cutsCoverage(mask) || (shape.map(cutsCoverage) ?? false)
         }
 
         private func selectedPresentation(in scene: GPUIScene, selected: Set<Reference>?) -> [Reference]? {

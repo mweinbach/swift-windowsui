@@ -10,8 +10,8 @@ final class ImageSamplingPlanTests: XCTestCase {
     func testSamplingDescriptorLayoutPreservesEveryExistingImageFieldOffset() async {
         XCTAssertEqual(MemoryLayout<ImageSamplingDescriptor>.size, 48)
         XCTAssertEqual(MemoryLayout<ImageSamplingDescriptor>.stride, 48)
-        XCTAssertEqual(MemoryLayout<ImagePrimitive>.size, 128)
-        XCTAssertEqual(MemoryLayout<ImagePrimitive>.stride, 128)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.size, 160)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.stride, 160)
         let imageOffsets: [(PartialKeyPath<ImagePrimitive>, Int)] = [
             (\.screenX, 0), (\.screenY, 4), (\.screenW, 8), (\.screenH, 12),
             (\.uvX, 16), (\.uvY, 20), (\.uvW, 24), (\.uvH, 28),

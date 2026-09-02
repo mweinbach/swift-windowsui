@@ -72,8 +72,8 @@ enum PathToQuadTessellator {
 
     /// Returns axis-aligned quads that cover `path`, or `nil` if the path
     /// can't be tessellated by this pass.
-    static func tessellate(_ path: PathPrimitive) -> [QuadPrimitive]? {
-        guard let mixed = tessellateMixed(path), mixed.residualPath == nil else {
+    static func tessellate(_ path: PathPrimitive, surfaceSize: Size? = nil) -> [QuadPrimitive]? {
+        guard let mixed = tessellateMixed(path, surfaceSize: surfaceSize), mixed.residualPath == nil else {
             return nil
         }
         return mixed.quads.isEmpty ? nil : mixed.quads
@@ -84,7 +84,68 @@ enum PathToQuadTessellator {
     /// fragments into a residual `PathPrimitive` that still goes to
     /// CPU. Returns nil when the input contributes nothing tessellatable
     /// at all (so the caller falls back to a single CPU path primitive).
-    static func tessellateMixed(_ path: PathPrimitive) -> Result? {
+    /// The optional target is in the same coordinate space as the path.
+    static func tessellateMixed(_ path: PathPrimitive, surfaceSize: Size? = nil) -> Result? {
+        // Geometry helpers keep their existing decisions and budgets. Lower
+        // the complete clip once at their shared exit, including scanline
+        // strips, stroke bodies/discs and residual join paths.
+        func radius(_ value: Double) -> Float {
+            value.isFinite ? Float(min(max(0, value), Double(GPUISceneLimits.maxCoordinate))) : 0
+        }
+        let hasExplicitRadii =
+            (path.clipCornerRadiusTopLeft.isFinite && path.clipCornerRadiusTopLeft > 0)
+            || (path.clipCornerRadiusTopRight.isFinite && path.clipCornerRadiusTopRight > 0)
+            || (path.clipCornerRadiusBottomRight.isFinite && path.clipCornerRadiusBottomRight > 0)
+            || (path.clipCornerRadiusBottomLeft.isFinite && path.clipCornerRadiusBottomLeft > 0)
+        let topLeft = radius(path.clipCornerRadiusTopLeft)
+        let topRight = radius(path.clipCornerRadiusTopRight)
+        let bottomRight = radius(path.clipCornerRadiusBottomRight)
+        let bottomLeft = radius(path.clipCornerRadiusBottomLeft)
+        let hasConvertedRadii = topLeft > 0 || topRight > 0 || bottomRight > 0 || bottomLeft > 0
+        let uniform = radius(path.clipCornerRadius)
+        let usesTargetClip =
+            path.clipBounds == nil
+            && (hasExplicitRadii || uniform > 0 || path.clipShapeBounds != nil)
+        if usesTargetClip {
+            // Unlike packed quads, a path with no clip rect can round its
+            // render target. Without that target, retaining the path is the
+            // only representation that does not silently discard its clip.
+            guard let surfaceSize, surfaceSize.width.isFinite, surfaceSize.height.isFinite,
+                surfaceSize.width > 0, surfaceSize.height > 0
+            else { return nil }
+        }
+        guard var result = tessellateGeometry(path) else { return nil }
+        for index in result.quads.indices {
+            if usesTargetClip, let surfaceSize {
+                result.quads[index].contentMask = GPUIContentMask(bounds: Rect(origin: .zero, size: surfaceSize))
+            }
+            // Select C in the Path's Double space, before Float conversion.
+            // If every selected radius underflows, preserve its square limit
+            // rather than reactivating the legacy scalar fallback.
+            if hasExplicitRadii && !hasConvertedRadii {
+                result.quads[index].clipCornerRadius = 0
+            }
+            // Otherwise helper scalar bytes stay unchanged, including the old
+            // scanline helpers whose scalar field remained zero. The current
+            // scalar resolves into C only when no explicit Path radius exists.
+            result.quads[index].clipCornerRadiusTopLeft = hasExplicitRadii ? topLeft : uniform
+            result.quads[index].clipCornerRadiusTopRight = hasExplicitRadii ? topRight : uniform
+            result.quads[index].clipCornerRadiusBottomRight = hasExplicitRadii ? bottomRight : uniform
+            result.quads[index].clipCornerRadiusBottomLeft = hasExplicitRadii ? bottomLeft : uniform
+            result.quads[index].clipShapeBounds = path.clipShapeBounds
+        }
+        if var residual = result.residualPath {
+            residual.clipCornerRadiusTopLeft = path.clipCornerRadiusTopLeft
+            residual.clipCornerRadiusTopRight = path.clipCornerRadiusTopRight
+            residual.clipCornerRadiusBottomRight = path.clipCornerRadiusBottomRight
+            residual.clipCornerRadiusBottomLeft = path.clipCornerRadiusBottomLeft
+            residual.clipShapeBounds = path.clipShapeBounds
+            result.residualPath = residual
+        }
+        return result
+    }
+
+    private static func tessellateGeometry(_ path: PathPrimitive) -> Result? {
         // Reject any path whose vertex stream contains a non-finite
         // coordinate. Downstream we do `Int(floor(y))` on vertex y for
         // scanline strip allocation, which traps on Inf/NaN. Bailing

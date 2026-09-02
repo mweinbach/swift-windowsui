@@ -2413,6 +2413,9 @@ final class RetainedLazyListAdoptionJournal {
         let incoming = outputs.compactMap { groups[ObjectIdentifier($0.group)]?.receipt }
         let previous = target.retainedLazyListActivityStorage?.committedContributions.values.map { $0 } ?? []
         for receipt in previous where !incoming.contains(where: { $0 === receipt }) {
+            // Another accepted output in this journal can share completion on
+            // this attachment without replacing its peer's contribution.
+            guard groups[ObjectIdentifier(receipt.group)]?.receipt !== receipt else { continue }
             let removed = receipt.acceptedNativeFacets.filter {
                 $0.source.nativeField.key == .completion && $0.actual.target === actual.target
                     && $0.actual.attachment === actual.attachment

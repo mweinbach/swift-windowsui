@@ -136,6 +136,7 @@ public final class AccessibilityElementProjection {
     /// scrolling the row into view lays it out.
     public let isVirtualizedPlaceholder: Bool
     fileprivate var isStructuralModalAncestor = false
+    fileprivate var implicitDefaultAction: (@MainActor () -> Bool)?
 
     /// Structural modal ancestors remain in the tree for bounds/navigation,
     /// but their activation fallback is no more eligible than stored actions.
@@ -177,18 +178,18 @@ public final class AccessibilityElementProjection {
         self.isVirtualizedPlaceholder = isVirtualizedPlaceholder
     }
 
-    /// Invokes the node's default action — the stored action of kind
-    /// `.default`, or the first stored action when no kind is marked.
-    /// Returns true when an action was invoked.
+    /// Invokes the stored default action, or the first stored action when no
+    /// kind is marked. A projection with no stored actions can instead invoke
+    /// current activation while the source's stored action list remains empty.
+    /// Returns true when the selected Void handler was called; its internal
+    /// action owner may still reject the effect.
     @discardableResult
     public func invokeDefaultAction() -> Bool {
-        guard isEnabled, permitsModalActions,
-            let defaultAction = actions.first(where: { $0.isDefault }) ?? actions.first
-        else {
-            return false
+        guard isEnabled, permitsModalActions else { return false }
+        if let defaultAction = actions.first(where: { $0.isDefault }) ?? actions.first {
+            return defaultAction.invokeIfPermitted()
         }
-
-        return defaultAction.invokeIfPermitted()
+        return implicitDefaultAction?() ?? false
     }
 
     /// Pre-order flattening of this element and its descendants.
@@ -274,6 +275,16 @@ private final class AccessibilityActionScope {
                 return true
             }
             guard let activate = node.onActivate else { return false }
+            activate()
+            return true
+        }
+    }
+
+    func invokeImplicitDefaultAction(on node: ViewNode) -> Bool {
+        withCurrentElement(for: node) { _ in
+            // A saved implicit route cannot retarget a newly stored action.
+            // Layout may install that list, so check only after validation.
+            guard node.accessibilityActions.isEmpty, let activate = node.onActivate else { return false }
             activate()
             return true
         }
@@ -605,6 +616,9 @@ public enum AccessibilityProjection {
             sourceNode: node
         )
         result.isStructuralModalAncestor = isStructuralModalAncestor
+        if !isStructuralModalAncestor {
+            result.implicitDefaultAction = projectedImplicitDefaultAction(for: node, scope: actionScope)
+        }
         return result
     }
 
@@ -640,6 +654,7 @@ public enum AccessibilityProjection {
                         child,
                         parentOrigin: parentOrigin,
                         inheritedTransform: inheritedTransform,
+                        activeModalNode: activeModalNode,
                         actionScope: actionScope,
                         inheritedIsEnabled: inheritedIsEnabled
                     )
@@ -694,6 +709,7 @@ public enum AccessibilityProjection {
         _ node: ViewNode,
         parentOrigin: Point,
         inheritedTransform: Transform2D,
+        activeModalNode: ViewNode?,
         actionScope: AccessibilityActionScope,
         inheritedIsEnabled: Bool
     ) -> AccessibilityElementProjection {
@@ -702,12 +718,14 @@ public enum AccessibilityProjection {
             parentOrigin: parentOrigin,
             inheritedTransform: inheritedTransform
         )
+        // Runtime prepaint can select a modal inside a deferred row.
+        let isStructuralModalAncestor = activeModalNode.map { $0 !== node } ?? false
         let ownName = node.accessibilityLabel ?? node.text
         let name =
             node.accessibilityChildBehavior == .ignore
             ? (ownName ?? "")
             : (ownName ?? combinedDescendantName(of: node))
-        return AccessibilityElementProjection(
+        let result = AccessibilityElementProjection(
             bounds: geometry.paintedBounds,
             name: name,
             value: node.accessibilityValue,
@@ -720,11 +738,16 @@ public enum AccessibilityProjection {
             isFocused: node.isFocused,
             isSelected: node.accessibilityTraits.contains(.isSelected),
             sortPriority: node.accessibilitySortPriority,
-            actions: projectedActions(for: node, scope: actionScope),
+            actions: isStructuralModalAncestor ? [] : projectedActions(for: node, scope: actionScope),
             children: [],
             sourceNode: node,
             isVirtualizedPlaceholder: true
         )
+        result.isStructuralModalAncestor = isStructuralModalAncestor
+        if !isStructuralModalAncestor {
+            result.implicitDefaultAction = projectedImplicitDefaultAction(for: node, scope: actionScope)
+        }
+        return result
     }
 
     private struct ProjectedGeometry {
@@ -801,6 +824,16 @@ public enum AccessibilityProjection {
             } else if child.accessibilityChildBehavior != .ignore {
                 collectDescendantNames(of: child, into: &parts)
             }
+        }
+    }
+
+    private static func projectedImplicitDefaultAction(
+        for node: ViewNode, scope: AccessibilityActionScope
+    ) -> (@MainActor () -> Bool)? {
+        guard node.accessibilityActions.isEmpty else { return nil }
+        return { [weak node] in
+            guard let node else { return false }
+            return scope.invokeImplicitDefaultAction(on: node)
         }
     }
 

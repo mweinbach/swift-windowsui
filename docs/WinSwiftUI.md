@@ -1356,3 +1356,25 @@ Avoid:
 - The default scene path uses native glyph atlases with cached logical layout and retained layout/prepaint/paint reuse. Full shaping, rich editing, and text accessibility remain incomplete; the frame fallback is more bitmap-heavy.
 - `D3D11Renderer` still only executes `fillRect` and `drawBitmap`; `GPUIScene` with `D3D11BatchRenderer` is the primary application presentation path, not an experimental alternative.
 - API coverage should be extended from real demo/app needs, not by cloning SwiftUI surface area speculatively.
+
+
+### Public projected default actions
+
+The retained public projection now supplies an implicit default only when its
+original raw stored-action list was empty and the current raw list is still
+empty after the existing current-element query. It resolves the current
+onActivate handler through the same action scope and weak source identity.
+A saved nonempty list retains its descriptor checks and never falls back after
+refusal. Manually initialized empty projections do not gain activation.
+A true result records a Void handler call, not downstream owner acceptance.
+
+Deferred rows that are structural ancestors of the active modal now carry the
+same modal-action refusal as ordinary ancestors, including for stored actions
+and the existing provider path. A node inside the selected modal remains
+eligible. Neither route realizes a deferred row to invent descendant geometry.
+
+This implementation has source review and nine new regression methods, but
+fresh repository execution is pending. The planned 158-method validation keeps
+calendar70, accessibility79 and all nine new methods; the 32-method modal class
+is audited separately because it includes same-file extension declarations.
+The independent calendar candidate-retention defect remains unresolved.

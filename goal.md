@@ -15290,3 +15290,49 @@ DestinationTask.runtime remains weak, and its getter returns the same runtime
 value. It introduced no new strong lifetime pin. These compiler corrections
 change neither the required behavioral evidence nor the product definition.
 **All nine original completion gates remain open.**
+
+
+### 2026-09-02: scoped public accessibility defaults and deferred modal refusal
+
+The public AccessibilityElementProjection default-action entry point now has
+an implicit activation route for projections created from an empty raw stored
+action list. It reuses the projection's existing action scope and a weak source
+node, performs the existing current-element query once, requires the current
+raw list still to be empty after that query, and calls the current onActivate
+handler once. It does not capture the original handler or strongly retain a UI
+graph between invocations. A saved nonempty action list keeps its prior exact
+descriptor checks and never retries through implicit activation after refusal.
+Manually initialized empty projections acquire no implicit route. A true return
+means that a Void handler was called; downstream owner acceptance and actual
+binding or control effects remain separate assertions.
+
+Independent review also found a reachable deferred-row modal omission. An
+unclipped scroll view can keep a row deferred for layout while prepaint selects
+a modal descendant. The placeholder projection now carries the same structural
+modal-ancestor flag as an ordinary projection, exposes no stored actions there,
+and receives no implicit route. Existing current-element admission therefore
+also refuses cached explicit and live-provider calls through that ancestor.
+This deliberately closes the preexisting virtual explicit/provider omission;
+it is not represented as an implicit-only change. Eligible nodes within the
+active modal keep their action routes.
+
+Nine new frozen regressions cover accepted Button and MultiDatePicker
+reconciliation and effects, action-list transitions, current handler lookup,
+disabled/hidden/modal/removed/replaced sources, weak runtime and node ownership,
+single-query and reentry behavior, manual and standalone projections, and
+virtual placeholder identity. The last test uses actual lazy layout and two
+implicit/explicit variants, checking deferred geometry, zero descendant layout,
+modal selection, cached/fresh/provider refusal and positive calls inside the
+modal. All 717 prior test files are preserved. Root reviewed the full production
+patch and all nine methods, verified the full inverse, and reviewed one new-test
+formatting hunk separately. Strict formatting and architecture checks pass.
+
+These changes have not yet executed in the repository. Planned validation keeps
+all 158 methods: the prior calendar70 and accessibility79 plus the new nine,
+split into 126 fixed-parser methods and a complete manually audited 32-method
+modal class because its same-file extension is outside the fixed parser grammar.
+No methods or limits are dropped to make the parser accept the selection.
+The separate rejected-candidate calendar month-retention defect remains open;
+this change does not repair its ownership or selection state. No native keyboard,
+visual, assistive-technology, or hardware qualification is inferred.
+**All nine original completion gates remain open.**

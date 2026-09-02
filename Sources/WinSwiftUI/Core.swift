@@ -9371,6 +9371,20 @@ public struct ViewBuildContext {
         }
     }
 
+    /// A separately admitted window factory inherits ordinary providers, not
+    /// the caller's State installation, row admission, or identity prefix.
+    /// Copying these providers does not evaluate application environment getters.
+    func rootViewContentContext() -> ViewBuildContext {
+        let provider = environmentValuesProvider
+        var context = retainedInvocationContext {
+            var values = provider()
+            values.retainedAlertActionScope = nil
+            return values
+        }
+        context.viewIdentity = ViewIdentityContext()
+        return context
+    }
+
     private func retainedInvocationContext(environment: @escaping () -> EnvironmentValues) -> ViewBuildContext {
         var identity = viewIdentity
         identity.installedOwner = nil

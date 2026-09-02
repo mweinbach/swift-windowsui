@@ -404,7 +404,10 @@ final class MountedLazyListTestHost {
             invalidateHandler: { [weak componentHost] in componentHost?.reload() })
         componentHost.setComponents { [weak self] in
             guard self?.isClosed == false else { return [] }
-            return [makeViewComponent(content(), context: context)]
+            guard case .value(let value) = coordinator.evaluateRootContent(in: context, content) else {
+                return [rejectedRetainedViewComponent()]
+            }
+            return [makeViewComponent(value, context: context)]
         }
     }
 

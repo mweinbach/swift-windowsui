@@ -59,6 +59,34 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
         StateMountRequest(registry: registry, revision: registry.mutationRevision)
     }
 
+    func evaluateRootContent<Value>(
+        in context: ViewBuildContext, while isCurrent: @MainActor () -> Bool = { true },
+        _ content: @MainActor () -> Value
+    ) -> RootViewContentResult<Value> {
+        guard let (metadataContext, activity) = rootContentActivity(in: context) else { return .unavailable }
+        return evaluateRootViewContent(
+            in: metadataContext, while: { activity.isCurrent && isCurrent() }, content)
+    }
+
+    /// Keep the temporary strong build reference out of the authored callback.
+    /// This component has no group or output; it supplies the original lookup
+    /// fence for metadata only and is never passed to later component building.
+    @inline(never)
+    private func rootContentActivity(
+        in context: ViewBuildContext
+    ) -> (ViewBuildContext, ViewListProjectionActivity)? {
+        guard context.stateMountCoordinator === self,
+            context.viewIdentity.lazyList == nil, context.viewIdentity.descriptorComponent == nil,
+            context.viewIdentity.installedOwner == nil, context.viewIdentity.installedEpoch == nil,
+            let build = currentBuild, let descriptor = build.rootContentDescriptor()
+        else { return nil }
+        var metadataContext = context
+        metadataContext.viewIdentity.descriptorComponent = descriptor
+        let activity = ViewListProjectionActivity(context: metadataContext)
+        guard activity.isCurrent else { return nil }
+        return (metadataContext, activity)
+    }
+
     func descriptorResolutionReceipt(in context: ViewBuildContext) -> LazyListDescriptorResolutionReceipt? {
         guard let build = currentBuild, context.viewIdentity.installedEpoch === build.epoch,
             let owner = context.viewIdentity.installedOwner
@@ -1182,6 +1210,11 @@ private final class StateMountBuild: RetainedBuildEpoch, RetainedLazyListBuildAc
     }
 
     var descriptorScopeWasBound: Bool { descriptorScope != nil }
+
+    func rootContentDescriptor() -> RetainedDescriptorComponentAttribution? {
+        guard replacesRoot, descriptorScope?.origin == .componentHostRoot else { return nil }
+        return descriptorComponent(from: nil)
+    }
 
     func admitsDescriptor(_ attribution: RetainedDescriptorComponentAttribution) -> Bool {
         canConstructLazy && descriptorScope?.attempt === attribution.attempt && attribution.canConstruct

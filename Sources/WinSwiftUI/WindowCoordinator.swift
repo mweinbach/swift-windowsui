@@ -1000,10 +1000,19 @@ final class WinSwiftUIWindowCoordinator {
             releaseClosedHosts()
             try validateNativePreparation(preparation)
             if let value = presentedValue, let dataBoundContent = configuration.dataBoundContent {
-                configuration.content = dataBoundContent(value)
+                guard
+                    case .value(let views) = evaluateNativeWindowContent(
+                        preparation: preparation, size: configuration.size, { dataBoundContent(value) })
+                else { throw WindowCoordinatorError.coordinatorTerminated }
+                configuration.content = views
                 try validateNativePreparation(preparation)
             }
-            configuration.instantiateWindowContent()
+            let contentSize = configuration.size
+            guard
+                configuration.instantiateWindowContent(evaluating: { content in
+                    self.evaluateNativeWindowContent(preparation: preparation, size: contentSize, content)
+                })
+            else { throw WindowCoordinatorError.coordinatorTerminated }
             try validateNativePreparation(preparation)
             let created = try hostFactory(configuration, isPrimary)
             guard !existingHostIdentities.contains(ObjectIdentifier(created)),
@@ -1108,6 +1117,26 @@ final class WinSwiftUIWindowCoordinator {
         }
         nativeWindowStarts[identity] = startup
         return startup
+    }
+
+    /// Native factory admission is the already reserved window UUID, not the
+    /// retained action's row context. No context or request is captured again
+    /// after the callback; the caller also checks after assignment/ARC cleanup.
+    @inline(never)
+    private func evaluateNativeWindowContent(
+        preparation: UUID, size: IntSize, _ content: @MainActor () -> [AnyView]
+    ) -> RootViewContentResult<[AnyView]> {
+        guard nativeWindowPreparation == preparation, !isTerminated else { return .unavailable }
+        let context =
+            ViewBuildContextScope.current?.rootViewContentContext()
+            ?? ViewBuildContext(
+                canvasSizeProvider: { Size(width: Double(size.width), height: Double(size.height)) },
+                invalidateHandler: {})
+        return evaluateRootViewContent(
+            in: context,
+            while: { [weak self] in
+                self?.nativeWindowPreparation == preparation && self?.isTerminated == false
+            }, content)
     }
 
     private func validateNativePreparation(_ preparation: UUID) throws {

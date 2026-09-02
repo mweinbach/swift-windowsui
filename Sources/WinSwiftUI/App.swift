@@ -2282,6 +2282,20 @@ public struct WindowGroupConfiguration {
         content = buildContent()
         windowContentFactory = nil
     }
+
+    /// The native coordinator supplies its original window request fence. Keep
+    /// the assignment and displaced-factory release outside the content scope;
+    /// its existing post-assignment request check still follows this method.
+    @MainActor
+    mutating func instantiateWindowContent(
+        evaluating evaluate: (@MainActor () -> [AnyView]) -> RootViewContentResult<[AnyView]>
+    ) -> Bool {
+        guard let buildContent = windowContentFactory else { return true }
+        guard case .value(let views) = evaluate(buildContent) else { return false }
+        content = views
+        windowContentFactory = nil
+        return true
+    }
 }
 enum WindowHostInputEvent {
     case pointerMoved(point: Point, scaleFactor: Double)
@@ -4573,9 +4587,13 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
 
     private func buildRootComponent() -> Component {
         if let documentContext {
-            let views = documentContext.makeContent()
+            guard
+                case .value(let views) = stateMountCoordinator.evaluateRootContent(
+                    in: buildContext, while: { !self.hasTornDownWindow && documentContext.owner.isValid },
+                    { documentContext.makeContent() })
+            else { return rejectedRetainedViewComponent() }
             let errorMessage = documentContext.lastError?.localizedDescription
-            guard !hasTornDownWindow, documentContext.owner.isValid else { return .empty }
+            guard !hasTornDownWindow, documentContext.owner.isValid else { return rejectedRetainedViewComponent() }
             let body = composeComponent(from: views, context: buildContext)
             let status = makeViewComponent(
                 Text(errorMessage ?? "")

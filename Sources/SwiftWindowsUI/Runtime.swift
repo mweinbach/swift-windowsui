@@ -7298,7 +7298,7 @@ public final class ViewNode {
             finalChildrenCutWasRefused = true
             return
         }
-        children = nextChildren
+        writeFinalChildren(nextChildren)
         guard buttonActions?.recordChildrenWrite(on: self) != false else { return }
         guard buttonActions?.recordInsertion(in: nextChildren) != false else { return }
         if recordsDeclaration, let sourceParent {
@@ -7331,6 +7331,16 @@ public final class ViewNode {
             }
         }
         invalidateRuntime(.children)
+    }
+
+    // A displaced payload can read children from its destructor. Keep the old
+    // array alive until the stored-property write ends, but release it in this
+    // separate frame before publication acknowledgements and deferred cleanup.
+    @inline(never)
+    private func writeFinalChildren(_ nextChildren: [ViewNode]) {
+        let displaced = children
+        children = nextChildren
+        withExtendedLifetime(displaced) {}
     }
 
     // Outgoing callbacks can install other children before the final field

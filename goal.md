@@ -15450,3 +15450,39 @@ closure census at `artifacts/goal-ninth-ui11-f419123-natural-closure-v1.json`.
 These focused results do not replace the full suite,
 retained visual comparisons, native interaction, hardware, or release checks.
 **All nine original completion gates remain open.**
+
+
+### 2026-09-02: displaced children release outside the final property write
+
+At committed `f419123`, the complete 108-method publication/removal selection
+started nine methods and passed eight before Swift terminated the ninth with
+a fatal exclusivity violation. The interrupted original regression was
+OrdinaryFinalChildrenCutBoundaryTests.testFinalFieldWriteReleasesPayloadAfterWithdrawalBeforeDeferredCleanup;
+the remaining 99 methods did not run. This is an interrupted test, not a
+failed XCTest terminal or a completed cohort. The runner exited naturally
+with code 1, without timeout or termination; source preservation passed, and
+the separate post-closure process snapshot was empty at that instant.
+
+The outgoing payload's destructor reads its parent's children. Releasing the
+old array inside the stored-property assignment kept that read inside Swift's
+exclusive write access. The final assignment now runs in a separate inline-never
+helper that retains the displaced array until the assignment ends, then releases
+it before the helper returns. Publication acknowledgements and deferred cleanup
+remain after that return. The helper performs no post-release write, repair,
+rollback, or new admission; existing withdrawal, whole-forest validation,
+sticky refusal, and mounted/task qualifications are unchanged.
+
+Root and independent review also checked the live Button adoption route. Its
+earlier empty-field publication and intervening guards require the final field
+to remain empty; a callback-added child causes refusal. Therefore this helper
+does not add a displaced-payload callout to that accepted Button route before
+its acknowledgement. That is a statement about the guarded production route,
+not permission to manufacture a malformed internal witness.
+
+All 718 existing test paths, including all eight original final-cut regressions,
+remain unchanged. Root integration and an exact whole-tree inverse were verified;
+Swift formatting lint and architecture contracts passed. Runtime execution of
+the correction remains pending. The interrupted original regression and all 108 selected methods must
+still complete under the unchanged expectations. No release, accessibility,
+rendering, or performance qualification follows from this source correction.
+**All nine original completion gates remain open.**

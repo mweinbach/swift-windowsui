@@ -323,6 +323,13 @@ private struct BilinearAxisTap {
         fraction = tap.fraction
     }
 
+    /// The caller has already bounded this index against the actual bitmap.
+    init(exactIndex: Int) {
+        low = exactIndex
+        high = exactIndex
+        fraction = 0
+    }
+
     init(normalized: Double, size: Int) {
         let bounded = clamp(normalized, lower: 0, upper: 1)
         let texel = bounded * Double(size) - 0.5
@@ -1226,6 +1233,17 @@ private struct RasterTarget {
         let sourceWidth = max(1, Int(bitmap.width))
         let sourceHeight = max(1, Int(bitmap.height))
         let bytesPerRow = max(sourceWidth * 4, Int(bitmap.bytesPerRow))
+        // Preserve exact texel centers for an integral 1:1 placement. A
+        // normalized divide/multiply can invent a tiny neighboring weight,
+        // leaving nonzero straight RGB even when its alpha rounds to zero.
+        let usesExactTexelIndices =
+            sampling == .legacy && image.hasIdentityAffineTransform && image.rotationRadians == 0
+            && image.uvX == 0 && image.uvY == 0 && image.uvW == 1 && image.uvH == 1
+            && bitmap.width > 0 && bitmap.height > 0
+            && rect.size.width == Double(bitmap.width) && rect.size.height == Double(bitmap.height)
+            && rect.origin.x.isFinite && rect.origin.y.isFinite
+            && rect.origin.x == rect.origin.x.rounded(.towardZero)
+            && rect.origin.y == rect.origin.y.rounded(.towardZero)
         // `blend` works in straight alpha, so premultiplied sources (the
         // DirectWrite/GDI text path, and anything read back from the GPU)
         // are divided out per texel. The GPU does the mirror of this by
@@ -1241,7 +1259,18 @@ private struct RasterTarget {
                 let ty = clamp((pixelCenterY - rect.minY) / sampleHeight, lower: 0, upper: 1)
                 let tapX: BilinearAxisTap
                 let tapY: BilinearAxisTap
-                if let samplingKernel {
+                if usesExactTexelIndices {
+                    // Subtract in Double and bound before conversion, including
+                    // a negative destination origin cropped by the surface.
+                    let sourceX = Double(x) - rect.minX
+                    let sourceY = Double(y) - rect.minY
+                    guard sourceX >= 0, sourceX < Double(sourceWidth),
+                        sourceY >= 0, sourceY < Double(sourceHeight),
+                        let texelX = Int(exactly: sourceX), let texelY = Int(exactly: sourceY)
+                    else { continue }
+                    tapX = BilinearAxisTap(exactIndex: texelX)
+                    tapY = BilinearAxisTap(exactIndex: texelY)
+                } else if let samplingKernel {
                     let taps = samplingKernel.taps(unitX: Float(tx), unitY: Float(ty))
                     tapX = BilinearAxisTap(taps.x)
                     tapY = BilinearAxisTap(taps.y)

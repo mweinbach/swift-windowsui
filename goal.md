@@ -14327,3 +14327,32 @@ contracts passed. The 18 transport and 12 D3D11 tests are not yet rerun. The
 separate transport color-effect mismatch still needs the production sampler
 repair; none of the earlier failed results is reclassified by editing fixtures.
 All nine original completion gates remain open.
+
+
+### Ninth integration: exact texel centers for integral image copies (2026-09-02)
+
+The CPU image rasterizer now avoids a normalized divide/multiply round trip
+for canonical legacy, full-UV, unrotated, identity-affine images whose integral
+origin and destination size exactly match the actual bitmap dimensions. It
+subtracts the destination origin in Double, bounds each result against the
+actual source extent, then converts with `Int(exactly:)`. Both bilinear taps
+address that exact texel. Negative integral placements cropped by the surface
+remain supported without unchecked integer subtraction or conversion.
+
+All existing scan, clip, alpha, opacity, premultiplied interpolation and blend
+logic remains in place. Fractional/scaled/affine/rotated/cropped-UV/cap/tile
+sampling and glyph sampling are unchanged. This targets the observed identity
+effect comparison without adding an output mask, bypassing effects or broadly
+normalizing RGB at zero alpha. The predicted six invisible RGB-byte differences
+in the earlier transport failure remain source arithmetic, not inspected new
+runtime output.
+
+Eleven new tests compare raw BGRA buffers and exercise both sampling axes,
+negative placement, clipping/opacity, straight/premultiplied input and excluded
+paths. All 695 existing test entries and raw bytes are preserved. The exact
+source patch and inverse are retained in the reviewed intake; root's
+`artifacts/goal-ninth-exact-image-apply-v1.json` proves composition on `cd1291d`
+and recovery of its whole tree. Strict two-file lint and contracts passed.
+Fresh execution of the two complete collateral groups (148 and 123 methods,
+271 total) remains pending, including the original transport failure. No GPU,
+full-suite, performance or completion-gate pass is inferred from source review.

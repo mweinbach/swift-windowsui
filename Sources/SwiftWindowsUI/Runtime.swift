@@ -17507,8 +17507,513 @@ public final class RetainedViewRuntime {
             : transaction.animation.map {
                 AnimationTransaction(duration: $0.duration, easing: $0.easing)
             }
+        if hasPendingLayout {
+            guard let prepared = preparePublicScroll(to: descendant, anchorX: anchorX, anchorY: anchorY) else {
+                return false
+            }
+            // Capture settlement and intent before the authored clock. A clock
+            // that renders or queries again cannot supply replacement authority.
+            let timestamp = sampleFocusClock()
+            guard preparedPublicScrollIsCurrent(prepared, requiringOriginalSettlement: true) else {
+                prepared.phase = .finished
+                return false
+            }
+            return performPreparedPublicScroll(prepared, animation: animation, at: timestamp)
+        }
         return performProgrammaticScroll(
             to: descendant, anchorX: anchorX, anchorY: anchorY, animation: animation, at: clock())
+    }
+
+    /// One synchronous public request may use already-settled query geometry
+    /// while its render flags remain dirty. This is neither UIA admission nor
+    /// List preparation: it never queries, clears dirty flags, or renews proof.
+    @MainActor
+    private final class PreparedPublicScroll {
+        enum Phase { case prepared, cancelling, readyToWrite, committed, finished }
+
+        weak var runtime: RetainedViewRuntime?
+        weak var descendant: ViewNode?
+        weak var target: ViewNode?
+        weak var container: ViewNode?
+        weak var previousHover: ViewNode?
+        weak var previousIndicator: ViewNode?
+        weak var activeIndicator: ViewNode?
+        let paths: [RetainedAccessibilityTarget]
+        let attachments: [RetainedLazyListAttachmentProof]
+        let settlement: RetainedLayoutSettlementReceipt
+        let layoutPass: UInt64
+        let axis: ScrollAxis
+        let epoch: RetainedScrollSourceEpoch?
+        let layoutKey: ViewLayoutCacheKey
+        let scrollLimit: Double
+        let hasVirtualizedDescendants: Bool
+        let indicatorAutoHides: Bool
+        let showsIndicator: Bool
+        let requestedOffset: Double
+        let clampedOffset: Double
+        let presentedOffset: Double
+        let anchorX: Double?
+        let anchorY: Double?
+        let cancelsPointer: Bool
+        var phase = Phase.prepared
+        var geometryRevision: UInt64
+        var presentationRevision: UInt64
+        var intent: RetainedLazyListAttachmentIdentity
+        var expectedOffset: Double
+        var expectedOvershoot: Double
+        var expectedPresentedDelta: Double
+        var expectedPointerSequence: UInt64
+        var hoverIdentity: ButtonActionInteractionMutationIdentity
+        var indicatorHoverIdentity: ButtonActionInteractionMutationIdentity
+        weak var expectedHover: ViewNode?
+        weak var expectedHoveredIndicator: ViewNode?
+        weak var expectedActiveIndicator: ViewNode?
+        var expectedDrag: ScrollDragState?
+        var cancelledPointer = false
+        var cancelledMotion = false
+
+        init(
+            runtime: RetainedViewRuntime, descendant: ViewNode, target: ViewNode, container: ViewNode,
+            paths: [RetainedAccessibilityTarget], attachments: [RetainedLazyListAttachmentProof],
+            settlement: RetainedLayoutSettlementReceipt, axis: ScrollAxis, layoutKey: ViewLayoutCacheKey,
+            requestedOffset: Double, anchorX: Double?, anchorY: Double?
+        ) {
+            self.runtime = runtime
+            self.descendant = descendant
+            self.target = target
+            self.container = container
+            previousHover = runtime.hoveredNode
+            previousIndicator = runtime.hoveredScrollIndicatorNode
+            activeIndicator = runtime.activeScrollIndicatorNode
+            self.paths = paths
+            self.attachments = attachments
+            self.settlement = settlement
+            layoutPass = runtime.layoutPassID
+            self.axis = axis
+            epoch = container.scrollSourceEpoch
+            self.layoutKey = layoutKey
+            scrollLimit = container.maxScrollOffset
+            hasVirtualizedDescendants = container.hasVirtualizedDescendants
+            indicatorAutoHides = container.scrollIndicatorAutoHides
+            showsIndicator = container.showsScrollIndicator
+            self.requestedOffset = requestedOffset
+            clampedOffset = container.clampedScrollOffset(for: requestedOffset)
+            presentedOffset = container.effectiveScrollOffset
+            self.anchorX = anchorX
+            self.anchorY = anchorY
+            cancelsPointer =
+                runtime.scrollDragState?.node === container || runtime.activeScrollIndicatorNode === container
+            geometryRevision = runtime.layoutSettlementGeometryRevision
+            presentationRevision = runtime.presentationMutationRevision
+            intent = container.captureLazyListScrollIntentIdentity()
+            expectedOffset = container.scrollOffset
+            expectedOvershoot = container.scrollOvershoot
+            expectedPresentedDelta = container.scrollPresentedDelta
+            expectedPointerSequence = runtime.pointerSequence
+            hoverIdentity = runtime.hoverMutationIdentity
+            indicatorHoverIdentity = runtime.scrollIndicatorHoverMutationIdentity
+            expectedHover = runtime.hoveredNode
+            expectedHoveredIndicator = runtime.hoveredScrollIndicatorNode
+            expectedActiveIndicator = runtime.activeScrollIndicatorNode
+            expectedDrag = runtime.scrollDragState
+        }
+    }
+
+    private struct PreparedPublicScrollEffects {
+        let geometryBefore: UInt64
+        let geometryLimit: UInt64
+        let presentationBefore: UInt64
+        let presentationLimit: UInt64
+    }
+
+    @inline(never)
+    private func preparePublicScroll(
+        to descendant: ViewNode, anchorX: Double?, anchorY: Double?
+    ) -> PreparedPublicScroll? {
+        guard hasPendingLayout, layoutPassID != 0, !isLayoutInProgress,
+            case .settled(let settlement) = layoutSettlementStatus,
+            isLayoutSettlementReceiptCurrent(settlement), descendant.runtime === self,
+            !Self.hasHiddenAncestor(descendant),
+            let (target, container) = descendant.nearestScrollTarget(), let axis = container.scrollAxis,
+            let layoutKey = container.cachedLayoutKey, container.pendingLayoutKey == nil,
+            permitsPreparedPublicScrollCancellation(of: container),
+            let requestedOffset = ViewNode.requestedScrollOffset(
+                for: target, within: container, anchor: axis == .horizontal ? anchorX : anchorY,
+                visibleOffset: container.effectiveScrollOffset)
+        else { return nil }
+
+        // These are physical attachment paths, not an accessibility mutation.
+        // Capture retirement proof for every link as well as root membership.
+        var paths: [RetainedAccessibilityTarget] = []
+        var attachments: [RetainedLazyListAttachmentProof] = []
+        let nodes = [
+            descendant, target, container, hoveredNode, hoveredScrollIndicatorNode,
+            activeScrollIndicatorNode, scrollDragState?.node,
+        ]
+        for node in nodes {
+            guard let node else { continue }
+            guard let path = accessibilityTarget(for: node) else { return nil }
+            paths.append(path)
+            for link in path.path {
+                guard let ancestor = link.node else { return nil }
+                attachments.append(ancestor.captureLazyListAttachmentProof())
+            }
+        }
+        let prepared = PreparedPublicScroll(
+            runtime: self, descendant: descendant, target: target, container: container,
+            paths: paths, attachments: attachments, settlement: settlement, axis: axis, layoutKey: layoutKey,
+            requestedOffset: requestedOffset, anchorX: anchorX, anchorY: anchorY)
+        return preparedPublicScrollIsCurrent(prepared, requiringOriginalSettlement: true) ? prepared : nil
+    }
+
+    private func permitsPreparedPublicScrollCancellation(of container: ViewNode) -> Bool {
+        guard scrollDragState?.node === container || activeScrollIndicatorNode === container else { return true }
+        return nodeDragState == nil && longPressAttempt == nil && pressedNode == nil && buttonRepeatState == nil
+            && (scrollDragState == nil || scrollDragState?.node === container)
+            && (activeScrollIndicatorNode == nil || activeScrollIndicatorNode === container)
+    }
+
+    private func preparedPublicScrollDragIsCurrent(_ expected: ScrollDragState?) -> Bool {
+        switch (expected, scrollDragState) {
+        case (nil, nil):
+            return true
+        case (.some(let expected), .some(let current)):
+            return current.node === expected.node && current.axis == expected.axis
+                && current.startPoint == expected.startPoint && current.startOffset == expected.startOffset
+                && current.track.axis == expected.track.axis && current.track.origin == expected.track.origin
+                && current.track.travel == expected.track.travel
+                && current.track.indicatorRect == expected.track.indicatorRect
+                && current.didScroll == expected.didScroll
+        default:
+            return false
+        }
+    }
+
+    private func preparedPublicScrollIsCurrent(
+        _ prepared: PreparedPublicScroll, requiringOriginalSettlement: Bool = false
+    ) -> Bool {
+        guard prepared.phase != .finished, prepared.runtime === self, canReadLayoutSettlement, !isLayoutInProgress,
+            !layoutSettlementGenerationsExhausted, layoutSettlementIdentity === prepared.settlement.identity,
+            layoutSettlementResolutionSequence == prepared.settlement.resolutionSequence,
+            layoutPassID == prepared.layoutPass, layoutSettlementGeometryRevision == prepared.geometryRevision,
+            presentationMutationRevision == prepared.presentationRevision,
+            !hasUnresolvedLazyListLayout, !hasUnresolvedLayoutSettlementReader,
+            pendingAfterLayoutActionKeys.isEmpty, pendingPreciseScrollAlignments.isEmpty,
+            let descendant = prepared.descendant, let target = prepared.target, let container = prepared.container,
+            prepared.paths.allSatisfy({ $0.isCurrent(in: self) }), prepared.attachments.allSatisfy({ $0.isCurrent }),
+            !Self.hasHiddenAncestor(descendant), let currentTarget = descendant.nearestScrollTarget(),
+            currentTarget.target === target, currentTarget.container === container,
+            container.scrollAxis == prepared.axis, container.scrollSourceEpoch == prepared.epoch,
+            container.cachedLayoutKey == prepared.layoutKey, container.pendingLayoutKey == nil,
+            container.maxScrollOffset == prepared.scrollLimit,
+            container.hasVirtualizedDescendants == prepared.hasVirtualizedDescendants,
+            container.scrollIndicatorAutoHides == prepared.indicatorAutoHides,
+            container.showsScrollIndicator == prepared.showsIndicator,
+            container.clampedScrollOffset(for: prepared.requestedOffset) == prepared.clampedOffset,
+            container.lazyListScrollIntentIdentity === prepared.intent,
+            container.scrollOffset == prepared.expectedOffset, container.scrollOvershoot == prepared.expectedOvershoot,
+            container.scrollPresentedDelta == prepared.expectedPresentedDelta,
+            pointerSequence == prepared.expectedPointerSequence, hoverMutationIdentity === prepared.hoverIdentity,
+            scrollIndicatorHoverMutationIdentity === prepared.indicatorHoverIdentity,
+            hoveredNode === prepared.expectedHover, hoveredScrollIndicatorNode === prepared.expectedHoveredIndicator,
+            activeScrollIndicatorNode === prepared.expectedActiveIndicator,
+            preparedPublicScrollDragIsCurrent(prepared.expectedDrag),
+            permitsPreparedPublicScrollCancellation(of: container)
+        else { return false }
+        if requiringOriginalSettlement, !isLayoutSettlementReceiptCurrent(prepared.settlement) { return false }
+        if prepared.cancelledPointer,
+            nodeDragState != nil || longPressAttempt != nil || pressedNode != nil || buttonRepeatState != nil
+        {
+            return false
+        }
+        if prepared.cancelledMotion, prepared.phase != .committed {
+            guard scrollMomenta[ObjectIdentifier(container)] == nil,
+                scrollPresentedTweens[ObjectIdentifier(container)] == nil,
+                pendingListNavigationReveal?.container !== container,
+                consumingListNavigationReveal?.container !== container
+            else { return false }
+        }
+        return layoutSettlementGeometryRevision == prepared.geometryRevision
+            && presentationMutationRevision == prepared.presentationRevision
+    }
+
+    /// Bounds are checked before native effects because the ordinary paint
+    /// revision wraps. Neither wrapping nor saturation may create authority.
+    private func reservePreparedPublicScrollEffects(
+        _ prepared: PreparedPublicScroll, geometry: UInt64, presentation: UInt64
+    ) -> PreparedPublicScrollEffects? {
+        guard preparedPublicScrollIsCurrent(prepared) else { return nil }
+        let nextGeometry = prepared.geometryRevision.addingReportingOverflow(geometry)
+        let nextPresentation = prepared.presentationRevision.addingReportingOverflow(presentation)
+        guard !nextGeometry.overflow, nextGeometry.partialValue != UInt64.max,
+            !nextPresentation.overflow, nextPresentation.partialValue != UInt64.max
+        else { return nil }
+        return PreparedPublicScrollEffects(
+            geometryBefore: prepared.geometryRevision, geometryLimit: nextGeometry.partialValue,
+            presentationBefore: prepared.presentationRevision, presentationLimit: nextPresentation.partialValue)
+    }
+
+    /// Call only inside the audited native blocks below, before their temporary
+    /// node and history pins retire. The caller then validates after return.
+    private func recordPreparedPublicScrollEffects(
+        _ prepared: PreparedPublicScroll, within bounds: PreparedPublicScrollEffects
+    ) -> Bool {
+        guard prepared.phase != .finished, !layoutSettlementGenerationsExhausted,
+            layoutSettlementIdentity === prepared.settlement.identity,
+            layoutSettlementResolutionSequence == prepared.settlement.resolutionSequence,
+            layoutPassID == prepared.layoutPass, !isLayoutInProgress,
+            prepared.geometryRevision == bounds.geometryBefore,
+            prepared.presentationRevision == bounds.presentationBefore,
+            layoutSettlementGeometryRevision >= bounds.geometryBefore,
+            layoutSettlementGeometryRevision <= bounds.geometryLimit,
+            presentationMutationRevision >= bounds.presentationBefore,
+            presentationMutationRevision <= bounds.presentationLimit
+        else {
+            prepared.phase = .finished
+            return false
+        }
+        prepared.geometryRevision = layoutSettlementGeometryRevision
+        prepared.presentationRevision = presentationMutationRevision
+        return true
+    }
+
+    @inline(never)
+    private func cancelPreparedPublicScrollMotion(_ prepared: PreparedPublicScroll) -> Bool {
+        guard let container = prepared.container else { return false }
+        let clearsOvershoot: UInt64 = container.scrollOvershoot != 0 ? 1 : 0
+        let clearsDelta: UInt64 =
+            scrollPresentedTweens[ObjectIdentifier(container)] != nil && container.scrollPresentedDelta != 0 ? 1 : 0
+        let changes = clearsOvershoot + clearsDelta
+        guard
+            let bounds = reservePreparedPublicScrollEffects(
+                prepared, geometry: prepared.hasVirtualizedDescendants ? changes : 0, presentation: changes)
+        else { return false }
+        cancelScrollMomentum(for: container)
+        cancelScrollPresentedTween(for: container)
+        prepared.expectedOvershoot = container.scrollOvershoot
+        prepared.expectedPresentedDelta = container.scrollPresentedDelta
+        prepared.cancelledMotion = true
+        let recorded = recordPreparedPublicScrollEffects(prepared, within: bounds)
+        withExtendedLifetime(container) {}
+        return recorded
+    }
+
+    @inline(never)
+    private func clearPreparedPublicScrollPointer(_ prepared: PreparedPublicScroll) -> Bool {
+        guard prepared.cancelsPointer, let container = prepared.container,
+            permitsPreparedPublicScrollCancellation(of: container),
+            let bounds = reservePreparedPublicScrollEffects(prepared, geometry: 0, presentation: 1)
+        else { return false }
+        let next = pointerSequence.addingReportingOverflow(1)
+        guard !next.overflow, next.partialValue != UInt64.max else { return false }
+        let previousHover = prepared.previousHover
+        let previousIndicator = prepared.previousIndicator
+        let activeIndicator = prepared.activeIndicator
+        pointerSequence = next.partialValue
+        scrollDragState = nil
+        activeScrollIndicatorNode = nil
+        hoveredNode = nil
+        hoveredScrollIndicatorNode = nil
+        previousHover?.isHovered = false
+        prepared.expectedPointerSequence = next.partialValue
+        prepared.expectedDrag = nil
+        prepared.expectedActiveIndicator = nil
+        prepared.expectedHover = nil
+        prepared.expectedHoveredIndicator = nil
+        prepared.hoverIdentity = hoverMutationIdentity
+        prepared.indicatorHoverIdentity = scrollIndicatorHoverMutationIdentity
+        prepared.cancelledPointer = true
+        let recorded = recordPreparedPublicScrollEffects(prepared, within: bounds)
+        withExtendedLifetime((container, previousHover, previousIndicator, activeIndicator)) {}
+        return recorded
+    }
+
+    @inline(never)
+    private func deliverPreparedPublicScrollHoverExit(_ prepared: PreparedPublicScroll) {
+        var callback = prepared.previousHover?.onPointerExit
+        callback?()
+        callback = nil
+    }
+
+    @inline(never)
+    private func restorePreparedPublicScrollHoverChrome(_ prepared: PreparedPublicScroll, at timestamp: Double) -> Bool
+    {
+        guard let bounds = reservePreparedPublicScrollEffects(prepared, geometry: 5, presentation: 13) else {
+            return false
+        }
+        let previousHover = prepared.previousHover
+        let previousIndicator = prepared.previousIndicator
+        applyInteractionChrome(to: previousHover, at: timestamp)
+        if let previousIndicator {
+            animateColor(
+                .scrollIndicator, of: previousIndicator, to: previousIndicator.restingScrollIndicatorColor,
+                duration: 0.12, at: timestamp)
+        }
+        let recorded = recordPreparedPublicScrollEffects(prepared, within: bounds)
+        withExtendedLifetime((previousHover, previousIndicator)) {}
+        return recorded
+    }
+
+    @inline(never)
+    private func restorePreparedPublicScrollIndicatorChrome(
+        _ prepared: PreparedPublicScroll, at timestamp: Double
+    ) -> Bool {
+        guard let activeIndicator = prepared.activeIndicator,
+            let bounds = reservePreparedPublicScrollEffects(prepared, geometry: 1, presentation: 1)
+        else { return false }
+        animateColor(
+            .scrollIndicator, of: activeIndicator, to: activeIndicator.restingScrollIndicatorColor,
+            duration: 0.12, at: timestamp)
+        let recorded = recordPreparedPublicScrollEffects(prepared, within: bounds)
+        withExtendedLifetime(activeIndicator) {}
+        return recorded
+    }
+
+    @inline(never)
+    private func commitPreparedPublicScrollOffset(_ prepared: PreparedPublicScroll) -> Bool {
+        guard prepared.phase == .readyToWrite, let container = prepared.container, prepared.cancelledMotion,
+            scrollMomenta[ObjectIdentifier(container)] == nil,
+            scrollPresentedTweens[ObjectIdentifier(container)] == nil,
+            pendingListNavigationReveal?.container !== container,
+            consumingListNavigationReveal?.container !== container
+        else { return false }
+        let changed = prepared.clampedOffset != prepared.expectedOffset
+        let reveal: UInt64 = changed && prepared.indicatorAutoHides && prepared.showsIndicator ? 1 : 0
+        guard
+            let bounds = reservePreparedPublicScrollEffects(
+                prepared, geometry: (changed && prepared.hasVirtualizedDescendants ? 1 : 0) + reveal,
+                presentation: (changed ? 1 : 0) + reveal)
+        else { return false }
+        // With no old tween and no active layout, the shared setter cannot
+        // record phases or retire authored payloads. Equal requests supersede
+        // intent too, even though setScrollOffset then performs no assignment.
+        container.revokeLazyListScrollIntent()
+        _ = container.setScrollOffset(prepared.requestedOffset)
+        prepared.intent = container.captureLazyListScrollIntentIdentity()
+        prepared.expectedOffset = prepared.clampedOffset
+        prepared.phase = .committed
+        let recorded = recordPreparedPublicScrollEffects(prepared, within: bounds)
+        withExtendedLifetime(container) {}
+        return recorded
+    }
+
+    @inline(never)
+    private func installPreparedPublicScrollTween(
+        _ prepared: PreparedPublicScroll, animation: AnimationTransaction, delta: Double, at timestamp: Double
+    ) -> Bool {
+        guard prepared.phase == .committed, let container = prepared.container, let descendant = prepared.descendant,
+            scrollMomenta[ObjectIdentifier(container)] == nil, scrollPresentedTweens[ObjectIdentifier(container)] == nil
+        else { return false }
+        let changes: UInt64 = delta != prepared.expectedPresentedDelta ? 1 : 0
+        guard
+            let bounds = reservePreparedPublicScrollEffects(
+                prepared, geometry: prepared.hasVirtualizedDescendants ? changes : 0, presentation: changes)
+        else { return false }
+        container.scrollPresentedDelta = delta
+        scrollPresentedTweens[ObjectIdentifier(container)] = ScrollPresentedTween(
+            node: container, target: descendant, startDelta: delta, startTime: timestamp, lastTime: timestamp,
+            duration: animation.duration, targetOffset: prepared.clampedOffset, scrollLimit: prepared.scrollLimit,
+            origin: .programmatic(animation.easing))
+        prepared.expectedPresentedDelta = delta
+        let recorded = recordPreparedPublicScrollEffects(prepared, within: bounds)
+        withExtendedLifetime((container, descendant)) {}
+        return recorded
+    }
+
+    @inline(never)
+    private func recordPreparedPublicScrollPhase(
+        _ phase: RetainedScrollPhase, prepared: PreparedPublicScroll, forActiveIndicator: Bool = false,
+        invalidatesPaint: Bool = false
+    ) -> Bool {
+        guard let node = forActiveIndicator ? prepared.activeIndicator : prepared.container,
+            let observerCount = UInt64(exactly: scrollObserverRegistry?.nodes.count ?? 0)
+        else { return false }
+        let changes = observerCount.addingReportingOverflow(invalidatesPaint ? 1 : 0)
+        guard !changes.overflow,
+            let bounds = reservePreparedPublicScrollEffects(prepared, geometry: 0, presentation: changes.partialValue)
+        else { return false }
+        // Source selection may reset history even for an unrelated source.
+        // Pin the values themselves, not just their observer objects.
+        var retiredValues: [Any] = []
+        if let registry = scrollObserverRegistry {
+            for reference in registry.nodes {
+                guard let owner = reference.node, owner.runtime === self,
+                    let storage = owner.scrollObserverStorage, !storage.phase.isEmpty
+                else { continue }
+                for observer in storage.geometry {
+                    if let value = observer.previousValue { retiredValues.append(value) }
+                }
+            }
+        }
+        recordScrollPhase(phase, for: node)
+        if invalidatesPaint { invalidate(.paint) }
+        let recorded = recordPreparedPublicScrollEffects(prepared, within: bounds)
+        withExtendedLifetime((node, retiredValues)) {}
+        // Any cleanup caused by retiring this frame runs before the caller
+        // checks the saved witness; it can never be recorded as our own work.
+        return recorded
+    }
+
+    @inline(never)
+    private func finishPreparedPublicScrollAlignment(_ prepared: PreparedPublicScroll) -> Bool {
+        guard prepared.phase == .committed, preparedPublicScrollIsCurrent(prepared),
+            let descendant = prepared.descendant, let target = prepared.target, let container = prepared.container
+        else { return false }
+        // This final queue stores only weak nodes, scalars, and native receipts.
+        // Do not enqueue it after a callback has superseded the accepted write.
+        pendingPreciseScrollAlignments.removeAll {
+            $0.container == nil || $0.target == nil || $0.container === container
+        }
+        if target !== descendant {
+            pendingPreciseScrollAlignments.append(
+                PendingPreciseScrollAlignment(
+                    target: descendant, coarseTarget: target, container: container, containerEpoch: prepared.epoch,
+                    anchorX: prepared.anchorX, anchorY: prepared.anchorY, expectedOffset: prepared.clampedOffset))
+        }
+        return true
+    }
+
+    private func performPreparedPublicScroll(
+        _ prepared: PreparedPublicScroll, animation: AnimationTransaction?, at timestamp: Double
+    ) -> Bool {
+        defer { prepared.phase = .finished }
+        guard prepared.phase == .prepared, preparedPublicScrollIsCurrent(prepared) else { return false }
+        prepared.phase = .cancelling
+        guard cancelPreparedPublicScrollMotion(prepared), preparedPublicScrollIsCurrent(prepared) else { return false }
+        if prepared.cancelsPointer {
+            guard clearPreparedPublicScrollPointer(prepared), preparedPublicScrollIsCurrent(prepared) else {
+                return false
+            }
+            deliverPreparedPublicScrollHoverExit(prepared)
+            guard preparedPublicScrollIsCurrent(prepared),
+                restorePreparedPublicScrollHoverChrome(prepared, at: timestamp), preparedPublicScrollIsCurrent(prepared)
+            else { return false }
+            if prepared.activeIndicator != nil {
+                guard recordPreparedPublicScrollPhase(.idle, prepared: prepared, forActiveIndicator: true),
+                    preparedPublicScrollIsCurrent(prepared),
+                    restorePreparedPublicScrollIndicatorChrome(prepared, at: timestamp),
+                    preparedPublicScrollIsCurrent(prepared)
+                else { return false }
+            }
+        }
+        prepared.phase = .readyToWrite
+        guard commitPreparedPublicScrollOffset(prepared), preparedPublicScrollIsCurrent(prepared) else { return false }
+        let delta = prepared.presentedOffset - prepared.clampedOffset
+        if let animation, animation.duration.isFinite, animation.duration > 0,
+            timestamp.isFinite, delta.isFinite, delta != 0
+        {
+            guard installPreparedPublicScrollTween(prepared, animation: animation, delta: delta, at: timestamp),
+                preparedPublicScrollIsCurrent(prepared),
+                recordPreparedPublicScrollPhase(.animating, prepared: prepared, invalidatesPaint: true),
+                preparedPublicScrollIsCurrent(prepared)
+            else { return false }
+        } else {
+            guard recordPreparedPublicScrollPhase(.idle, prepared: prepared), preparedPublicScrollIsCurrent(prepared)
+            else { return false }
+        }
+        // Failure after commit deliberately leaves the accepted offset and any
+        // newer callback-owned tween or interaction intact. There is no rollback.
+        return finishPreparedPublicScrollAlignment(prepared)
     }
 
     /// UIA owns a separate synchronous admission path. Public programmatic

@@ -3375,6 +3375,37 @@ node-count budgets in `PerformanceBudgetGateTests`.
 which is the only one of the two that can tell "skipped the descent" from
 "still walked every row".
 
+#### Public scrolling after an existing layout query
+
+A completed layout query can leave rendering dirty flags set. The transaction
+overload of public programmatic scrolling now has a separate path for that
+state: it requires the original query's still-current settlement before reading
+the authored clock. It does not run another query, render, clear dirty flags,
+or change the four-round and 128-element limits. Actual unresolved work still
+rejects the request. The original path for an entry without pending layout and
+the UIA/List admission paths remain unchanged.
+
+The prepared request fixes its physical ancestor paths, attachment proofs,
+axis, scroll intent, offsets, layout key, and settlement sequence. Callback
+boundaries must preserve that original proof. Native mutations reserve checked
+geometry/presentation revision bounds before applying effects and record their
+checkpoint while temporary node and history values remain alive. Continuation
+checks happen after those values are released. Clock reentry, detach/reattach,
+new queries, axis changes, and newer scrolls cannot supply replacement authority.
+
+Pointer cancellation and hover exit preserve newer interaction state. Phase
+selection pins the actual previous geometry values for every eligible owner,
+including unrelated owners whose history could be retired by the selection.
+If a later callback supersedes an already accepted offset, the older operation
+returns false without rolling back that write or clearing the newer request.
+Animation retargeting and precise alignment keep the original requested timing.
+
+`PublicScrollSettlementTests` adds 33 cases for these boundaries. At source
+integration, strict lint and contracts pass, but compilation, those executions,
+and the original `ListVirtualizationTests` pixel regression are pending. The
+separate keyboard regression is not repaired by this change; native animation,
+input timing, and complete accessibility qualification also remain open.
+
 ## Per-corner radii
 
 `ViewNode.cornerRadii` (`RetainedCornerRadii`, absolute TL/TR/BR/BL)

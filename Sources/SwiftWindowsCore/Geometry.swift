@@ -885,6 +885,21 @@ public struct Transform2D: Equatable, Sendable {
             rotation = 0
             skewX = 0
             skewY = 0
+            if m.a == 0, m.b == 0, m.c.isFinite, m.d.isFinite {
+                let columnScale = max(abs(m.c), abs(m.d))
+                if columnScale > 0 {
+                    let c = m.c / columnScale
+                    let d = m.d / columnScale
+                    let magnitude = columnScale * (c * c + d * d).squareRoot()
+                    if magnitude.isFinite {
+                        scaleY = m.d < 0 ? -magnitude : magnitude
+                        rotation =
+                            m.d < 0
+                            ? _atan2(m.c, -m.d)
+                            : _atan2(-m.c, m.d)
+                    }
+                }
+            }
             return
         }
 

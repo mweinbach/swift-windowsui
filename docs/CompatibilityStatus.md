@@ -151,6 +151,14 @@ Arc is a repository utility, not a native Arc declaration in the pinned macOS
 SwiftUI/SwiftUICore interfaces. Bordered or arbitrary view transforms and rotated
 legacy-frame parity remain separate from ordinary layout and display scaling.
 
+Transform decomposition now preserves a finite surviving second matrix column
+when the first column is exactly zero and its recovered norm is representable.
+This keeps `.scaleEffect(x: 0, y: 1)` from also collapsing the Y axis. Thirteen new
+literal matrix/point controls await execution; the original UIA visibility test
+is unchanged. The normal decomposition branch is unchanged. Nonzero first-column
+norm underflow, unrepresentable norms and parallel nonzero rank-one columns
+remain open, so this is not complete singular-transform support.
+
 Partial `Path.trimmedPath(from:to:)` and retained `Shape.trim(from:to:)` now have
 distance-based geometry implementations. Retained partial shapes measure their
 resolved inner paint size before normalizing the result for presentation; empty

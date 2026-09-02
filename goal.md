@@ -16007,3 +16007,54 @@ This is diagnostic instrumentation, not a restored-button fix, a zero-overhead
 claim or passing runtime evidence. Fresh compilation and the three new focused
 diagnostic methods are next. Every earlier failure and timeout remains recorded.
 **All nine original completion gates remain open.**
+
+### Ninth batch: three diagnostic methods executed on cb6056e
+
+The fixed three-method selection compiled and actually ran: **0 passed, 3
+failed, 0 skipped**, with seven assertion failures. The build completed in
+346.42 seconds and the selected tests in 12.930 seconds. The execution tool
+closed with code 1; the child exited 1 after 365.219 seconds including the
+runner's wait. There was no timeout, termination, cleanup-required flag or
+source/index change. This records diagnostic results, not a green test gate.
+
+The restored-button request was bound once, not replaced and not unmanaged.
+Its original attempt entered and returned; composition returned, but node
+construction did not. Descriptor registration and reconciliation were never
+reached. The unchanged entry diagnostic again showed generation 1 entering the
+content closure while the root remained empty. The original restored-projection
+unwrap failed. These observations locate the refusal at the existing
+post-composition `candidateCanAdopt` guard. They do not distinguish the guard's
+individual inputs or by themselves prove that a revoked owner was reused.
+
+Both cancelled-list cases recorded the same four-phase pattern. At callback
+entry, immediately after target release, and inside the existing completion
+observer, the original owner and binding permission were still present. The
+original source remained attached to its parent and runtime with physical
+continuation permitted. At resolver return the physical source still existed,
+but its owner was a different non-nil declaration and the original receipt no
+longer permitted binding writes. Physical continuation remained valid. Between
+the observer and return, total recorded factories advanced from 2 to 8, source
+row-zero factories from 0 to 1, and resolution sequence from 2 to 3.
+
+The already accepted two roots were specifically one gap/separator root and
+one owned leaf at row 899, leaf ordinal 0. Thus the old raw-count assertion
+mistook the complete gap-plus-row record for a list of eligible leaves. The
+other two failures per case were the old final binding-write and same-owner
+expectations. All existing assertions about the exact cleanup observer,
+unresolved target readiness and the unchanged budget still passed. Correcting
+these test assumptions requires preserving their original boundary guarantees;
+it does not justify reviving the old declaration or changing production to
+keep it writable after a later rebuild. A finite test-only correction is being
+reviewed separately; the original failing sources remain unchanged here.
+
+The complete run is
+`artifacts/cleanup-construction3-cb6056e-52e6b455772242839c9afdafe11a203f`.
+Its raw log is 4,678,328 bytes, SHA256
+`7a4dd50c7328a0adfaf24f3ba4e523a34e360d5086fdb8233f80ea90d342d7c1`.
+Root independently reconciled all three starts and terminal outcomes and the
+full source/index endpoints in
+`artifacts/goal-ninth-cleanup-construction3-cb6056e-reconciled-v1.json`.
+A fresh census after actual tool closure found no matching Swift/native workers
+or the actual direct child, PID 17456. This is a point observation, not owned
+Job or continuous descendant-closure evidence. All prior timeout records remain
+intact. **All nine original completion gates remain open.**

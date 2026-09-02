@@ -15367,3 +15367,86 @@ now all async; its companion publication/removal cohort still contains 108.
 Neither the discovery correction nor the preserved 196-method union has fresh
 execution results yet. No test or completion requirement was removed.
 **All nine original completion gates remain open.**
+
+
+### 2026-09-02: first executable validation after discovery repair
+
+The committed `f419123` source compiled and completed XCTest discovery. The
+nineteen diagnostic-writer prerequisites passed. The fixed native-measurement
+77 and the complete manually audited acquisition 33 also passed; the latter
+includes both same-file extension methods. These are unit results, not a
+successful native application or display measurement.
+
+Eight completed focused runs and one separately recorded aborted run selected
+534 distinct methods: 435 started, 434 produced terminal results (426 passed,
+eight failed, none skipped), one was interrupted by Swift's exclusivity trap,
+and 99 did not run after that abort. The unchanged publication/removal 108
+accounts for the interrupted method and all 99 unrun methods. The completed
+mounted-lifetime 88 had 87 passes and the E2 terminal-cancellation failure.
+Keyboard 50 had 48 passes and two original far-row failures; a separate original
+phase test also failed. Its actual four settlement rounds and two inserted
+elements still left the original demand pending. The new seven protected-root
+tests passed, which does not establish the original row-900 behavior.
+
+The complete accessibility selection retained all 158 methods, split as 126
+fixed-parser methods and the manually audited modal 32. It completed with 154
+passes and four failures: the shared implicit-default rejection matrix, the
+two original rejected-candidate graphical-calendar cases, and the corresponding
+MultiDatePicker mounted month-retention case. The latter reached farther than
+its earlier invocation refusal but still reported the wrong month. All nine
+new implicit-default tests ran; eight passed, including the virtual modal
+ancestor regression. The shared helper's failing unwrap does not identify
+which rejection case or lookup phase failed, so a production cause is not
+asserted from that line alone.
+
+One ordinary native application attempt used the actual successfully linked
+executable and runtime dependencies at this same commit. It reached its
+unchanged thirty-second limit, its retained direct child was terminated, and
+it produced neither a journal nor a diagnostics report or raw app output.
+The later point census was empty, but the original cleanup-required flag is
+preserved and no second native launch is authorized by this result. Existing
+110 unit passes do not convert this failed acquisition into native evidence.
+End-of-run files alone cannot locate the failed startup/retirement interval
+or establish that no native presentation occurred.
+
+The separately instrumented original dashboard 11 retained its unchanged
+900-second limit. Its controller timed out and closed its retained direct
+PowerShell child; the first post-closure census still observed five subprocesses.
+The controller's saved 8,300-byte prefix contains 98 records, five case/body
+entries, four case-exit callbacks, and no unreturned fixture phases. In
+particular, the initial full-dashboard components, both initial renders, and
+initializer-return markers had appeared. No XCTest outcome was available in
+the 253-byte raw prefix; all eleven outcomes remain unverified at that cutoff.
+The source interval after that initializer includes control lookup, focus,
+key-dispatch layout, and a possible synchronous observation-driven rebuild.
+The trace and process CPU observations do not choose among those paths.
+
+At 17:39:23 UTC, while those original subprocesses were still live, a separate
+late trace prefix contained 221 records, eight case/body entries and seven
+case-exit callbacks. Its first 8,300 bytes exactly matched the controller's
+original cutoff. The fifth whole-dashboard case had returned; the eighth
+keyboard-refresh case had reached its initializer-return marker. The raw
+output still contained no XCTest outcomes. This is later diagnostic progress,
+not completion within the original deadline, continuous writer attestation,
+or evidence that any case passed. The late prefix and its receipt are retained
+separately in `artifacts/goal-ninth-ui11-f419123-late-prefix-v1`.
+
+At 17:54:41 UTC, a fresh census found all six known original process IDs absent
+and no Swift, compiler, formatter or native validation process. No termination
+was performed. The later trace was preserved at 26,805 bytes and 330 records,
+including all eleven callback/body entries and callback exits, followed by
+observer removal. The raw output was still only 253 bytes with no XCTest
+outcomes. All eleven test results therefore remain unverified; the original
+900-second timeout, exit 124 and cleanup-required flag were not rewritten.
+The separate closure receipt permits root edits and serial validation to
+resume without claiming continuous descendant attestation or a timely pass.
+
+The shared checkout was kept frozen until that separate closure observation;
+fresh architecture contracts then passed before integration resumed. Private
+source reviews and isolated candidate edits do not qualify those candidates
+as integrated or tested. The final late snapshot is retained separately at
+`artifacts/goal-ninth-ui11-f419123-natural-close-prefix-v1`, and the fresh
+closure census at `artifacts/goal-ninth-ui11-f419123-natural-closure-v1.json`.
+These focused results do not replace the full suite,
+retained visual comparisons, native interaction, hardware, or release checks.
+**All nine original completion gates remain open.**

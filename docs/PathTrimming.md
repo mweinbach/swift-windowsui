@@ -48,12 +48,17 @@ The exact full-range route remains unchanged. Existing retained arc flattening
 is still an approximation and is not a general arc rendering fix.
 
 There are 26 new analytic portable tests and 12 retained geometry/pixel tests.
-The latter cover wide/tall dimensions, Bézier controls, empty and partial fills,
-layout/reconciliation callback counts, live border width, resizing, passive
-erasure, origin placement, display scales and rejection. At this source checkpoint
-they are **not yet compiled or executed**. Formatting and architecture contracts
-passed; all 651 previously tracked test files are unchanged. Fresh test results
-and retained gallery evidence belong in the append-only [goal ledger](../goal.md).
+At `7db6b98`, fresh execution passed 25 of the 26 portable tests and all 12
+retained tests. The retraced quadratic still rejects with `workLimit`; a source
+review attributes this to subdivision error allowances during prefix inversion,
+and a repair remains pending. The retained cases cover wide/tall dimensions,
+Bézier controls, empty and partial fills, layout/reconciliation callback counts,
+live border width, resizing, passive erasure, origin placement, display scales
+and rejection. The related 80-case shape/selection cohort passed 78 and failed
+two, with no skips; its other failure is an older Arc test's stored-coordinate
+expectation. Neither that expectation correction nor retained gallery evidence
+has been validated yet. Exact source, raw logs and outcomes are recorded in the
+append-only [goal ledger](../goal.md).
 
 Bounds-dependent custom shapes, literal and nested retained geometry, inset and
 `strokeBorder` composition, hit/clip semantics, animated fractions, arbitrary

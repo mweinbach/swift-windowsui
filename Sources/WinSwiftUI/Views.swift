@@ -3096,14 +3096,19 @@ public struct TrimmedShape<Content: Shape>: Shape, RetainedClipShape, RetainedCo
     }
 
     public func path(in rect: Rect) -> Path {
-        content.path(in: rect)
+        content.path(in: rect).trimmedPath(from: Double(startFraction), to: Double(endFraction))
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let paint = ResolvedShapePaint(
             fillStyle: fillStyle, fillRuleStyle: fillRuleStyle, strokeStyle: strokeStyle,
             lineWidth: lineWidth, strokeLineStyle: strokeLineStyle, foregroundStyle: context.foregroundStyle)
-        let unitPath = self.path(in: Rect(x: 0, y: 0, width: 1, height: 1))
+        // Authored geometry runs only during construction. Layout callbacks
+        // below retain value geometry, not Content or a temporary paint owner.
+        let unitPath = content.path(in: Rect(x: 0, y: 0, width: 1, height: 1))
+        let trimStart = Double(startFraction)
+        let trimEnd = Double(endFraction)
+        let fullRange = trimStart == 0 && trimEnd == 1
         return Component { _ in
             let node = Controls.panel(
                 backgroundColor: .clear,
@@ -3111,6 +3116,12 @@ public struct TrimmedShape<Content: Shape>: Shape, RetainedClipShape, RetainedCo
             )
             node.layoutFillAxes = .both
             paint.apply(to: ShapePaintOwner(node: node))
+            if !fullRange {
+                node.backgroundPath = RenderPath()
+                guard trimStart.isFinite, trimEnd.isFinite, trimStart >= 0, trimEnd <= 1,
+                    trimStart <= trimEnd, unitPath.elements.count <= 65_536
+                else { return node }
+            }
             var segments: [RenderPath.Segment] = []
             for element in unitPath.elements {
                 switch element {
@@ -3120,7 +3131,18 @@ public struct TrimmedShape<Content: Shape>: Shape, RetainedClipShape, RetainedCo
                 case .cubicCurveTo(let c1, let c2, let e):
                     segments.append(.cubicCurveTo(control1: c1, control2: c2, end: e))
                 case .arc(let center, let radius, let startAngle, let endAngle, _):
-                    let steps = max(4, Int(ceil(abs(endAngle - startAngle) * radius * 0.5)))
+                    let requestedSteps = ceil(abs(endAngle - startAngle) * radius * 0.5)
+                    if !fullRange {
+                        // Preserve this producer's existing line representation
+                        // of arcs without permitting unbounded partial input.
+                        // This does not claim accurate retained arc conversion.
+                        guard center.x.isFinite, center.y.isFinite, radius.isFinite, radius >= 0,
+                            startAngle.isFinite, endAngle.isFinite, requestedSteps.isFinite,
+                            requestedSteps >= 0, requestedSteps <= 4_096,
+                            segments.count + max(4, Int(requestedSteps)) <= 65_536
+                        else { return node }
+                    }
+                    let steps = max(4, Int(requestedSteps))
                     let step = (endAngle - startAngle) / Double(steps)
                     for i in 1...steps {
                         let a = startAngle + step * Double(i)
@@ -3129,9 +3151,64 @@ public struct TrimmedShape<Content: Shape>: Shape, RetainedClipShape, RetainedCo
                     }
                 case .close: segments.append(.close)
                 }
+                if !fullRange, segments.count > 65_536 { return node }
             }
-            node.backgroundPath = RenderPath(segments: segments)
+            let untrimmed = RenderPath(segments: segments)
+            if fullRange {
+                node.backgroundPath = untrimmed
+                return node
+            }
+            node.onLayoutWithNode = { node, bounds in
+                let inset = node.borderWidth > 0 ? node.borderWidth : 0
+                let width = bounds.size.width - 2 * inset
+                let height = bounds.size.height - 2 * inset
+                guard width.isFinite, height.isFinite, width > 0, height > 0,
+                    (1 / width).isFinite, (1 / height).isFinite
+                else {
+                    node.backgroundPath = RenderPath()
+                    return
+                }
+                // Fractions measure the real paint path, not the perimeter in
+                // the unit rectangle. ScenePainter applies the origin once.
+                let scaled = untrimmed.scaled(to: Rect(x: 0, y: 0, width: width, height: height))
+                let trimmed = Self.coreTrimPath(scaled).trimmedPath(from: trimStart, to: trimEnd)
+                let normalized = RenderPath(path: trimmed).scaled(
+                    to: Rect(x: 0, y: 0, width: 1 / width, height: 1 / height))
+                node.backgroundPath = Self.isFiniteTrimPath(normalized) ? normalized : RenderPath()
+            }
             return node
+        }
+    }
+
+    private static func coreTrimPath(_ path: RenderPath) -> Path {
+        Path(
+            elements: path.segments.map { segment in
+                switch segment {
+                case .moveTo(let point): return .moveTo(point)
+                case .lineTo(let point): return .lineTo(point)
+                case .quadCurveTo(let control, let end): return .quadraticCurveTo(control: control, end: end)
+                case .cubicCurveTo(let first, let second, let end):
+                    return .cubicCurveTo(control1: first, control2: second, end: end)
+                case .arc(let center, let radius, let startAngle, let endAngle, let clockwise):
+                    return .arc(
+                        center: center, radius: radius, startAngle: startAngle, endAngle: endAngle, clockwise: clockwise
+                    )
+                case .close: return .close
+                }
+            })
+    }
+
+    private static func isFiniteTrimPath(_ path: RenderPath) -> Bool {
+        func finite(_ point: Point) -> Bool { point.x.isFinite && point.y.isFinite }
+        return path.segments.allSatisfy { segment in
+            switch segment {
+            case .moveTo(let point), .lineTo(let point): return finite(point)
+            case .quadCurveTo(let control, let end): return finite(control) && finite(end)
+            case .cubicCurveTo(let first, let second, let end): return finite(first) && finite(second) && finite(end)
+            case .arc(let center, let radius, let startAngle, let endAngle, _):
+                return finite(center) && radius.isFinite && startAngle.isFinite && endAngle.isFinite
+            case .close: return true
+            }
         }
     }
 

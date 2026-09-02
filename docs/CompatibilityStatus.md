@@ -151,7 +151,13 @@ Arc is a repository utility, not a native Arc declaration in the pinned macOS
 SwiftUI/SwiftUICore interfaces. Bordered or arbitrary view transforms and rotated
 legacy-frame parity remain separate from ordinary layout and display scaling.
 
-Partial trim fractions and trim-inset geometry are still unimplemented.
+Partial `Path.trimmedPath(from:to:)` and retained `Shape.trim(from:to:)` now have
+distance-based geometry implementations. Retained partial shapes measure their
+resolved inner paint size before normalizing the result for presentation; empty
+or rejected selections remain empty paths. The new focused tests have not yet
+run at this source checkpoint. Bounds-dependent custom shapes, nested/inset
+shape composition, trim hit/clip behavior, animated fractions and native parity
+remain unqualified; see [path trimming](PathTrimming.md).
 Inset's existing `.inset(by:)` reconstruction can discard stored styling.
 General path clipping, arbitrary custom component paint ownership, shape-path
 gradient fidelity, dashes, antialiasing and native rendering parity remain separate.

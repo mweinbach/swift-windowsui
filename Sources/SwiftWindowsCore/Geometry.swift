@@ -1174,7 +1174,7 @@ public struct Path: Equatable, Sendable {
     }
 
     public func trimmedPath(from: Double, to: Double) -> Path {
-        self
+        PathTrimming.trim(self, from: from, to: to)
     }
 
     public func strokedPath(_ style: StrokeStyle) -> Path {

@@ -12970,3 +12970,68 @@ distinguish earlier focused compilation from still-failing runtime behavior.
 The nine new tests and the original 78 builder tests must run on this follow-up;
 no tag result, other builder-state repair, native conformance, or goal completion
 is claimed. All nine original gates remain open.
+
+
+### Ninth integration: distance-based partial trimming source checkpoint
+
+This checkpoint adds implementations for portable partial path trimming and the
+ordinary retained partial-shape route. It preserves every preceding goal byte
+and leaves all nine original acceptance gates open. The implementation is a
+bounded advance toward the existing shape requirement, not a reduced completion
+criterion. Compilation, the new tests, retained visual inspection and native
+parity are still pending at this checkpoint.
+
+Portable trimming measures total drawn length across lines, quadratic/cubic
+curves, circular arcs and closing edges. Moves do not contribute length or join
+separate contours. Partial contours remain open, selected whole closed contours
+retain their close command, exact `[0,1]` preserves the original raw elements,
+and equal valid fractions are empty. Other selections require ordered finite
+fractions in `0...1`. Malformed geometry, lost/nonfinite arithmetic or finite
+work exhaustion rejects the entire selection through a typed internal failure;
+the public nonthrowing operation returns an empty path, never the original or a
+partial accepted prefix. Adaptive subdivision and prefix-length inversion handle
+nonuniform-speed collinear curves. Path-length and local endpoint tolerances are
+separate and are approximation policies, not universal accuracy guarantees.
+The implementation admits at most 65,536 input elements, 131,072 derived
+segments, 1,048,576 work steps, depth24 and 56 inverse iterations; arc angles and
+sweeps are bounded by `8192*pi`.
+
+The separately reviewed arc boundary correction retains one requested-direction
+turn when a nonzero opposed sweep has an exact whole-turn remainder. Equal
+original angles remain zero and aligned multiple turns retain their admitted
+length. Apple's single clockwise full-turn example supports that one case;
+symmetric/multiple-turn policies are not native execution evidence. Existing
+raw drawing/containment consumers still disagree on some arc boundaries, and
+full-range identity deliberately does not rewrite them. An arc following close
+starts a new contour; general line/curve continuation after close remains outside
+partial admission.
+
+Retained partial shapes capture only value geometry/fractions, scale the original
+unit path to the live border-inset paint size before measuring, and normalize the
+trimmed result for a single final placement. Authored path construction does not
+run again during layout. Paint metadata/passive erasure remain intact and a
+collapsed or rejected selection stores an explicit empty RenderPath to prevent
+rectangle fallback. This does not qualify bounds-dependent custom shapes,
+literal/nested/inset composition, exact strokeBorder, hit/clip behavior, animated
+fractions, arbitrary transforms, gradient/dash/antialiasing fidelity or native
+parity. [PathTrimming.md](docs/PathTrimming.md) records these contracts and limits.
+
+Root composed the previously reviewed trim and arc packets, then checked the
+entire source diff against their combined private tree. The first strict lint
+reported formatting issues; the toolchain formatter subsequently changed only
+outside-literal whitespace, one import ordering and eleven optional collection
+trailing commas. The independent formatting proof also verifies that Views
+outside TrimmedShape, including the earlier List tag repair, is unchanged.
+Strict lint on all five changed Swift files and architecture contracts then
+passed. `artifacts/goal-ninth-trim3f48-root-format-proof-v2/proof.json` and
+`artifacts/goal-ninth-trim3f48-root-formatted-staged-proof-v1.json` bind the
+reviewed source, formatting delta, staged tree and unchanged 651 old test files.
+The complete formatted source patch is 77,372 bytes, SHA256
+`c10b7e3ef632f45d0888993e96a11bc4b75916419061ecf15f251b4c2e55a1b5`.
+
+There are 38 new methods: 26 portable analytic controls and 12 retained
+geometry/pixel controls. All require fresh execution. The planned focused shape
+selection also preserves the 16 ShapePaintProducer, 10 ShapeFillRule and seven
+RetainedLazyListShapeCallback cases: 71 shape cases total. The nine new List tag
+cases are an additional separate selection, not shape coverage. No fresh full
+suite, gallery, hardware presentation or native-platform result is claimed.

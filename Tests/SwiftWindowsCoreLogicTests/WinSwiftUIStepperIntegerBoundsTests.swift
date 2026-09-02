@@ -215,9 +215,10 @@ final class WinSwiftUIStepperIntegerBoundsTests: XCTestCase {
         let fixture = StepperIntegerFixture(value: UInt8(254), bounds: 0...255, step: 2)
         fixture.layout()
         let increment = try fixture.button(.increment)
-        XCTAssertGreaterThan(increment.frame.size.width, 0)
-        XCTAssertGreaterThan(increment.frame.size.height, 0)
-        let point = fixture.center(of: increment)
+        let incrementFrame = try XCTUnwrap(fixture.runtime.resolvedLayoutFrame(of: increment))
+        XCTAssertGreaterThan(incrementFrame.size.width, 0)
+        XCTAssertGreaterThan(incrementFrame.size.height, 0)
+        let point = Point(x: incrementFrame.midX, y: incrementFrame.midY)
         fixture.runtime.pointerDown(at: point)
         fixture.runtime.pointerUp(at: point)
         fixture.assertChange(from: 254, to: 255)
@@ -380,17 +381,6 @@ private final class StepperIntegerFixture<Value: Strideable & Comparable> where 
 
     func layout() {
         _ = runtime.renderScene(at: 0)
-    }
-
-    func center(of node: ViewNode) -> Point {
-        var point = Point(x: node.frame.size.width / 2, y: node.frame.size.height / 2)
-        var current: ViewNode? = node
-        while let ancestor = current {
-            point.x += ancestor.frame.origin.x
-            point.y += ancestor.frame.origin.y
-            current = ancestor.parent
-        }
-        return point
     }
 
     private func record(_ event: String) {

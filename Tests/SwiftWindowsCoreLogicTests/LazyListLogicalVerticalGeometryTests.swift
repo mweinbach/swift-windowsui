@@ -56,7 +56,7 @@ final class LazyListLogicalVerticalGeometryTests: XCTestCase {
         XCTAssertTrue(probe.activations.isEmpty)
         let snapshot = try XCTUnwrap(source.uiaElementSnapshots().first { $0.id == id })
         XCTAssertEqual(snapshot.name, "Row 300")
-        XCTAssertFalse(snapshot.isOffscreen)
+        XCTAssertFalse(try XCTUnwrap(snapshot.isOffscreen))
         XCTAssertGreaterThan(snapshot.bounds.height, 0)
         XCTAssertLessThan(snapshot.bounds.minY, 80)
         XCTAssertGreaterThan(snapshot.bounds.maxY, 0)
@@ -132,7 +132,7 @@ final class LazyListLogicalVerticalGeometryTests: XCTestCase {
         XCTAssertEqual(fixture.probe.activations, [40_000])
         let source = RuntimeUIAElementTreeSource(runtime: fixture.runtime)
         let snapshot = try XCTUnwrap(source.uiaElementSnapshots().first { $0.automationID == "logical.vertical.40000" })
-        XCTAssertFalse(snapshot.isOffscreen)
+        XCTAssertFalse(try XCTUnwrap(snapshot.isOffscreen))
         XCTAssertTrue(snapshot.bounds.contains(point))
         XCTAssertTrue(source.uiaInvokeDefaultAction(elementID: snapshot.id))
         XCTAssertEqual(fixture.probe.activations, [40_000, 40_000])
@@ -244,7 +244,10 @@ final class LazyListLogicalVerticalGeometryTests: XCTestCase {
             // The same originally attached native List remains below the
             // carrier. Its malformed natural vertical arithmetic cannot be
             // repaired into a successful measured settlement by a size floor.
-            wrapper.layoutMode = .stack(.vertical(spacing: 0, padding: EdgeInsets(top: value), alignment: .stretch))
+            wrapper.layoutMode = .stack(
+                .vertical(
+                    spacing: 0, padding: EdgeInsets(top: value, leading: 0, bottom: 0, trailing: 0),
+                    alignment: .stretch))
             try assertRejectedGeometry(fixture, witness: witness)
         }
     }
@@ -258,7 +261,9 @@ final class LazyListLogicalVerticalGeometryTests: XCTestCase {
         XCTAssertTrue(finite.isFinite)
         XCTAssertFalse((finite + finite).isFinite)
         wrapper.layoutMode = .stack(
-            .vertical(spacing: 0, padding: EdgeInsets(top: finite, bottom: finite), alignment: .stretch))
+            .vertical(
+                spacing: 0, padding: EdgeInsets(top: finite, leading: 0, bottom: finite, trailing: 0),
+                alignment: .stretch))
         try assertRejectedGeometry(fixture, witness: witness)
     }
 
@@ -277,7 +282,8 @@ final class LazyListLogicalVerticalGeometryTests: XCTestCase {
         defer { fixture.close() }
         let witness = try fixture.target(40_000)
         let wrapper = try XCTUnwrap(fixture.wrappers.first)
-        wrapper.layoutMode = .stack(.vertical(padding: EdgeInsets(top: .nan), alignment: .stretch))
+        wrapper.layoutMode = .stack(
+            .vertical(padding: EdgeInsets(top: .nan, leading: 0, bottom: 0, trailing: 0), alignment: .stretch))
         try assertRejectedGeometry(fixture, witness: witness)
 
         // Rendering clears dirty flags. A later otherwise-clean query must
@@ -313,7 +319,9 @@ final class LazyListLogicalVerticalGeometryTests: XCTestCase {
         let fixture = try LogicalVerticalFixture(estimatedExtent: estimated, warm: false)
         defer { fixture.close() }
         fixture.scroll.layoutMode = .stack(
-            .vertical(spacing: 0, padding: EdgeInsets(top: padding), alignment: .stretch))
+            .vertical(
+                spacing: 0, padding: EdgeInsets(top: padding, leading: 0, bottom: 0, trailing: 0),
+                alignment: .stretch))
         fixture.runtime.recordsLazyListUIAPhasesForTesting = true
 
         for _ in 0..<2 {
@@ -339,7 +347,8 @@ final class LazyListLogicalVerticalGeometryTests: XCTestCase {
         defer { fixture.close() }
         let ordinary = try XCTUnwrap(fixture.otherScroll)
         ordinary.layoutMode = .stack(
-            .vertical(padding: EdgeInsets(top: .infinity, leading: .nan), alignment: .stretch))
+            .vertical(
+                padding: EdgeInsets(top: .infinity, leading: .nan, bottom: 0, trailing: 0), alignment: .stretch))
         var values: [RetainedScrollGeometry] = []
         ordinary.observeScrollGeometry(of: { $0 }, action: { _, value in values.append(value) })
         _ = fixture.runtime.renderFrame()
@@ -385,7 +394,9 @@ final class LazyListLogicalVerticalGeometryTests: XCTestCase {
         let wrapper = try XCTUnwrap(fixture.wrappers.first)
         wrapper.preferredSize = Size(width: 120, height: 80)
         wrapper.layoutMode = .stack(
-            .vertical(spacing: 0, padding: EdgeInsets(top: padding), alignment: .stretch))
+            .vertical(
+                spacing: 0, padding: EdgeInsets(top: padding, leading: 0, bottom: 0, trailing: 0),
+                alignment: .stretch))
 
         XCTAssertNotNil(fixture.runtime.resolvedLayoutFrame(of: fixture.scroll))
 
@@ -604,7 +615,9 @@ final class LazyListLogicalVerticalGeometryTests: XCTestCase {
             }
         case .stackPadding:
             fixture.scroll.layoutMode = .stack(
-                .vertical(spacing: 0, padding: EdgeInsets(top: huge, bottom: -huge), alignment: .stretch))
+                .vertical(
+                    spacing: 0, padding: EdgeInsets(top: huge, leading: 0, bottom: -huge, trailing: 0),
+                    alignment: .stretch))
             outer.preferredSize = Size(width: 120, height: huge)
             XCTAssertEqual(huge + -huge, 0, file: file, line: line)
             XCTAssertTrue((80 - huge).isFinite, file: file, line: line)

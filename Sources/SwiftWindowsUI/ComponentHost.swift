@@ -184,6 +184,17 @@ final class RetainedLazyListAdoptionCompletion {
 /// Returned flags describe the named synchronous frame, not later cleanup.
 @MainActor
 final class ComponentHostConstructionDiagnostic {
+    /// The first refusing predicate at the post-composition check only.
+    /// A passed check is not adoption or later completion.
+    enum PostCompositionCheck: String {
+        case notReached
+        case epochRefused
+        case requestRefused
+        case sequenceRefused
+        case checkPassed
+    }
+
+    fileprivate(set) var postCompositionCheck = PostCompositionCheck.notReached
     fileprivate(set) var requestBound = false
     fileprivate(set) var replacedBeforeRequest = false
     fileprivate(set) var unmanagedRequest = false
@@ -537,10 +548,22 @@ public final class ComponentHost {
     }
 
     private func candidateCanAdopt(
-        epoch: (any RetainedBuildEpoch)?, sequence: UInt64?, validity: (any RetainedBuildRequest)?
+        epoch: (any RetainedBuildEpoch)?, sequence: UInt64?, validity: (any RetainedBuildRequest)?,
+        diagnostic: ComponentHostConstructionDiagnostic? = nil
     ) -> Bool {
-        guard epoch?.canAdopt != false, validity?.isCurrent != false else { return false }
-        if let sequence, runtime.retainedBuildCoordinator.wasSuperseded(since: sequence) { return false }
+        guard epoch?.canAdopt != false else {
+            diagnostic?.postCompositionCheck = .epochRefused
+            return false
+        }
+        guard validity?.isCurrent != false else {
+            diagnostic?.postCompositionCheck = .requestRefused
+            return false
+        }
+        if let sequence, runtime.retainedBuildCoordinator.wasSuperseded(since: sequence) {
+            diagnostic?.postCompositionCheck = .sequenceRefused
+            return false
+        }
+        diagnostic?.postCompositionCheck = .checkPassed
         return true
     }
 
@@ -596,7 +619,10 @@ public final class ComponentHost {
         constructionDiagnostic?.compositionReturned = true
         let composeEndedAt = isProfiling ? PlatformClock.now() : 0
         if isProfiling { lastComposeSeconds = composeEndedAt - reloadStartedAt }
-        guard candidateCanAdopt(epoch: epoch, sequence: sequence, validity: validity) else { return false }
+        guard
+            candidateCanAdopt(
+                epoch: epoch, sequence: sequence, validity: validity, diagnostic: constructionDiagnostic)
+        else { return false }
         let nodesSpan = trace?.record("nodes.enter", host: UInt(bitPattern: ObjectIdentifier(self)))
         let newNodes = components.map { $0.makeNode(runtime: runtime) }
         trace?.record("nodes.returned", span: nodesSpan, host: UInt(bitPattern: ObjectIdentifier(self)))

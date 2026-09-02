@@ -74,6 +74,7 @@ final class AccessibilityImplicitDefaultConstructionDiagnosticsTests: XCTestCase
                 + " attemptEntered=\(constructionDiagnostic.attemptEntered)"
                 + " attemptReturned=\(constructionDiagnostic.attemptReturned)"
                 + " compositionReturned=\(constructionDiagnostic.compositionReturned)"
+                + " postCompositionCheck=\(constructionDiagnostic.postCompositionCheck.rawValue)"
                 + " nodesReturned=\(constructionDiagnostic.nodesReturned)"
                 + " newNodeCount=\(constructionDiagnostic.newNodeCount)"
                 + " descriptorsReturned=\(constructionDiagnostic.descriptorRegistrationReturned)"

@@ -16179,3 +16179,25 @@ The corrected five methods still require fresh execution. Earlier failing
 sources and results remain recorded, and this correction does not revive a
 revoked declaration or itself fix the restored-button or keyboard defects.
 **All nine original completion gates remain open.**
+
+### Ninth batch: distinguish the restored-button post-composition refusal
+
+The preceding diagnostic located the restored-button refusal after composition
+but before nodes were returned. The existing candidate-adoption guard now records
+which of its three original checks first refuses that original attempt: epoch,
+request, or sequence. It can also distinguish a guard that was never reached
+from one that passed. Only the diagnostic post-composition call supplies this
+optional destination; ordinary callers still use the unchanged nil path.
+The predicates are evaluated once in their original order. No admission check,
+owner identity, request replacement or state-revival behavior changed.
+
+The existing diagnostic test adds one bounded output field and retains its
+original method, actions and assertions. Root and an independent reviewer read
+the full change. Root verified the three production replacements and one test
+replacement in both directions; the full staged inverse restores `1010963`.
+Formatting and architecture checks passed in
+`artifacts/goal-ninth-implicit-postcompose-reason-lint-contracts-v1.log`.
+The source packet is `artifacts/goal-ninth-implicit-postcompose-reason-intake-v1`.
+Fresh execution is still needed to identify the actual refused input. This is
+diagnostic work, not a restored-button fix or passing runtime evidence.
+**All nine original completion gates remain open.**

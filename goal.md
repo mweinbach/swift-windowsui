@@ -14236,3 +14236,30 @@ complete/partial receipts, `goal-ninth-clip-c06-application-error-8475-v1.json`,
 reviewed baselines. All nine original completion gates remain open, including
 full current-source validation, native display timing, macOS behavior, and
 release qualification.
+
+
+### Ninth integration: one environment sample per admitted read (2026-09-02)
+
+The next repair changes `ViewBuildContext.environmentValues` to combine the
+already sampled environment's enabled flag with `isEnabledProvider()` directly.
+Calling the public `isEnabled` getter here sampled the environment provider a
+second time and could combine two different snapshots. The existing outer
+short-circuit, dynamic-type clamp and conditional tint lookup remain unchanged;
+the standalone `isEnabled` getter retains its original behavior. Composed
+providers may still read their parents, so this is not a global once-only rule.
+
+The two failing `NativeListInvocationContextTests` from the earlier Core320
+run remain pending until rerun. Nine new regressions cover live reads, provider
+order and short-circuiting, mutation during sampling, inherited disablement,
+file/dialog copies and construction-owner lifetime. The one existing
+`OwnedRootViewContentTests` expectation changes from two reads to one, with its
+comment updated to describe this intentional contract; its other assertions
+and the other 692 existing test entries and raw bytes are preserved.
+
+Root applied the independently reviewed source patch after commit `0f34de3`.
+`artifacts/goal-ninth-environment-apply-v1.json` records the exact three source
+paths, nine methods and complete inverse back to the preceding tree. Fresh
+pre-edit contracts and strict lint of all three changed Swift files, including
+post-edit contracts, passed. The fresh complete seven-class, 75-method run is
+still unrun; no compiled, runtime, full-suite or native pass is claimed by this
+commit. The original nine completion gates remain open.

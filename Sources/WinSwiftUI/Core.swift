@@ -9170,7 +9170,7 @@ public struct ViewBuildContext {
 
     public var environmentValues: EnvironmentValues {
         var values = environmentValuesProvider()
-        values.isEnabled = values.isEnabled && isEnabled
+        values.isEnabled = values.isEnabled && isEnabledProvider()
         values.dynamicTypeSize = values.effectiveDynamicTypeSize
         if values.tint == nil {
             values.tint = tintProvider()

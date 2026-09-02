@@ -303,9 +303,9 @@ final class OwnedRootViewContentTests: XCTestCase {
             _ = evaluateRootViewContent(in: inner, while: { current }) { callbacks += 1 }
         }
         XCTAssertEqual(callbacks, 1)
-        // Reading environmentValues also resolves isEnabled from the same
-        // provider. The context copy and rejected second entry read neither.
-        XCTAssertEqual(environmentReads, 2)
+        // The admitted environment access takes one snapshot from the provider.
+        // The context copy and rejected second entry do not read it.
+        XCTAssertEqual(environmentReads, 1)
         XCTAssertNil(ViewBuildContextScope.current)
     }
 

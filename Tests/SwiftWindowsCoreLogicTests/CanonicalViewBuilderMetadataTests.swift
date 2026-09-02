@@ -418,6 +418,13 @@ final class CanonicalViewBuilderMetadataTests: XCTestCase {
         XCTAssertEqual(capture.elementCalls, 0)
         let fixture = try CanonicalMetadataStateWindow(content)
         defer { fixture.close() }
+        // Presenter setup can replace deferred List metadata before selecting a row.
+        // Compare subsequent work from the settled initial mount.
+        let initialElementCalls = capture.elementCalls
+        let initialMetadataSamples = capture.metadataBodyCounts.count
+        if route == .dataList {
+            XCTAssertEqual(initialElementCalls, 1)
+        }
         let tail = try fixture.node("tail")
         let identity = try XCTUnwrap(tail.retainedViewIdentity)
         let tailBinding = try XCTUnwrap(capture.bindings["tail"])
@@ -449,12 +456,24 @@ final class CanonicalViewBuilderMetadataTests: XCTestCase {
         XCTAssertTrue(try fixture.node("tail") === tail)
         XCTAssertEqual(tail.text, "42")
         XCTAssertEqual(try XCTUnwrap(capture.bindings["tail"]).wrappedValue, 42)
+        let beforeRetiredMetadataSamples = capture.metadataBodyCounts.count
+        let beforeRetiredElementCalls = capture.elementCalls
+        let beforeRetiredBodyCalls = capture.totalBodyCalls
         optionalBinding.wrappedValue = 99
         fixture.flush()
         XCTAssertEqual(optionalBinding.wrappedValue, 3)
         XCTAssertTrue(fixture.nodes("optional").isEmpty)
+        XCTAssertEqual(capture.metadataBodyCounts.count, beforeRetiredMetadataSamples)
+        XCTAssertEqual(capture.elementCalls, beforeRetiredElementCalls)
+        XCTAssertEqual(capture.totalBodyCalls, beforeRetiredBodyCalls)
         XCTAssertGreaterThan(capture.elementCalls, 0)
-        XCTAssertEqual(capture.elementCalls, capture.metadataBodyCounts.count)
+        if route == .dataList {
+            XCTAssertEqual(
+                capture.elementCalls - initialElementCalls,
+                capture.metadataBodyCounts.count - initialMetadataSamples)
+        } else {
+            XCTAssertEqual(capture.elementCalls, capture.metadataBodyCounts.count)
+        }
         for counts in capture.metadataBodyCounts {
             XCTAssertEqual(counts.0, counts.1, "Normalizing raw arrays must not evaluate a custom body")
         }

@@ -15534,3 +15534,38 @@ architecture contracts (`goal-ninth-task-attempt-ledger-lint-contracts.log`).
 Execution of the original 88 methods and the new eight remains pending. No native
 host, visual, assistive-technology, performance, or full-suite result is inferred.
 **All nine original completion gates remain open.**
+
+
+### 2026-09-02: attribute the implicit-default rejection matrix failure
+
+The completed accessibility run at `f419123` failed at the first unwrap in a
+shared projection helper. Five source callers and up to 34 dynamic lookups
+across eleven rejection cases share that helper, so the recorded line does not
+identify the failing case or phase. The nine original tests and production
+accessibility code remain unchanged by this diagnostic addition.
+
+One separate async test preserves the original eleven-case loop, every action,
+mutation, render, reload, close, comparison and assertion, and the same five
+lookup positions. The lookup stores its single original projection and flattened
+result. Only a missing projected button or source node produces output, labelled
+with the rejection case, lookup phase and original source caller. It does not
+project, flatten, query modal authority, invoke an action, render, or retry again.
+
+Additional inspection visits at most 64 distinct stored native nodes, 256 child
+edges and 64 already-projected elements. Identity tracking bounds shared edges
+and cycles. Stored text contributes at most 64 escaped UTF-8 bytes per field,
+each line is bounded, and the complete diagnostic string includes its truncation
+marker within 65,536 bytes. No UI object escapes in deferred logging. These are
+limits on the extra diagnostic dump, not on the original projection traversal
+or framework output.
+
+Root and independent review checked the complete source and all bounds. The
+original loop normalizes back to its exact prior bytes and 26 XCTest sites;
+the private patch inverse preserves every preceding tracked file. Root integrated
+the new test, verified its inverse against the preceding committed tree, and
+passed formatting lint and architecture contracts
+(`goal-ninth-implicit-default-diagnostic-lint-contracts.log`). Execution of the
+new diagnostic and original matrix remains pending. This adds failure
+attribution, not a production fix,
+an implicit-default pass, or native accessibility qualification.
+**All nine original completion gates remain open.**

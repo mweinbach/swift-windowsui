@@ -162,7 +162,7 @@ final class OriginalAnchorClipCoverageTests: XCTestCase {
                 for rejection in [Optional(crop), nil] {
                     let original = scene(family, rejection: rejection, shape: shape, radii: uneven)
                     let moved = original.translatedPrimitives(by: offset)
-                    XCTAssertEqual(moved.presentationOrder(), original.presentationOrder())
+                    XCTAssertEqual(Array(moved.presentationOrder()), Array(original.presentationOrder()))
                     XCTAssertEqual(moved.paintRecordCount, original.paintRecordCount)
                     XCTAssertEqual(moved.imageResources, original.imageResources)
                     XCTAssertEqual(moved.glyphAtlas, original.glyphAtlas)
@@ -189,7 +189,7 @@ final class OriginalAnchorClipCoverageTests: XCTestCase {
                 clipCornerRadiusTopLeft: 40, clipCornerRadiusBottomRight: 8, clipShapeBounds: canvas))
         outer.finish()
         let moved = outer.translatedPrimitives(by: Point(x: 8, y: 10))
-        XCTAssertEqual(moved.presentationOrder(), outer.presentationOrder())
+        XCTAssertEqual(Array(moved.presentationOrder()), Array(outer.presentationOrder()))
         XCTAssertEqual(moved.imageRenderPasses, outer.imageRenderPasses)
         XCTAssertEqual(
             moved.layers[0].images[0].clipShapeBounds, Rect(x: 8, y: 10, width: 100, height: 100))

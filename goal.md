@@ -14124,3 +14124,31 @@ dashboard interaction timeout, native timing, macOS behavior, clean-machine,
 assistive-technology, and exact-release CI obligations remain open. This
 increment adds detail to the original requirements and closes none of the
 nine original completion gates.
+
+
+### Clipping compilation correction after the first 222-method attempt (2026-09-02)
+
+The first clipping group at `1c5e23935bd80895bccf385c4d3c94ce6c3d8df3`
+ended naturally with compiler exit 1 after 186.187 seconds. Its 4,146,254-byte
+raw log (`73851746e9f28b50058864f0b8d39182fc157dd72fb6af019e2742e8321c5f83`)
+contains 38 repeated diagnostics for two unique new-test errors and no
+started XCTest cases: all 222 selected methods remain unrun. The source and
+index endpoints matched; a separate post-closure process census was empty.
+This is a compilation failure, not a test pass or a runtime clipping result.
+
+Both errors compared `GPUIPresentationOrder` sequences with `XCTAssertEqual`.
+Materializing both sides as arrays retains complete sequence length, order,
+and each equatable presentation run; no sorting, filtering, production
+conformance, geometry assertion, or resource assertion changes. Exactly those
+two lines in `OriginalAnchorClipCoverageTests.swift` change. All 15 methods
+and the other 691 existing test paths remain unchanged. Strict lint and
+architecture contracts pass for the correction. The six previously specified
+clipping groups will be rebound to the corrected source without changing
+their 1,265 IDs, 900-second bounds, or separate stock-suite obligations.
+
+Evidence is retained in
+`artifacts/goal-ninth-clip-c01-1c5e239-compile-failure-reconciled-v1.json`,
+`artifacts/goal-ninth-clip-sequence-assertions-preservation-v1.json`, and
+`artifacts/goal-ninth-clip-sequence-assertions-lint-v1.log`. All nine original
+completion gates remain open; this correction provides no runtime, gallery,
+macOS parity, native display timing, or release qualification.

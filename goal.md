@@ -12561,3 +12561,23 @@ existing test files, with only the approved FileBrowser instrumentation in the
 remaining file. The 18 earlier Runtime corrections remain intact. Compiler,
 writer, visibility, FileBrowser, and release qualification are still pending.
 All nine original completion gates remain open.
+
+
+### 2026-09-01: Reuse the original descriptor binding in Button admission setup
+
+The observed `descriptorCopyPreparation` failure has a concrete source cause:
+`proposal.nativeBinding` constructs a new object on each access. The fixture
+installed one object in the adapter and registered a different object in the
+journal. Their equal descriptor IDs did not satisfy the required binding
+identity check. The fixture now captures the binding at its original first
+access and reuses it for both operations, matching the production list path.
+
+Only three lines were added and two removed. All three test bodies, 17
+assertions, destructor probes, callbacks, and production admission rules remain
+unchanged. No authority is refreshed or replaced. Root strict formatting and
+contracts passed; the 1,564-byte patch has SHA256
+`6d3843a5ecb828e7a9c3a56d6ca184fa6af4d29797b43ae3ef0bce7d8cc44357`.
+Source tree `05dddc9db945ef0f9dd8bb50d0308819d13957a5` and preservation of
+the other 645 existing test files are recorded in
+`artifacts/goal-ninth-button-bindingc6d-staged-proof-v1.json`. The original
+three cases still require execution. All nine completion gates remain open.

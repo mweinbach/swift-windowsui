@@ -147,7 +147,8 @@ private final class ButtonFinalAdmissionFixture {
             RetainedLazyListRuntimeAdapter(
                 provider: provider, estimatedExtent: 20, prefetchExtent: 0,
                 maximumMountedRecords: 4, maximumMountedLeaves: 8, maximumProtectedRecords: 1))
-        guard adapter.installManagedLogicalDescriptor(proposal.nativeBinding) else {
+        let binding = proposal.nativeBinding
+        guard adapter.installManagedLogicalDescriptor(binding) else {
             throw ButtonFinalAdmissionError.descriptorInstallation
         }
         let descriptorSource = ViewNode()
@@ -176,7 +177,7 @@ private final class ButtonFinalAdmissionFixture {
         guard journal.bindDescriptorScope(descriptorScope) else {
             throw ButtonFinalAdmissionError.journalScopeBinding
         }
-        guard journal.registerSourceDescriptor(proposal.nativeBinding, on: descriptorSource) != nil else {
+        guard journal.registerSourceDescriptor(binding, on: descriptorSource) != nil else {
             throw ButtonFinalAdmissionError.descriptorRegistration
         }
         let context = try XCTUnwrap(

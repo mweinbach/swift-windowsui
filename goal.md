@@ -13907,3 +13907,83 @@ The helper's only extension is an optional parent defaulting to the same runtime
 Independent source review found no blocking fixture issue. All three methods remain UNCOMPILED/UNRUN at this commit. Root will first execute this group, identify every outcome, and distinguish setup or survivor failures from the predicted last-reference failures before proposing production changes. The geometry group remains independently selected. No assertion, selector bound or timeout was weakened to obtain a pass.
 
 The prerequisite census at exact `8550455` records five native physical-reference families, structural aliases, three weak declaration-roster pairs, and two original custody paths for zero-slot component retirement. Duplicate acceptance facts are not independent references; temporary loss of tree reachability is not terminal withdrawal. Any repair must preserve exact original references and existing cleanup obligations. The three tests do not qualify zero-slot custody, same-key later publication, weak expiry, bulk-drain reentry, unchecked final child-table overwrite, escaped facade bindings or general raw-mutation behavior. These remain explicit original-scope work. All nine original gates remain open; every earlier goal byte and acceptance target is preserved.
+
+
+### Ninth integration: observed ownership withdrawal and live rectangle stroke width
+
+Both focused runs below executed the unchanged source at
+`15119ebbe368687b9ec3fcaf1207e21aa08f6f1d`, tree
+`d7df6e666408232a61679be5cccfc94c41b7db60`. They ran serially, closed
+naturally, and independently preserved all 1,151 tracked file records and the
+index between their endpoints; the separately recorded gitlink was not read.
+The original completion gates and acceptance thresholds are unchanged.
+
+The three `OrdinaryOwnedRawWithdrawalTests` compiled and ran: one passed and
+two failed, with nine assertion failures. The passing case preserves an
+accepted survivor while its parent temporarily exposes an empty child table.
+The two failing cases establish the opposite terminal boundary: after the last
+actual accepted attachment is removed, the original inherited publication and
+component receipts still report usable ownership. All fixture admission,
+identity, local withdrawal, and earlier surviving-reference checks passed;
+only the three terminal authority checks in the first case and the six checks
+through the original/continuing receipts in the second failed. These remain
+production defects. Neither a current-tree scan nor counting the two acceptance
+facts for one physical attachment as two references would be a valid repair.
+No production ownership fix is included in this fixture correction.
+
+The raw ownership run is
+`artifacts/raw3-15119eb-8b7a500e37724d3b85e225c7d82cbbc9`: build 406.80 seconds,
+natural child wait 412.390 seconds, controller/child exit 1, and 3 starts with
+3 terminal outcomes. Its 4,057,282-byte raw log has SHA-256
+`a6559a3ea3cbc4f0ab4c640ec9ea1ffbcf038236322b974bedc365f6ecb9e881`.
+`artifacts/goal-ninth-raw3-15119eb-reconciled-v1.json` independently reconciles
+the full selected roster. A separate 10:38:32 UTC process census, including an
+additional XCTest executable check, found no remaining Swift/test process.
+
+The geometry cohort ran all 144 selected tests: 143 passed and one failed,
+with three assertion failures. All 126 pre-existing selected geometry tests
+passed, as did 17 of the 18 new rectangle-inset tests. The sole failed method,
+`testLiveBorderMutationRecomputesGeometryWithoutRestoringPaint`, incorrectly
+expected emitted width 4 after deliberately changing `borderWidth` to 8, and
+incorrectly expected the overlapping pixel at (30,14) to clear. Runtime and
+ScenePainter both deliberately emit the live width while leaving the stored
+`borderStrokeStyle` unchanged. The initial source review missed this distinction.
+The observed failure is retained; it is not reclassified as a passing run.
+
+The narrow correction keeps the stored-style assertion at width 4, the owner
+identity, layout invalidation, colors, fill rule, and analytic endpoint checks.
+It expects emitted width 8, keeps the original four pixel coordinates, changes
+(30,14) to green, and adds a clear pixel at (30,12). It also verifies width 4,
+literal endpoints, and blue pixels at both locations in the existing initial
+snapshot. The old path is (14,14) to (66,14); the new path is (18,18) to (62,18).
+The new width occupies y14 through y22, so the probes distinguish stale width
+from stale geometry. An old normalized path remapped into the new paint bounds
+would instead lie at y15.5 and still paint (30,12). No expected value is obtained
+from the trimmer or retained geometry callback. All other 17 methods, helpers,
+686 other test files, and production sources are unchanged. The corrected
+fixture still requires a fresh execution result; source review is not a pass.
+
+The failed geometry run is
+`artifacts/shape144-15119eb-f98bc16822484e07a157c3e91fda970c`: incremental build
+0.34 seconds, natural child wait 7.453 seconds, and controller/child exit 1.
+Its 42,149-byte raw log has SHA-256
+`35628a2b480923a4435825109bfc0bac913c8785221bcd694af4797d2dbb067d`.
+`artifacts/goal-ninth-shape144-15119eb-reconciled-v1.json` records all 144 starts
+and outcomes. A separate 10:39:51 UTC census, including XCTest, was empty.
+The test-only source proposal is `aa3f4b85f88214850cc97f78c031af6fdbdf33db`;
+its frozen patch, exact inverse, analytic oracles, and preservation proof are
+retained in `artifacts/goal-ninth-rectangle-border-aa3f4b8-intake-v1`.
+
+A separate raw retained scene snapshot of the dashboard at the same 15119eb
+commit completed successfully: 1280 by 900, dark appearance, scale 1, 864 scene
+primitives, 187 frame commands, one layer. Root inspected the image and decoded
+both complete image files, confirming their RGB pixels agree. The PNG and BMP
+are byte-for-byte identical to the historical f64b73a snapshot. The populated
+chart and controls remain legible; the lower Activity content remains clipped
+by the fixed viewport. No gallery baseline was changed. The new receipt is
+`artifacts/goal-ninth-dashboard-snapshot-15119eb-reviewed-v1.json`, with the
+images under `artifacts/goal-ninth-dashboard-snapshot-15119eb-be4bf1889c3b4921a5e8379a34a308ae`.
+Its separate 10:44:02 UTC process census was empty. This is static CPU rendering
+evidence only: it does not resolve the dashboard interaction timeout or qualify
+D3D11 execution, hardware timing, native input, macOS parity, or the full suite.
+All nine completion gates remain open.

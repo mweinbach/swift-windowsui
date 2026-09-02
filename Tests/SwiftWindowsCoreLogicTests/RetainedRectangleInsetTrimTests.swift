@@ -239,6 +239,10 @@ final class RetainedRectangleInsetTrimTests: XCTestCase {
             Rectangle().inset(by: 10).trim(from: 0, to: 0.25).stroke(Self.blue, style: style)
                 .fill(Self.red, style: FillStyle(eoFill: true)).frame(width: 120, height: 40))
         let owner = try pathOwner(result.runtime.root)
+        // Width 4 around y14 covers pixels on rows 12 and 14 before mutation.
+        assertLines(try strokeCommand(result.frame).path, [Point(x: 14, y: 14), Point(x: 66, y: 14)])
+        XCTAssertEqual(try strokeCommand(result.frame).style, style)
+        assertPixels(result, [(30, 12, Self.blue), (30, 14, Self.blue)])
         owner.borderWidth = 8
         owner.borderColor = Self.green
         XCTAssertTrue(result.runtime.hasPendingLayout)
@@ -251,8 +255,11 @@ final class RetainedRectangleInsetTrimTests: XCTestCase {
         XCTAssertEqual(owner.clipFillStyle, RetainedClipFillStyle(eoFill: true))
         // Paint104x24, inset84x4, perimeter176, quarter44, plus border origin8.
         assertLines(try strokeCommand(changed.frame).path, [Point(x: 18, y: 18), Point(x: 62, y: 18)])
-        XCTAssertEqual(try strokeCommand(changed.frame).style, style)
-        assertPixels(changed, [(30, 18, Self.green), (60, 18, Self.green), (70, 18, .clear), (30, 14, .clear)])
+        XCTAssertEqual(try strokeCommand(changed.frame).style, stroke(width: 8))
+        // Live width 8 straddles y18; row12 must clear after the path moves.
+        assertPixels(
+            changed,
+            [(30, 18, Self.green), (60, 18, Self.green), (70, 18, .clear), (30, 14, Self.green), (30, 12, .clear)])
     }
 
     func testOriginAndDisplayScaleApplyOnlyAtPresentation() async throws {

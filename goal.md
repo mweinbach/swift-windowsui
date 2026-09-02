@@ -14691,3 +14691,57 @@ the same API is available in macOS SwiftUI; no unsupported shared-source demo
 was added. Retained screenshots, broader regression coverage and native
 comparison remain required. All nine original goal gates remain open and
 unchanged; this entry adds implementation and evidence detail only.
+
+
+### Ninth integration: isolate traversal dispatch before recursive Canvas painting
+
+The complete three-method Canvas regression at `4cc03c8` started all three
+original cases, passed the first two, and exited before a terminal result for
+`testMaximumSymbolDepthWithBlurAndGroupsAtEveryLevelKeepsBlueCoverage`.
+The last case is UNKNOWN, not passed and not a completed XCTest assertion
+failure. The runner naturally closed with exit 1; no timeout occurred. Windows
+Application Error record 8481 reports `c00000fd` in the test image at RVA
+`0x05df5412`. Path/time correlation supports investigation but does not prove
+process ancestry or supply an exception call stack.
+
+Read-only symbolization and disassembly of that exact `4cc03c8` binary mapped
+the fault instruction to `ViewNode.hoverEffectShadowCommand`. Its image was
+696,000,512 bytes, SHA-256
+`c7d61369b2e2193ca6e1f5ce50e47bcfd9e8e28e25e3ce6558af7fd2fee51606`,
+with a 1,048,576-byte reserved stack. The observed `paintNode` prologue reserved
+3,400 bytes plus eight pushed registers; this is not total stack consumption.
+The roughly 21 KB `paintInline` frame is transient on the failing fixture:
+it queues descendant work and returns before those callbacks. It must not be
+multiplied by symbol depth to claim a measured failing stack. Other recursive
+frames and compiler-generated temporaries remain relevant and unmeasured as
+a complete call chain.
+
+The reviewed `598cea4` candidate adds two private, non-inlined ScenePainter
+helpers. One constructs the original traversal seed inside its own body; the
+other pops the original LIFO work, handles unchanged enter/finish operations,
+and returns the existing paint closure. `paintNode` invokes that closure only
+after the selector returns, with the same six inout values. Trailing finish
+steps drain before the selector returns nil. Original default expressions,
+identities, Canvas state, producers, closure bodies, fallback paths, limits,
+and every existing test remain unchanged. No new box, registry, public API,
+stack-size setting, or shallower fixture is introduced.
+
+Root read the complete patch/report and independent 9,278-byte review. The
+4,670-byte patch SHA-256 is
+`83a64aef88fc3081fb89d84a2804d14ab02c8a3d49bb346c96962db1389bbbd5`.
+Applying it to `ae80a1c` changes only ScenePainter and preserves all 706
+existing tracked Test entries in Git and raw bytes. The whole-tree inverse
+restores `359168f515645fd3316c497da1acb57f4efffb26`; the staged source tree is
+`02e0fa6e605e91a71de5fe4fb134d9b6f4dd8029`. Root's proof is
+`artifacts/goal-ninth-canvas-traversal-apply-v2.json`. Strict one-file lint and
+contracts passed without formatter edits in
+`artifacts/goal-ninth-canvas-traversal-lint-v2.log`.
+
+The candidate is still uncompiled and unexecuted at this entry. Required next
+steps are fresh exact-image inspection and the unchanged validation sequence:
+Canvas's three original depth cases, then all 212 original C06 methods, then
+24 Material and 16 D3D11 Material methods (255 executions, 252 unique methods).
+A smaller compiled coordinator frame alone will not prove sufficient stack
+margin or close the original crash. Any incomplete case remains unknown;
+no depth, tolerance, cohort membership or acceptance gate is changed. All
+nine original product gates remain open.

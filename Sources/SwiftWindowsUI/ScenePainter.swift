@@ -569,7 +569,46 @@ public enum ScenePainter {
         colorEffectPassDepth: Int = 0,
         canvasSymbolState: CanvasSymbolPaintState = CanvasSymbolPaintState()
     ) {
-        var traversal: [PaintTraversalStep] = [
+        var traversal = makePaintTraversal(
+            node, parentOrigin: parentOrigin, inheritedClip: inheritedClip, layerIndex: layerIndex,
+            primitiveOpacity: primitiveOpacity, inheritedColorEffects: inheritedColorEffects,
+            inheritedBlendMode: inheritedBlendMode, inheritedTransform: inheritedTransform,
+            isInsideDrawingGroup: isInsideDrawingGroup, backdropIsolationScope: backdropIsolationScope,
+            skipCacheUpdates: skipCacheUpdates, suppressesContentBlurIsolation: suppressesContentBlurIsolation,
+            suppressesColorEffectIsolation: suppressesColorEffectIsolation, colorEffectPassDepth: colorEffectPassDepth)
+
+        while let work = nextPaintTraversalWork(
+            &traversal, into: &scene, deferredDraws: &deferredDraws,
+            surfaceSize: surfaceSize, displayScale: displayScale, textSystem: textSystem,
+            previousScene: previousScene, previousSceneIdentity: previousSceneIdentity,
+            snapshotIdentity: snapshotIdentity, usedNativeGlyphs: &usedNativeGlyphs,
+            usedPixelGlyphs: &usedPixelGlyphs, replayCount: &replayCount, canvasSymbolState: canvasSymbolState)
+        {
+            work(&scene, &deferredDraws, &usedNativeGlyphs, &usedPixelGlyphs, &replayCount, &traversal)
+        }
+    }
+
+    /// Seed construction finishes before a queued source can recurse. Build
+    /// the context and enum outside the coordinator that stays active while
+    /// nested Canvas sources record.
+    @inline(never)
+    private static func makePaintTraversal(
+        _ node: ViewNode,
+        parentOrigin: Point,
+        inheritedClip: RuntimeClipShape?,
+        layerIndex: Int,
+        primitiveOpacity: Float,
+        inheritedColorEffects: [RetainedColorEffect],
+        inheritedBlendMode: BlendMode,
+        inheritedTransform: Transform2D,
+        isInsideDrawingGroup: Bool,
+        backdropIsolationScope: BackdropIsolationScope,
+        skipCacheUpdates: Bool,
+        suppressesContentBlurIsolation: Bool,
+        suppressesColorEffectIsolation: Bool,
+        colorEffectPassDepth: Int
+    ) -> [PaintTraversalStep] {
+        [
             .enter(
                 PaintTraversalContext(
                     node: node,
@@ -589,7 +628,27 @@ public enum ScenePainter {
                 )
             )
         ]
+    }
 
+    /// Decode wide traversal values only between queued work calls. Return the
+    /// original callback before invoking it so no popped step or finish state
+    /// remains in this frame while the callback records another source.
+    @inline(never)
+    private static func nextPaintTraversalWork(
+        _ traversal: inout [PaintTraversalStep],
+        into scene: inout GPUIScene,
+        deferredDraws: inout [DeferredDrawState],
+        surfaceSize: Size,
+        displayScale: Double,
+        textSystem: WindowTextSystem,
+        previousScene: GPUIScene?,
+        previousSceneIdentity: PaintSnapshotIdentity?,
+        snapshotIdentity: PaintSnapshotIdentity,
+        usedNativeGlyphs: inout Bool,
+        usedPixelGlyphs: inout Bool,
+        replayCount: inout Int,
+        canvasSymbolState: CanvasSymbolPaintState
+    ) -> PaintTraversalWork? {
         while let traversalStep = traversal.popLast() {
             switch traversalStep {
             case .finish(let state):
@@ -597,7 +656,7 @@ public enum ScenePainter {
                     state, into: &scene, surfaceSize: surfaceSize,
                     displayScale: displayScale, snapshotIdentity: snapshotIdentity)
             case .paint(let work):
-                work(&scene, &deferredDraws, &usedNativeGlyphs, &usedPixelGlyphs, &replayCount, &traversal)
+                return work
             case .enter(let context):
                 schedulePaintNode(
                     context, into: &scene, deferredDraws: &deferredDraws,
@@ -608,6 +667,7 @@ public enum ScenePainter {
                     canvasSymbolState: canvasSymbolState, traversal: &traversal)
             }
         }
+        return nil
     }
 
     /// Finish primitive emission before a queued operation descends into a

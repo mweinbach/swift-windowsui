@@ -9,7 +9,7 @@ import SwiftWindowsCore
 /// None of these cases forces ARC reentry inside the storage-revocation prefix.
 @MainActor
 final class MountedAttachmentSuccessorTests: XCTestCase {
-    func testK1NativeRevokeWithoutActivityStorageReturnsItsKnownSuccessor() throws {
+    func testK1NativeRevokeWithoutActivityStorageReturnsItsKnownSuccessor() async throws {
         let runtime = RetainedViewRuntime(root: ViewNode())
         let node = ViewNode()
         runtime.root.addChild(node)
@@ -34,7 +34,7 @@ final class MountedAttachmentSuccessorTests: XCTestCase {
         XCTAssertNil(node.retainedLazyListActivityStorage)
     }
 
-    func testK1AcceptedStorageRotationLeavesTheOriginalRuntimePredecessorUsable() throws {
+    func testK1AcceptedStorageRotationLeavesTheOriginalRuntimePredecessorUsable() async throws {
         let runtime = RetainedViewRuntime(root: ViewNode())
         let node = ViewNode()
         node.retainedViewIdentity = RetainedViewIdentity().appending(.slot(1))
@@ -68,7 +68,7 @@ final class MountedAttachmentSuccessorTests: XCTestCase {
         XCTAssertTrue(node.retainedLazyListRuntime === runtime)
     }
 
-    func testK2PreparedRevokeRefusesAfterPublicDetachAndSameParentReattachment() throws {
+    func testK2PreparedRevokeRefusesAfterPublicDetachAndSameParentReattachment() async throws {
         let runtime = RetainedViewRuntime(root: ViewNode())
         let node = ViewNode()
         runtime.root.addChild(node)
@@ -94,7 +94,7 @@ final class MountedAttachmentSuccessorTests: XCTestCase {
         XCTAssertFalse(continuation.isCurrent)
     }
 
-    func testK3PreparedParentNilCannotImportAnAttachmentAfterItsOwnRevoke() throws {
+    func testK3PreparedParentNilCannotImportAnAttachmentAfterItsOwnRevoke() async throws {
         let runtime = RetainedViewRuntime(root: ViewNode())
         let node = ViewNode()
         runtime.root.addChild(node)
@@ -116,7 +116,7 @@ final class MountedAttachmentSuccessorTests: XCTestCase {
         XCTAssertFalse(originalResult.isCurrent)
     }
 
-    func testK3PreparedRuntimeNilCannotImportAnAttachmentAfterItsOwnParentWrite() throws {
+    func testK3PreparedRuntimeNilCannotImportAnAttachmentAfterItsOwnParentWrite() async throws {
         let runtime = RetainedViewRuntime(root: ViewNode())
         let node = ViewNode()
         runtime.root.addChild(node)
@@ -142,7 +142,7 @@ final class MountedAttachmentSuccessorTests: XCTestCase {
         XCTAssertFalse(parentResult.isCurrent)
     }
 
-    func testK4WrongNodeSpendsTheRecordAndDoesNotAcknowledgeEitherOrigin() throws {
+    func testK4WrongNodeSpendsTheRecordAndDoesNotAcknowledgeEitherOrigin() async throws {
         let runtime = RetainedViewRuntime(root: ViewNode())
         let first = ViewNode()
         let second = ViewNode()
@@ -168,7 +168,7 @@ final class MountedAttachmentSuccessorTests: XCTestCase {
         XCTAssertNil(secondOrigin.prepareRevoke())
     }
 
-    func testK4WrongNativeWriterCannotSpendARevokeRecordSuccessfully() throws {
+    func testK4WrongNativeWriterCannotSpendARevokeRecordSuccessfully() async throws {
         for writer in [SuccessorNilWriter.parent, .runtime] {
             let runtime = RetainedViewRuntime(root: ViewNode())
             let node = ViewNode()
@@ -192,7 +192,7 @@ final class MountedAttachmentSuccessorTests: XCTestCase {
         }
     }
 
-    func testK4ARealSuccessfulWriteCannotBeAcknowledgedTwice() throws {
+    func testK4ARealSuccessfulWriteCannotBeAcknowledgedTwice() async throws {
         let runtime = RetainedViewRuntime(root: ViewNode())
         let node = ViewNode()
         runtime.root.addChild(node)
@@ -210,7 +210,7 @@ final class MountedAttachmentSuccessorTests: XCTestCase {
         XCTAssertNil(continuation.prepareRevoke())
     }
 
-    func testK4PreparationAloneDoesNotEnterRemovalOrAuthorizeNilSuccessors() throws {
+    func testK4PreparationAloneDoesNotEnterRemovalOrAuthorizeNilSuccessors() async throws {
         let runtime = RetainedViewRuntime(root: ViewNode())
         let node = ViewNode()
         runtime.root.addChild(node)
@@ -233,7 +233,7 @@ final class MountedAttachmentSuccessorTests: XCTestCase {
         // through public removals instead of fabricating overlay state here.
     }
 
-    func testK4AnotherOriginalCaptureCannotAdoptTheFirstWritersAcknowledgement() throws {
+    func testK4AnotherOriginalCaptureCannotAdoptTheFirstWritersAcknowledgement() async throws {
         let runtime = RetainedViewRuntime(root: ViewNode())
         let node = ViewNode()
         runtime.root.addChild(node)
@@ -256,7 +256,7 @@ final class MountedAttachmentSuccessorTests: XCTestCase {
         // compatible Task roots consuming one actually appended public overlay.
     }
 
-    func testK5LiteralNilWritersKeepOnlyTheirPredeterminedEndpoints() throws {
+    func testK5LiteralNilWritersKeepOnlyTheirPredeterminedEndpoints() async throws {
         let runtime = RetainedViewRuntime(root: ViewNode())
         let node = ViewNode()
         runtime.root.addChild(node)
@@ -293,7 +293,7 @@ final class MountedAttachmentSuccessorTests: XCTestCase {
         XCTAssertFalse(continuation.isCurrent)
     }
 
-    func testK6OriginalPreparedAndExecutedRecordsDoNotRetainTheUIGraph() throws {
+    func testK6OriginalPreparedAndExecutedRecordsDoNotRetainTheUIGraph() async throws {
         let weakGraph = SuccessorWeakGraph()
         let records = try captureRecordsWithoutKeepingFixture(weakGraph)
 
@@ -305,7 +305,7 @@ final class MountedAttachmentSuccessorTests: XCTestCase {
         withExtendedLifetime(records) {}
     }
 
-    func testK6ExpiredOriginalEndpointsDoNotInvalidateAcknowledgedNilEndpoints() throws {
+    func testK6ExpiredOriginalEndpointsDoNotInvalidateAcknowledgedNilEndpoints() async throws {
         let weakGraph = SuccessorWeakGraph()
         let captured = try captureNilEndpointsKeepingOnlyNode(weakGraph)
 
@@ -480,7 +480,7 @@ final class MountedAttachmentSuccessorTests: XCTestCase {
         assertFinishedExactlyOnce(probe, ordinal: 0)
     }
 
-    func testE2OriginalExtractionDoesNotDiscoverDescendantsOrLaterForestRoots() throws {
+    func testE2OriginalExtractionDoesNotDiscoverDescendantsOrLaterForestRoots() async throws {
         let runtime = RetainedViewRuntime(root: ViewNode())
         let original = ViewNode()
         let originalDescendant = ViewNode()

@@ -15336,3 +15336,34 @@ The separate rejected-candidate calendar month-retention defect remains open;
 this change does not repair its ownership or selection state. No native keyboard,
 visual, assistive-technology, or hardware qualification is inferred.
 **All nine original completion gates remain open.**
+
+
+### 2026-09-02: successful compilation exposes XCTest discovery isolation failure
+
+At committed `93171a3`, the nineteen-method diagnostic-writer attempt completed
+compilation and linked the test executable in 313.96 seconds. XCTest then exited
+abnormally during --dump-tests-json: the generated MountedAttachmentSuccessorTests
+registration attempted to cast a synchronous MainActor-isolated throwing method
+to a nonisolated synchronous callback. No test case began. This attempt therefore
+records zero passed, zero failed, and nineteen unrun methods, not an assertion
+failure or a successful diagnostic prerequisite. The direct child exited with
+code 1 without timeout or termination; source preservation passed and a separate
+post-closure snapshot found no matching process at that instant.
+
+The fourteen affected newly added method signatures now include async. Their
+generated predecessors were exactly the fourteen direct registrations; the six
+existing async methods already used XCTest's asyncTest adapter. The class keeps
+MainActor isolation. Every method body, all 315 XCTest calls, helper, test name,
+ordering and existing await site remain byte-for-byte unchanged. No new suspension
+point is added inside these fourteen bodies. In particular, the K6 lifetime
+fixtures still release their graphs inside unchanged synchronous inline-never
+helpers before the immediate weak-reference assertions.
+
+Root and independent reviewers verified the literal fourteen insertions and
+complete inverse. All other 717 test files, including the newly integrated nine
+accessibility regressions, are unchanged. Strict formatting and architecture
+checks pass. The mounted-lifetime cohort still contains the same 88 methods,
+now all async; its companion publication/removal cohort still contains 108.
+Neither the discovery correction nor the preserved 196-method union has fresh
+execution results yet. No test or completion requirement was removed.
+**All nine original completion gates remain open.**

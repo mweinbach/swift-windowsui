@@ -70,6 +70,12 @@ expectation. Neither that expectation correction nor retained gallery evidence
 has been validated yet. Exact source, raw logs and outcomes are recorded in the
 append-only [goal ledger](../goal.md).
 
+The `shape-trim-static` gallery entry provides a 600-by-400 dark fixture with
+wide and tall quarter outlines, a half quadratic curve, and full/half/empty
+fills against untrimmed references. Its shared demo source uses ordinary shape
+APIs. A fresh retained-renderer image and visual inspection are still pending;
+adding this fixture does not create or approve a baseline.
+
 Bounds-dependent custom shapes, literal and nested retained geometry, inset and
 `strokeBorder` composition, hit/clip semantics, animated fractions, arbitrary
 transforms, gradient/dash/antialiasing fidelity and native parity remain open.

@@ -186,6 +186,10 @@ struct SwiftWindowsUIGalleryTool {
                     RoundedRectangle(cornerRadius: 20).fill(.green).frame(width: 120, height: 80)
                 )),
             GallerySpec(
+                id: "shape-trim-static", title: "Static Partial Shape Trim",
+                view: AnyView(DemoPartialTrimSample()),
+                size: IntSize(width: 600, height: 400)),
+            GallerySpec(
                 id: "text", title: "Text",
                 view: AnyView(
                     Text("Hello").foregroundColor(.white)

@@ -12393,3 +12393,44 @@ records exact staged reproduction. The projection preserves the existing
 package-visible immutable attempt identity. No compiler, runtime test, public
 facade, performance, or native result is claimed here. All nine original
 completion gates remain open.
+
+
+### 2026-09-01: Execute the ordinary, Button, and UIA corrections together
+
+Four serial focused runs completed on clean commit
+`c3407897d2fc56ff556fb5a376c059b27aa947ba`, tree
+`422d421d1f971aa0b82b9bdba24dbcf621b22e72`. Every selected XCTest started;
+there were no skips. Each run ended naturally with child/controller exit 1/1,
+without a timeout or termination. Independent source/index endpoint comparisons
+passed. Separate post-closure CIM snapshots found no matching child processes;
+these are point observations, not continuous descendant attestation.
+
+| Selected cohort | Passed | Failed | Result and remaining boundary |
+| --- | ---: | ---: | --- |
+| Ordinary ownership and membership, 160 cases | 159 | 1 | All eight new ownership methods passed. One stale-reservation fixture still throws `candidate` before its assertions. |
+| Button and Table, 167 cases | 164 | 3 | All 56 Table cases and all seven removal cases passed. The three final-admission fixtures now stop at an ambiguous `noAdmission` setup guard. |
+| Internal UIA, 122 cases | 115 | 7 | All 40 continuation, 30 construction-hint, three reader/Button, and 22 scroll-geometry cases passed. Two insertion-origin, two unused-provider, and three managed-reader cases still fail. |
+| Public UIA and shared budget, 19 cases | 7 | 12 | The same three managed-budget and nine public-accessibility cases still fail. |
+
+The two original-token fixture corrections now pass. The target-pass and
+known-empty changes are exercised by the complete continuation cohort, not
+just source review. This does not establish managed-row settlement. The public
+default four-round case still consumes ten elements and all four rounds while
+unsettled. Explicit allowances of eight and sixteen both consume six rounds
+and sixteen elements and report complete work but unsettled presentation.
+The separate original one-element/one-round rejection case still passes.
+Existing budget limits, test expectations, and public completion requirements
+remain unchanged.
+
+The four retained runs are `artifacts/ordinary160-c340789-65449a3cab294994b1a36a07230c3e72`,
+`button-table167-c340789-45d1390311c148398a4f3d7e6c15eecb`,
+`uia122-c340789-fdd4b01e94634c8fb6776f2a9932310d`, and
+`uia-public19-c340789-98d6791687864c23ab373de471a3dde0`.
+Their complete case identities, failures, durations, raw-log hashes, and source
+comparisons are in `artifacts/goal-ninth-ordinary160-c340789-reconciled-v1.json`,
+`goal-ninth-button-table167-c340789-reconciled-v1.json`,
+`goal-ninth-uia122-c340789-reconciled-v1.json`, and
+`goal-ninth-uia-public19-c340789-reconciled-v1.json`, with matching
+`post-closure-v1.json` receipts. These are focused results only. No new Full,
+native-window, visual, hardware, macOS, CI, or release qualification is claimed.
+All nine original completion gates remain open.

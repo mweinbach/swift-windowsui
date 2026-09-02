@@ -54,7 +54,9 @@ final class RetainedButtonActionAdoption {
             case .stable, .departureScheduled, .transferring:
                 guard let node, hadOwner == (owner != nil) else { return false }
                 return (exceptAttachment || attachment.isCurrent) && identity.isCurrent
-                    && (exceptChildren || children == node.children.map(ObjectIdentifier.init))
+                    && (exceptChildren
+                        || (children.count == node.children.count
+                            && zip(node.children, children).allSatisfy { pair in ObjectIdentifier(pair.0) == pair.1 }))
                     && node.buttonActionOwner === owner
                     && (owner?.isRetired == true) == ownerWasRetired
             }

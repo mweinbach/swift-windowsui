@@ -12837,3 +12837,28 @@ flag remains unchanged alongside the later closure evidence. There is no fresh
 Full/gallery, hardware-motion, native-workflow, hosted-CI or clean-machine
 qualification in these focused results. All nine original completion gates stay
 open, and the original product scope and numerical targets remain unchanged.
+
+
+### Ninth integration: compare Button child order without temporary ID arrays
+
+Each existing Button adoption witness now compares child counts and ordered
+object identities directly instead of allocating a mapped identity array for
+every validation. The same attachment, identity, owner, retirement and phase
+checks remain at their original boundaries; no result is cached or reused, and
+no validation or cohort member is removed. Authorized child-table writes still
+advance only their named original obligation, and rejection remains permanent.
+
+Three new tests compare the actual witness against the previous array-equality
+oracle for unchanged, reordered, inserted, removed and replaced children; check
+a legitimate recorded child write; and reject an unrelated ancestor-table
+mutation. All 648 existing test files and Package.swift remain unchanged. The
+complete staged diff matches the reviewed two-file patch in
+`artifacts/goal-ninth-button-child-order-root-staged-proof-v1.json`; strict lint
+on both Swift files and architecture contracts passed.
+
+This is an allocation reduction established from source, not a measured speedup
+or an attribution of the FileBrowser timeout. The wider repeated-cohort scans
+still exist. The prior 167 Button/Table passes were on `922ff21`, before this
+change. Fresh execution of those cases plus the three new methods, broader
+validation and the unresolved FileBrowser workflow remain required. All nine
+original completion gates remain open.

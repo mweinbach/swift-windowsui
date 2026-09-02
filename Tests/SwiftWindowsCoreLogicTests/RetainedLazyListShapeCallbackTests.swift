@@ -341,13 +341,20 @@ final class RetainedLazyListShapeCallbackTests: XCTestCase {
         let inserted = fixture.initialBuild.reconcile()
         XCTAssertTrue(inserted.completed)
         XCTAssertTrue(fixture.initialBuild.finish(inserted))
-        _ = fixture.runtime.renderFrame()
+        let initialFrame = fixture.runtime.renderFrame()
         try assertInitialLayout(fixture, receiver: retained)
         let attachment = retained.captureLazyListAttachmentProof()
         let originalBounds = retained.resolvedFrame
         let originalPath = try XCTUnwrap(retained.backgroundPath)
         XCTAssertGreaterThan(originalPath.segments.count, 1)
-        XCTAssertEqual(originalPath, RenderPath(path: oldArc.path(in: originalBounds)))
+        // Stored geometry is normalized for one later paint scale. The 3-point
+        // border leaves a 114x34 rectangle at (3,3): center (60,20), radius 17.
+        assertArcGeometry(
+            originalPath, move: Point(x: 37.0 / 57, y: 0.5), center: Point(x: 0.5, y: 0.5), radius: 17.0 / 114)
+        assertFrameGeometryAndPixels(
+            initialFrame, size: IntSize(width: 120, height: 80), move: Point(x: 77, y: 20),
+            center: Point(x: 60, y: 20), radius: 17,
+            probes: [(60, 30, .red), (48, 15, .black), (72, 24, .red)])
         XCTAssertEqual(retained.backgroundColor, .red)
         XCTAssertEqual(retained.backgroundGradient, .linear(.init(fill)))
         XCTAssertEqual(retained.borderColor, .green)
@@ -371,24 +378,103 @@ final class RetainedLazyListShapeCallbackTests: XCTestCase {
         XCTAssertTrue(fixture.runtime.hasPendingLayout)
         assertResetArcPaint(retained)
         XCTAssertTrue(build.finish(adopted))
-        _ = fixture.runtime.renderFrame()
+        let adoptedFrame = fixture.runtime.renderFrame()
         XCTAssertEqual(retained.resolvedFrame, originalBounds)
         let updatedPath = try XCTUnwrap(retained.backgroundPath)
-        XCTAssertEqual(updatedPath, RenderPath(path: newArc.path(in: originalBounds)))
+        // Independent trigonometric constants for 35 degrees. Outer paint has
+        // removed the border, so the 120x40 circle has center (60,20), radius 20.
+        let cos35 = 0.8191520442889918
+        let sin35 = 0.5735764363510460
+        let start = 35.0 * Double.pi / 180
+        let end = 215.0 * Double.pi / 180
+        assertArcGeometry(
+            updatedPath, move: Point(x: 0.5 + cos35 / 6, y: 0.5 + sin35 / 2),
+            center: Point(x: 0.5, y: 0.5), radius: 1.0 / 6, start: start, end: end)
+        assertFrameGeometryAndPixels(
+            adoptedFrame, size: IntSize(width: 120, height: 80),
+            move: Point(x: 60 + 20 * cos35, y: 20 + 20 * sin35),
+            center: Point(x: 60, y: 20), radius: 20, start: start, end: end,
+            probes: [(48, 15, .blue), (72, 24, .black)])
         XCTAssertNotEqual(updatedPath, originalPath)
         XCTAssertNil(incoming.backgroundPath, "Layout must target the retained receiver, not the discarded source")
         assertResetArcPaint(retained)
 
         fixture.runtime.setRootSize(IntSize(width: 160, height: 80))
-        _ = fixture.runtime.renderFrame()
+        let resizedFrame = fixture.runtime.renderFrame()
         XCTAssertTrue(fixture.container.children.first === retained)
         XCTAssertEqual(retained.resolvedFrame.size, Size(width: 160, height: 40))
         let resizedPath = try XCTUnwrap(retained.backgroundPath)
-        XCTAssertEqual(resizedPath, RenderPath(path: newArc.path(in: retained.resolvedFrame)))
+        // A 160x40 rectangle moves the center to (80,20), keeping radius 20.
+        assertArcGeometry(
+            resizedPath, move: Point(x: 0.5 + cos35 / 8, y: 0.5 + sin35 / 2),
+            center: Point(x: 0.5, y: 0.5), radius: 1.0 / 8, start: start, end: end)
+        assertFrameGeometryAndPixels(
+            resizedFrame, size: IntSize(width: 160, height: 80),
+            move: Point(x: 80 + 20 * cos35, y: 20 + 20 * sin35),
+            center: Point(x: 80, y: 20), radius: 20, start: start, end: end,
+            probes: [(68, 15, .blue), (92, 24, .black), (48, 15, .black)])
         XCTAssertNotEqual(resizedPath, updatedPath)
         XCTAssertNil(incoming.backgroundPath)
         XCTAssertTrue(attachment.isCurrent)
         assertResetArcPaint(retained)
+
+        func assertArcGeometry(
+            _ path: RenderPath, move: Point, center: Point, radius: Double,
+            start: Double = 0, end: Double = .pi, file: StaticString = #filePath, line: UInt = #line
+        ) {
+            XCTAssertEqual(path.segments.count, 2, "One move and one open arc", file: file, line: line)
+            guard path.segments.count == 2, case .moveTo(let actualMove) = path.segments[0],
+                case .arc(let actualCenter, let actualRadius, let actualStart, let actualEnd, let clockwise) =
+                    path.segments[1]
+            else {
+                XCTFail("Expected one move followed by an open arc", file: file, line: line)
+                return
+            }
+            XCTAssertTrue(
+                [actualMove.x, actualMove.y, actualCenter.x, actualCenter.y, actualRadius, actualStart, actualEnd]
+                    .allSatisfy(\.isFinite), file: file, line: line)
+            XCTAssertEqual(actualMove.x, move.x, accuracy: 1e-9, file: file, line: line)
+            XCTAssertEqual(actualMove.y, move.y, accuracy: 1e-9, file: file, line: line)
+            XCTAssertEqual(actualCenter.x, center.x, accuracy: 1e-9, file: file, line: line)
+            XCTAssertEqual(actualCenter.y, center.y, accuracy: 1e-9, file: file, line: line)
+            XCTAssertEqual(actualRadius, radius, accuracy: 1e-9, file: file, line: line)
+            XCTAssertEqual(actualStart, start, accuracy: 1e-9, file: file, line: line)
+            XCTAssertEqual(actualEnd, end, accuracy: 1e-9, file: file, line: line)
+            XCTAssertFalse(clockwise, file: file, line: line)
+        }
+
+        func assertFrameGeometryAndPixels(
+            _ frame: RenderFrame, size: IntSize, move: Point, center: Point, radius: Double,
+            start: Double = 0, end: Double = .pi, probes: [(Int, Int, Color)],
+            file: StaticString = #filePath, line: UInt = #line
+        ) {
+            let fills = frame.commands.compactMap { command -> FillPathCommand? in
+                guard case .fillPath(let fill) = command else { return nil }
+                return fill
+            }
+            XCTAssertEqual(fills.count, 1, file: file, line: line)
+            if let fill = fills.first {
+                assertArcGeometry(
+                    fill.path, move: move, center: center, radius: radius, start: start, end: end, file: file,
+                    line: line)
+            }
+            XCTAssertEqual(frame.clearColor, .black, file: file, line: line)
+            XCTAssertTrue(probes.contains { $0.2 != .black }, "Require positive coverage", file: file, line: line)
+            let bitmap = GPUIRawSceneRasterizer.rasterize(frame, size: size)
+            for (x, y, color) in probes {
+                guard x >= 0, y >= 0, x < Int(bitmap.width), y < Int(bitmap.height) else {
+                    XCTFail("Pixel probe outside the raster", file: file, line: line)
+                    continue
+                }
+                let offset = y * Int(bitmap.bytesPerRow) + x * 4
+                guard offset + 4 <= bitmap.pixels.count else {
+                    XCTFail("Pixel probe outside the byte buffer", file: file, line: line)
+                    continue
+                }
+                let expected = [color.blue, color.green, color.red, color.alpha].map { UInt8(($0 * 255).rounded()) }
+                XCTAssertEqual(Array(bitmap.pixels[offset..<(offset + 4)]), expected, file: file, line: line)
+            }
+        }
     }
 
     private func assertDeliveryPairs(

@@ -12748,6 +12748,18 @@ public struct Menu: View {
             // The disclosure glyph is chrome, not content: keep it out of the
             // accessibility tree so folded menu names stay clean.
             disclosureNode.isAccessibilityHidden = true
+            let hasPrimaryAction = primaryAction != nil
+            let openSecondaryMenu: @MainActor () -> Void = {
+                guard context.isEnabled, !menuState.isOpen else { return }
+                menuState.isOpen = true
+                context.invalidate()
+            }
+            if hasPrimaryAction, showsMenuIndicator, context.isEnabled {
+                // A distinct pointer target keeps the body action and its
+                // existing focus/accessibility owner unchanged.
+                disclosureNode.isHitTestVisible = true
+                disclosureNode.onActivate = openSecondaryMenu
+            }
             let headerChildren = showsMenuIndicator ? [labelNode, disclosureNode] : [labelNode]
             let headerContent = Controls.stackPanel(
                 layoutPriority: 1,
@@ -12794,6 +12806,12 @@ public struct Menu: View {
                 context.invalidate()
             }
             menuButton.onKeyDown = { event in
+                // Windows F4 opens the secondary menu; Enter/Space continue
+                // through the primary button's ordinary activation route.
+                if hasPrimaryAction, event.keyCode == 0x73, event.modifiers.isEmpty, !event.isRepeat {
+                    openSecondaryMenu()
+                    return
+                }
                 guard menuState.isOpen, event.key == .escape else {
                     return
                 }

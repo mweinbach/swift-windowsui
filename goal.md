@@ -16201,3 +16201,34 @@ The source packet is `artifacts/goal-ninth-implicit-postcompose-reason-intake-v1
 Fresh execution is still needed to identify the actual refused input. This is
 diagnostic work, not a restored-button fix or passing runtime evidence.
 **All nine original completion gates remain open.**
+
+### Ninth batch: open a primary-action Menu's secondary choices
+
+An enabled Menu with a primary action now gives its visible disclosure indicator
+a separate pointer action that opens the existing secondary menu. The indicator
+remains nonfocusable and hidden from the accessibility tree. An unmodified,
+nonrepeating F4 on the trigger opens those secondary choices even when the
+indicator is hidden. The existing primary pointer action, Enter/Space behavior,
+UIA Invoke route and authored shortcut precedence remain unchanged. The change
+uses existing open state and invalidation; it does not retain the primary action
+in a second closure or create a global menu state.
+
+Sixteen new tests were frozen before implementation. They cover primary versus
+disclosure targeting, disabled and hidden indicators, opening only once,
+keyboard modifiers/repeats, ordinary menu behavior and retained accessibility
+Invoke. These fixtures retain one Menu value across explicit rebuilds; they do
+not prove state lifetime across freshly reconstructed ComponentHost bodies or
+native COM input. The implementation and these limits are documented in
+`docs/WinSwiftUI.md` and `docs/CompatibilityStatus.md`. Menu remains Partial;
+native secondary accessibility actions, system-key handling, long press and
+complete platform parity are still unfinished.
+
+Root reviewed all sixteen tests, both production hunks and documentation, and
+verified the exact full-tree inverse against `044791d` in
+`artifacts/goal-ninth-menu-primary-staged-inverse-v1.json`. Formatting and
+architecture checks passed in
+`artifacts/goal-ninth-menu-primary-lint-contracts-v1.log`.
+The immutable packet is `artifacts/goal-ninth-menu-primary-intake-v1`.
+Fresh compilation and the new and existing Menu regressions remain next;
+source review does not substitute for those results.
+**All nine original completion gates remain open.**

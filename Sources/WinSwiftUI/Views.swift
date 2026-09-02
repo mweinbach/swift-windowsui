@@ -1361,9 +1361,43 @@ public struct UnevenRoundedRectangle: View {
     }
 
     public func path(in rect: Rect) -> Path {
+        let topLeft = pathCornerRadius(cornerRadii.topLeading, in: rect)
+        let topRight = pathCornerRadius(cornerRadii.topTrailing, in: rect)
+        let bottomRight = pathCornerRadius(cornerRadii.bottomTrailing, in: rect)
+        let bottomLeft = pathCornerRadius(cornerRadii.bottomLeading, in: rect)
+        let minX = rect.minX
+        let minY = rect.minY
+        let maxX = rect.maxX
+        let maxY = rect.maxY
+
+        // This path has local coordinates. Component RTL resolution remains
+        // in makeComponent; both corner styles keep the circular approximation.
         var path = Path()
-        path.addRoundedRect(rect, cornerRadius: cornerRadii.retainedUniformFallbackRadius)
+        path.moveTo(Point(x: minX + topLeft, y: minY))
+        path.lineTo(Point(x: maxX - topRight, y: minY))
+        path.arc(
+            center: Point(x: maxX - topRight, y: minY + topRight), radius: topRight,
+            startAngle: -Double.pi / 2, endAngle: 0)
+        path.lineTo(Point(x: maxX, y: maxY - bottomRight))
+        path.arc(
+            center: Point(x: maxX - bottomRight, y: maxY - bottomRight), radius: bottomRight,
+            startAngle: 0, endAngle: Double.pi / 2)
+        path.lineTo(Point(x: minX + bottomLeft, y: maxY))
+        path.arc(
+            center: Point(x: minX + bottomLeft, y: maxY - bottomLeft), radius: bottomLeft,
+            startAngle: Double.pi / 2, endAngle: Double.pi)
+        path.lineTo(Point(x: minX, y: minY + topLeft))
+        path.arc(
+            center: Point(x: minX + topLeft, y: minY + topLeft), radius: topLeft,
+            startAngle: Double.pi, endAngle: 3 * Double.pi / 2)
+        path.close()
         return path
+    }
+
+    private func pathCornerRadius(_ radius: CGFloat, in rect: Rect) -> Double {
+        // Match Path.addRoundedRect's clamp, including its degenerate and
+        // nonfinite-input behavior, independently for each of the four corners.
+        max(0, min(radius, min(rect.size.width, rect.size.height) / 2))
     }
 
     public func fill(_ color: Color) -> UnevenRoundedRectangle {

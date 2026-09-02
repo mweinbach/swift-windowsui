@@ -70,6 +70,16 @@ whole List leaves. The new ownership and reentry tests must still run against
 this composition before the earlier L06/L21/L23 gaps can be called verified.
 See [LazyListStateActivity.md](LazyListStateActivity.md).
 
+Accepted physical receipts also include contribution-free List chrome. Each
+first accepted attachment now registers its original weak witness with that
+node's existing attachment storage. Actual departure consumes that association
+before rotating the attachment ID; stale identity alone does not authorize
+retirement or refresh the witness. Explicit receipt revocation and rollback
+withdraw their own associations. This source correction keeps complete physical
+handoff checks intact and adds three focused lifetime regressions, but those
+tests and the original optional-shrink regressions have not yet run against it.
+The separate inactive builder declaration-handoff failures remain unresolved.
+
 Direct construction without a State coordinator uses a native standalone lease.
 The adapter binds it once when Runtime claims an actual attached container, not
 when a temporary source node is built. GeometryReader reconciliation can keep

@@ -689,6 +689,14 @@ private final class RetainedLazyListWeakContribution {
     init(_ receipt: RetainedLazyListContributionReceipt) { self.receipt = receipt }
 }
 
+/// Retirement authority for an accepted physical attachment, including chrome
+/// with no logical contribution. Neither endpoint owns a view or a runtime.
+@MainActor
+private struct RetainedLazyListPhysicalAttachmentRetirement {
+    weak var physical: RetainedLazyListPhysicalActivityReceipt?
+    let actual: RetainedLazyListActualAttachment
+}
+
 @MainActor
 package final class RetainedLazyListPhysicalActivityReceipt {
     package let id = RetainedLazyListPhysicalActivityID()
@@ -729,16 +737,27 @@ package final class RetainedLazyListPhysicalActivityReceipt {
         guard state != .revoked, actual.isAttached else { return false }
         if !attachments.contains(where: { $0.target === actual.target && $0.attachment === actual.attachment }) {
             attachments.append(actual)
+            actual.node?.retainedLazyListActivityStorage?.registerPhysicalAttachment(actual, physical: self)
         }
         lifetime.phase = .active
         return true
     }
 
     func removeAttachment(target: RetainedLazyListTargetID, attachment: RetainedLazyListAttachmentID) {
+        for actual in attachments where actual.target === target && actual.attachment === attachment {
+            actual.node?.retainedLazyListActivityStorage?.removePhysicalAttachment(actual, physical: self)
+        }
         attachments.removeAll { $0.target === target && $0.attachment === attachment }
         if lifetime.phase == .active && rowReplacementHandoffs.isEmpty && !attachments.contains(where: \.isAttached) {
             revoke()
         }
+    }
+
+    fileprivate func retireAttachment(_ original: RetainedLazyListActualAttachment) {
+        // An owed departure consumes its accepted witness even after identity
+        // invalidation. It cannot consume a later activation of the same node.
+        guard attachments.contains(where: { $0 === original }) else { return }
+        removeAttachment(target: original.target, attachment: original.attachment)
     }
 
     fileprivate var canBeginRowReplacementHandoff: Bool {
@@ -761,6 +780,9 @@ package final class RetainedLazyListPhysicalActivityReceipt {
     func revoke() {
         lifetime.phase = .revoked
         rowReplacementHandoffs.removeAll()
+        for actual in attachments {
+            actual.node?.retainedLazyListActivityStorage?.removePhysicalAttachment(actual, physical: self)
+        }
     }
 }
 
@@ -1524,6 +1546,7 @@ final class RetainedLazyListNodeActivityStorage {
     fileprivate var ownedScopeDeclaredComponents: [ObjectIdentifier: RetainedOwnedWeakComponentPresence] = [:]
     var acceptedLogicalDeclaration: RetainedLazyListAcceptedLogicalDeclaration?
     var committedContributions: [ObjectIdentifier: RetainedLazyListContributionReceipt] = [:]
+    private var physicalAttachmentRetirements: [RetainedLazyListPhysicalAttachmentRetirement] = []
     var deferredSubtreeAnchor: RetainedLazyListDeferredSubtreeAnchor?
     var descriptorDeferredSubtreeAnchor: RetainedDescriptorDeferredSubtreeAnchor?
 
@@ -1539,6 +1562,34 @@ final class RetainedLazyListNodeActivityStorage {
             node: node, runtime: runtime, target: targetID, attachment: attachmentID)
     }
 
+    fileprivate func registerPhysicalAttachment(
+        _ actual: RetainedLazyListActualAttachment, physical: RetainedLazyListPhysicalActivityReceipt
+    ) {
+        physicalAttachmentRetirements.removeAll { $0.physical == nil }
+        physicalAttachmentRetirements.append(
+            RetainedLazyListPhysicalAttachmentRetirement(physical: physical, actual: actual))
+    }
+
+    fileprivate func removePhysicalAttachment(
+        _ original: RetainedLazyListActualAttachment, physical: RetainedLazyListPhysicalActivityReceipt
+    ) {
+        physicalAttachmentRetirements.removeAll { $0.physical === physical && $0.actual === original }
+    }
+
+    private func retirePhysicalAttachments(_ originalAttachment: RetainedLazyListAttachmentID) {
+        let departures = physicalAttachmentRetirements.filter {
+            $0.actual.target === targetID && $0.actual.attachment === originalAttachment
+        }
+        // Consume the native associations before changing a receipt or rotating
+        // the attachment. The original proof need not still be current here.
+        physicalAttachmentRetirements.removeAll {
+            $0.actual.target === targetID && $0.actual.attachment === originalAttachment
+        }
+        for departure in departures {
+            departure.physical?.retireAttachment(departure.actual)
+        }
+    }
+
     func revokeAttachment() {
         let previousAttachment = attachmentID
         descriptorOwnerLifetime.revoke()
@@ -1548,6 +1599,7 @@ final class RetainedLazyListNodeActivityStorage {
         }
         for receipt in committedDescriptorContributions.values { receipt.revoke() }
         committedDescriptorContributions.removeAll()
+        retirePhysicalAttachments(previousAttachment)
         let replacement = RetainedLazyListAttachmentID()
         attachmentID = replacement
         descriptorOwnerLifetime = RetainedLazyListDescriptorOwnerLifetime(target: targetID, attachment: replacement)

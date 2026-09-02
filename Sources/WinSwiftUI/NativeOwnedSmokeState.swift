@@ -137,11 +137,15 @@ final class NativeOwnedSmokeSharedState: Sendable {
 
     let observation: Win32NativeSmokeObservation
     let expectedBackendNames: Set<String>
+    let ingressSetup = Win32NativeSmokeIngressSetup()
     private let state = Mutex(Snapshot())
 
     init(observation: Win32NativeSmokeObservation, expectedBackendNames: Set<String>) {
         self.observation = observation
         self.expectedBackendNames = expectedBackendNames
+        ingressSetup.installFailureReporter { [weak self] failure in
+            self?.fail(NativeOwnedSmokeFailure("native-ingress-setup-\(failure.rawValue)"))
+        }
     }
 
     func snapshot() -> Snapshot { state.withLock { $0 } }
@@ -151,6 +155,7 @@ final class NativeOwnedSmokeSharedState: Sendable {
             if stored.failures.count < 16 { stored.failures.append(failure) }
         }
         observation.record(.fixtureFailure, value: failure.nativeCode)
+        ingressSetup.abort()
     }
 
     func installProvider(_ provider: Win32NativeSmokeProvider, windowKey: NativeWindowKey) -> Bool {
@@ -190,6 +195,7 @@ final class NativeOwnedSmokeSharedState: Sendable {
             observation.record(
                 .ownedCommandReply, windowKey: surface.key, requestID: requestID, generation: surface.generation,
                 nativeSequence: surface.geometry.nativeSequence, value: Int64(ordinal), flags: 1)
+            ingressSetup.noteSuccessfulReply(ordinal: ordinal, requestID: requestID, surface: surface)
         case .failure(let failure):
             observation.record(
                 .ownedCommandReply, requestID: requestID, value: Int64(ordinal), flags: 0)
@@ -215,7 +221,10 @@ final class NativeOwnedSmokeSharedState: Sendable {
         state.withLock { $0.externalResult = result }
     }
 
-    func recordOwnerExit(_ code: Int32) { state.withLock { $0.ownerExitCode = code } }
+    func recordOwnerExit(_ code: Int32) {
+        state.withLock { $0.ownerExitCode = code }
+        ingressSetup.abort()
+    }
 
     func recordLateReply(_ result: Result<NativeWindowSurface, NativeWindowOwnerFailure>) {
         state.withLock { stored in
@@ -233,6 +242,7 @@ final class NativeOwnedSmokeSharedState: Sendable {
             return previous
         }
         withExtendedLifetime(previous) {}
+        ingressSetup.abort()
     }
 }
 

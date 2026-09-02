@@ -748,6 +748,7 @@ public final class Win32Window: PlatformWindow {
     // A legacy window keeps the original HWND path and all headless seams.
     private var nativePump: Win32NativePump?
     private var nativeIngress: Win32NativeEventIngress?
+    private var nativeSmokeIngressSetup: Win32NativeSmokeIngressSetup?
     private var nativePublishedSource: Win32NativeSnapshotSource?
     private var nativeLifetimeKey: NativeWindowKey?
     private var nativeReceivedSequence: UInt64 = 0
@@ -776,6 +777,32 @@ public final class Win32Window: PlatformWindow {
     package var nativeSnapshotSource: (any NativeWindowSnapshotSource)? { nativePublishedSource }
     package var nativeWindowKey: NativeWindowKey? { nativeLifetimeKey }
     package var nativeSurface: NativeWindowSurface? { nativeObservation?.surface ?? nativeCreatedSurface }
+
+    /// Only the fixed fixture installs this before native creation. Ordinary
+    /// windows keep the initializer's default ingress scheduler.
+    package func installNativeSmokeIngressSetup(_ setup: Win32NativeSmokeIngressSetup) throws {
+        guard nativeSmokeIngressSetup == nil, nativePump == nil, nativeIngress == nil, nativeLifetimeKey == nil,
+            hwnd == nil, !ownsRetainedSelfReference, !nativeStartInProgress, !nativeCloseInProgress
+        else { throw NativeWindowOwnerFailure.execution("Native smoke ingress setup requires a new window") }
+        nativeSmokeIngressSetup = setup
+    }
+
+    private func nativeSmokeCurrentIngressSnapshot(
+        expectedIngress: Win32NativeEventIngress, expectedKey: NativeWindowKey
+    ) -> Win32NativeSmokeIngressSnapshot? {
+        let lifetime = closeControl.lifetime
+        return win32NativeSmokeCurrentIngressSnapshot(
+            expectedIngress: expectedIngress, currentIngress: nativeIngress, expectedKey: expectedKey,
+            state: Win32NativeSmokeIngressBindingState(
+                windowKey: nativeLifetimeKey, surfaceKey: nativeSurface?.key, closeLifetimeID: lifetime?.id,
+                hasNativeOwner: nativePump != nil, startInProgress: nativeStartInProgress,
+                closeInProgress: nativeCloseInProgress, closePrepared: nativeClosePrepared,
+                willCloseDelivered: hasDeliveredWillClose, destructionObserved: hasObservedNativeDestruction,
+                terminalCloseDelivered: hasDeliveredNativeTerminalClose, ownerFailed: lastNativeOwnerFailure != nil,
+                creationFailed: lifetime?.creationFailed ?? true,
+                destructionStarted: lifetime?.destructionStarted ?? true,
+                destructionCompleted: lifetime?.destructionCompleted ?? true))
+    }
 
     /// Two boundary reads used by the owned smoke fixture. This only copies
     /// actor state and existing queue snapshots; it never flushes, wakes N,
@@ -1366,6 +1393,10 @@ public final class Win32Window: PlatformWindow {
     /// it, so initial input cannot reach legacy dialog or presentation hooks.
     package func startNative(on pump: Win32NativePump) async throws -> NativeWindowSurface {
         if let surface = nativeSurface { return surface }
+        if let setup = nativeSmokeIngressSetup, pump.smokeObservation == nil {
+            setup.abort()
+            throw NativeWindowOwnerFailure.execution("Native smoke ingress setup requires its observation")
+        }
         guard hwnd == nil, !ownsRetainedSelfReference, !nativeStartInProgress, !nativeCloseInProgress else {
             throw NativeWindowOwnerFailure.execution("Window is already creating or closing")
         }
@@ -1388,16 +1419,33 @@ public final class Win32Window: PlatformWindow {
         let lifetime = closeControl.beginLifetime(generation: windowLifetimeGeneration, id: key.lifetimeID)
         let published = Win32NativeSnapshotSource()
         nativePublishedSource = published
-        let ingress = Win32NativeEventIngress(
-            observation: pump.smokeObservation,
-            receiveFailure: { [weak self] terminal in
-                guard let self, self.nativeLifetimeKey == terminal.windowKey else { return }
-                // A reserved failure is independent of the record queue and
-                // never masquerades as a delivered native input sequence.
-                self.recordNativeFailure(terminal.failure)
-            },
-            receive: { [weak self] record in self?.receiveNativeEvent(record) })
+        let ingress: Win32NativeEventIngress
+        if let setup = nativeSmokeIngressSetup {
+            ingress = Win32NativeEventIngress(
+                observation: pump.smokeObservation, schedule: setup.makeScheduler(),
+                receiveFailure: { [weak self] terminal in
+                    guard let self, self.nativeLifetimeKey == terminal.windowKey else { return }
+                    // A reserved failure is independent of the record queue and
+                    // never masquerades as a delivered native input sequence.
+                    self.recordNativeFailure(terminal.failure)
+                },
+                receive: { [weak self] record in self?.receiveNativeEvent(record) })
+        } else {
+            ingress = Win32NativeEventIngress(
+                observation: pump.smokeObservation,
+                receiveFailure: { [weak self] terminal in
+                    guard let self, self.nativeLifetimeKey == terminal.windowKey else { return }
+                    // A reserved failure is independent of the record queue and
+                    // never masquerades as a delivered native input sequence.
+                    self.recordNativeFailure(terminal.failure)
+                },
+                receive: { [weak self] record in self?.receiveNativeEvent(record) })
+        }
         nativeIngress = ingress
+        nativeSmokeIngressSetup?.bind(windowKey: key) { [weak self, weak ingress] in
+            guard let self, let ingress else { return nil }
+            return self.nativeSmokeCurrentIngressSnapshot(expectedIngress: ingress, expectedKey: key)
+        }
         let caretQuery = Win32NativeCaretQuery { [weak self] captured in
             guard let self, self.nativeLifetimeKey == captured.key, !self.nativeClosePrepared,
                 !self.hasDeliveredWillClose

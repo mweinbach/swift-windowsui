@@ -118,6 +118,8 @@ private struct NativeOwnedSmokeApplication: App {
 /// This fixture uses the real App scene, coordinator, host, runtime, owner and
 /// native factory. Its only bootstrap difference is the existing injection
 /// seam that explicitly disables persisted pacing and startup-probe settings.
+/// After provider acquisition, fixture-only setup can hold normal ingress
+/// delivery; the original explicit query and production turn rules are unchanged.
 @MainActor
 final class NativeOwnedSmokeSession {
     nonisolated let shared: NativeOwnedSmokeSharedState
@@ -154,6 +156,7 @@ final class NativeOwnedSmokeSession {
         }
         let stopOwner = hooks.stopOwner
         hooks.stopOwner = { [shared] in
+            shared.ingressSetup.abort()
             let code = try await stopOwner()
             shared.observation.record(.actorStopConsumed, value: Int64(code))
             return code
@@ -169,6 +172,7 @@ final class NativeOwnedSmokeSession {
                 guard let window = try platform.makeWindow(configuration: windowConfiguration) as? Win32Window else {
                     throw NativeWindowOwnerFailure.unavailable
                 }
+                try window.installNativeSmokeIngressSetup(self.shared.ingressSetup)
                 let host = WinSwiftUIWindowHost(
                     configuration: configuration, platformWindow: window,
                     renderer: self.renderBackendFactory.makeRenderBackend(),
@@ -212,9 +216,11 @@ final class NativeOwnedSmokeSession {
             }
             probe.armNestedQuery(provider)
             shared.observation.record(.providerAcquired, windowKey: key)
+            guard shared.ingressSetup.arm(windowKey: key) else { return }
             var admitted: UInt64 = 0
             for ordinal in UInt32(0)..<UInt32(64) {
                 let requestID = NativeWindowRequestID()
+                shared.ingressSetup.register(ordinal: ordinal, requestID: requestID, windowKey: key)
                 let reply = NativeWindowReply<NativeWindowSurface> { [shared] result in
                     shared.recordReply(ordinal: ordinal, requestID: requestID, result: result)
                 }
@@ -233,7 +239,13 @@ final class NativeOwnedSmokeSession {
         }
     }
 
-    func releaseFirst() { app.model.releaseFirst() }
+    func releaseFirst() {
+        shared.ingressSetup.requestFirstRelease { [weak model = app.model] in
+            guard let model else { return .unavailable }
+            model.releaseFirst()
+            return .invoked
+        }
+    }
 
     func releaseSecond() { app.model.releaseSecond() }
 
@@ -247,6 +259,10 @@ final class NativeOwnedSmokeSession {
                 shared.fail(NativeOwnedSmokeFailure("idle-host-was-released"))
                 return
             }
+            guard shared.ingressSetup.isIdleReady else {
+                shared.fail(NativeOwnedSmokeFailure("idle-ingress-setup-was-not-open"))
+                return
+            }
             let snapshot = host.nativeSmokeSnapshot(phase: app.model.phase)
             shared.recordIdle(snapshot, ending: ending)
             shared.observation.record(
@@ -257,6 +273,7 @@ final class NativeOwnedSmokeSession {
     }
 
     func requestClose() {
+        shared.ingressSetup.abort()
         guard let host, coordinator?.windowCount == 1 else {
             shared.fail(NativeOwnedSmokeFailure("last-window-close-was-not-owned"))
             return

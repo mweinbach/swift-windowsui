@@ -1,8 +1,9 @@
 # Owned native scheduling fixture
 
 `swift-windowsui-native-smoke` is a separate Windows executable for one bounded
-qualification attempt. Its source is implemented; compilation, generated test
-registration, tests, and native execution are **unrun** at this source handoff.
+qualification attempt. Its implementation has run in focused native attempts;
+the latest saved attempt at `1aacbb2` passed 24 of 27 predicates and failed.
+The fixture is not yet qualified.
 It does not add an application mode, change `App.main`, or turn the previous
 standalone dispatch scheduling result into host qualification.
 
@@ -43,7 +44,8 @@ actor callback to run off N; they do not equate MainActor with the entry thread
 or require all actor callbacks to use one physical thread.
 
 Automatic ingress turns remain limited to 32 records and native command turns
-to 16. The fixture does not force a backlog by changing scheduling. If it does
+to 16. The owned fixture now includes setup to prepare a real backlog before
+measurement; it does not hold or reorder measured continuations. If it does
 not observe a full 32-record turn with remaining backlog and unrelated actor
 progress before the following turn, fairness is unexercised. If all other
 predicates succeed, the intended exit is 2 (inconclusive), not 0.
@@ -282,3 +284,53 @@ method changes the observation source pin: an output-contract successor must
 pin the exact reviewed file and retain the earlier 0...84 event encodings.
 Any later compilation, test run, binding or native attempt remains a separate
 root-owned decision.
+
+
+## Backlog preparation for the owned fixture
+
+Only the native smoke session installs `Win32NativeSmokeIngressSetup` on its
+fresh facade, before native HWND creation and only with its smoke observer.
+Normal hosts keep the original ingress initializer. Setup remains dormant
+during startup, so ordinary ingress delivery continues. Arming follows provider
+acquisition and precedes the original 64 submissions.
+Each original request ID is registered before submission. Only its actual
+successful reply supplies a readiness receipt; the existing reply mask still
+records both successful and failed replies.
+
+Preparation parks at most one original automatic ingress operation. The direct
+C query at ordinal 31 still performs its real synchronous prefix flush. The
+remaining ordinals 31 through 63 must all produce distinct successful receipts
+for the original window lifetime and ordered native sequences. Selection also
+requires the original first-release request and all 64 registrations. It adds
+no native command, probe, timer, sleep, polling, or replacement workload.
+
+On the actor, the selected candidate task forwards the original release
+request and then checks the current facade, original ingress, window/surface
+keys, close lifetime, lifecycle flags, and copied queue state. Preparation
+requires at least 33 queued records, accepted sequence through the suffix, no
+committed suffix record, an existing scheduled turn, and no in-flight or
+terminal failure. An intervening legitimate flush aborts setup without refill
+or rearm. The helper permanently opens and invokes the original operation in
+the same actor segment. Measured continuations retain their original one-Task
+scheduling, 32-record limit, token ownership, and observations.
+
+Successfully resuming the parked continuation makes the model runnable;
+invoking the release relay alone proves neither successful resumption nor model
+progress. Only the actual resumed trace record proves progress. The 33 new
+async `Win32NativeSmokeIngressSetupTests` use the real in-memory ingress and a
+manual actor driver, not an HWND or native query.
+They include both possible actor choices: selecting the ingress successor
+before the runnable model leaves the original fairness predicate false. The
+new source tests remain unexecuted at integration; actual results belong to
+separately recorded source-bound runs.
+
+Abort and teardown preserve ownership of the original operation for one
+invocation on A and attempt an existing pending release at most once. Missing
+weak model or invalid current binding prevents preparation. These paths assume
+the queued actor work executes; they do not promise completion after a hard
+exit or a stopped executor. Idle readiness additionally requires no held or
+selected setup work or unforwarded release; the existing host snapshot still
+checks the actual
+ingress queue and reservation. All 27 predicates, original work/query order,
+trace limits, three-second idle interval and internal/external deadlines remain
+unchanged. The earlier 24/27 result is not reclassified by this preparation.

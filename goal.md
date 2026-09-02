@@ -16101,3 +16101,81 @@ interpolation, plurals, catalogs, Markdown, resource wrappers and control-title
 paths remain unfinished. No native-reference, glyph-rendering or performance
 qualification follows from this bounded lookup implementation. **All nine
 original completion gates remain open.**
+
+### Ninth batch: Text bundle/table selection passed on d60f791
+
+The twelve new localization tests and eight unchanged Text regressions compiled
+and executed on `d60f791`: **20 passed, 0 failed, 0 skipped**. The build took
+273.31 seconds; the selected tests took 0.117 seconds. The actual tool and child
+both exited zero. Root reconciled the exact twenty starts and terminal records,
+the complete raw footer, and unchanged source/index endpoints in
+`artifacts/goal-ninth-text20-d60f791-reconciled-v1.json`. The run is retained in
+`artifacts/text20-d60f791-34463271570d4c63aca58e13ec0f4137`; its raw log is 15,415
+bytes with SHA256
+`33c1f2e11857f7d764c042f7b0d724db8f41e36fce57ff17fb2aafbe20db6308`.
+The build emitted existing linker and Sendable warnings. This is focused
+retained-text evidence, not a full suite, pixel comparison, native reference,
+environment-locale update or complete localization qualification.
+
+### Ninth batch: isolated dashboard Refresh failed and closed normally
+
+The fixed single Refresh selection actually compiled and ran on `d60f791`.
+It produced **0 passed, 1 failed, 0 skipped**, with two failure diagnostics
+(one unexpected), and a complete failed XCTest and script footer. Original test
+line 74 reported that the actual dashboard task did not return; the helper then
+threw `timedOut`. The selected test took 88.19 seconds; the build took 2.27
+seconds. That helper error is not the supervisor's timeout: the original
+900-second supervision deadline did not expire. The retained direct process
+exited 1, its private owned Job was observed empty, and resource cleanup and
+signal-handler restoration completed without termination or uncertainty.
+The actual tool closed with exit 1 (`e372e7`); supervised elapsed time was
+96.688 seconds. This run does not require operator cleanup before another
+SwiftPM run. Older native/display cleanup restrictions are unchanged.
+
+The trace contains 24 complete, balanced records, including fixture close,
+case exit and observer removal. It lacks the third render required by the
+thirty-record success profile. Both the unchanged success-only raw parser and
+the unchanged phase parser correctly refused success. Root's separate failure
+reconciliation preserves those results, verifies the complete failed raw
+sequence, and checks all 1,198 tracked files against both source endpoints:
+`artifacts/goal-ninth-dashboard-refresh-d60-closed-failure-v1.json`.
+The original run is
+`artifacts/dashboard-refresh-d60-owned-5acf491b52cb4aadb60ecff61fcc5235`.
+Its raw log is 1,971 bytes, SHA256
+`ddd4779c2ba323f271c9d63d5bb948946aa7f147a1424d5acc1bf04ae2448bb0`;
+its trace is 1,983 bytes, SHA256
+`e6adb2e35cec980752d2e4cff95cc8178bbe6651fd0e9caa416fd0bf45826fd3`.
+An independent saved-artifact review agrees. A later process census was empty;
+that census is only a point observation. Owned closure comes from the retained
+process and Job observations, not from process-name discovery.
+
+The preceding pure checks passed separately: 85 parser/controller tests, two
+additional ownership tests, and twelve tests for the exact d60 source-pin
+update. Their logs are `goal-ninth-dashboard-owned-refresh-root-pure85-v1.log`,
+`goal-ninth-dashboard-owned-refresh-root-pure2-v1.log`, and
+`goal-ninth-dashboard-refresh-d60-root-pure12-v1.log` under `artifacts/`.
+They do not turn the actual failed Refresh case into a pass or qualify an
+ordinary native window. Source investigation of the task/waiter failure remains
+necessary; the recorded failure text alone does not identify its cause.
+
+### Ninth batch: preserve cleanup boundaries with corrected test expectations
+
+Five existing cancellation tests now distinguish the original completion
+boundary from the later resolver return. At the existing completion observer,
+the original owner identity and binding permission must still be intact. At
+return, the original receipt must refuse binding writes after the later owner
+replacement, while the original source's physical continuation, parent,
+runtime and membership checks remain intact. The already-read roots must be
+exactly the gap/separator plus the owned row-899 leaf, rather than treating both
+roots as eligible leaves. No production behavior, callback order, query,
+budget, action or test-method name changed; the body-close test is byte-identical.
+
+Root reviewed the full test-only correction and independently verified its
+literal replacements. The supplied staged inverse restores the entire
+`d60f791` tree (`artifacts/goal-ninth-cleanup-oracle-staged-inverse-v1.json`).
+Formatting and architecture checks passed in
+`artifacts/goal-ninth-cleanup-oracle-lint-contracts-v1.log`.
+The corrected five methods still require fresh execution. Earlier failing
+sources and results remain recorded, and this correction does not revive a
+revoked declaration or itself fix the restored-button or keyboard defects.
+**All nine original completion gates remain open.**

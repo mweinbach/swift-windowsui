@@ -6,8 +6,8 @@ import XCTest
 
 /// Real managed List callbacks, with the ordinary four-round/128-element budget.
 /// Late cancellation cannot undo the row table that was already accepted.
-/// This diagnostic keeps the original failing oracles and records only
-/// scalar observations. It does not qualify replacement owners or rows.
+/// This diagnostic records scalar observations around the same cleanup
+/// boundaries. It does not qualify replacement owners or rows.
 @MainActor
 final class ManagedListTargetCleanupPhaseDiagnosticsTests: XCTestCase {
     func testInitialOnChangeCancellationRefusesCompletionAndFinishesOriginalBuild() async throws {
@@ -41,8 +41,21 @@ final class ManagedListTargetCleanupPhaseDiagnosticsTests: XCTestCase {
                     probe.diagnosticSecondRoot = fixture.diagnosticRootSnapshot(acceptedRoots[1])
                 }
             }
-            XCTAssertEqual(acceptedRoots?.count, 1)
+            // One authored row contributes its presentation gap and actual row.
+            XCTAssertEqual(acceptedRoots?.count, 2)
             XCTAssertTrue(acceptedRoots?.first?.parent === fixture.content)
+            XCTAssertEqual(acceptedRoots?.first?.isSeparatorRule, true)
+            XCTAssertNotNil(acceptedRoots?.first?.retainedLazyListGap)
+            XCTAssertNil(acceptedRoots?.first?.listNavigationOwner)
+            if let row = acceptedRoots?.last {
+                XCTAssertFalse(row.isSeparatorRule)
+                XCTAssertNil(row.retainedLazyListGap)
+                XCTAssertNotNil(row.listNavigationOwner)
+                XCTAssertTrue(row.parent === fixture.content)
+                XCTAssertTrue(row.retainedLazyListRuntime === fixture.runtime)
+                XCTAssertEqual(DeferredListRowNavigation.attached(to: row)?.ordinal, 899)
+                XCTAssertEqual(DeferredListRowNavigation.attached(to: row)?.leaf, 0)
+            }
             XCTAssertNotNil(fixture.host.find(targetCleanupPhaseDiagnosticIdentifier(899)))
             if point == .initialAction {
                 XCTAssertEqual(probe.payloadReleases, 0)
@@ -67,6 +80,9 @@ final class ManagedListTargetCleanupPhaseDiagnosticsTests: XCTestCase {
                 XCTAssertTrue(fixture.adapter.hasUnresolvedWork)
                 XCTAssertEqual(probe.payloadReleases, 1)
                 XCTAssertNil(probe.bodyPayload)
+                // Cancellation does not retire the source during this cleanup.
+                XCTAssertTrue(fixture.receipt.permitsBindingWrite)
+                XCTAssertTrue(fixture.source.listNavigationOwner === fixture.sourceOwner)
             }
         }
         switch point {
@@ -94,10 +110,15 @@ final class ManagedListTargetCleanupPhaseDiagnosticsTests: XCTestCase {
         XCTAssertEqual(fixture.host.coordinator.registry.retiringOwnerCount, 0)
         XCTAssertFalse(fixture.runtime.hasActiveRetainedBuild)
         XCTAssertFalse(fixture.runtime.retainedBuildCoordinator.hasPendingNativeWork)
-        XCTAssertTrue(fixture.receipt.permitsBindingWrite)
-        XCTAssertTrue(fixture.source.listNavigationOwner === fixture.sourceOwner)
+        // The later viewport rebuild replaces declarations on the same source.
+        // Its original receipt can continue physically, but cannot write again.
+        XCTAssertFalse(fixture.receipt.permitsBindingWrite)
+        XCTAssertNotNil(fixture.source.listNavigationOwner)
+        XCTAssertFalse(fixture.source.listNavigationOwner === fixture.sourceOwner)
+        XCTAssertTrue(fixture.receipt.permitsContinuation)
         XCTAssertTrue(fixture.source.parent === fixture.content)
         XCTAssertTrue(fixture.source.retainedLazyListRuntime === fixture.runtime)
+        XCTAssertTrue(fixture.content.children.contains { $0 === fixture.source })
         XCTAssertEqual(probe.selection, 899)
         XCTAssertEqual(fixture.scroll.scrollOffset, fixture.originalOffset)
         XCTAssertTrue(fixture.runtime.focusedNode === fixture.originalFocus)

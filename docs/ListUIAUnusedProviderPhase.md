@@ -14,8 +14,9 @@ below are not runtime execution evidence.
 
 ## Issue and ownership
 
-Runtime issues the native record only after an ordinary charged measurement
-batch returned unchanged, before either reader or provider phase entered. The
+Runtime can issue the native record after an ordinary charged measurement
+batch returned unchanged, or after that batch's one required actual correction
+pass as detailed below. Either boundary precedes reader and provider entry. The
 terminal comparison requires accepted measurements and gap provenance, no
 unresolved reader, no anchor correction, and no pending callback work. This must
 be the original, nonrendering, unnested initial UIA preparation, before any target
@@ -176,3 +177,61 @@ replace the unchanged default-four, eight, sixteen, exhausted-1x1, or generic
 far-300 assertions. This source concern is not evidence of a demonstrated public
 UIA animation failure. Runtime execution remains necessary for all new tests
 and the original budget regression.
+
+## First issuance after an initial measurement correction
+
+A plain public List estimates the minimum row plus its separator. The first
+actual row has no predecessor separator, so accepting its thirty-point extent
+can require a correction to the thirty-one-point estimate even when the app's
+unchanged row requests a twenty-four-point frame. Entering reader/provider work
+before that required pass spends the phase while its old visit is stale. This
+case may instead run the same paid measurement's required actual pass before
+either remaining phase enters. It creates no extra query or measurement.
+
+Only the original typed initial preparation may try this once, before any
+request, demand, issued phase, or earlier correction attempt. The original
+preparation, budget, and resolution sequence captured before measurement must
+still match. Pending native work, unresolved existing readers, anchor work,
+incomplete list cohorts, active scrolling, and checked overflow decline this
+path and leave the original flow intact.
+
+Before the pass, a scoped helper captures original native inputs and releases
+all temporary strong references. The proof reuses weak actual-tree completion,
+list layout and accepted-record proofs, and ordered list/reader cohorts. It also
+keeps weak node/lease references with presence, construction nonce, local layout
+identity, reader built size, and scalar gap inputs for the actual tree. Capturing
+absence detects a body assigned to an original nonreader after its visit. This
+adds work proportional to the mounted actual tree, not an unknown logical-row
+scan. No application payload, old prepaint snapshot, callback, body, lease,
+State owner, or actual row is kept alive by the proof.
+
+The original geometry, accessibility mutation, presentation, sequence, pass,
+scale, scroll, budget/count, and weak ownership facts must survive the complete
+pass. Paint-only mutations therefore reject even when geometry did not change.
+Resolved frames, content sizes, and reader slots are outputs, not equal-to-old
+input requirements. Existing strict save/terminal checks decide whether their
+new values are ready; the old weak input proof is never refreshed.
+
+If capture is ineligible, ordinary ordering continues. If the moved pass loses
+its original proof, only that preparation becomes inactive and normal query
+epilogues and owed cleanup still run. If its proof survives, the unchanged save
+helper may issue the first record. If strict save refuses nonterminal outputs,
+the still-unentered reader and provider phases run once under the same debit.
+An unchanged result does not skip the original terminal check or next paid
+measurement decision.
+
+This last fallback can require two actual passes under one phase debit: the
+moved measurement correction and at most one necessary post-phase pass. A
+provider's coordinator start invalidates geometry even if its build returns
+unchanged, so Boolean work results alone cannot waive that second pass. If the
+corrected pass remains valid and no work changes, no duplicate pass runs. There
+is no inner retry, second measurement, second phase execution, refund, or new
+debit in that iteration. Ordinary epilogues retain their separate existing work.
+
+The saved/resumed revision table, one-issue rule, strict currentness checks, and
+all query epilogues above remain unchanged. A resumed phase still receives its
+existing post-provider actual pass. `LazyListUIAMeasurementCorrectionTests` adds
+focused original-input, lifetime, cohort, overflow, output-slot, and fallback
+accounting coverage. The old public budget and UIA tests remain unchanged and
+must execute, together with the new cases, before this candidate is considered
+a demonstrated repair.

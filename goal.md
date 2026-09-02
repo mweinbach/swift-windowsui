@@ -12670,3 +12670,47 @@ the check compared **26 methods in three files**, not 26 files. The actual file
 roster and byte comparisons are unchanged; this clarification does not rewrite
 that frozen receipt. No full-suite, native-window, gallery, hardware, hosted-CI,
 clean-machine delivery or complete SwiftUI compatibility pass is inferred.
+
+
+### Ninth integration: initial measurement correction and bounded FileBrowser diagnosis
+
+The reviewed initial accessibility measurement correction is integrated on top
+of `3a704bf518cb37220865c761d69bee95d289e437`. It moves one already-owed layout
+pass before an unentered reader/provider phase within the same paid preparation
+round. It does not add a round, retry, measurement, debit refund or larger budget.
+The original preparation, sequence, actual-tree completion and weak native input
+witnesses must still be current; stale evidence cannot authorize the remaining
+phase. Ineligible preparations keep their existing path, and an unsaved fallback
+may still require its ordinary later pass.
+
+Fourteen new methods cover quiet/default-four correction, restored inputs,
+late reader bodies, expired leases, paint changes, checked work exhaustion,
+queued work, changed output slots, multiple lists and necessary fallback passes.
+All 646 existing test files, Package.swift and the prior goal text were preserved.
+The staged three-file source proof is
+`artifacts/goal-ninth-uia-measurement-root-staged-proof-v1.json`. Strict lint on
+both changed Swift files and architecture contracts passed. These are source
+checks, not an executed correction result: the original accessibility failures,
+the new fourteen methods and the wider Core/List cohorts still need fresh runs.
+
+Before this source change, a separate unchanged eleven-method trace-writer smoke
+ran on `3a704bf` and passed all eleven cases, with zero failures or skips, in a
+natural 5.610-second process run. It exercises independent-handle visibility
+before writer close, not cross-process durability. Its reconciliation is
+`artifacts/goal-ninth-writer11-smoke-3a704bf-reconciled-v1.json`.
+
+The subsequent original fourteen-method FileBrowser diagnostic on that same
+commit reached its unchanged 900-second deadline. The runner reported timeout
+124; its outer command and terminated direct wrapper reported 1. The raw XCTest
+log remained 249 bytes and reported no individual outcomes, so all fourteen
+outcomes remain unknown. Trace callbacks show progress but are not XCTest passes
+or proof of a deadlock. The run is
+`artifacts/file14-diagnostic-3a704bf-6618adc990174956a03de16200cc0e3b`.
+Root then verified all six recorded process creation identities, terminated only
+the retained test-process handle, and observed all six closed. A later CIM census
+found none of those PIDs or observed descendants; it is a point-in-time check.
+The cleanup and census receipts are
+`artifacts/goal-ninth-file14-3a704bf-owned-process-closure-v1.json` and
+`artifacts/goal-ninth-file14-3a704bf-post-closure-all-recorded-v1.json`.
+No longer timeout, smaller fixture, retry or passing FileBrowser result is
+introduced. All nine original completion gates remain open.

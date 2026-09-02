@@ -12656,6 +12656,7 @@ fileprivate final class RetainedLazyListAccessibilityPreparation {
     let enforcesUIAConstructionIntent: Bool
     var isActive = true
     var hasIssuedUnusedProviderPhase = false
+    var hasAttemptedInitialMeasurementCorrection = false
 
     init(
         token: RetainedLazyListRowToken, witness: RetainedLazyListAccessibilityItem,
@@ -13953,6 +13954,85 @@ public final class RetainedViewRuntime {
     }
 
     private var unusedLazyListUIAProviderPhase: LazyListUIAUnusedProviderPhase?
+
+    /// The inputs to one owed measurement-correcting pass, before this paid
+    /// iteration has entered either its reader or provider phase. This is not
+    /// an unused phase and cannot authorize construction or final settlement.
+    @MainActor
+    private struct LazyListUIAMeasurementCorrection {
+        @MainActor
+        struct NodeInput {
+            weak var node: ViewNode?
+            weak var lease: (any RetainedSubtreeBuildLease)?
+            let hadLease: Bool
+            let hadReaderBody: Bool
+            let constructionIdentity: RetainedLazyListAttachmentIdentity
+            let layout: RetainedLazyListLocalLayoutProof
+            let builtSize: Size?
+            let gap: RetainedLazyListGap?
+
+            init(_ node: ViewNode) {
+                self.node = node
+                lease = node.retainedSubtreeBuildLease
+                hadLease = node.retainedSubtreeBuildLease != nil
+                hadReaderBody = node.geometryReaderBuild != nil
+                constructionIdentity = node.captureGeometryReaderConstructionIdentity()
+                layout = node.captureLazyListLocalLayoutProof()
+                builtSize = node.geometryReaderBuiltSize
+                gap = node.retainedLazyListGap
+            }
+
+            var isCurrent: Bool {
+                guard let node, layout.isCurrent,
+                    node.geometryReaderConstructionIdentity === constructionIdentity,
+                    (node.geometryReaderBuild != nil) == hadReaderBody,
+                    node.geometryReaderBuiltSize == builtSize, node.retainedLazyListGap == gap
+                else { return false }
+                if hadLease {
+                    guard let lease, node.retainedSubtreeBuildLease === lease else { return false }
+                } else if node.retainedSubtreeBuildLease != nil {
+                    return false
+                }
+                // Resolved frames and content sizes are outputs of this pass.
+                // A changed reader slot must reach the ordinary reader phase.
+                return true
+            }
+        }
+
+        @MainActor
+        struct ListInput {
+            weak var node: ViewNode?
+            weak var adapter: RetainedLazyListRuntimeAdapter?
+            weak var scroll: ViewNode?
+            let layout: RetainedLazyListRuntimeAdapter.LayoutProof
+            let records: RetainedLazyListRuntimeAdapter.UIAActualRecordsProof
+            let scrollEpoch: RetainedScrollSourceEpoch?
+            let scrollIntent: RetainedLazyListAttachmentIdentity
+        }
+
+        weak var root: ViewNode?
+        weak var preparation: RetainedLazyListAccessibilityPreparation?
+        weak var budget: RetainedLazyListWorkBudget?
+        let reservation: LazyListUIAProviderPhaseReservation
+        let expectedPassID: UInt64
+        let displayScale: Double
+        let displayScaleIdentity: RetainedLazyListAttachmentIdentity
+        let scrollIntent: RetainedLazyListAttachmentIdentity
+        let prepaintGeneration: PrepaintSnapshotIdentity
+        let traversalOverflowCount: Int
+        let scrollWorkDepth: Int
+        let remainingElements: Int
+        let remainingRounds: Int
+        let order: [ObjectIdentifier]
+        let lists: [ListInput]
+        let readers: [WeakViewNodeRef]
+        let inputs: [NodeInput]
+        let actualTree: RetainedLazyListAdoptionCompletion
+    }
+
+    private enum LazyListUIAMeasurementCorrectionOutcome {
+        case ineligible, invalidated, saved, remainingPhases
+    }
 
     private struct LazyListLeafMeasurement {
         let token: RetainedLazyListRowToken
@@ -20056,10 +20136,23 @@ public final class RetainedViewRuntime {
                 guard legacyRounds < Self.geometryReaderConvergenceLimit else { return }
             }
             var changed = lazyListAnchorNeedsLayout
+            var measurementCorrectionPassID: UInt64?
             if !changed {
                 recordLazyListUIAPhase(.measurementPhase)
                 changed = recordResolvedLazyListMeasurements()
-                if !changed, let chargedBudget, saveUnusedLazyListUIAProviderPhase(chargedTo: chargedBudget) {
+                if changed, let chargedBudget, let preparation = uiaPreparation {
+                    switch correctInitialLazyListUIAMeasurements(
+                        for: preparation, chargedTo: chargedBudget, during: resolutionSequence)
+                    {
+                    case .ineligible:
+                        break
+                    case .invalidated, .saved:
+                        return
+                    case .remainingPhases:
+                        measurementCorrectionPassID = layoutPassID
+                        changed = false
+                    }
+                } else if !changed, let chargedBudget, saveUnusedLazyListUIAProviderPhase(chargedTo: chargedBudget) {
                     return
                 }
                 recordLazyListUIAPhase(.readerPhase)
@@ -20075,12 +20168,30 @@ public final class RetainedViewRuntime {
                 recordLazyListUIAPhase(.providerPhase)
                 if let budget = lazyListResolutionBudget, resolveLazyListContainers(budget: budget) { changed = true }
             }
-            guard changed else {
+            guard changed || measurementCorrectionPassID != nil else {
                 if let chargedBudget { _ = captureLazyListUIATargetPass(chargedTo: chargedBudget) }
                 return
             }
             legacyRounds += 1
-            runLayoutPass()
+            if let measurementCorrectionPassID {
+                guard layoutPassID == measurementCorrectionPassID,
+                    chargedBudget === lazyListResolutionBudget,
+                    resolutionSequence == layoutSettlementResolutionSequence,
+                    let preparation = uiaPreparation, isLazyListUIAConstructionCurrent(preparation)
+                else {
+                    uiaPreparation?.isActive = false
+                    return
+                }
+            }
+            // A round pays for one measurement and one reader/provider phase,
+            // not a universal single-pass limit. The narrow correction fallback
+            // owes at most one further actual pass: beginBuild can invalidate
+            // the corrected pass even when the provider returns unchanged.
+            if changed || measurementCorrectionPassID == nil
+                || lastUnmutatedLayoutPassRevision != layoutSettlementGeometryRevision
+            {
+                runLayoutPass()
+            }
             if let chargedBudget, chargedBudget === lazyListResolutionBudget,
                 resolutionSequence == layoutSettlementResolutionSequence,
                 captureLazyListUIATargetPass(chargedTo: chargedBudget)
@@ -24048,6 +24159,159 @@ extension RetainedViewRuntime {
         }
         current = true
         return true
+    }
+
+    /// Build this value in a separate scope so no traversal temporary, body,
+    /// lease, old prepaint, or actual row remains strongly held across layout.
+    private func captureInitialLazyListUIAMeasurementCorrection(
+        for preparation: RetainedLazyListAccessibilityPreparation,
+        chargedTo budget: RetainedLazyListWorkBudget, during resolutionSequence: UInt64
+    ) -> LazyListUIAMeasurementCorrection? {
+        let nextPass = layoutPassID.addingReportingOverflow(1)
+        guard lazyListUIAConstructionPreparation === preparation,
+            layoutSettlementResolutionSequence == resolutionSequence,
+            !preparation.hasAttemptedInitialMeasurementCorrection, !preparation.hasIssuedUnusedProviderPhase,
+            isLazyListUIAConstructionCurrent(preparation), lazyListUIARequest == nil,
+            unusedLazyListUIAProviderPhase == nil, lazyListResolutionBudget === budget, budget.remainingRounds > 0,
+            isResolvingLayoutFrame, isUpdatingResolvedLayout, isResolvingLayoutSettlement,
+            !isRendering, !isLayoutInProgress, lazyListResolutionDepth == 1, lazyListScrollWorkDepth > 1,
+            !isResolvingLazyListLogicalTarget, !hasPendingLazyListUIACallbackWork,
+            scrollPresentedTweens.isEmpty, let scroll = preparation.scroll, isQuietLazyListUIAScroll(scroll),
+            !nextPass.overflow, oldUIAPrepaintNodesRemainTreeOwned(),
+            !pendingLazyListOrder.isEmpty, pendingLazyListOrder.count == pendingLazyListVisits.count,
+            Set(pendingLazyListOrder).count == pendingLazyListOrder.count,
+            pendingLazyListVisits.count == lazyListRegistrations.count,
+            pendingLazyListMeasurements.keys.allSatisfy({ pendingLazyListVisits[$0] != nil }),
+            let reservation = LazyListUIAProviderPhaseReservation(
+                geometryRevision: layoutSettlementGeometryRevision, mutationRevision: preparation.mutation.revision,
+                resolutionSequence: resolutionSequence,
+                presentationRevision: presentationMutationRevision)
+        else { return nil }
+
+        var lists: [LazyListUIAMeasurementCorrection.ListInput] = []
+        for key in pendingLazyListOrder {
+            guard let visit = pendingLazyListVisits[key], visit.passID == layoutPassID,
+                visit.attachment.isCurrent, visit.scrollAttachment?.isCurrent == true,
+                let node = visit.node, let adapter = visit.adapter, let owner = visit.scrollContainer,
+                node.runtime === self, owner.runtime === self, node.retainedLazyListAdapter === adapter,
+                node.lastLayoutVisitPassID == layoutPassID, owner.lastLayoutVisitPassID == layoutPassID,
+                node.retainedSubtreeBuildLease != nil, adapter.permitsStandaloneBuild, adapter.ownsAttachment(node),
+                lazyListRegistrations[key]?.node === node, lazyListRegistrations[key]?.adapter === adapter,
+                let layout = adapter.captureLayoutProof(), let records = adapter.captureUIAActualRecordsProof()
+            else { return nil }
+            lists.append(
+                .init(
+                    node: node, adapter: adapter, scroll: owner, layout: layout, records: records,
+                    scrollEpoch: owner.scrollSourceEpoch, scrollIntent: owner.captureLazyListScrollIntentIdentity()))
+        }
+        guard lists.contains(where: { $0.node === preparation.witness.content }),
+            let actualTree = RetainedLazyListAdoptionCompletion(of: root)
+        else { return nil }
+        var pending = [(node: root, depth: 0)]
+        var visited: Set<ObjectIdentifier> = []
+        var inputs: [LazyListUIAMeasurementCorrection.NodeInput] = []
+        while let entry = pending.popLast() {
+            guard entry.depth < ViewNode.maximumTraversalDepth, entry.node.runtime === self,
+                !entry.node.isRetiringLazyListAttachment,
+                visited.insert(ObjectIdentifier(entry.node)).inserted
+            else { return nil }
+            inputs.append(.init(entry.node))
+            for child in entry.node.children {
+                guard child.parent === entry.node else { return nil }
+                pending.append((node: child, depth: entry.depth + 1))
+            }
+        }
+        guard
+            pendingGeometryReaderNodes.allSatisfy({
+                guard let node = $0.node else { return false }
+                return visited.contains(ObjectIdentifier(node)) && node.geometryReaderBuild != nil
+            }), actualTree.isCurrent, inputs.allSatisfy({ $0.isCurrent })
+        else { return nil }
+        return LazyListUIAMeasurementCorrection(
+            root: root, preparation: preparation, budget: budget, reservation: reservation,
+            expectedPassID: nextPass.partialValue,
+            displayScale: displayScale, displayScaleIdentity: displayScaleIdentity,
+            scrollIntent: preparation.scrollIntent, prepaintGeneration: prepaintState.generation,
+            traversalOverflowCount: ViewNode.traversalDepthOverflowCount, scrollWorkDepth: lazyListScrollWorkDepth,
+            remainingElements: budget.remainingElements, remainingRounds: budget.remainingRounds,
+            order: pendingLazyListOrder, lists: lists, readers: pendingGeometryReaderNodes,
+            inputs: inputs, actualTree: actualTree)
+    }
+
+    private func initialLazyListUIAMeasurementCorrectionIsCurrent(
+        _ correction: LazyListUIAMeasurementCorrection
+    ) -> Bool {
+        guard correction.root === root, let preparation = correction.preparation, let budget = correction.budget,
+            lazyListUIAConstructionPreparation === preparation, isLazyListUIAConstructionCurrent(preparation),
+            preparation.hasAttemptedInitialMeasurementCorrection, !preparation.hasIssuedUnusedProviderPhase,
+            lazyListUIARequest == nil, unusedLazyListUIAProviderPhase == nil, lazyListResolutionBudget === budget,
+            budget.remainingElements == correction.remainingElements,
+            budget.remainingRounds == correction.remainingRounds,
+            layoutPassID == correction.expectedPassID,
+            layoutSettlementGeometryRevision == correction.reservation.originalGeometryRevision,
+            lastUnmutatedLayoutPassRevision == correction.reservation.originalGeometryRevision,
+            preparation.mutation.revision == correction.reservation.originalMutationRevision,
+            layoutSettlementResolutionSequence == correction.reservation.originalResolutionSequence,
+            presentationMutationRevision == correction.reservation.originalPresentationRevision,
+            displayScale == correction.displayScale, displayScaleIdentity === correction.displayScaleIdentity,
+            preparation.scrollIntent === correction.scrollIntent,
+            prepaintState.generation === correction.prepaintGeneration,
+            ViewNode.traversalDepthOverflowCount == correction.traversalOverflowCount,
+            isResolvingLayoutFrame, isUpdatingResolvedLayout, isResolvingLayoutSettlement,
+            !isRendering, !isLayoutInProgress, lazyListResolutionDepth == 1,
+            lazyListScrollWorkDepth == correction.scrollWorkDepth, !isResolvingLazyListLogicalTarget,
+            !lazyListUnsupportedThisPass, pendingLazyListAnchorClamps.isEmpty, !lazyListAnchorNeedsLayout,
+            !lazyListScrollSearchNeedsMoreWork, !isProbingLazyListScrollTarget,
+            retainedBuildCoordinatorStorage?.hasPendingNativeWork != true,
+            longPressReconciliationDepth == 0, !isDrainingReconciliationCallbacks,
+            pendingLongPressCallbacks.isEmpty, pendingRetainedBuildCompletions.isEmpty,
+            !isDeliveringRenderLifecycleCallbacks, renderLifecycleTaskCancellationDepth == 0,
+            retiredPreparedListNavigationRetirements.isEmpty,
+            !isDrainingAfterLayoutActions, pendingAfterLayoutActionKeys.isEmpty, pendingAfterLayoutActions.isEmpty,
+            pendingPreciseScrollAlignments.isEmpty,
+            !isDrainingPresentationFocusRequests, pendingPresentationFocusRequests.isEmpty,
+            scrollObserverRegistry?.isDelivering != true,
+            !isDrainingListNavigationReveal, pendingListNavigationReveal == nil, consumingListNavigationReveal == nil,
+            scrollPresentedTweens.isEmpty, let scroll = preparation.scroll, isQuietLazyListUIAScroll(scroll),
+            pendingLazyListOrder == correction.order, pendingLazyListVisits.count == correction.lists.count,
+            lazyListRegistrations.count == correction.lists.count,
+            pendingGeometryReaderNodes.count == correction.readers.count,
+            zip(pendingGeometryReaderNodes, correction.readers).allSatisfy({ pair in pair.0.node === pair.1.node }),
+            correction.actualTree.isCurrent, correction.inputs.allSatisfy({ $0.isCurrent })
+        else { return false }
+        for (key, list) in zip(correction.order, correction.lists) {
+            guard let node = list.node, let adapter = list.adapter, let scroll = list.scroll,
+                list.layout.isCurrent, list.records.isCurrent, adapter.permitsStandaloneBuild,
+                node.retainedLazyListAdapter === adapter, adapter.ownsAttachment(node),
+                lazyListRegistrations[key]?.node === node, lazyListRegistrations[key]?.adapter === adapter,
+                let visit = pendingLazyListVisits[key], visit.node === node, visit.adapter === adapter,
+                visit.scrollContainer === scroll, scroll.scrollSourceEpoch == list.scrollEpoch,
+                scroll.lazyListScrollIntentIdentity === list.scrollIntent
+            else { return false }
+        }
+        return true
+    }
+
+    private func correctInitialLazyListUIAMeasurements(
+        for preparation: RetainedLazyListAccessibilityPreparation,
+        chargedTo budget: RetainedLazyListWorkBudget, during resolutionSequence: UInt64
+    ) -> LazyListUIAMeasurementCorrectionOutcome {
+        guard
+            let correction = captureInitialLazyListUIAMeasurementCorrection(
+                for: preparation, chargedTo: budget, during: resolutionSequence)
+        else { return .ineligible }
+        correction.preparation?.hasAttemptedInitialMeasurementCorrection = true
+        runLayoutPass()
+        guard initialLazyListUIAMeasurementCorrectionIsCurrent(correction) else {
+            // Only this original preparation is failed. Query epilogues and
+            // already-owed build/lifetime cleanup remain in their normal scopes.
+            correction.preparation?.isActive = false
+            return .invalidated
+        }
+        if saveUnusedLazyListUIAProviderPhase(chargedTo: budget) { return .saved }
+        // No proof is refreshed and no phase is retried. A changed output slot
+        // or a newly needed provider reaches this iteration's ordinary phases.
+        return .remainingPhases
     }
 
     /// Called only between measurement publication and the still-unentered

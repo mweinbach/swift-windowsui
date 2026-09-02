@@ -14855,3 +14855,121 @@ One new async companion preserves the entire original 5,824-byte method and 2,54
 Three fixed records read only the original selection getter/setter and outer/GeometryReader build counters: before the existing Next helper, immediately after its saved action returns, and after its existing explicit render returns. A synchronous nonescaping main-actor tuple reader captures only the four existing Int boxes, is called once, and captures no host, node, owner, binding, or action. Maximum record sizes including CRLF are 143, 147, and 152 bytes, below the fixed 512-byte bound. No extra query, traversal, binding access, mutation, action, render, reload, await, clock, retry, or settlement allowance is added; ordinary print timing effects are not claimed to be zero. Selection setter counts are not internal browse-State writes; action return does not prove native admission; the first interval includes any synchronous reconstruction and the final interval includes normal helper-return cleanup. Early failure may prevent records from appearing.
 
 Strict lint of the one added Swift file and architecture contracts pass in `artifacts/goal-ninth-graphical-calendar-diagnostics-lint-v2.log`. Compilation and the original/companion runtime comparison remain pending. The planned calendar cohort contains all 69 preserved and alias-follow-up methods plus this companion, 70 total; the companion does not replace a failing oracle. O physical retirement, the unintegrated M successor correction, and final-children withdrawal remain separate investigations. All nine original product gates remain open and unchanged.
+
+
+### 2026-09-02: complete 63fd6dd selected-run checkpoint, remaining failures preserved
+
+This checkpoint records execution of the committed source at
+`63fd6dd6c0ee45897a0c576172e30bd9fe98d3f6`, tree
+`28b42e1c69d5395197e0a4367b65835e71f92d29`, with 711 tracked test paths.
+It adds evidence and explains remaining work without changing the original
+product definition, performance thresholds, or nine completion gates.
+
+All six selected attempts completed serially. Every selected test started and
+reached a terminal outcome: **558 distinct tests in 45 classes, 545 passed,
+13 failed, none skipped, and no duplicate executions**. This is selected-test
+evidence, not a whole-suite pass. The earlier `bb755b5` attempts remain separate
+history. The exact IDs, raw-log hashes, closure receipts, and reconciliation
+receipts are collected in
+`artifacts/goal-ninth-63fd6dd-focused-validation-ledger-v1.json`.
+
+| Attempt | Selected | Passed | Failed | Scope |
+| --- | ---: | ---: | ---: | --- |
+| scroll49 | 49 | 41 | 8 | Public scroll settlement, original list virtualization, passive keyboard companion, final-child withdrawal |
+| calendar70 | 70 | 65 | 5 | Calendar model, graphical and multi-date controls, mounted behavior, alias storage, passive graphical diagnostic |
+| a178 | 178 | 178 | 0 | Native list invocation, ordinary ownership/environment, dialogs, clip transport, image and compositing collateral |
+| b212 | 212 | 212 | 0 | Placement, text and stack sizing, frame overflow, grid, lazy stack, public lazy-root joins |
+| manual stock S01 | 25 | 25 | 0 | ComponentHostTests |
+| manual stock S02 | 24 | 24 | 0 | WinSwiftUIGeometryAndFocusTests |
+
+The two stock classes retain their explicit source-census provenance. Their
+supplemental receipts bind the generated arguments, both source endpoints,
+literal class selections, case events, and terminal suite totals. They do not
+claim admission through the fixed focused source parser. The six direct runners
+closed naturally; subsequent empty process censuses are observations at those
+times, not continuous process-lifetime attestations.
+
+**Scroll settlement and remaining keyboard work.** All 33
+`PublicScrollSettlementTests` passed. `ListVirtualizationTests` passed eight of
+nine, including its original pixel and ScrollViewReader cases. Its distant-row
+keyboard case and the passive companion both still stop at selection 899 and
+fail to find row 900. The companion records visits increasing from 204 to 205,
+pass 5 to 6, reuse 16 to 1, and adapter pending changing from false to true.
+Only the root records the next visit; the wrapper, content, and scroll node do
+not. Source review identifies the first ordinary protected-record update as
+the missing ancestor invalidation point. A private correction is authorized to
+distinguish rejected, unchanged, and changed normalized protection sets and
+invalidate only an actual change, while rechecking the same original request.
+It is not yet integrated or executed. The four-round and 128-element limits,
+receipt checks, and focus/setter validation remain requirements.
+
+**Final child-field withdrawal remains failing.** All six original
+`OrdinaryFinalChildrenWithdrawalTests` failed, with 19 assertion reports across
+those six cases. The cases cover a callback-installed normal reference, a
+callback-installed zero-slot component, a separate accepted reference,
+reattachment before the final cut, current descendants versus an earlier moved
+descendant, and a retained child across a temporary empty field. In the shared
+reference case, failure follows withdrawal of the outside survivor; the earlier
+survivor assertions did not fail. A reviewed design adds a native-reference
+withdrawal check immediately before the literal final children write, using the
+existing original runtime and survivor identities. It validates the entire
+current omitted forest before withdrawing anything and conservatively refuses
+incoherent or changed mounted ownership. Its private eight-test boundary suite
+and implementation are under independent review. This is separate from the
+already reviewed mounted task/overlay successor candidate, which also remains
+unintegrated at this checkpoint. Neither candidate is a passing result yet.
+
+**The alias crash is resolved in this complete calendar attempt, but the
+calendar is not qualified.** All 70 calendar methods completed, including both
+new alias-storage tests and all seven selection tests, without the earlier
+fatal DateComponents set error. The five failed methods are the existing
+graphical rejected-candidate case, its passive diagnostic, the MultiDatePicker
+accessible-label and accessible-default-action cases, and the MultiDatePicker
+rejected-candidate/hidden-ancestor case. The label test reports failed action
+invocation and model-write expectations, not a failed accessible-name assertion.
+The two mounted cases reconstruct the old month and cannot find the expected
+day node. The graphical diagnostic records existing selection getter counts
+4/7/7, setter counts 0/0/0, outer builds 1/2/2, and geometry builds 2/3/3 at its
+three original observation points. These are scalar observations without an
+extra query or render; they do not directly observe owner admission or prove
+a State reset. Shared implicit accessibility activation and explicit accepted
+candidate ownership are separate corrective designs, not calendar-only
+workarounds or established fixes.
+
+The fresh calendar raw log is 38,216 bytes with SHA-256
+`d39e30f2d3ae6932e12f8ff7f6cdd29bc21e39e36e30f6017e6ae048e8a5af63`.
+The scroll raw log is 2,514,199 bytes with SHA-256
+`3d0d99c1104461edd9135ca59ab5000f61def4ca0d77f43d9adc12ce7a3f6f0e`.
+Their complete reconciliation receipts preserve all failures; the count of
+13 failed methods is not a count of independently established defects.
+
+**Collateral and outstanding validation.** Both native list invocation cases
+and all 18 original-anchor clip transport cases now pass in the fresh A run.
+All 23 fixed-frame overflow and 20 stack-configuration cases pass in B. The
+three public lazy-root join tests pass but take 444.351 seconds in this Debug
+selected run; that is a semantic result, not acceptable performance evidence.
+The full 182-method C04 roster was derived and checked against its previous
+exact IDs but deliberately not executed while the known keyboard defect
+remains. It needs a new derivation from the eventual integrated source and
+complete execution. Gallery review, stock suites, dashboard diagnostics,
+other previously held cohorts, and a fresh release-quality gate remain owed.
+No screenshot or reviewed baseline was changed by this checkpoint.
+
+**Native measurement preparation is still preparation.** The reviewed native
+display acquisition candidate and its 33 new tests remain unintegrated and
+uncompiled. Its proposed combined selection contains 77 existing plus 33 new
+tests. A source-reviewed ordinary-app route can request a short diagnostic
+window and a unique journal, but an independent bounded controller and source
+binding are still required before execution. The fixed native-smoke executable
+does not accept that route. Empty journal completion, process exit zero, or a
+short diagnostic run cannot substitute for actual Present records, ETW/display
+correlation, input-effect measurement, or the original sustained hardware gates.
+
+A read-only hardware inventory at 14:52:04 UTC reports Windows 11 Home Insider
+Preview build 26220, an i9-13900K, about 64 GiB of memory, Intel UHD 770, and an
+RTX 5090. CIM reports 2560 by 1440 and integer refresh 59 for the latter. This is
+inventory only; it does not establish exact refresh, display capability, frame
+timing, or any hardware qualification. No display settings were changed and no
+collector was started. Pinned Mac reference execution, 60/120/144 Hz sustained
+measurement, assistive-technology validation, and clean-machine/release evidence
+remain open. **All nine original completion gates remain open.**

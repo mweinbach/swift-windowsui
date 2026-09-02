@@ -3400,11 +3400,15 @@ If a later callback supersedes an already accepted offset, the older operation
 returns false without rolling back that write or clearing the newer request.
 Animation retargeting and precise alignment keep the original requested timing.
 
-`PublicScrollSettlementTests` adds 33 cases for these boundaries. At source
-integration, strict lint and contracts pass, but compilation, those executions,
-and the original `ListVirtualizationTests` pixel regression are pending. The
-separate keyboard regression is not repaired by this change; native animation,
-input timing, and complete accessibility qualification also remain open.
+`PublicScrollSettlementTests` adds 33 cases for these boundaries. At `63fd6dd`,
+all 33 passed after compilation. The original `ListVirtualizationTests` pixel
+and ScrollViewReader cases passed; that class passed eight of nine tests. The
+remaining distant-keyboard test and its passive companion still fail before
+realizing row 900. Their trace records a root-only cache visit after protected
+records change, leaving adapter work pending. This is a separate ordinary
+resolver invalidation defect, not permission to increase the four-round or
+128-element limits. Native animation, input timing, and complete accessibility
+qualification remain open.
 
 ## Per-corner radii
 

@@ -1,12 +1,13 @@
 # MultiDatePicker
 
 The existing unbounded `MultiDatePicker` initializers now use retained month
-browsing and day buttons. The source compiled at `bb755b5`, but the first new
-control test terminated with a fatal `DateComponents` set error during calendar
-construction. A follow-up preserves the internal alias candidates in an array;
-its fresh compilation and complete 69-method cohort remain pending. This remains
-an unqualified partial Windows implementation. The
-policies below describe its source, not a passing interaction or parity result.
+browsing and day buttons. At `63fd6dd`, the internal alias-array correction
+compiled and all 70 selected calendar tests completed without the earlier fatal
+`DateComponents` set error: 65 passed and five failed. Both new alias-storage
+tests and all seven selection tests passed. Accessibility activation and
+rejected-candidate month reconstruction still fail. This remains an unqualified
+partial Windows implementation. The policies below describe the intended
+behavior; the validation section records what was and was not established.
 Its presence in WinSwiftUI does not establish availability in the pinned macOS
 SwiftUI API or qualify a shared-source example on that platform.
 
@@ -111,9 +112,27 @@ array with one-to-one matching that separately compares the raw optional marker;
 every original per-alias behavior assertion remains. Two new tests check all
 sixteen stored candidates and toggling each independently with unrelated values
 preserved. The complete follow-up roster is 69 methods across eight classes.
-Strict formatting and architecture checks pass; no compilation or runtime result
-for this correction is claimed yet. The separate graphical DatePicker failure
-also remains open.
+At `63fd6dd`, a fresh complete run added the one graphical candidate diagnostic
+to those 69 methods. All 70 started and reached a terminal result: 65 passed,
+five failed, and none skipped. The earlier fatal set error did not recur. The
+two alias-storage and seven selection tests passed, as did all 15 calendar-model
+and 12 graphical-control tests. Graphical mounted tests passed seven of eight;
+MultiDatePicker control tests passed 12 of 13 and mounted tests passed 10 of 11.
+
+The accessible-label and accessible-default-action cases failed at action
+invocation and expected model writes; the accessible-label test did not report
+a failed name assertion. Both rejected-candidate mounted cases reconstructed the
+old month and then failed to find the expected day node. The additional graphical
+diagnostic repeated its existing mounted failure. Its three scalar records
+observe existing getter/build counts only, not the ownership flags or a proven
+State reset. None of these failures is waived by the passing alias tests.
+
+The complete raw log is
+`artifacts/calendar70-63fd6dd-01f81c7b887443c9be8727ad8eced2a8/raw.log`
+(38,216 bytes; SHA-256
+`d39e30f2d3ae6932e12f8ff7f6cdd29bc21e39e36e30f6017e6ae048e8a5af63`).
+`artifacts/goal-ninth-calendar70-63fd6dd-reconciled-v1.json` records all selected
+IDs and terminal outcomes; the earlier partial attempt remains separate history.
 
 Range overloads, unrestricted alias normalization, native calendar focus and
 style behavior, complete action localization, platform API availability,

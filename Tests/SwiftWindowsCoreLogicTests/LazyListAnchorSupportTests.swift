@@ -30,7 +30,11 @@ final class LazyListAnchorSupportTests: XCTestCase {
         XCTAssertFalse(fixture.probe.factories.contains(300))
         XCTAssertLessThanOrEqual(fixture.host.runtime.lastLazyListConsumedElements, 128)
         XCTAssertLessThanOrEqual(fixture.host.runtime.lastLazyListConsumedRounds, 4)
-        XCTAssertFalse(fixture.host.runtime.hasPendingLayout)
+        guard case .settled(let receipt) = fixture.host.runtime.layoutSettlementStatus else {
+            return XCTFail("The original query must supply its own layout settlement")
+        }
+        XCTAssertTrue(fixture.host.runtime.isLayoutSettlementReceiptCurrent(receipt))
+        XCTAssertTrue(fixture.host.runtime.hasCurrentAccessibilityPrepaint)
         XCTAssertFalse(fixture.host.runtime.hasActiveRetainedBuild)
         XCTAssertTrue(fixture.probe.activations.isEmpty)
     }
@@ -54,7 +58,11 @@ final class LazyListAnchorSupportTests: XCTestCase {
         XCTAssertFalse(fixture.probe.factories.contains(300))
         XCTAssertLessThanOrEqual(fixture.host.runtime.lastLazyListConsumedElements, 128)
         XCTAssertLessThanOrEqual(fixture.host.runtime.lastLazyListConsumedRounds, 4)
-        XCTAssertFalse(fixture.host.runtime.hasPendingLayout)
+        guard case .settled(let receipt) = fixture.host.runtime.layoutSettlementStatus else {
+            return XCTFail("The reordered query must supply its own layout settlement")
+        }
+        XCTAssertTrue(fixture.host.runtime.isLayoutSettlementReceiptCurrent(receipt))
+        XCTAssertTrue(fixture.host.runtime.hasCurrentAccessibilityPrepaint)
     }
 
     func testNativeSelectionUsesNewOrderAndDoesNotEnterAuthoredKeysOrFactories() async throws {
@@ -174,19 +182,26 @@ final class LazyListAnchorSupportTests: XCTestCase {
     }
 
     func testCapturedProofsDoNotRetainClosedPhysicalRows() async throws {
-        let fixture = try AnchorSupportManagedFixture()
-        defer { fixture.close() }
-        let original = try XCTUnwrap(fixture.adapter.captureAnchorSupport(preserving: try fixture.token(2)))
-        let selected = try XCTUnwrap(try fixture.select(original, order: [0, 1, 2, 3, 4]))
-        weak var actual = try fixture.node(0)
+        var fixture: AnchorSupportManagedFixture? = try AnchorSupportManagedFixture()
+        defer { fixture?.close() }
+        let adapter = try XCTUnwrap(fixture?.adapter)
+        let anchor = try XCTUnwrap(try fixture?.token(2))
+        let original = try XCTUnwrap(adapter.captureAnchorSupport(preserving: anchor))
+        let selected = try XCTUnwrap(try fixture?.select(original, order: [0, 1, 2, 3, 4]))
+        weak var actual = try fixture?.node(0)
+        weak var runtime = fixture?.host.runtime
 
-        fixture.close()
+        fixture?.close()
+        // The host owns its last prepaint independently of these weak proofs.
+        // Release that owner while both proofs and the empty adapter stay alive.
+        fixture = nil
 
+        XCTAssertNil(runtime)
         XCTAssertNil(actual)
         XCTAssertFalse(original.isCurrent)
         XCTAssertFalse(selected.isCurrent)
-        XCTAssertEqual(fixture.adapter.mountedRecordCount, 0)
-        XCTAssertEqual(fixture.adapter.mountedLeafCount, 0)
+        XCTAssertEqual(adapter.mountedRecordCount, 0)
+        XCTAssertEqual(adapter.mountedLeafCount, 0)
     }
 
     func testRevocationInFirstRefreshFactoryStopsLaterSupportWorkAndRunsCleanup() async throws {
@@ -215,6 +230,9 @@ final class LazyListAnchorSupportTests: XCTestCase {
     func testOneElementOneRoundCannotBorrowOldPredecessorMeasurements() async throws {
         let fixture = try AnchorSupportPublicFixture()
         defer { fixture.close() }
+        let originalAdapter = try XCTUnwrap(try fixture.host.list().retainedLazyListAdapter)
+        let originalAnchor = try XCTUnwrap(originalAdapter.captureAnchor(at: fixture.originalOffset))
+        XCTAssertEqual(originalAnchor.offsetWithinRecord, 3, accuracy: 0.001)
         fixture.stageReplacement()
         XCTAssertTrue(fixture.host.runtime.configureLazyListResolutionBudget(elementLimit: 1, roundLimit: 1))
         let start = fixture.probe.factories.count
@@ -224,11 +242,21 @@ final class LazyListAnchorSupportTests: XCTestCase {
         XCTAssertEqual(Array(fixture.probe.factories.dropFirst(start)), [0])
         XCTAssertEqual(fixture.host.runtime.lastLazyListConsumedElements, 1)
         XCTAssertEqual(fixture.host.runtime.lastLazyListConsumedRounds, 1)
-        XCTAssertEqual(fixture.scroll.scrollOffset, fixture.originalOffset, accuracy: 0.001)
         XCTAssertEqual(
             try fixture.host.rowRoot(anchorSupportPublicIdentifier(2)).resolvedFrame.height,
             fixture.originalHeight, accuracy: 0.001)
         let adapter = try XCTUnwrap(try fixture.host.list().retainedLazyListAdapter)
+        let acceptedTable = try XCTUnwrap(adapter.captureLayoutProof())
+        XCTAssertTrue(acceptedTable.isCurrent)
+        XCTAssertTrue(adapter.hasCurrentLogicalSnapshot)
+        // The accepted partial table uses fresh estimates, including 31 for
+        // the first row whose former measured extent was 30. Preserve the
+        // original anchor, not its obsolete numeric prefix, without remeasuring.
+        XCTAssertEqual(adapter.captureAnchor(at: fixture.scroll.scrollOffset), originalAnchor)
+        XCTAssertEqual(
+            fixture.scroll.scrollOffset,
+            try XCTUnwrap(adapter.resolveAnchor(originalAnchor, viewportExtent: 0)), accuracy: 0.001)
+        XCTAssertEqual(fixture.scroll.scrollOffset, fixture.originalOffset + 1, accuracy: 0.001)
         XCTAssertTrue(adapter.hasUnresolvedWork)
         XCTAssertLessThanOrEqual(adapter.mountedRecordCount, 512)
         XCTAssertLessThanOrEqual(adapter.mountedLeafCount, 4096)

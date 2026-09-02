@@ -303,6 +303,24 @@ offset is zero but the enclosing scroll view has a positive offset. This adds
 no authored anchor, row cache, construction pass, or provider authority; the
 existing input and equal-value authored-intent guards remain unchanged.
 
+Replacement estimates remain provisional until the actual native row table is
+published. The adapter saves its prior scalar index, native token order and
+spacing under the original attempt. Canceled or discarded unpublished work
+restores that coordinate basis after cleanup, including cancellation before a
+candidate exists. It restores no source, lease, request or measurement authority.
+Accepted partial tables commit their new geometry before releasing old payloads;
+unresolved work or later cleanup cancellation cannot roll that publication back.
+An obsolete destructor cannot overwrite a newer stage or transferred geometry.
+
+Seven raw adapter controls and revised retained anchor fixtures cover this
+source correction but have not yet run. The retained successor regression keeps
+its expected offset 135 and adds original-anchor and actual viewport-position
+checks. A one-element/one-round accepted partial table instead preserves the
+same logical anchor at 96 as fresh estimates replace the old prefix. Query
+settlement checks require the current receipt and prepaint, not cleared paint
+dirty flags; the weak-proof test also releases the closed host that owns its
+last prepaint. These fixture corrections do not enlarge construction budgets.
+
 When managed preparation reads replacement metadata, it first captures a fixed
 set of weak witnesses for eligible original mounted rows. It can include the
 complete predecessor prefix through the surviving anchor in the new order only

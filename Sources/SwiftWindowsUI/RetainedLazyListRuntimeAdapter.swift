@@ -454,6 +454,29 @@ package final class RetainedLazyListRuntimeAdapter {
         let journal: RetainedLazyListAdoptionJournal
     }
 
+    /// Previous scalar coordinates survive an unpublished metadata replacement.
+    /// No row, source, or construction authority is retained or restored here.
+    @MainActor
+    private final class ScalarGeometryStage {
+        let attempt: RetainedLazyListAdapterIdentity
+        let index: RetainedLazyListExtentIndex?
+        let tokens: [RetainedLazyListRowToken]
+        let positions: [RetainedLazyListRowToken: Int]
+        let inheritedSpacing: Double?
+
+        init(
+            attempt: RetainedLazyListAdapterIdentity, index: RetainedLazyListExtentIndex?,
+            tokens: [RetainedLazyListRowToken], positions: [RetainedLazyListRowToken: Int],
+            inheritedSpacing: Double?
+        ) {
+            self.attempt = attempt
+            self.index = index
+            self.tokens = tokens
+            self.positions = positions
+            self.inheritedSpacing = inheritedSpacing
+        }
+    }
+
     @MainActor
     private final class StagedPredecessor {
         weak var adapter: RetainedLazyListRuntimeAdapter?
@@ -684,6 +707,9 @@ package final class RetainedLazyListRuntimeAdapter {
         func discardBuiltContent() {
             guard !wasConsumed else { return }
             wasConsumed = true
+            defer {
+                if !wasCompleted { adapter?.restoreScalarGeometry(ownedBy: attempt) }
+            }
             insertionPlan?.discard()
             let buttonCleanup = buttonConstruction.closedCleanupFrame()
             defer { buttonCleanup.finish() }
@@ -934,6 +960,7 @@ package final class RetainedLazyListRuntimeAdapter {
     // Do not retain value copies of this index in plans, candidates, or batches.
     // Its Array storage must remain unique during ordinary point updates.
     private var extentIndex: RetainedLazyListExtentIndex?
+    private var pendingScalarGeometry: ScalarGeometryStage?
     private var gapBoundaryIndex: GapBoundaryIndex?
     // A moved index is old scalar geometry for the next anchor capture only.
     // generation stays nil until fresh metadata replaces all of its estimates.
@@ -1771,10 +1798,18 @@ package final class RetainedLazyListRuntimeAdapter {
             revokePendingCandidate()
             return .obsolete
         }
+        if let pendingScalarGeometry { restoreScalarGeometry(pendingScalarGeometry) }
         isPreparing = true
         defer { isPreparing = false }
-        let buttonConstruction = RetainedButtonActionConstruction(runtime: attachmentOwner?.retainedLazyListRuntime)
+        var scalarStage: ScalarGeometryStage?
         var yieldedButtonConstruction = false
+        defer {
+            // Candidate disposal owns a ready stage. Every other return must
+            // restore before Runtime drains queued root builds, even when no
+            // Candidate ever existed. Existing Button cleanup runs first.
+            if !yieldedButtonConstruction, let scalarStage { restoreScalarGeometry(scalarStage) }
+        }
+        let buttonConstruction = RetainedButtonActionConstruction(runtime: attachmentOwner?.retainedLazyListRuntime)
         defer {
             if yieldedButtonConstruction { buttonConstruction.leave() } else { buttonConstruction.finish() }
         }
@@ -1834,6 +1869,11 @@ package final class RetainedLazyListRuntimeAdapter {
                     context: viewport.context),
                 let nextBoundaryIndex = GapBoundaryIndex(recordCount: snapshot.tokens.count)
             else { return .unsupported }
+            let stage = ScalarGeometryStage(
+                attempt: expectedAttempt, index: extentIndex, tokens: tokens, positions: positions,
+                inheritedSpacing: inheritedExtentSpacing)
+            pendingScalarGeometry = stage
+            scalarStage = stage
             generation = snapshot.generation
             tokens = snapshot.tokens
             positions = snapshot.positions
@@ -2367,6 +2407,9 @@ package final class RetainedLazyListRuntimeAdapter {
         preparationIncomplete = false
         pendingCandidate = false
         candidate.wasCompleted = true
+        // Native row-table publication commits even a partial bounded window.
+        // Later cleanup may revoke authority, but cannot roll these scalars back.
+        if pendingScalarGeometry?.attempt === candidate.attempt { pendingScalarGeometry = nil }
         var completedEmptyRows = true
         if let journal, let structuralAnchor {
             // This is an accepted structural table write, not a zero-length
@@ -2672,9 +2715,32 @@ package final class RetainedLazyListRuntimeAdapter {
         return true
     }
 
+    private func restoreScalarGeometry(ownedBy attempt: RetainedLazyListAdapterIdentity) {
+        guard let stage = pendingScalarGeometry, stage.attempt === attempt else { return }
+        restoreScalarGeometry(stage)
+    }
+
+    private func restoreScalarGeometry(_ stage: ScalarGeometryStage) {
+        // A late candidate destructor cannot overwrite a newer stage, completed
+        // table, or transferred index. Consume this identity before moving data.
+        guard pendingScalarGeometry === stage else { return }
+        pendingScalarGeometry = nil
+        extentIndex = stage.index
+        tokens = stage.tokens
+        positions = stage.positions
+        inheritedExtentSpacing = stage.inheritedSpacing
+        generation = nil
+        gapBoundaryIndex = nil
+        pendingCandidate = false
+        acceptedSnapshot = false
+        preparationIncomplete = true
+        unresolvedWork = true
+    }
+
     /// Revoke before an external structural mutation or attachment change.
     /// This operation drops no authored payload and invokes no application code.
     package func revokePendingCandidate() {
+        if let pendingScalarGeometry { restoreScalarGeometry(pendingScalarGeometry) }
         if let hint = uiaConstructionHint { _ = endUIAConstructionHint(hint) }
         configuration = RetainedLazyListAdapterIdentity()
         attempt = RetainedLazyListAdapterIdentity()

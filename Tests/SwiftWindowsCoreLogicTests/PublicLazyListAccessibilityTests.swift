@@ -407,6 +407,10 @@ final class PublicLazyListAccessibilityTests: XCTestCase {
         defer { SWU_UIAReleaseProvider(pattern) }
         let scroll = try fixture.host.scrollContainer()
         let originalOffset = scroll.scrollOffset
+        let originalAdapter = try XCTUnwrap(try fixture.host.list().retainedLazyListAdapter)
+        let originalAnchor = try XCTUnwrap(originalAdapter.captureAnchor(at: originalOffset))
+        let originalViewportTop =
+            try fixture.host.rowRoot("public.row.3.first").resolvedFrame.minY - scroll.resolvedScrollOffset
         fixture.probe.heights[2] = replacementHeight
         fixture.host.reload()
         let preparingAdapter = try XCTUnwrap(try fixture.host.list().retainedLazyListAdapter)
@@ -446,6 +450,10 @@ final class PublicLazyListAccessibilityTests: XCTestCase {
         XCTAssertEqual(
             try fixture.host.rowRoot("public.row.2.first").resolvedFrame.height,
             replacementHeight - 40, accuracy: 0.001)
+        XCTAssertEqual(acceptedSuccessor.captureAnchor(at: scroll.scrollOffset), originalAnchor)
+        XCTAssertEqual(
+            try fixture.host.rowRoot("public.row.3.first").resolvedFrame.minY - scroll.resolvedScrollOffset,
+            originalViewportTop, accuracy: 0.001)
 
         XCTAssertNotNil(fixture.host.layout())
         fixture.probe.onFactory = nil
@@ -457,8 +465,16 @@ final class PublicLazyListAccessibilityTests: XCTestCase {
             try fixture.host.rowRoot("public.row.2.first").resolvedFrame.height, replacementHeight, accuracy: 0.001)
         XCTAssertTrue(try fixture.host.list().retainedLazyListAdapter === acceptedSuccessor)
         XCTAssertEqual(scroll.scrollOffset, originalOffset + 40, accuracy: 0.001)
+        XCTAssertEqual(acceptedSuccessor.captureAnchor(at: scroll.scrollOffset), originalAnchor)
+        XCTAssertEqual(
+            try fixture.host.rowRoot("public.row.3.first").resolvedFrame.minY - scroll.resolvedScrollOffset,
+            originalViewportTop, accuracy: 0.001)
         XCTAssertFalse(acceptedSuccessor.hasUnresolvedWork)
-        XCTAssertFalse(fixture.host.runtime.hasPendingLayout)
+        guard case .settled(let receipt) = fixture.host.runtime.layoutSettlementStatus else {
+            return XCTFail("The successor's own query must supply its layout settlement")
+        }
+        XCTAssertTrue(fixture.host.runtime.isLayoutSettlementReceiptCurrent(receipt))
+        XCTAssertTrue(fixture.host.runtime.hasCurrentAccessibilityPrepaint)
         XCTAssertFalse(fixture.host.runtime.hasActiveRetainedBuild)
         XCTAssertFalse(fixture.probe.factoryCalls.contains(300))
         XCTAssertTrue(fixture.probe.activations.isEmpty)

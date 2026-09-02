@@ -169,17 +169,100 @@ final class DemoDashboardDataGate: @unchecked Sendable {
     }
 }
 
+/// Opt-in scalar observations for the fixed Refresh wait. No graph or task is retained.
+/// The window starts before byte release and seals at the post-wait MainActor checkpoint.
+/// The sole stdout snapshot is emitted after fulfillment returns, before failure cleanup.
+@MainActor
+final class DemoDashboardTaskAwaitDiagnostics {
+    private var hasBegun = false
+    private var isRecording = false
+    private var watcherEntered = false
+    private var taskValueReturned = false
+    private var reloadEntered = 0
+    private var reloadReturned = 0
+    private var reloadCountsCapped = false
+
+    static func configuredForRefresh() -> DemoDashboardTaskAwaitDiagnostics? {
+        guard DashboardInteractionDiagnostics.writer != nil else { return nil }
+        return DemoDashboardTaskAwaitDiagnostics()
+    }
+
+    func beginWait() {
+        guard !hasBegun else { return }
+        hasBegun = true
+        isRecording = true
+    }
+
+    func abandonWait() {
+        isRecording = false
+    }
+
+    func noteWatcherEntered() {
+        guard isRecording else { return }
+        watcherEntered = true
+    }
+
+    func noteTaskValueReturned() {
+        guard isRecording else { return }
+        taskValueReturned = true
+    }
+
+    func noteReloadEntered() -> Bool {
+        guard isRecording else { return false }
+        if reloadEntered < 255 {
+            reloadEntered += 1
+        } else {
+            reloadCountsCapped = true
+        }
+        return true
+    }
+
+    func noteReloadReturned() {
+        guard isRecording else { return }
+        if reloadReturned < 255 {
+            reloadReturned += 1
+        } else {
+            reloadCountsCapped = true
+        }
+    }
+
+    func finishWait(_ result: XCTWaiter.Result) {
+        guard isRecording else { return }
+        isRecording = false
+        let label: String
+        switch result {
+        case .completed: label = "completed"
+        case .timedOut: label = "timedOut"
+        case .incorrectOrder: label = "incorrectOrder"
+        case .invertedFulfillment: label = "invertedFulfillment"
+        case .interrupted: label = "interrupted"
+        @unknown default: label = "unknown"
+        }
+        // These flags describe this post-wait MainActor checkpoint, not XCTest's decision time.
+        // A zero join flag does not establish that the underlying task was still unfinished.
+        let message =
+            "SWUI_DASHBOARD_AWAIT_V2 result=\(result.rawValue) label=\(label)"
+            + " watcherEntered=\(watcherEntered ? 1 : 0) taskValueReturned=\(taskValueReturned ? 1 : 0)"
+            + " reloadEntered=\(reloadEntered) reloadReturned=\(reloadReturned) capped=\(reloadCountsCapped ? 1 : 0)"
+        print(message)
+    }
+}
+
 @MainActor
 func dashboardDataAwait(
-    _ task: Task<Void, Never>, file: StaticString = #filePath, line: UInt = #line
+    _ task: Task<Void, Never>, diagnostics: DemoDashboardTaskAwaitDiagnostics? = nil,
+    file: StaticString = #filePath, line: UInt = #line
 ) async throws {
     let completed = XCTestExpectation(description: "model-owned dashboard task returned")
     let waiting = Task { @MainActor in
+        diagnostics?.noteWatcherEntered()
         await task.value
+        diagnostics?.noteTaskValueReturned()
         completed.fulfill()
     }
     defer { waiting.cancel() }
     let result = await XCTWaiter.fulfillment(of: [completed], timeout: 5)
+    diagnostics?.finishWait(result)
     guard result == .completed else {
         task.cancel()
         XCTFail("The actual dashboard task did not return", file: file, line: line)
@@ -219,19 +302,23 @@ final class DemoDashboardDataHarness {
     }
 
     func finish(
-        _ id: Int, bytes: Data, file: StaticString = #filePath, line: UInt = #line
+        _ id: Int, bytes: Data, diagnostics: DemoDashboardTaskAwaitDiagnostics? = nil,
+        file: StaticString = #filePath, line: UInt = #line
     ) async throws {
-        try await finish(id, result: .success(bytes), file: file, line: line)
+        try await finish(id, result: .success(bytes), diagnostics: diagnostics, file: file, line: line)
     }
 
     func finish(
-        _ id: Int, result: Result<Data, Error>, file: StaticString = #filePath, line: UInt = #line
+        _ id: Int, result: Result<Data, Error>, diagnostics: DemoDashboardTaskAwaitDiagnostics? = nil,
+        file: StaticString = #filePath, line: UInt = #line
     ) async throws {
         let task = try XCTUnwrap(model.activeReadTask, "Expected a model-owned task", file: file, line: line)
+        diagnostics?.beginWait()
+        defer { diagnostics?.abandonWait() }
         let released = gate.finish(id, result: result)
         XCTAssertTrue(released, "Expected an unfinished physical read", file: file, line: line)
         guard released else { throw DemoDashboardDataTestError.missingRead }
-        try await dashboardDataAwait(task, file: file, line: line)
+        try await dashboardDataAwait(task, diagnostics: diagnostics, file: file, line: line)
     }
 
     func report(file: StaticString = #filePath, line: UInt = #line) throws -> DemoDashboardReport {
@@ -265,6 +352,7 @@ private final class DemoDashboardDataSubscriptions {
     private(set) var notifications: [ObjectIdentifier] = []
     private(set) var closed = false
     var reload: (@MainActor () -> Void)?
+    var taskAwaitDiagnostics: DemoDashboardTaskAwaitDiagnostics?
 
     var objectIDs: Set<ObjectIdentifier> { Set(entries.keys) }
 
@@ -276,7 +364,10 @@ private final class DemoDashboardDataSubscriptions {
         let token = ObservableObjectCenter.shared.addObserver(for: object) { [weak self] in
             guard let self, !self.closed, self.entries[id]?.generation == generation else { return }
             self.notifications.append(id)
+            let diagnostics = self.taskAwaitDiagnostics
+            let observedReload = diagnostics?.noteReloadEntered() == true
             self.reload?()
+            if observedReload { diagnostics?.noteReloadReturned() }
         }
         entries[id] = Entry(generation: generation, token: token)
     }
@@ -318,7 +409,8 @@ final class DemoDashboardDataFixture {
 
     init(
         model: DemoDashboardDataModel, size: IntSize = IntSize(width: 640, height: 720),
-        scheme: ColorScheme = .dark, scale: Double = 1, wholeRoot: Bool = false
+        scheme: ColorScheme = .dark, scale: Double = 1, wholeRoot: Bool = false,
+        taskAwaitDiagnostics: DemoDashboardTaskAwaitDiagnostics? = nil
     ) {
         let diagnosticInitSpan = DashboardInteractionDiagnostics.record("fixture.init.enter")
         let dashboard = DemoDashboardModel(dashboardData: model)
@@ -332,6 +424,7 @@ final class DemoDashboardDataFixture {
         let host = ComponentHost(runtime: runtime)
         self.host = host
         let subscriptions = DemoDashboardDataSubscriptions()
+        subscriptions.taskAwaitDiagnostics = taskAwaitDiagnostics
         self.subscriptions = subscriptions
         let coordinator = StateMountCoordinator(
             invalidate: { [weak host] in host?.reload() },

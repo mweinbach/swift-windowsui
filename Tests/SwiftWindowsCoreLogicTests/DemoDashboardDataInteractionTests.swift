@@ -58,7 +58,8 @@ final class DemoDashboardDataInteractionTests: XCTestCase {
     func testKeyboardRefreshShowsLoadingAndPublishesOnlyActuallyDecodedPoints() async throws {
         DashboardInteractionDiagnostics.recordBodyEntry(self)
         let harness = DemoDashboardDataHarness()
-        let fixture = DemoDashboardDataFixture(model: harness.model)
+        let diagnostics = DemoDashboardTaskAwaitDiagnostics.configuredForRefresh()
+        let fixture = DemoDashboardDataFixture(model: harness.model, taskAwaitDiagnostics: diagnostics)
         defer {
             fixture.close()
             harness.close()
@@ -71,7 +72,7 @@ final class DemoDashboardDataInteractionTests: XCTestCase {
         let payload = try dashboardDataJSON(day: [
             ["label": "Read A", "fraction": 0.25], ["label": "Read B", "fraction": 0.875],
         ])
-        try await harness.finish(0, bytes: payload)
+        try await harness.finish(0, bytes: payload, diagnostics: diagnostics)
         // No manual reload: the mounted ObservedObject notification owns it.
         fixture.render()
         XCTAssertEqual(try fixture.texts(in: "dashboard.data.status"), ["Local data loaded"])

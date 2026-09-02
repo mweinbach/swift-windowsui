@@ -16322,3 +16322,51 @@ and TextPattern limitations. Architecture checks also passed after those
 documentation updates. The prepared calendar and keyboard candidates were not
 part of this commit or this execution. **All nine original completion gates
 remain open.**
+
+
+### Ninth batch: preserve the Refresh failure and observe its original wait
+
+The earlier single-Refresh run remains failed. Its generic non-completed-wait
+assertion and `timedOut` error did not reveal the actual `XCTWaiter.Result`,
+and source review did not establish whether the original task or its MainActor
+watcher was delayed. The next diagnostic changes only the two existing dashboard
+test files, without changing production code or any expected result.
+
+The selected Refresh method creates an optional scalar-only context when the
+existing phase writer is configured. It records watcher entry, return from the
+same captured `task.value`, and paired entry/return counts around the fixture's
+existing publication reload invocation. Recording starts immediately before the
+unchanged gate release. After the existing waiter returns, a single optional
+`SWUI_DASHBOARD_AWAIT_V2` stdout line records its actual result and these flags;
+the original result guard, cancellation, failure and throw still decide outcome.
+Both five-second waits, the gate, task identity, assertions, eleven test methods,
+observer callbacks and phase markers remain unchanged. There is no new task,
+clock, event pump, retry, wait budget or production mutation.
+
+The record describes the post-wait MainActor checkpoint, not the instant XCTest
+selected its result. A false return flag does not prove the underlying task was
+unfinished. Reload counts saturate at 255 and cover only this fixture invocation,
+not all retained work, task-frame teardown or ARC completion. No line is emitted
+if this wait is never reached or never returns. Its 162-byte bound is not an I/O
+latency guarantee. Existing raw XCTest outcomes remain authoritative, and the
+existing reader treats the line as ordinary text, not a validated outcome.
+
+Root reviewed both complete after-images and independently replayed all seventeen
+literal regions in both directions. The two test files' staged inverse restores
+the whole `b55e5e6` tree; evidence is
+`artifacts/goal-ninth-dashboard-wait-v2-staged-inverse-v1.json`.
+The immutable fourteen-payload packet is
+`artifacts/goal-ninth-dashboard-refresh-wait-v2-intake-v1`.
+Formatting and architecture checks passed in
+`artifacts/goal-ninth-dashboard-wait-v2-lint-contracts-v2.log`.
+An initial parent preflight counted the two observer callbacks as tests and
+stopped before source writes; the corrected empty-argument XCTest selector
+verified the unchanged eleven methods. No Swift test ran in either preflight.
+
+Fresh compilation and the single diagnostic execution are still pending. The
+previous fixed-Refresh controller cannot run against these new source bytes:
+its source pins require a separate reviewed amendment and a clean committed
+endpoint first. Its owned-process policy and 900-second execution / 10-second
+cleanup limits remain unchanged. This diagnostic is not a task-wait fix and
+does not relabel the earlier failure. **All nine original completion gates
+remain open.**

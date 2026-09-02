@@ -203,7 +203,7 @@ final class WinSwiftUIStepperIntegerBoundsTests: XCTestCase {
         let fixture = StepperIntegerFixture(value: UInt8(1), bounds: 0...10, step: 2)
         fixture.layout()
         let decrement = try fixture.button(.decrement)
-        XCTAssertEqual(decrement.accessibilityRole, .button)
+        XCTAssertEqual(decrement.accessibilityTraits, .isButton)
         XCTAssertEqual(decrement.accessibilityLabel, "Decrement")
         fixture.runtime.requestFocus(decrement)
         XCTAssertTrue(fixture.runtime.focusedNode === decrement)

@@ -54,6 +54,15 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
         let container: LogicalContainer
     }
 
+    /// The action has already run. Only native identity and weak attachment
+    /// proofs leave its dispatch frame; no action or row payload is retained.
+    private struct InvocationCompletion {
+        let identity: LogicalIdentity
+        let item: RetainedLazyListAccessibilityItem
+        let target: RetainedAccessibilityTarget
+        let mutationRevision: UInt64
+    }
+
     /// The effect is already finished when this leaves the dispatch frame.
     /// No editor or application capture is kept alive by this receipt.
     private struct ValueCompletion {
@@ -397,8 +406,13 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
 
     @discardableResult
     func uiaInvokeDefaultAction(elementID: UInt64) -> Bool {
-        withMutation { runtime, _ in
-            invokeDefaultAction(elementID: elementID, in: runtime, intent: .invoke)
+        withMutation { runtime, mutation in
+            if logicalIdentitiesByID[elementID] != nil {
+                return runtime.withLazyListResolutionBudget {
+                    invokeLogicalDefaultAction(elementID: elementID, in: runtime, during: mutation)
+                }
+            }
+            return invokeDefaultAction(elementID: elementID, in: runtime, intent: .invoke)
         }
     }
 
@@ -619,6 +633,65 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
             return nil
         }
         return nodesByID[elementID]?.node
+    }
+
+    @inline(never)
+    private func invokeLogicalDefaultAction(
+        elementID: UInt64, in runtime: RetainedViewRuntime, during mutation: RetainedAccessibilityMutation
+    ) -> Bool {
+        // Dispatch returns before any completion query, so retired action or
+        // node captures cannot release application code inside that query.
+        guard let completion = dispatchLogicalInvocation(elementID: elementID, in: runtime, during: mutation),
+            completion.mutationRevision == mutation.revision,
+            isLogicalInvocationCurrent(completion, elementID: elementID, in: runtime, during: mutation)
+        else { return false }
+        // A still-ordinary row keeps the original action behavior. In particular,
+        // action-authored queued work does not buy an extra layout query.
+        if uiaLogicalItemState(elementID: elementID) == .ordinary { return true }
+        guard
+            let item = runtime.prepareLazyListAccessibilityInvocationCompletion(
+                token: completion.identity.token, in: completion.identity.container.witness,
+                replacing: completion.item, target: completion.target, during: mutation),
+            isLogicalInvocationCurrent(completion, elementID: elementID, in: runtime, during: mutation),
+            let roots = runtime.realizedLazyListAccessibilityNodes(for: item),
+            let projection = AccessibilityProjection.project(root: runtime.root),
+            let node = completion.target.node, Self.isInsideLogicalRoots(node, roots: roots),
+            projection.flattened().contains(where: { !$0.isVirtualizedPlaceholder && $0.sourceNode === node })
+        else { return false }
+        cacheLogicalItem(elementID, target: item, node: nil)
+        bindLogicalItem(elementID, to: node)
+        return isLogicalInvocationCurrent(completion, elementID: elementID, in: runtime, during: mutation)
+            && runtime.realizedLazyListAccessibilityNodes(for: item) != nil
+            && uiaLogicalItemState(elementID: elementID) == .ordinary
+    }
+
+    @inline(never)
+    private func dispatchLogicalInvocation(
+        elementID: UInt64, in runtime: RetainedViewRuntime, during mutation: RetainedAccessibilityMutation
+    ) -> InvocationCompletion? {
+        guard runtime.permitsRetainedActionInvocation,
+            let identity = logicalIdentitiesByID[elementID],
+            let node = retainedNode(for: elementID, in: runtime),
+            let item = logicalItem(for: elementID, in: runtime),
+            let target = runtime.accessibilityTarget(for: node),
+            runtime.isAccessibilityTargetCurrent(target, during: mutation)
+        else { return nil }
+        defer { withExtendedLifetime(node) {} }
+        guard AccessibilityProjection.invokeDefaultAction(on: node, in: runtime, intent: .invoke) else { return nil }
+        return InvocationCompletion(
+            identity: identity, item: item.target, target: target, mutationRevision: mutation.revision)
+    }
+
+    private func isLogicalInvocationCurrent(
+        _ completion: InvocationCompletion, elementID: UInt64, in runtime: RetainedViewRuntime,
+        during mutation: RetainedAccessibilityMutation
+    ) -> Bool {
+        guard let identity = logicalIdentitiesByID[elementID],
+            identity.container === completion.identity.container, identity.token == completion.identity.token,
+            runtime.isLazyListAccessibilityTokenCurrent(identity.token, in: completion.identity.container.witness),
+            runtime.isAccessibilityTargetCurrent(completion.target, during: mutation)
+        else { return false }
+        return true
     }
 
     @inline(never)

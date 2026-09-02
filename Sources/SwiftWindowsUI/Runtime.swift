@@ -12812,6 +12812,9 @@ fileprivate final class RetainedLazyListAccessibilityPreparation {
     let pointerSequence: UInt64
     let modal: ObjectIdentifier?
     let enforcesUIAConstructionIntent: Bool
+    // A completed invocation can prepare its accepted successor, but no
+    // construction may outlive the original physical action attachment.
+    let invocationTarget: RetainedAccessibilityTarget?
     var isActive = true
     var hasIssuedUnusedProviderPhase = false
     var hasAttemptedInitialMeasurementCorrection = false
@@ -12822,7 +12825,8 @@ fileprivate final class RetainedLazyListAccessibilityPreparation {
         generation: RetainedLazyListGeneration, mutation: RetainedAccessibilityMutation,
         scroll: ViewNode, scrollAttachment: RetainedAccessibilityTarget,
         focusRevision: UInt64, pointerSequence: UInt64, modal: ObjectIdentifier?,
-        enforcesUIAConstructionIntent: Bool = false
+        enforcesUIAConstructionIntent: Bool = false,
+        invocationTarget: RetainedAccessibilityTarget? = nil
     ) {
         self.token = token
         self.witness = witness
@@ -12838,6 +12842,7 @@ fileprivate final class RetainedLazyListAccessibilityPreparation {
         self.pointerSequence = pointerSequence
         self.modal = modal
         self.enforcesUIAConstructionIntent = enforcesUIAConstructionIntent
+        self.invocationTarget = invocationTarget
     }
 }
 @MainActor
@@ -24046,9 +24051,53 @@ extension RetainedViewRuntime {
         return prepareLazyListAccessibilityItem(preparation)
     }
 
+    /// Completes only the accepted, unprepared replacement produced during a
+    /// successful logical invocation. The caller retains its original logical
+    /// identity and physical target, and holds one budget across the action's
+    /// preflight, effect, and this one ordinary query. No reveal is requested.
+    @inline(never)
+    package func prepareLazyListAccessibilityInvocationCompletion(
+        token: RetainedLazyListRowToken, in witness: RetainedLazyListAccessibilityItem,
+        replacing previous: RetainedLazyListAccessibilityItem, target: RetainedAccessibilityTarget,
+        during mutation: RetainedAccessibilityMutation
+    ) -> RetainedLazyListAccessibilityItem? {
+        guard let budget = lazyListResolutionBudget, budget.remainingRounds > 0,
+            lazyListUIARequest == nil, !hasPendingLazyListUIACallbackWork,
+            isAccessibilityTargetCurrent(target, during: mutation),
+            canPrepareLazyListAccessibilityInvocationCompletion(token: token, in: witness, replacing: previous),
+            let preparation = beginLazyListAccessibilityPreparation(
+                token: token, in: witness, during: mutation, enforcesUIAConstructionIntent: true,
+                invocationTarget: target)
+        else { return nil }
+        defer { endLazyListAccessibilityPreparation(preparation) }
+        guard let item = prepareLazyListAccessibilityItem(preparation),
+            lazyListResolutionBudget === budget, isLazyListUIAConstructionCurrent(preparation),
+            isAccessibilityTargetCurrent(target, during: mutation), !hasPendingLazyListUIACallbackWork
+        else { return nil }
+        return item
+    }
+
+    /// Keep temporary node and adapter references out of the subsequent query.
+    /// An unchanged or already prepared source does not need this completion.
+    @inline(never)
+    private func canPrepareLazyListAccessibilityInvocationCompletion(
+        token: RetainedLazyListRowToken, in witness: RetainedLazyListAccessibilityItem,
+        replacing previous: RetainedLazyListAccessibilityItem
+    ) -> Bool {
+        guard previous.runtime === self, previous.token == token,
+            previous.container === witness.container, previous.content === witness.content,
+            isLazyListAccessibilityContainerCurrent(previous),
+            isLazyListAccessibilityTokenCurrent(token, in: witness),
+            let content = witness.content, let adapter = content.retainedLazyListAdapter,
+            adapter !== previous.adapter, !adapter.hasCurrentLogicalSnapshot
+        else { return false }
+        return true
+    }
+
     private func beginLazyListAccessibilityPreparation(
         token: RetainedLazyListRowToken, in witness: RetainedLazyListAccessibilityItem,
-        during mutation: RetainedAccessibilityMutation, enforcesUIAConstructionIntent: Bool = false
+        during mutation: RetainedAccessibilityMutation, enforcesUIAConstructionIntent: Bool = false,
+        invocationTarget: RetainedAccessibilityTarget? = nil
     ) -> RetainedLazyListAccessibilityPreparation? {
         guard lazyListScrollWorkDepth > 0, lazyListAccessibilityPreparation == nil,
             isAccessibilityMutationCurrent(mutation), isLazyListAccessibilityTokenCurrent(token, in: witness),
@@ -24063,7 +24112,7 @@ extension RetainedViewRuntime {
             generation: generation, mutation: mutation, scroll: scroll, scrollAttachment: scrollAttachment,
             focusRevision: presentationFocusRevision, pointerSequence: pointerSequence,
             modal: presentationModalSnapshot.map(ObjectIdentifier.init),
-            enforcesUIAConstructionIntent: enforcesUIAConstructionIntent)
+            enforcesUIAConstructionIntent: enforcesUIAConstructionIntent, invocationTarget: invocationTarget)
         lazyListAccessibilityPreparation = preparation
         return preparation
     }
@@ -24169,6 +24218,7 @@ extension RetainedViewRuntime {
         guard preparation.enforcesUIAConstructionIntent, preparation.isActive,
             lazyListAccessibilityPreparation === preparation, permitsRetainedActionInvocation,
             activeAccessibilityMutation === preparation.mutation, !preparation.mutation.isExhausted,
+            preparation.invocationTarget?.isCurrent(in: self) != false,
             !layoutSettlementGenerationsExhausted,
             preparation.witness.runtime === self,
             let container = preparation.witness.container, let content = preparation.witness.content,
@@ -25351,6 +25401,7 @@ extension RetainedViewRuntime {
     ) -> Bool {
         guard preparation.isActive, lazyListAccessibilityPreparation === preparation,
             activeAccessibilityMutation === preparation.mutation, !preparation.mutation.isExhausted,
+            preparation.invocationTarget?.isCurrent(in: self) != false,
             isLazyListAccessibilityTokenCurrent(preparation.token, in: preparation.witness),
             let content = preparation.witness.content, let adapter = preparation.adapter,
             content.retainedLazyListAdapter === adapter,

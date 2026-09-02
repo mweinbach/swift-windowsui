@@ -68,7 +68,13 @@ final class PublicLazyListAccessibilityTests: XCTestCase {
         XCTAssertEqual(try fixture.name(row), "Row 300")
         XCTAssertEqual(fixture.source.uiaLogicalItemState(elementID: elementID), .ordinary)
         XCTAssertEqual(fixture.source.uiaElementSnapshots().first(where: { $0.id == elementID })?.name, "Row 300")
-        XCTAssertFalse(fixture.host.runtime.hasPendingLayout)
+        if case .settled(let receipt) = fixture.host.runtime.layoutSettlementStatus {
+            XCTAssertTrue(fixture.host.runtime.isLayoutSettlementReceiptCurrent(receipt))
+        } else {
+            XCTFail("Realize must leave a current layout settlement")
+        }
+        XCTAssertTrue(fixture.host.runtime.hasPendingLayout)
+        XCTAssertTrue(fixture.host.runtime.isDirty)
         var left = 0.0
         var top = 0.0
         var width = 0.0

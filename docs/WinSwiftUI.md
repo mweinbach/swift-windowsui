@@ -1044,8 +1044,15 @@ current modal. The rejected action is not queued or replayed automatically.
 Invoke carries its original bounded query budget through dispatch and may use
 remaining rounds for one post-action settlement. Completion still requires
 the original logical token and physical node; it cannot authorize a replacement
-or replay the action. The public lazy-list accessibility cases passed at the
-`3fe8af6` checkpoint, but the new deletion/reinsertion case remains unresolved.
+or replay the action. Optional prefetch may now be omitted only for that original
+Invoke token when the adapter's current required selection contains it after
+metadata evaluation. Required rows, boundary probes, measurement and cleanup
+remain unchanged. Optional targets, sibling adapters and later ordinary queries
+keep their original planning behavior; no work budget is increased or reset.
+The `5696695` repair cohort observed 14/15 public lazy-list cases passing, with
+native Invoke returning invalid-operation after its effect. Fresh execution of
+that original assertion, the owned-root deletion/reinsertion fix, and the eight
+new prefetch regressions remains required.
 
 The native bridge now carries Invoke's Boolean result through the original
 full-call lease. After preserving any transport failure and checking post-action

@@ -1757,7 +1757,8 @@ package final class RetainedLazyListRuntimeAdapter {
         budget: RetainedLazyListWorkBudget, admission: RetainedLazyListAdoptionAdmission,
         activity: (any RetainedLazyListBuildActivity)? = nil,
         journal: RetainedLazyListAdoptionJournal? = nil,
-        preserving anchor: RetainedLazyListAnchor? = nil, omitsOptionalPrefetch: Bool = false
+        preserving anchor: RetainedLazyListAnchor? = nil, omitsOptionalPrefetch: Bool = false,
+        invocationCompletionToken: RetainedLazyListRowToken? = nil
     ) -> Preparation {
         guard admission.isBuildCurrent(for: self) else { return .obsolete }
         let managed: ManagedPreparation?
@@ -1772,7 +1773,8 @@ package final class RetainedLazyListRuntimeAdapter {
         let result = prepare(
             viewport: viewport, protectedRoots: protectedRoots, budget: budget,
             checkedAdmission: admission, managed: managed, preserving: anchor,
-            omitsOptionalPrefetch: omitsOptionalPrefetch)
+            omitsOptionalPrefetch: omitsOptionalPrefetch,
+            invocationCompletionToken: invocationCompletionToken)
         // The shared helper's temporary payloads have finished unwinding.
         guard admission.isBuildCurrent(for: self), managedPreparationIsCurrent(managed) else { return .obsolete }
         return result
@@ -1784,7 +1786,7 @@ package final class RetainedLazyListRuntimeAdapter {
         viewport: Viewport, protectedRoots: Set<ObjectIdentifier>,
         budget: RetainedLazyListWorkBudget, checkedAdmission: RetainedLazyListAdoptionAdmission?,
         managed: ManagedPreparation?, preserving anchor: RetainedLazyListAnchor? = nil,
-        omitsOptionalPrefetch: Bool = false
+        omitsOptionalPrefetch: Bool = false, invocationCompletionToken: RetainedLazyListRowToken? = nil
     ) -> Preparation {
         discardRevokedLogicalRealization()
         let expectedConstructionHint = uiaConstructionHint
@@ -1988,7 +1990,9 @@ package final class RetainedLazyListRuntimeAdapter {
                 selectedTokens.insert(boundaryProbe)
                 orderedTokens.append(boundaryProbe)
             }
-            if !omitsOptionalPrefetch {
+            let omitsInvocationPrefetch =
+                invocationCompletionToken.map { selection.requiredTokens.contains($0) } ?? false
+            if !omitsOptionalPrefetch && !omitsInvocationPrefetch {
                 for token in selection.tokens where !selectedTokens.contains(token) {
                     guard orderedTokens.count < maximumMountedRecords else { break }
                     selectedTokens.insert(token)

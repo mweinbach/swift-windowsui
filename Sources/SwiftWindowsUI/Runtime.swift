@@ -20880,6 +20880,18 @@ public final class RetainedViewRuntime {
             else { return false }
             return true
         }()
+        // The original invocation token only qualifies an omission if the
+        // adapter's current selection still requires it after metadata. An
+        // optional action target must keep the ordinary planning behavior.
+        let invocationCompletionToken: RetainedLazyListRowToken? = {
+            guard let preparation = uiaPreparation,
+                preparation.invocationTarget != nil, lazyListUIARequest == nil,
+                preparation.witness.content === node, preparation.adapter === adapter,
+                lazyListResolutionBudget === budget,
+                isLazyListUIAConstructionCurrent(preparation)
+            else { return nil }
+            return preparation.token
+        }()
         guard lazyListRebuildVisitIsCurrent(visit, resuming: phase), adapter.permitsStandaloneBuild,
             let lease = node.retainedSubtreeBuildLease
         else { return false }
@@ -20965,7 +20977,8 @@ public final class RetainedViewRuntime {
                         protectedRoots: protectedLazyListRoots(in: node), epoch: epoch, admission: admission,
                         lazyJournal: lazyJournal, lazyActivity: lazyActivity, transaction: transaction,
                         preservingAnchor: visit.scrollContainer.map(lazyListAnchorMayControl) == true ? anchor : nil,
-                        omitsOptionalPrefetch: omitsOptionalPrefetch)
+                        omitsOptionalPrefetch: omitsOptionalPrefetch,
+                        invocationCompletionToken: invocationCompletionToken)
                 } else {
                     // A present binding that failed its exact refinement or scope
                     // cannot enter the ordinary raw provider path.
@@ -21074,7 +21087,7 @@ public final class RetainedViewRuntime {
         admission: RetainedLazyListAdoptionAdmission,
         lazyJournal: RetainedLazyListAdoptionJournal?, lazyActivity: (any RetainedLazyListBuildActivity)?,
         transaction: RetainedBuildTransaction, preservingAnchor: RetainedLazyListAnchor?,
-        omitsOptionalPrefetch: Bool
+        omitsOptionalPrefetch: Bool, invocationCompletionToken: RetainedLazyListRowToken?
     ) -> LazyListAdoptedCandidate? {
         let mayPrepare = epoch.canAdopt
         guard mayPrepare, admission.isBuildCurrent else { return nil }
@@ -21083,7 +21096,8 @@ public final class RetainedViewRuntime {
         let preparation = adapter.prepare(
             viewport: viewport, protectedRoots: protectedRoots, budget: budget, admission: admission,
             activity: lazyActivity, journal: lazyJournal, preserving: preservingAnchor,
-            omitsOptionalPrefetch: omitsOptionalPrefetch)
+            omitsOptionalPrefetch: omitsOptionalPrefetch,
+            invocationCompletionToken: invocationCompletionToken)
         guard admission.isBuildCurrent else { return nil }
         guard case .ready(let candidate) = preparation, candidate.viewport == viewport,
             admission.installCandidate(candidate)

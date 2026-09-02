@@ -688,6 +688,7 @@ final class StateMountEpoch {
     private func acquireObservation<Result>(
         at identity: RetainedViewIdentity, isMaterializationCurrent: () -> Bool,
         lookup: LazyListLookupReceipt? = nil,
+        renewRevokedDescriptorOwner: Bool = false,
         resolve: (StateMountOwner, inout ObservationMaps, UInt64) -> Result?
     ) -> (value: Result, revision: UInt64)? {
         guard let revision = observationConstructionRevision, isMaterializationCurrent(), let registry else {
@@ -733,9 +734,12 @@ final class StateMountEpoch {
                 identity, while: { self.observationConstructionRevision == revision && isMaterializationCurrent() }
             ]
             guard observationConstructionRevision == revision, isMaterializationCurrent() else { return nil }
-            if let existing {
+            if let existing, !renewRevokedDescriptorOwner || !existing.ownedComponentID.isRevoked {
                 owner = existing
             } else {
+                // A new descriptor declaration needs a new State generation
+                // after the original native component was permanently revoked.
+                // Escaped cells keep the old owner's immutable native identity.
                 owner = registry.makeOwner(at: identity)
                 maps.createdOwner = owner
             }
@@ -958,7 +962,9 @@ final class StateMountEpoch {
     private func candidatesWithPreservedObservations() -> [(identity: RetainedViewIdentity, owner: StateMountOwner)] {
         let candidates = self.candidates.map { (identity: $0.key, owner: $0.value) }
         let identifiers = Set(candidates.map { ObjectIdentifier($0.owner) })
-        let preserved = preservedObservationOwners.values.filter { !identifiers.contains(ObjectIdentifier($0)) }
+        let preserved = preservedObservationOwners.values.filter {
+            !identifiers.contains(ObjectIdentifier($0)) && !preparedOwnerGenerations.contains($0.generation)
+        }
         return candidates + preserved.map { (identity: $0.identity, owner: $0) }
     }
 
@@ -1222,7 +1228,8 @@ final class StateMountEpoch {
     }
 
     private func keeps(_ identity: RetainedViewIdentity, owner: StateMountOwner) -> Bool {
-        candidates[identity] != nil || preservedObservationOwners[owner.generation] === owner
+        if let candidate = candidates[identity] { return candidate === owner }
+        return preservedObservationOwners[owner.generation] === owner
             || preservedScopes.contains { $0.contains(identity) }
     }
 }
@@ -2528,6 +2535,7 @@ extension StateMountEpoch {
         guard receipt.isCurrent, lookup.isCurrent else { return nil }
         let result = acquireObservation(
             at: identity, isMaterializationCurrent: { receipt.isCurrent && lookup.isCurrent }, lookup: lookup,
+            renewRevokedDescriptorOwner: true,
             resolve: { owner, _, _ in owner })
         guard let result, observationConstructionRevision == result.revision, receipt.isCurrent,
             registry.lazyDeclarationRevision == declarationRevision, lookup.isCurrent

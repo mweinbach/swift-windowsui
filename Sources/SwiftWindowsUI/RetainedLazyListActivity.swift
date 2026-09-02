@@ -4882,6 +4882,9 @@ package final class RetainedOwnedComponentID: Sendable {
     fileprivate weak var nativePresence: RetainedOwnedComponentPresence?
     fileprivate var wasRevoked = false
     package init() {}
+
+    /// Permanent revocation of this original native generation.
+    package var isRevoked: Bool { wasRevoked }
 }
 
 /// A slot generation is allocated once. Reusing its spelling or the owning

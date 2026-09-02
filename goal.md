@@ -16370,3 +16370,67 @@ endpoint first. Its owned-process policy and 900-second execution / 10-second
 cleanup limits remain unchanged. This diagnostic is not a task-wait fix and
 does not relabel the earlier failure. **All nine original completion gates
 remain open.**
+
+### Ninth integration: observed Refresh timeout and descriptor-owner renewal (2026-09-02)
+
+The original nine completion gates and their requirements remain unchanged and
+open. The following is implementation and bounded validation evidence, not a
+new completion definition.
+
+The fixed Refresh case ran on clean `02bfca844bbcadc4584415e71de3da72d232ecc6`
+after the separately frozen twelve source-pin checks passed (`4103d6/0`,
+1.460 seconds). The controller retained one selected case, the original two
+five-second harness waits, its 900-second execution deadline and single
+ten-second cleanup allowance. The new source contract preserved all operational
+controller/supervisor bodies; only sixteen source/plan/pin literals changed.
+
+The actual run closed naturally (`db3165/1`) after a 210.24-second build and
+one failed XCTest case lasting 89.111 seconds: two failure diagnostics, including
+one unexpected thrown `timedOut`, zero skips, and zero Swift Testing cases.
+`SWUI_DASHBOARD_AWAIT_V2` recorded result 2 / `timedOut`, watcher entered,
+watcher task-value continuation not returned at observation, one reload entered
+and returned, and no counter saturation. This post-wait MainActor observation
+does not prove the underlying task itself was unfinished. The distinction
+between task completion and watcher resumption remains under investigation.
+
+Evidence is in
+`artifacts/dashboard-refresh-wait-v2-owned-9e6c0e619e824221bf1ff534ffe62776`.
+The raw log is 5,980 bytes with SHA256
+`20ee083adb6e1ebbc90dc79a5f6835275d0024e02e44b4d9fc28d437050155b1`.
+Its compiler-warning prefix contains exactly 28 doubled CRCRLF sequences before
+the first test-suite record at byte 4,291. The unchanged whole-log pass parser
+correctly refuses `UNSUPPORTED_RAW_CONTROL` at line 11 and records no verified
+case start or terminal. Root separately reviewed the exact pinned failed-test
+suffix; this does not convert the pass parser into a success. The initial
+failed-only reconciliation stopped on the inherited control-byte check without
+writing a receipt. The explicit prefix/suffix review then completed (`fd50a3/0`)
+and rehashed all 1,202 tracked source-endpoint files before source edits.
+
+The phase trace contains 24 balanced records rather than the thirty-record
+success profile. The retained direct process signaled, the owned Job reached
+zero active processes, resources closed, and handlers restored. There was no
+supervisor timeout, termination, acquisition uncertainty, or cleanup requirement
+for this run. This does not clear the older native/display cleanup restriction
+or qualify a native window, ABI, performance target, or complete template flow.
+
+The independently reviewed descriptor-owner fix addresses the separate
+`epochRefused` restoration cut observed in the earlier 118-case run. Raw removal
+permanently revokes the original native component identity, but an outer
+modifier's descriptor lookup can retain the same facade identity when rebuilt.
+Descriptor fallback now allocates a new State owner only when that original
+native identity is revoked. Other observation acquisition and explicit boundary
+ownership paths retain their existing behavior. Escaped old cells and actions
+keep their old identity; renewal does not revive them. Candidate precedence and
+preserved-observation filtering ensure the fresh owner is not overwritten by
+the retired generation during commit.
+
+Two production files and five new regression methods were integrated
+(`977f1d/0`). Both production afterimages match the reviewed packet exactly.
+The frozen test's only formatting change splits one assertion after its opening
+parenthesis; all assertions and five method identities remain unchanged. Root
+and independent reviewers read that complete delta. The staged source passes
+strict formatting and architecture checks (`509499/0`). These five behavioral
+tests have not yet run. The upcoming fixed 155-case selection retains the
+restoration diagnostic, all relevant existing ownership checks, the original
+54 keyboard cases, and the separately reviewed keyboard candidate's 23 tests.
+No behavioral pass or release-gate completion is inferred from source review.

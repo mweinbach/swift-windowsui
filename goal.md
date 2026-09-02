@@ -12862,3 +12862,56 @@ still exist. The prior 167 Button/Table passes were on `922ff21`, before this
 change. Fresh execution of those cases plus the three new methods, broader
 validation and the unresolved FileBrowser workflow remain required. All nine
 original completion gates remain open.
+
+
+### Ninth integration: Button validation result and bounded UIA rejection evidence
+
+The exact `ff823af279bcf83a104e69aab63624704c257dfe` Button/Table attempt
+`button170-ff823af-a8f76ba207c446999e3af08e55c5bc30` completed naturally with
+**170 passed, zero failed, zero skipped** across all thirteen selected classes.
+The original 167 test identities and the three new child-order regressions all
+executed. Both wrapper and child exited zero after 307.750 seconds; this includes
+build time and is not a measured performance comparison. No timeout or process
+termination occurred. The reconciled raw log has 56,303 bytes and SHA256
+`fb30ac50bfebf813141dcaa0f8918b3aec95c850356034eb41a3320fd939ee16`.
+Source/index endpoints were compared, and a separate post-closure census found
+no recorded process remaining. This qualifies that focused cohort only; it does
+not resolve the earlier File14 timeout or establish the cause of its cost.
+
+The unchanged-provider UIA fixture previously warmed an 80-point viewport that
+still admitted optional rows 3, 4, and 5 during the observed preparation. It
+therefore did not establish its stated unchanged-provider premise. Its isolated
+warm viewport is now 160 points, followed by explicit checks that six already
+measured mounted rows cover the ordinary 80-point prefetch interval, that the
+next row begins beyond that interval, and that target 30 remains cold with its
+31-point estimate. These checks happen before preparation and tracing; the
+observed viewport remains 80 points. All original assertions remain, and the
+other thirteen original method bodies are byte-identical. A separate fifteenth
+method retains the original setup and requires the additional paid measurement
+when optional provider expansion actually occurs. No production prefetch rule,
+request allowance, or retry was changed by this fixture correction.
+
+A separate opt-in diagnostic records the existing UIA rejection sites using
+fixed site/phase enums and native scalar counters. The environment flag
+`SWIFT_WINDOWSUI_DIAGNOSTIC_UIA_REJECTIONS=1` is sampled once. Recording is silent
+and disabled by default, bounded to 64 accepted entries per operation, and reset
+only after accepted typed preparation. It stores no nodes, callbacks, leases, or
+continuation authority and schedules no work. Each accepted entry can emit one
+scalar stdout line; output does not influence request results. Forty-one existing
+failure branches gained recording calls. The remaining compound leaf predicate
+is evaluated once into a Boolean before optional recording, retaining its order
+and short-circuit behavior. The original guards and budget rules are unchanged.
+Three new pure tests cover disabled behavior, the cap/reset, and transport text.
+
+Root verified the entire diagnostic Runtime inverse after removing only the
+recording additions and the single-evaluation Boolean normalization. It also
+proved the four integrated files match private `9146bcab` apart from one
+format-only line wrap. The complete staged source patch is 36,690 bytes, SHA256
+`8752f465559a0342d2d7933b5940285e27581353772c857e47d69a8e7285d185`;
+`goal-ninth-uia-diagnostic-root-staged-proof-v1.json` records the exact tree and
+649 original test files, of which only the approved fixture file changed.
+Strict lint and architecture contracts pass after that wrap. This entry records
+source review, not a compiled or passing UIA result. The focused diagnostic
+attempt, final-query optional-prefetch policy, anchor correction, and larger-
+allowance settlement diagnosis remain outstanding. All nine original goal gates
+remain open and unchanged.

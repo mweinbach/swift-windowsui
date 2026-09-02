@@ -253,7 +253,7 @@ final class LazyListUIAMeasurementCorrectionTests: XCTestCase {
     }
 
     func testUnchangedProviderFallbackStillPaysItsNecessarySecondActualPass() async throws {
-        let fixture = try MeasurementCorrectionFixture()
+        let fixture = try MeasurementCorrectionFixture(warmViewportHeight: 160)
         defer { fixture.close() }
         let lease = MeasurementCorrectionRecordingLease(
             base: try XCTUnwrap(fixture.list.retainedSubtreeBuildLease), fixture: fixture)
@@ -279,6 +279,48 @@ final class LazyListUIAMeasurementCorrectionTests: XCTestCase {
             try assertSettled(fixture.runtime)
         }
         XCTAssertEqual(fixture.runtime.lastLazyListConsumedRounds, 2)
+    }
+
+    func testOptionalProviderExpansionRequiresTheNextPaidMeasurement() async throws {
+        let fixture = try MeasurementCorrectionFixture()
+        defer { fixture.close() }
+        let lease = MeasurementCorrectionRecordingLease(
+            base: try XCTUnwrap(fixture.list.retainedSubtreeBuildLease), fixture: fixture)
+        fixture.list.retainedSubtreeBuildLease = lease
+        let fallback = installProtectedRootPerturbation(in: fixture)
+
+        try fixture.withPreparation { request in
+            XCTAssertNotNil(request)
+            _ = try assertObservedCorrection(fixture)
+            let trace = fixture.trace
+            for kind in [Phase.Kind.roundDebit, .measurementPhase] {
+                XCTAssertEqual(trace.filter { $0.kind == kind }.map(\.consumedRounds), [1, 2, 3])
+            }
+            for kind in [Phase.Kind.readerPhase, .providerPhase] {
+                XCTAssertEqual(trace.filter { $0.kind == kind }.map(\.consumedRounds), [1, 2])
+            }
+            let passes = trace.filter { $0.kind == .layoutPass && $0.consumedRounds == 2 }
+            XCTAssertEqual(passes.count, 2)
+            let tail = try XCTUnwrap(passes.last)
+            let debit = try XCTUnwrap(trace.first { $0.kind == .roundDebit && $0.consumedRounds == 3 })
+            let measurement = try XCTUnwrap(trace.first { $0.kind == .measurementPhase && $0.consumedRounds == 3 })
+            XCTAssertEqual(debit.layoutPassID, tail.layoutPassID)
+            XCTAssertEqual(measurement.layoutPassID, tail.layoutPassID)
+            let saved = trace.filter { $0.kind == .savedProviderPhase }
+            XCTAssertEqual(saved.count, 1)
+            XCTAssertEqual(saved.first?.consumedRounds, 3)
+            XCTAssertFalse(trace.contains { $0.kind == .resumedProviderPhase })
+            XCTAssertEqual(fallback.calls, 1)
+            XCTAssertEqual(lease.beginRounds, [1, 2])
+            XCTAssertEqual(fixture.probe.factories.count, try XCTUnwrap(fallback.factoryCount) + 3)
+            let originalChildren = try XCTUnwrap(fallback.childIDs)
+            let currentChildren = fixture.list.children.map(ObjectIdentifier.init)
+            XCTAssertEqual(currentChildren.count, originalChildren.count + 6)
+            XCTAssertTrue(Set(originalChildren).isSubset(of: Set(currentChildren)))
+            XCTAssertFalse(fixture.probe.factories.contains(MeasurementCorrectionFixture.targetIndex))
+            try assertSettled(fixture.runtime)
+        }
+        XCTAssertEqual(fixture.runtime.lastLazyListConsumedRounds, 3)
     }
 
     func testDeclinedProviderFallbackContinuesAtTheNextPaidMeasurementWithoutAnotherPass() async throws {
@@ -518,7 +560,7 @@ private final class MeasurementCorrectionFixture {
             && !trace.contains { $0.consumedRounds == 2 && ($0.kind == .readerPhase || $0.kind == .providerPhase) }
     }
 
-    init(hasSecondList: Bool = false) throws {
+    init(hasSecondList: Bool = false, warmViewportHeight: Double = 80) throws {
         let probe = MeasurementCorrectionProbe()
         self.probe = probe
         let host: MountedLazyListTestHost
@@ -533,7 +575,7 @@ private final class MeasurementCorrectionFixture {
                 .frame(width: 640, height: 80)
             }
         } else {
-            host = MountedLazyListTestHost(size: Size(width: 320, height: 80)) {
+            host = MountedLazyListTestHost(size: Size(width: 320, height: warmViewportHeight)) {
                 List(probe.rows, id: \.self) { probe.makeRows($0) }.listStyle(.plain)
             }
         }
@@ -558,7 +600,13 @@ private final class MeasurementCorrectionFixture {
             for _ in 0...Self.targetIndex {
                 native = try XCTUnwrap(host.runtime.lazyListAccessibilityItem(in: warmList, after: native))
             }
-            witness = try XCTUnwrap(native)
+            let nativeWitness = try XCTUnwrap(native)
+            witness = nativeWitness
+            if warmViewportHeight != 80 {
+                XCTAssertFalse(hasSecondList)
+                try Self.assertWarmRequiredRowsCoverOrdinaryPrefetch(in: host, list: warmList, target: nativeWitness)
+                host.runtime.root.frame.size.height = 80
+            }
             host.reload()
             list = try host.list()
             scroll = try host.scrollContainer()
@@ -576,6 +624,54 @@ private final class MeasurementCorrectionFixture {
     }
 
     func realize() -> Bool { source.uiaRealizeVirtualizedItem(elementID: element) }
+
+    @inline(never)
+    private static func assertWarmRequiredRowsCoverOrdinaryPrefetch(
+        in host: MountedLazyListTestHost, list: ViewNode, target: RetainedLazyListAccessibilityItem
+    ) throws {
+        let runtime = host.runtime
+        let scroll = try host.scrollContainer()
+        let adapter = try XCTUnwrap(list.retainedLazyListAdapter)
+        XCTAssertEqual(runtime.root.resolvedFrame.height, 160)
+        XCTAssertEqual(scroll.resolvedFrame.height, 160)
+        XCTAssertEqual(scroll.scrollOffset, 0)
+        XCTAssertEqual(list.resolvedFrame.origin.y, 0)
+        let rows = list.children.filter { !$0.isHidden && !$0.isSeparatorRule && $0.retainedLazyListGap == nil }
+        XCTAssertGreaterThan(rows.count, 6)
+        let firstSix = Array(rows.prefix(6))
+        let visible = rows.filter { $0.resolvedFrame.maxY > 0 && $0.resolvedFrame.minY < scroll.resolvedFrame.height }
+        XCTAssertEqual(visible.map(ObjectIdentifier.init), firstSix.map(ObjectIdentifier.init))
+        XCTAssertEqual(firstSix.count, 6)
+        for row in firstSix {
+            XCTAssertTrue(row.parent === list && row.retainedLazyListRuntime === runtime)
+            XCTAssertEqual(row.lastLayoutVisitPassID, runtime.layoutPassID)
+            XCTAssertFalse(row.isLayoutDeferredByVirtualization)
+            let token = try XCTUnwrap(adapter.mountedToken(containing: row))
+            XCTAssertEqual(adapter.knownLeafCount(for: token), 2)
+            let bounds = try XCTUnwrap(adapter.logicalBounds(for: token))
+            XCTAssertLessThan(bounds.origin, 160)
+            XCTAssertGreaterThan(bounds.origin + bounds.extent, 0)
+        }
+        // DeferredList derives prefetch from its estimate. Read that estimate
+        // from a real cold token; no provider call or viewport plan is needed.
+        XCTAssertNil(adapter.mountedNodes(for: target.token))
+        XCTAssertNil(adapter.knownLeafCount(for: target.token))
+        let estimate = try XCTUnwrap(adapter.logicalBounds(for: target.token)).extent
+        XCTAssertEqual(estimate, 31)
+        let ordinaryEnd = 80 + min(256, max(64, estimate * 3))
+        let sixth = try XCTUnwrap(firstSix.last)
+        let sixthToken = try XCTUnwrap(adapter.mountedToken(containing: sixth))
+        let sixthBounds = try XCTUnwrap(adapter.logicalBounds(for: sixthToken))
+        let seventh = try XCTUnwrap(rows.dropFirst(6).first)
+        let seventhToken = try XCTUnwrap(adapter.mountedToken(containing: seventh))
+        let seventhBounds = try XCTUnwrap(adapter.logicalBounds(for: seventhToken))
+        XCTAssertLessThan(sixthBounds.origin, ordinaryEnd)
+        XCTAssertGreaterThanOrEqual(sixthBounds.origin + sixthBounds.extent, ordinaryEnd)
+        XCTAssertGreaterThanOrEqual(seventhBounds.origin, ordinaryEnd)
+        // Native selection makes these six visible, measured records required.
+        // Replacement carries that cohort; shrinking to 80 cannot turn its
+        // already-required rows into new optional factory work.
+    }
 
     /// Stop before target demand, under the same default four-round allowance.
     /// Inspect the ordinary preparation's trace and receipt before owed cleanup.

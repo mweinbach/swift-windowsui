@@ -13680,7 +13680,10 @@ public final class RetainedViewRuntime {
             ViewNode.traversalDepthOverflowCount == traversalOverflowCount,
             pendingAfterLayoutActionKeys.isEmpty, pendingPreciseScrollAlignments.isEmpty,
             !hasUnresolvedLayoutSettlementReader, !hasUnresolvedLazyListLayout
-        else { return }
+        else {
+            recordLazyListUIARejection(.settlement)
+            return
+        }
 
         let identity = layoutSettlementIdentity ?? RetainedLayoutSettlementIdentity()
         layoutSettlementIdentity = identity
@@ -13778,6 +13781,42 @@ public final class RetainedViewRuntime {
             demandMutationRevision = demandMutation.partialValue
             resumeResolutionSequence = resumeSequence.partialValue
             demandPresentationRevision = demandPresentation.partialValue
+        }
+    }
+
+    // Sample the opt-in once. Recording sites never read the environment.
+    private static let printsLazyListUIARejectionsForTesting =
+        ProcessInfo.processInfo.environment["SWIFT_WINDOWSUI_DIAGNOSTIC_UIA_REJECTIONS"] == "1"
+    internal var lazyListUIARejectionsForTesting = RetainedLazyListUIARejectionDiagnostics()
+
+    private func recordLazyListUIARejection(
+        _ site: RetainedLazyListUIARejectionDiagnostics.Site,
+        phase: RetainedLazyListUIARequest.Phase? = nil
+    ) {
+        guard lazyListUIARejectionsForTesting.isEnabled, lazyListUIARequest != nil else { return }
+        let recordedPhase: RetainedLazyListUIARejectionDiagnostics.Phase
+        switch phase ?? lazyListUIARequest?.phase {
+        case .prepared?: recordedPhase = .prepared
+        case .targetQuery?: recordedPhase = .targetQuery
+        case .measured?: recordedPhase = .measured
+        case .scrolling?: recordedPhase = .scrolling
+        case .finalQuery?: recordedPhase = .finalQuery
+        case .resolved?: recordedPhase = .resolved
+        case .finished?: recordedPhase = .finished
+        case nil: recordedPhase = .none
+        }
+        let entry = RetainedLazyListUIARejectionDiagnostics.Entry(
+            site: site, phase: recordedPhase, pass: layoutPassID,
+            sequence: layoutSettlementResolutionSequence, geometry: layoutSettlementGeometryRevision,
+            unmutatedGeometry: lastUnmutatedLayoutPassRevision,
+            mutation: activeAccessibilityMutation?.revision ?? 0,
+            rounds: lazyListRoundLimit - (lazyListResolutionBudget?.remainingRounds ?? lazyListRoundLimit),
+            remainingRounds: lazyListResolutionBudget?.remainingRounds ?? 0,
+            remainingElements: lazyListResolutionBudget?.remainingElements ?? 0)
+        if lazyListUIARejectionsForTesting.record(entry), Self.printsLazyListUIARejectionsForTesting {
+            // Only fixed vocabulary and native scalars reach stdout. Printing
+            // has no result that can alter the original request outcome.
+            print(entry.line)
         }
     }
 
@@ -15110,6 +15149,7 @@ public final class RetainedViewRuntime {
         self.root = root
         self.displayScale = displayScale
         self.textSystem = WindowTextSystem()
+        lazyListUIARejectionsForTesting.isEnabled = Self.printsLazyListUIARejectionsForTesting
         constructionTrace = RetainedConstructionDiagnostics.writer?.runtimeTrace(
             nativeID: UInt(bitPattern: ObjectIdentifier(self)))
         self.root.setRuntime(self)
@@ -23884,6 +23924,7 @@ extension RetainedViewRuntime {
             let preparation = beginLazyListAccessibilityPreparation(
                 token: token, in: witness, during: mutation, enforcesUIAConstructionIntent: true)
         else { return nil }
+        lazyListUIARejectionsForTesting.beginOperation()
         var prepared = false
         defer { if !prepared { endLazyListAccessibilityPreparation(preparation) } }
         guard let item = prepareLazyListAccessibilityItem(preparation), let budget = lazyListResolutionBudget,
@@ -24540,9 +24581,15 @@ extension RetainedViewRuntime {
             let target = roots.first(where: { !$0.isHidden && !$0.isSeparatorRule && $0.retainedLazyListGap == nil }),
             let targetAttachment = accessibilityTarget(for: target),
             permitsConservativeAccessibilityValueTarget(target)
-        else { return false }
+        else {
+            recordLazyListUIARejection(.captureEntry)
+            return false
+        }
         if let originalTarget = request.originalTarget {
-            guard originalTarget.node === target, originalTarget.isCurrent(in: self) else { return false }
+            guard originalTarget.node === target, originalTarget.isCurrent(in: self) else {
+                recordLazyListUIARejection(.captureTargetIdentity)
+                return false
+            }
         }
 
         var lists: [RetainedLazyListUIATargetPass.List] = []
@@ -24560,7 +24607,10 @@ extension RetainedViewRuntime {
                     actual.resolvedContentSize.width.isFinite, actual.resolvedContentSize.height.isFinite,
                     actual.resolvedContentSize.width >= 0, actual.resolvedContentSize.height >= 0,
                     actual.resolvedScrollOffset.isFinite
-                else { return false }
+                else {
+                    recordLazyListUIARejection(.captureGeometry)
+                    return false
+                }
                 if capturedNodes.insert(ObjectIdentifier(actual)).inserted {
                     geometry.append(
                         .init(
@@ -24570,11 +24620,13 @@ extension RetainedViewRuntime {
                 }
                 if actual === root { return true }
                 guard let parent = actual.parent, parent.children.contains(where: { $0 === actual }) else {
+                    recordLazyListUIARejection(.captureGeometry)
                     return false
                 }
                 current = parent
                 depth += 1
             }
+            recordLazyListUIARejection(.captureGeometry)
             return false
         }
 
@@ -24589,9 +24641,15 @@ extension RetainedViewRuntime {
                 node.resolvedContentSize.height == adapter.contentExtent,
                 let adapterProof = adapter.captureLayoutProof(),
                 let recordProof = adapter.captureUIAActualRecordsProof(), captureGeometry(of: node)
-            else { return false }
+            else {
+                recordLazyListUIARejection(.captureList)
+                return false
+            }
             let records = pendingLazyListMeasurements[key, default: []]
-            guard records.count == node.children.count else { return false }
+            guard records.count == node.children.count else {
+                recordLazyListUIARejection(.captureLeaves)
+                return false
+            }
             var measurements: [RetainedLazyListRuntimeAdapter.Measurement] = []
             for (index, record) in records.enumerated() {
                 guard let leaf = record.node, leaf === node.children[index], leaf.parent === node,
@@ -24601,11 +24659,17 @@ extension RetainedViewRuntime {
                     leaf.retainedLazyListGap == record.gap,
                     leaf.resolvedFrame.height.isFinite, leaf.resolvedFrame.height >= 0,
                     captureGeometry(of: leaf)
-                else { return false }
+                else {
+                    recordLazyListUIARejection(.captureLeaves)
+                    return false
+                }
                 if record.gap != nil {
                     guard let gapExtent = record.gapExtent, gapExtent.isFinite, gapExtent >= 0,
                         leaf.resolvedFrame.height == (leaf.isHidden ? 0 : gapExtent)
-                    else { return false }
+                    else {
+                        recordLazyListUIARejection(.captureGap)
+                        return false
+                    }
                 }
                 measurements.append(
                     .init(
@@ -24620,9 +24684,15 @@ extension RetainedViewRuntime {
                 guard let hint = request.hint,
                     case .measurementOnly = adapter.uiAConstructionReadiness(
                         for: hint, viewport: viewport, measurements: measurements)
-                else { return false }
+                else {
+                    recordLazyListUIARejection(.captureHintMeasurements)
+                    return false
+                }
             } else {
-                guard adapter.matchesAcceptedMeasurements(measurements, viewport: viewport) else { return false }
+                guard adapter.matchesAcceptedMeasurements(measurements, viewport: viewport) else {
+                    recordLazyListUIARejection(.captureMeasurements)
+                    return false
+                }
             }
             lists.append(
                 .init(
@@ -24632,12 +24702,18 @@ extension RetainedViewRuntime {
         guard isLazyListUIARequestCurrent(request), targetAttachment.isCurrent(in: self),
             target.lastLayoutVisitPassID == layoutPassID, target.parent === content,
             target.resolvedFrame.height > 0, target.resolvedFrame.width > 0
-        else { return false }
+        else {
+            recordLazyListUIARejection(.captureTargetIdentity)
+            return false
+        }
         if request.originalTarget == nil {
             request.originalTarget = targetAttachment
             request.originalTargetIdentity = target.captureLazyListIdentityProof()
             request.queryLayoutProofs = targetAttachment.path.compactMap { $0.node?.captureLazyListLocalLayoutProof() }
-            guard request.queryLayoutProofs.count == targetAttachment.path.count else { return false }
+            guard request.queryLayoutProofs.count == targetAttachment.path.count else {
+                recordLazyListUIARejection(.captureTargetIdentity)
+                return false
+            }
         }
         request.targetPass = RetainedLazyListUIATargetPass(
             target: targetAttachment, geometry: geometry, lists: lists, leaves: leaves,
@@ -24670,7 +24746,10 @@ extension RetainedViewRuntime {
             scroll.scrollIndicatorAutoHides == pass.autoHidesIndicator,
             scroll.showsScrollIndicator == pass.showsIndicator,
             scroll.isScrollable == pass.isScrollable
-        else { return false }
+        else {
+            recordLazyListUIARejection(.passEntry)
+            return false
+        }
         let expectedGeometry: UInt64
         let expectedMutation: UInt64
         let offsetWasWritten: Bool
@@ -24687,13 +24766,19 @@ extension RetainedViewRuntime {
             offsetWasWritten = true
             layoutWasInvalidated = false
         case .invalidated?:
-            guard let ownedScroll else { return false }
+            guard let ownedScroll else {
+                recordLazyListUIARejection(.passOwnedScroll)
+                return false
+            }
             expectedGeometry = ownedScroll.offsetGeometryRevision
             expectedMutation = ownedScroll.offsetMutationRevision
             offsetWasWritten = true
             layoutWasInvalidated = true
         case .indicator?:
-            guard let ownedScroll else { return false }
+            guard let ownedScroll else {
+                recordLazyListUIARejection(.passOwnedScroll)
+                return false
+            }
             expectedGeometry = ownedScroll.finalGeometryRevision
             expectedMutation = ownedScroll.finalMutationRevision
             offsetWasWritten = true
@@ -24702,15 +24787,24 @@ extension RetainedViewRuntime {
         guard layoutSettlementGeometryRevision == expectedGeometry,
             request.preparation.mutation.revision == expectedMutation,
             scroll.scrollOffset == (offsetWasWritten ? ownedScroll?.offset : pass.scrollOffset)
-        else { return false }
+        else {
+            recordLazyListUIARejection(.passCounters)
+            return false
+        }
         if offsetWasWritten {
-            guard let ownedScroll, scroll.lazyListScrollIntentIdentity === ownedScroll.intent else { return false }
+            guard let ownedScroll, scroll.lazyListScrollIntentIdentity === ownedScroll.intent else {
+                recordLazyListUIARejection(.passOwnedScroll)
+                return false
+            }
         } else {
             guard scroll.lazyListScrollIntentIdentity === request.preparation.scrollIntent,
                 let content = request.item.content,
                 let current = content.readOnlyLazyListViewport(displayScale: displayScale),
                 current.0 == pass.viewport, current.1 === scroll, current.2 == pass.contentOriginY
-            else { return false }
+            else {
+                recordLazyListUIARejection(.passViewport)
+                return false
+            }
         }
         for entry in pass.geometry {
             guard let node = entry.layout.node, entry.layout.attachment.isCurrent, node.runtime === self,
@@ -24718,23 +24812,41 @@ extension RetainedViewRuntime {
                 node.resolvedScrollOffset == entry.resolvedScrollOffset,
                 node.isHidden == entry.isHidden, node.isLayoutDeferredByVirtualization == entry.isDeferred,
                 !node.isRetiringLazyListAttachment
-            else { return false }
+            else {
+                recordLazyListUIARejection(.passGeometry)
+                return false
+            }
             if node === scroll, layoutWasInvalidated, pass.hasVirtualizedDescendants {
-                guard node.lazyListLayoutIdentity == nil else { return false }
+                guard node.lazyListLayoutIdentity == nil else {
+                    recordLazyListUIARejection(.passLayout)
+                    return false
+                }
             } else {
-                guard entry.layout.isCurrent else { return false }
+                guard entry.layout.isCurrent else {
+                    recordLazyListUIARejection(.passLayout)
+                    return false
+                }
             }
         }
         for list in pass.lists {
             guard let node = list.node, let adapter = list.adapter, node.retainedLazyListAdapter === adapter,
                 adapter.ownsAttachment(node), list.layout.isCurrent, list.records.isCurrent,
                 adapter.managedLogicalDescriptorBinding === list.descriptor, list.descriptor?.isCurrent != false
-            else { return false }
+            else {
+                recordLazyListUIARejection(.passList)
+                return false
+            }
         }
         return pass.leaves.allSatisfy { leaf in
-            guard let node = leaf.node, let container = leaf.container else { return false }
-            return leaf.attachment.isCurrent && leaf.identity.isCurrent && node.parent === container
+            guard let node = leaf.node, let container = leaf.container else {
+                recordLazyListUIARejection(.passLeaf)
+                return false
+            }
+            let isCurrent =
+                leaf.attachment.isCurrent && leaf.identity.isCurrent && node.parent === container
                 && container.children.contains(where: { $0 === node }) && node.retainedLazyListGap == leaf.gap
+            if !isCurrent { recordLazyListUIARejection(.passLeaf) }
+            return isCurrent
         }
     }
 
@@ -24862,16 +24974,25 @@ extension RetainedViewRuntime {
     ) -> RetainedLazyListUIATargetPass? {
         guard isLazyListUIARequestCurrent(request), request.budget.remainingRounds > 0,
             phase == .targetQuery || phase == .finalQuery, let content = request.item.content
-        else { return nil }
+        else {
+            recordLazyListUIARejection(.queryEntry, phase: phase)
+            return nil
+        }
         let nextSequence: UInt64
         if let unused {
             guard phase == .targetQuery,
                 isUnusedLazyListUIAProviderPhaseCurrent(unused, at: .demand, for: request)
-            else { return nil }
+            else {
+                recordLazyListUIARejection(.queryEntry, phase: phase)
+                return nil
+            }
             nextSequence = unused.reservation.resumeResolutionSequence
         } else {
             let next = layoutSettlementResolutionSequence.addingReportingOverflow(1)
-            guard !next.overflow else { return nil }
+            guard !next.overflow else {
+                recordLazyListUIARejection(.queryEntry, phase: phase)
+                return nil
+            }
             nextSequence = next.partialValue
         }
         if request.queryLayoutProofs.isEmpty {
@@ -24883,6 +25004,7 @@ extension RetainedViewRuntime {
                 unused?.queryLayoutProofs
                 ?? path.compactMap { $0.node?.captureLazyListLocalLayoutProof() }
             guard request.queryLayoutProofs.count == path.count, isLazyListUIARequestCurrent(request) else {
+                recordLazyListUIARejection(.queryEntry, phase: phase)
                 return nil
             }
         }
@@ -24903,7 +25025,10 @@ extension RetainedViewRuntime {
         request.phase = .measured
         guard frame != nil, isLazyListUIARequestCurrent(request), let pass = request.targetPass,
             isLazyListUIATargetPassCurrent(pass, for: request)
-        else { return nil }
+        else {
+            recordLazyListUIARejection(.queryResult, phase: phase)
+            return nil
+        }
         return pass
     }
 
@@ -24917,7 +25042,10 @@ extension RetainedViewRuntime {
             let scroll = request.preparation.scroll, isQuietLazyListUIAScroll(scroll),
             adapter.knownLeafCount(for: request.item.token) != 0,
             adapter.updateProtectedRoots(protectedLazyListRoots(in: content))
-        else { return nil }
+        else {
+            recordLazyListUIARejection(.resolveEntry)
+            return nil
+        }
         // Consumption precedes every demand/hint effect. A failed certificate
         // before consumption falls back to the unchanged paid query path.
         let unused = consumeUnusedLazyListUIAProviderPhase(for: request)
@@ -24926,19 +25054,31 @@ extension RetainedViewRuntime {
                 revokeUnusedLazyListUIAProviderPhase(unused)
             }
         }
-        guard beginLazyListTargetResolution(during: request.preparation.mutation) else { return nil }
+        guard beginLazyListTargetResolution(during: request.preparation.mutation) else {
+            recordLazyListUIARejection(.resolveEntry)
+            return nil
+        }
         request.beganResolution = true
         guard
             let realization = adapter.beginLogicalRealization(
                 of: request.item.token, owner: request.item.realizationOwner)
-        else { return nil }
+        else {
+            recordLazyListUIARejection(.resolveEntry)
+            return nil
+        }
         request.item.realization = realization
         guard let viewport = content.readOnlyLazyListViewport(displayScale: displayScale), viewport.1 === scroll,
             let hint = adapter.beginUIAConstructionHint(for: realization, viewport: viewport.0)
-        else { return nil }
+        else {
+            recordLazyListUIARejection(.resolveEntry)
+            return nil
+        }
         request.hint = hint
         if let unused {
-            guard isUnusedLazyListUIAProviderPhaseCurrent(unused, at: .initial, for: request) else { return nil }
+            guard isUnusedLazyListUIAProviderPhaseCurrent(unused, at: .initial, for: request) else {
+                recordLazyListUIARejection(.resolveEntry)
+                return nil
+            }
         }
         content.markDirty([.children, .layout, .paint])
         invalidate(.layout, from: content)
@@ -24949,14 +25089,23 @@ extension RetainedViewRuntime {
         } else {
             targetPass = queryLazyListUIARequest(request, phase: .targetQuery)
         }
-        guard var pass = targetPass else { return nil }
+        guard var pass = targetPass else {
+            recordLazyListUIARejection(.resolveTarget)
+            return nil
+        }
         lazyListLogicalRevealScroll = scroll
         for _ in 0..<4 {
             guard let offset = checkedLazyListUIAScrollOffset(pass, in: request),
                 applyLazyListUIAScroll(offset.clampedOffset, using: pass, for: request)
-            else { return nil }
+            else {
+                recordLazyListUIARejection(.resolveScroll)
+                return nil
+            }
             if let hint = request.hint {
-                guard adapter.endUIAConstructionHint(hint) else { return nil }
+                guard adapter.endUIAConstructionHint(hint) else {
+                    recordLazyListUIARejection(.resolveHint)
+                    return nil
+                }
                 request.hint = nil
             }
             guard let nextPass = queryLazyListUIARequest(request, phase: .finalQuery),
@@ -24965,7 +25114,10 @@ extension RetainedViewRuntime {
                 request.originalTarget?.isCurrent(in: self) == true,
                 let roots = realizedLazyListAccessibilityNodes(for: request.item),
                 roots.contains(where: { $0 === target })
-            else { return nil }
+            else {
+                recordLazyListUIARejection(.resolveFinal)
+                return nil
+            }
             if prepaintState.interactions.contains(where: {
                 $0.node === target && $0.frame.width > 0 && $0.frame.height > 0
             }) {
@@ -24976,9 +25128,13 @@ extension RetainedViewRuntime {
             guard request.budget.remainingRounds > 0,
                 let correction = checkedLazyListUIAScrollOffset(nextPass, in: request),
                 correction.clampedOffset != nextPass.scrollOffset
-            else { return nil }
+            else {
+                recordLazyListUIARejection(.resolveVisibility)
+                return nil
+            }
             pass = nextPass
         }
+        recordLazyListUIARejection(.resolveVisibility)
         return nil
     }
 

@@ -156,6 +156,22 @@ Both classes still require execution against this joined source. The separate
 mounted-successor and native-acquisition changes coexist with this cut; source
 review, formatting, and contracts do not establish their behavioral results.
 
+Protected-root updates distinguish rejected input, an unchanged normalized
+record set, and a changed set. The existing Boolean interface still rejects
+exactly the same inputs. Changed ordinary resolution marks content and its
+actual ancestors dirty before layout preflight, including known-empty requests.
+It then rechecks the original item, because Grid invalidation can retire a
+queued callback capture. The existing action receipt remains responsible for
+request supersession; this update grants no new permission.
+
+The shared ordinary resolver serves both List keyboard navigation and public
+programmatic scrolling. UIA, layout-plan, and shared materializer callers retain
+their previous Boolean interface. Seven LazyListProtectedRootsInvalidationTests
+cover normalization, clean ancestor propagation, after-layout demand, and actual
+callback retirement within the unchanged four-round/128-element bounds. They
+remain uncompiled and unrun in this joined source; the original distant-keyboard
+and public-scroll assertions still require their own execution.
+
 The following qualification work remains open in this source checkpoint:
 
 - The new checked-bucket, collision, nested-identity, and cleanup regressions

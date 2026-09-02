@@ -304,6 +304,12 @@ package final class RetainedLazyListRuntimeAdapter {
         package let anchorAdjustedOffset: Double?
     }
 
+    package enum ProtectedRootsUpdate: Equatable {
+        case rejected
+        case unchanged
+        case changed
+    }
+
     package enum Preparation {
         case ready(Candidate)
         case unchanged
@@ -1314,10 +1320,15 @@ package final class RetainedLazyListRuntimeAdapter {
     /// the cache merely because no provider or viewport work is otherwise due.
     @discardableResult
     package func updateProtectedRoots(_ roots: Set<ObjectIdentifier>) -> Bool {
-        guard !isPreparing, !isReleasing, roots.count <= maximumMountedLeaves else { return false }
+        updateProtectedRootsReportingChange(roots) != .rejected
+    }
+
+    /// Reports normalized record changes without invalidating layout itself.
+    package func updateProtectedRootsReportingChange(_ roots: Set<ObjectIdentifier>) -> ProtectedRootsUpdate {
+        guard !isPreparing, !isReleasing, roots.count <= maximumMountedLeaves else { return .rejected }
         var rootsToTokens: [ObjectIdentifier: RetainedLazyListRowToken] = [:]
         if !roots.isEmpty {
-            guard let owner = attachmentOwner, let runtime = owner.retainedLazyListRuntime else { return false }
+            guard let owner = attachmentOwner, let runtime = owner.retainedLazyListRuntime else { return .rejected }
             for (token, record) in mounted {
                 for node in record.nodes
                 where node.parent === owner && node.retainedLazyListRuntime === runtime
@@ -1329,15 +1340,16 @@ package final class RetainedLazyListRuntimeAdapter {
         }
         var next: Set<RetainedLazyListRowToken> = []
         for root in roots {
-            guard let token = rootsToTokens[root], let record = mounted[token] else { return false }
+            guard let token = rootsToTokens[root], let record = mounted[token] else { return .rejected }
             if positions[token] != nil, record.activity?.logicalMembership.isDeclared != false { next.insert(token) }
         }
-        guard next.count <= maximumProtectedRecords, next.count <= maximumMountedRecords else { return false }
+        guard next.count <= maximumProtectedRecords, next.count <= maximumMountedRecords else { return .rejected }
         if next != protectedTokens {
             protectedTokens = next
             unresolvedWork = true
+            return .changed
         }
-        return true
+        return .unchanged
     }
 
     package func beginLogicalRealization(

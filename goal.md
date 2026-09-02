@@ -15189,3 +15189,50 @@ of the original eleven dashboard interactions. Neither step has run here. The
 earlier dashboard timeout remains unresolved and all eleven outcomes from that
 attempt remain unknown. Static retained output is not a replacement for the
 mounted interaction workload. **All nine original completion gates remain open.**
+
+
+### 2026-09-02: propagate changed lazy-list protection through clean layout ancestors
+
+The completed `63fd6dd` scroll selection passed all 33 PublicScrollSettlement
+methods and the original List pixel test, but distant keyboard navigation still
+selected row 899 instead of 900. Its diagnostic companion observed another root
+visit without another wrapper, content, or scroll visit, while adapter work
+became pending. The protection/cache explanation is a source inference supported
+by those observations, not a new runtime result.
+
+The adapter now reports rejected, unchanged, or changed after its existing
+protected-root normalization. Its original Boolean API remains a wrapper with
+the same rejection behavior. Only a changed normalized record set marks pending
+work; unchanged or rejected input does not clear existing work. The existing
+guards, membership rules, native token comparison, and capacity limits remain.
+
+The first ordinary lazy-list resolver consumes that result. A change marks its
+content and actual ancestor path dirty, invalidates runtime layout, and rechecks
+the same original item before known-empty, after-layout, or preflight handling.
+Grid invalidation can retire a queued callback capture; the recheck therefore
+follows both invalidations. It acquires no replacement item or operation receipt.
+This resolver also serves public programmatic scrolling, so its 33 settlement
+tests remain part of the required collateral. The UIA, layout-plan, and shared
+materializer call sites retain their original Boolean path.
+
+Seven new async methods were frozen in private test-first commit `85ce9fe`
+before production commit `66d04a3`. They cover normalized additions/removals,
+rejection and pending-work preservation, unchanged and changed known-empty
+requests, measured mounted preflight, active-demand after-layout work, and actual
+Grid callback retirement that revokes the original item. They use ordinary
+layout and rendering with the existing four-round and 128-element limits.
+
+Root reviewed the entire production patch and seven-test file, then applied the
+contextual three-file patch. All 716 previous Test paths retain their bytes;
+there are now 717 Test paths. Its complete inverse restores the preceding
+`ca742f7` tree, including mounted-successor, final-child-cut, native-acquisition,
+and dashboard diagnostic work. Strict formatting and architecture contracts
+pass without a further formatting edit.
+
+The implementation remains uncompiled and unrun. The next keyboard/scroll
+selection is all 33 settlement methods, the original nine List methods, the
+one passive keyboard diagnostic, and these seven new methods: 50 total. The
+original distant-row assertion must pass independently; a tiny mounted fixture
+cannot substitute for it. The broader 182-method C04 selection, release checks,
+native behavior, and hardware timing remain owed. No later navigation stage was
+changed speculatively. **All nine original completion gates remain open.**

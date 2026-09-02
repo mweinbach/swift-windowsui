@@ -27023,7 +27023,18 @@ extension RetainedViewRuntime {
         guard isLazyListAccessibilityItemCurrent(item), let adapter = item.adapter, let content = item.content else {
             return .obsolete
         }
-        guard adapter.updateProtectedRoots(protectedLazyListRoots(in: content)) else { return .unsupported }
+        switch adapter.updateProtectedRootsReportingChange(protectedLazyListRoots(in: content)) {
+        case .rejected:
+            return .unsupported
+        case .unchanged:
+            break
+        case .changed:
+            // Protection changes need a layout path through clean ancestors.
+            // Grid invalidation may retire callbacks, so keep the original item.
+            content.markDirty(.layout)
+            invalidate(.layout, from: content)
+            guard isLazyListAccessibilityItemCurrent(item) else { return .obsolete }
+        }
         if adapter.knownLeafCount(for: item.token) == 0 { return .empty }
         if isUpdatingResolvedLayout, isDrainingAfterLayoutActions {
             guard activeAccessibilityMutation == nil else { return .unsupported }

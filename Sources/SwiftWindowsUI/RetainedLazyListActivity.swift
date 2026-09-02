@@ -7041,7 +7041,11 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
     ) -> PublicationResult {
         let sourcePayloads =
             source.map { source in
-                sources.filter { $0.node === source }.map(\.payload)
+                var payloads: [RetainedLazyListSourcePayloadID] = []
+                for record in sources {
+                    if record.node === source { payloads.append(record.payload) }
+                }
+                return payloads
             } ?? []
         // Weak source materialization precedes the domain check. A rejected
         // domain has not activated or recorded any plan in this invocation.

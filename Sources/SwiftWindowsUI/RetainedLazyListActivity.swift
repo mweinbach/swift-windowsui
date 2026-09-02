@@ -3525,6 +3525,22 @@ package final class RetainedDescriptorContributionReceipt {
     func revoke() { wasRevoked = true }
 }
 
+/// Shares native ancestry work only within one synchronous, callback-free
+/// authorization. No permission result is cached. The query must end before
+/// a callback, registration, publication, cleanup, or subsequent operation.
+@MainActor
+package struct RetainedDescriptorAttachmentQuery {
+    fileprivate var attachments = RetainedLazyListAttachmentQuery()
+    package private(set) var authorizationChecks = 0
+
+    package init() {}
+
+    package var ancestorVisits: Int { attachments.ancestorVisits }
+    package var childLinkVisits: Int { attachments.childLinkVisits }
+
+    fileprivate mutating func recordAuthorizationCheck() { authorizationChecks += 1 }
+}
+
 @MainActor
 package final class RetainedDescriptorComponentAttribution {
     package let attempt: RetainedLazyListAttemptID
@@ -3549,6 +3565,11 @@ package final class RetainedDescriptorComponentAttribution {
     }
 
     package var canConstruct: Bool { ledger?.canConstruct(self) == true }
+
+    package func canConstruct(using query: inout RetainedDescriptorAttachmentQuery) -> Bool {
+        query.recordAuthorizationCheck()
+        return ledger?.canConstruct(self, using: &query) == true
+    }
 
     package func rejectComponent() { ledger?.rejectComponent(self) }
     package func rejectConstruction() { rejectComponent() }
@@ -3773,13 +3794,20 @@ final class RetainedDescriptorConstructionLedger {
     }
 
     fileprivate func canConstruct(_ attribution: RetainedDescriptorComponentAttribution) -> Bool {
+        var query = RetainedDescriptorAttachmentQuery()
+        return canConstruct(attribution, using: &query)
+    }
+
+    fileprivate func canConstruct(
+        _ attribution: RetainedDescriptorComponentAttribution, using query: inout RetainedDescriptorAttachmentQuery
+    ) -> Bool {
         guard sealed == nil, attribution.ledger === self,
             attribution.attempt === attempt, !rejectedComponentIDs.contains(ObjectIdentifier(attribution.component)),
             let scope = attribution.scope,
             let record = components[ObjectIdentifier(attribution.component)]
         else { return false }
         return record.id === attribution.component && record.scope === scope
-            && scope.attempt === attempt && scope.canConstructDescriptors
+            && scope.attempt === attempt && scope.canConstructDescriptors(using: &query.attachments)
     }
 
     fileprivate func parentComponent(of id: RetainedDescriptorComponentID) -> RetainedDescriptorComponentID? {

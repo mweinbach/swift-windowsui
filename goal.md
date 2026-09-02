@@ -13414,3 +13414,93 @@ Only the two reviewed methods in `CanonicalViewBuilderMetadataTests.swift` and `
 Root applied the reviewed +34/-2-line patch exactly (5,312 bytes, SHA256 `5d0164555940d5e3c7439c4554378ec21e4c42bef586f9cb91cc48b73882c19f`). Prefixes and suffixes outside the two methods, the diagnostic collection statements and payload/schema, and the other 667 test entries remain unchanged. Assertion accounting and inverse/source proof are retained in `artifacts/goal-ninth-deferred-setup-oracle-intake-v1`; the current complete staged proof is `artifacts/goal-ninth-deferred-setup-oracle-root-staged-proof-v1.json`. Strict lint and contracts passed. The earlier six-failure builder result is not rewritten; fresh Builder79 execution is still required, and the four inactive declaration failures remain separate open work.
 
 This corrects a test's setup comparison while preserving and strengthening the required lifecycle behavior. It changes no original product scope, compatibility promise, budget or completion threshold; all nine completion gates remain open.
+
+
+### Ninth implementation pass: descriptor-query sharing and the 1aacbb2 validation results (2026-09-02)
+
+This entry adds implementation and validation detail without changing any of the
+original nine completion gates. All nine remain open. The original scope,
+acceptance thresholds, workloads, negative tests, and prior failure records stay
+in force.
+
+The frozen `1aacbb24d07ada151b8b45cb52800ab8c6f6f021` source completed these
+separate serial XCTest selections with independently reconciled case identities,
+source/index endpoints, natural process closure, and subsequent process censuses:
+
+| Selection | Started | Passed | Failed | Skipped | Direct child seconds |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Logical vertical geometry | 23 | 23 | 0 | 0 | 315.625, including compilation |
+| Physical retirement and completion peers | 33 | 33 | 0 | 0 | 6.093 |
+| Existing accessibility selection | 191 | 190 | 1 | 0 | 512.547 |
+| Existing builder selection | 79 | 75 | 4 | 0 | 10.891 |
+| Native host value/observation selection | 116 | 116 | 0 | 0 | 9.312 |
+| Foreground activation observation | 8 | 8 | 0 | 0 | 5.313 |
+| Media browser model only | 25 | 25 | 0 | 0 | 5.594 |
+
+The receipts are `artifacts/goal-ninth-{warm23,physical33,uia191,builder79,
+native116,activation8,media-model25}-1aacbb2-reconciled-v1.json`, with a separate
+post-closure census for each. These are focused results, not a full-suite,
+rendering, native-window, macOS, or release pass. The media model selection does
+not construct the retained media/gallery fixture and does not resolve the earlier
+Media152 or File14 timeouts. No timed-out attempt was silently rerun or relabeled.
+
+The completion-peer regression now passes. Both approved deferred-list setup
+accounting tests also pass, retaining the exact surviving tail value of 42 and
+zero factory/metadata/body work for the retired optional write. The four remaining
+builder failures concern inactive optional, conditional, iteration, and re-erased
+array declarations. Their proposed repair remains isolated: review found child
+publication, refusal reporting, task-disappearance, and unpublished-arrival
+cleanup problems. Controller pointer equality and an entered registration call do
+not prove ownership of the original attachment or scroll-observer registration;
+that unresolved cleanup authority must not be replaced with a generic teardown.
+
+The remaining accessibility failure is
+`PublicLazyListAccessibilityTests.testRealizeAdoptsAndLaysOutTheActualActionTarget`.
+Its realized target has positive visible bounds, and its invocation performs the
+expected single action effect. It still reports pending layout, then returns
+unavailable after that action and rejects the subsequent focus request. Existing
+navigation tests separately require preservation of previously pending layout
+work, so changing the public pending-layout getter or weakening either oracle is
+not an acceptable repair. All original public accessibility assertions and the
+128-descriptor/four-pass and one-descriptor/one-pass limits remain unchanged.
+
+One new native smoke attempt used the same 27 predicates and 64-probe workload.
+The current executable was freshly linked during the successful logical-geometry
+build, on the identical source/index used for the 116 and eight subsequent unit
+tests; those incremental unit runs did not relink it. The separate build
+association is
+`artifacts/goal-ninth-native-activation-1aacbb2-warm-link-association-v1.json`.
+Attempt `e5ba25b4be764bb2b3bb5cf6dd368339` exited naturally with failure in 10.984
+seconds: 24 of 27 predicates passed, with the same missing backlogged 32-record
+exercise, backlogged actor-progress, and unforced three-second idle criteria.
+The first existing foreground-activation call returned false. That observation
+does not establish the cause of idle message traffic. The complete 2,742-record
+trace and failed result remain unchanged, with reconciliation in
+`artifacts/goal-ninth-native-owned-e5ba25b-reconciled-v1.json`. A subsequent census
+found no matching process; it does not rewrite the original cleanup-required flag
+or attest continuous descendant, loader, COM-routing, or display behavior.
+
+The next source slice shares one local attachment traversal between the two
+existing native authorization checks in a descriptor-owner construction query.
+It does not memoize permission results. Owner/lifetime/attempt checks, native
+scope and contribution checks, owner availability, sticky receipt rejection, and
+both authorization edges retain their order. Each invocation creates a new query;
+no query crosses a callback, registration, publication, cleanup, or installer
+boundary. Only scalar visit counts escape the query. Existing attachment and
+weak-owner validation remain authoritative.
+
+The reviewed packet adds eleven regression methods covering shared traversal,
+fresh independent queries, exact owner/attribution/attempt rejection, attachment
+movement and token replacement, scope/epoch/contribution denial, unavailable
+owners, latched rejection, and weak runtime/scope/ledger expiration. It changes
+three production files and adds one test file. All 669 pre-existing test files
+are byte-preserved. Root composition preserves the already-tested completion-peer
+guard; the sole formatter adjustment is a line break in a new test helper.
+Strict lint and contracts pass. The staged source tree is
+`29845e076afcb39ea77b1f3cf0954750cf9b85b5`, with complete source proof in
+`artifacts/goal-ninth-descriptor-owner-query-root-staged-proof-v1.json` and exact
+patch SHA-256
+`18be38984ddf578f2619942ee4b99129bd05657444b96f6738f09697a06da895`.
+These eleven tests are not yet compiled or executed at this entry. This removes
+duplicated ancestry work; it is not a proven explanation or fix for the retained
+media/gallery timeout, and it grants no completion-gate credit by itself.

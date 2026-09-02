@@ -1375,6 +1375,19 @@ private final class DescriptorOwnerAcquisition {
     }
 
     var isCurrent: Bool { owner.lazyLifetime.isAvailable && receipt.isCurrent }
+
+    func isCurrent(using query: inout RetainedDescriptorAttachmentQuery) -> Bool {
+        owner.lazyLifetime.isAvailable && receipt.isCurrent(using: &query)
+    }
+}
+
+/// Scalar evidence from one completed native validation. The mutable query and
+/// the owners, receipts, and nodes it checks never escape through this result.
+struct DescriptorOwnerConstructionValidation {
+    let isCurrent: Bool
+    let authorizationChecks: Int
+    let ancestorVisits: Int
+    let childLinkVisits: Int
 }
 
 @MainActor
@@ -2472,9 +2485,29 @@ extension StateMountEpoch {
     func descriptorOwnerIsCurrent(
         _ owner: StateMountOwner, attribution: RetainedDescriptorComponentAttribution
     ) -> Bool {
-        guard lazyLifetime.canConstruct, lazyLifetime.nativeAttempt === attribution.attempt, attribution.canConstruct,
+        descriptorOwnerValidation(owner, attribution: attribution).isCurrent
+    }
+
+    func descriptorOwnerValidation(
+        _ owner: StateMountOwner, attribution: RetainedDescriptorComponentAttribution
+    ) -> DescriptorOwnerConstructionValidation {
+        // This query covers only the two native authorization edges below.
+        // Keep it local: installer and lookup operations can invoke callbacks.
+        var query = RetainedDescriptorAttachmentQuery()
+        let isCurrent = descriptorOwnerIsCurrent(owner, attribution: attribution, using: &query)
+        return DescriptorOwnerConstructionValidation(
+            isCurrent: isCurrent, authorizationChecks: query.authorizationChecks,
+            ancestorVisits: query.ancestorVisits, childLinkVisits: query.childLinkVisits)
+    }
+
+    private func descriptorOwnerIsCurrent(
+        _ owner: StateMountOwner, attribution: RetainedDescriptorComponentAttribution,
+        using query: inout RetainedDescriptorAttachmentQuery
+    ) -> Bool {
+        guard lazyLifetime.canConstruct, lazyLifetime.nativeAttempt === attribution.attempt,
+            attribution.canConstruct(using: &query),
             let acquisition = descriptorOwners[owner.generation], acquisition.owner === owner,
-            acquisition.attribution === attribution, acquisition.isCurrent
+            acquisition.attribution === attribution, acquisition.isCurrent(using: &query)
         else { return false }
         return true
     }

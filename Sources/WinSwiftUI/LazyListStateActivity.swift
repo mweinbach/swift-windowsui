@@ -577,7 +577,14 @@ final class DescriptorResolutionReceipt {
     }
 
     var isCurrent: Bool {
-        guard !rejected, lifetime.canConstruct, lifetime.nativeAttempt === native.attempt, native.canConstruct else {
+        var query = RetainedDescriptorAttachmentQuery()
+        return isCurrent(using: &query)
+    }
+
+    func isCurrent(using query: inout RetainedDescriptorAttachmentQuery) -> Bool {
+        guard !rejected, lifetime.canConstruct, lifetime.nativeAttempt === native.attempt,
+            native.canConstruct(using: &query)
+        else {
             rejected = true
             return false
         }

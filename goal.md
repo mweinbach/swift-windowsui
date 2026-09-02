@@ -14263,3 +14263,39 @@ pre-edit contracts and strict lint of all three changed Swift files, including
 post-edit contracts, passed. The fresh complete seven-class, 75-method run is
 still unrun; no compiled, runtime, full-suite or native pass is claimed by this
 commit. The original nine completion gates remain open.
+
+
+### Ninth integration: fixed child extents and transparent clip layout (2026-09-02)
+
+Positive finite dimensions marked as fixed now supply their current content
+proposal and measured answer on the marked axes. A one-child fixed frame places
+its accepted child against the actual assigned frame with signed alignment
+offsets, including negative offsets when the child is larger. Width-only and
+height-only frames retain the existing policy on the other axis. This does not
+replace ordinary stack compression or the separate flexible-frame policy.
+
+The existing public `clipShape`, `clipped`, and `cornerRadius` wrappers carry a
+new scalar `forwardsChildSize` flag. The runtime uses it only for a plain,
+zero-padding/zero-spacing, non-scrolling stack with one visible child and no
+conflicting local size or aspect-fit policy. Such clipping wrappers preserve
+the child's accepted layout size without caching a copy of its dimensions.
+`ComponentHost` copies the flag through its existing guarded property path.
+Invalid roles and unmarked/nonpositive/nonfinite preferences keep the old path.
+
+Twenty-three new tests cover the public uneven-corner bottom crop, thin top
+crop, one-pixel centered crop, all nine alignments, RTL, omitted axes, intrinsic
+and flexible children, live/animated dimensions, flag clearing and malformed
+wrapper roles. All 694 pre-existing test entries and raw bytes are unchanged.
+The existing aspect-fit 12x8 preference resolving in an assigned 8x8 frame is
+an explicit collateral obligation, alongside absolute layout, geometry/focus,
+text shrink/fill/editor sizing and public lazy-list root-join tests.
+
+Root applied the reviewed four-file patch on `82bf391`; its inverse recovers
+that complete preceding tree. Initial strict lint reported formatting issues.
+The reviewed correction changes only line wrapping and redundant condition
+parentheses; an unrelated formatter import/comment rearrangement was excluded.
+The corrected four-file strict lint and contracts passed. Application and
+formatting receipts are `artifacts/goal-ninth-fixed-frame-apply-v1.json` and
+`artifacts/goal-ninth-fixed-frame-format-proof-v1.json`. Compilation, the 23 new
+tests, collateral runs and the proposed gallery fixture remain pending. No
+baseline or completion gate changes accompany this source repair.

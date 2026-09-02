@@ -2869,6 +2869,10 @@ public final class ComponentHost {
                 check.isCurrent
             else { return false }
         }
+        if target.forwardsChildSize != source.forwardsChildSize {
+            guard copyNodeProperty(\.forwardsChildSize, source: source, target: target, check: check), check.isCurrent
+            else { return false }
+        }
         if target.aspectFitLayout != source.aspectFitLayout {
             guard copyNodeProperty(\.aspectFitLayout, source: source, target: target, check: check), check.isCurrent
             else { return false }

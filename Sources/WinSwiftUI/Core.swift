@@ -26836,6 +26836,7 @@ extension View {
                     isHitTestVisible: false,
                     children: [childNode]
                 )
+                root.forwardsChildSize = true
                 root.clipFillStyle = RetainedClipFillStyle(antialiased: antialiased)
                 return root
             }
@@ -26853,6 +26854,7 @@ extension View {
                     isHitTestVisible: false,
                     children: [childNode]
                 )
+                root.forwardsChildSize = true
                 root.clipFillStyle = RetainedClipFillStyle(antialiased: antialiased)
                 return root
             }
@@ -26872,6 +26874,7 @@ extension View {
                     isHitTestVisible: false,
                     children: [childNode]
                 )
+                root.forwardsChildSize = true
                 root.clipFillStyle = RetainedClipFillStyle(eoFill: style.isEOFilled, antialiased: style.isAntialiased)
                 root.cornerRadii = clipDescriptor.cornerRadii(in: context.layoutDirection)
 

@@ -3072,6 +3072,17 @@ public final class ViewNode {
         }
     }
 
+    /// A facade clipping wrapper forwards its content's layout answer. This
+    /// role is separate from clipping: ordinary clipped containers can still
+    /// compress their children. Admission also requires an otherwise plain
+    /// single-child stack, so later local sizing policies retain precedence.
+    package var forwardsChildSize = false {
+        didSet {
+            guard forwardsChildSize != oldValue else { return }
+            invalidateRuntime(.layout)
+        }
+    }
+
     /// The facade installs this on a centered one-child stack. An admitted
     /// finite measurement places its accepted child size without fitting again;
     /// declined proposals keep the original stack measurement and placement.
@@ -7851,6 +7862,7 @@ public final class ViewNode {
     @inline(never)
     private func layoutStackChildren(stackLayout: StackLayout, descendants: inout [ViewNode]) {
         if aspectFitLayout != nil, layoutAspectFitChild(descendants: &descendants) { return }
+        if layoutFrameOrTransparentChild(descendants: &descendants) { return }
         let allocation = stackAllocation(for: stackLayout)
         // nil for a plain `.stack` and for a `.lazyStack` with nothing
         // scrollable above it, which is what makes virtualization opt-in
@@ -7872,6 +7884,76 @@ public final class ViewNode {
 
         resolvedContentSize = stackContentSize(
             stackLayout: stackLayout, allocation: allocation, maxCrossExtent: cursor.maxCrossExtent)
+    }
+
+    /// Only facade frame/clip geometry uses the accepted-size path below.
+    /// Ordinary stacks, scrolling containers and aspect-fit fallbacks keep
+    /// their existing allocation, padding, shrink and virtualization rules.
+    private var singleChildStackLayout: StackLayout? {
+        guard case .stack(let stack) = layoutMode,
+            stack.axis == .vertical, stack.spacing == 0, stack.padding == .zero,
+            stack.distribution == .fill, children.count == 1,
+            let child = children.first, !child.isHidden,
+            scrollAxis == nil, scrollContainerState == nil,
+            retainedLazyListAdapter == nil, aspectFitLayout == nil
+        else { return nil }
+        return stack
+    }
+
+    private var forwardsSingleChildSize: Bool {
+        forwardsChildSize && singleChildStackLayout != nil
+            && preferredSize == nil && frame.size == .zero
+            && layoutConstraints == nil && layoutFillAxes.isEmpty
+            && fixedPreferredSizeAxes.isEmpty
+    }
+
+    /// A fixed frame aligns the child's accepted answer even when it is
+    /// larger than the frame. A transparent clip wrapper has the same layout
+    /// answer as its child. Neither path restores a preferred size in place
+    /// of an assigned slot: an ordinary parent may still have compressed this
+    /// wrapper, so its child is proposed the actual resolved bounds.
+    @inline(never)
+    private func layoutFrameOrTransparentChild(descendants: inout [ViewNode]) -> Bool {
+        let fixedFrame =
+            forwardsStackMainAxisProposal
+            && (fixedPreferredExtent(along: .horizontal) != nil || fixedPreferredExtent(along: .vertical) != nil)
+        guard forwardsSingleChildSize || fixedFrame,
+            let stack = singleChildStackLayout, let child = children.first
+        else { return false }
+
+        let proposal = LayoutConstraints(
+            maxWidth: max(0, resolvedFrame.width), maxHeight: max(0, resolvedFrame.height))
+        let accepted = child.sizeThatFits(in: proposal)
+        let guideX = stackCrossOriginUsingAlignmentGuide(
+            for: child, stackAxis: .vertical, stackAlignment: stack.alignment,
+            contentOrigin: 0, contentExtent: resolvedFrame.width, childExtent: accepted.width)
+        let x: Double
+        if let guideX {
+            x = guideX
+        } else {
+            switch stack.alignment {
+            case .leading, .stretch, .firstTextBaseline, .customVertical, .customHorizontal:
+                x = 0
+            case .center:
+                x = (resolvedFrame.width - accepted.width) * 0.5
+            case .trailing, .lastTextBaseline:
+                x = resolvedFrame.width - accepted.width
+            }
+        }
+        let y: Double
+        switch stack.mainAlignment {
+        case .start: y = 0
+        case .center: y = (resolvedFrame.height - accepted.height) * 0.5
+        case .end: y = resolvedFrame.height - accepted.height
+        }
+
+        child.resolvedFrame = Rect(x: x, y: y, width: max(0, accepted.width), height: max(0, accepted.height))
+        _ = child.resumeVirtualizedLayout()
+        descendants.append(child)
+        let crossExtent = guideX == nil ? accepted.width : max(0, x + accepted.width)
+        resolvedContentSize = Size(
+            width: max(resolvedFrame.width, crossExtent), height: max(resolvedFrame.height, accepted.height))
+        return true
     }
 
     /// Do not reinterpret the accepted size as another aspect proposal or
@@ -11012,7 +11094,7 @@ public final class ViewNode {
     }
 
     private func stackChildConstraints(for constraints: LayoutConstraints, axis: StackAxis) -> LayoutConstraints {
-        if forwardsStackMainAxisProposal, children.count == 1 {
+        if forwardsStackMainAxisProposal || forwardsSingleChildSize, children.count == 1 {
             return LayoutConstraints(maxWidth: constraints.maxWidth, maxHeight: constraints.maxHeight)
         }
         switch axis {
@@ -11054,8 +11136,13 @@ public final class ViewNode {
             measuredSize = Self.stackMeasuredSize(of: childSizes, stackLayout: rowLayout.standaloneStackLayout)
         }
 
-        let resolvedSize = applyingExplicitDimensions(
-            to: measuredSize, constraints: plan.effectiveConstraints)
+        // Public clipping changes pixels, not the child's layout answer.
+        // Keep the normal cache/memo path and the inherited-fill update made
+        // by the caller, while avoiding a second clamp of the accepted size.
+        let resolvedSize =
+            forwardsSingleChildSize && childSizes.count == 1
+            ? childSizes[0]
+            : applyingExplicitDimensions(to: measuredSize, constraints: plan.effectiveConstraints)
         return cacheMeasuredSize(resolvedSize, plan: plan, memo: memo)
     }
 
@@ -11243,8 +11330,12 @@ public final class ViewNode {
     /// row. Keep these content proposals separate from the node's sizing
     /// constraints: an explicit fill axis may still accept the full proposal.
     private func contentMeasurementConstraints(in constraints: LayoutConstraints) -> LayoutConstraints {
+        let fixedWidth = fixedPreferredExtent(along: .horizontal)
+        let fixedHeight = fixedPreferredExtent(along: .vertical)
         let width: Double
-        if let explicitWidth,
+        if let fixedWidth {
+            width = fixedWidth
+        } else if let explicitWidth,
             !(frame.size.width <= 0 && layoutFillAxes.horizontal && constraints.maxWidth.isFinite)
         {
             width = clampedExtent(explicitWidth, min: constraints.minWidth, max: constraints.maxWidth)
@@ -11253,7 +11344,9 @@ public final class ViewNode {
         }
 
         let height: Double
-        if let explicitHeight,
+        if let fixedHeight {
+            height = fixedHeight
+        } else if let explicitHeight,
             !(frame.size.height <= 0 && layoutFillAxes.vertical && constraints.maxHeight.isFinite)
         {
             height = clampedExtent(explicitHeight, min: constraints.minHeight, max: constraints.maxHeight)
@@ -11262,8 +11355,19 @@ public final class ViewNode {
         }
 
         return LayoutConstraints(
-            minWidth: constraints.minWidth, maxWidth: width,
-            minHeight: constraints.minHeight, maxHeight: height)
+            minWidth: fixedWidth == nil ? constraints.minWidth : min(constraints.minWidth, width), maxWidth: width,
+            minHeight: fixedHeight == nil ? constraints.minHeight : min(constraints.minHeight, height),
+            maxHeight: height)
+    }
+
+    /// Fixed intent is per axis and reads the current animated preference.
+    /// Invalid/nonpositive preferences and ordinary ideals keep the old
+    /// explicit-size policy; a raw frame is not newly treated as this role.
+    private func fixedPreferredExtent(along axis: StackAxis) -> Double? {
+        let marked = axis == .horizontal ? fixedPreferredSizeMask & 1 != 0 : fixedPreferredSizeMask & 2 != 0
+        guard marked, let preferredSize else { return nil }
+        let extent = axis == .horizontal ? preferredSize.width : preferredSize.height
+        return extent > 0 && extent.isFinite ? extent : nil
     }
 
     private func applyingExplicitDimensions(to size: Size, constraints: LayoutConstraints) -> Size {
@@ -11285,8 +11389,10 @@ public final class ViewNode {
         }
 
         return Size(
-            width: clampedExtent(measuredWidth, min: constraints.minWidth, max: constraints.maxWidth),
-            height: clampedExtent(measuredHeight, min: constraints.minHeight, max: constraints.maxHeight)
+            width: fixedPreferredExtent(along: .horizontal)
+                ?? clampedExtent(measuredWidth, min: constraints.minWidth, max: constraints.maxWidth),
+            height: fixedPreferredExtent(along: .vertical)
+                ?? clampedExtent(measuredHeight, min: constraints.minHeight, max: constraints.maxHeight)
         )
     }
 

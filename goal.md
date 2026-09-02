@@ -15791,3 +15791,33 @@ accessibility checks, macOS behavior, hardware timing, hosted release CI and
 clean-machine deployment remain separate outstanding evidence. The original
 goal text and all prior ledger bytes remain intact. **All nine original
 completion gates remain open.**
+
+### Ninth batch: executable tests for late ordinary-target cancellation
+
+Three new tests in `ManagedListTargetCleanupBoundaryTests.swift` are now
+integrated without changing production code or any existing test. They use a
+real managed List, its original input receipt and logical target, and the
+unchanged four-round/128-element resolver budget. Initial viewport setup keeps
+the existing bounded fixture procedure; the tested operation is one target
+resolution, with no added retry or layout query from a cancellation callback.
+
+The first two cases cancel from the required row's initial onChange action or
+from release of that action's captured payload. They first verify that the
+original row and predecessor were accepted, then require refused completion
+and completed original build cleanup. A read-only callback observes the cleanup
+boundary without demanding rollback of accepted rows. Selection, source input
+ownership, offset and focus must remain unchanged, and row 900 must not appear.
+The third case closes the real host inside the required row's body, before
+adoption, and requires disposal of that proposal and payload, no predecessor
+factory or initial action, no live/retiring mount owners, no pending native
+build work, an empty closed root and revoked input authority.
+
+The finite test source and its independent review were frozen before intake.
+Root reviewed the complete test and actual completion/onChange cuts, checked
+the original source pins, and proved that the inverse restores the complete
+preceding committed tree. Formatting lint and architecture contracts passed
+in `artifacts/goal-ninth-managed-target-cleanup-boundary-lint-contracts.log`.
+The sealed packet and root inverse receipt remain under `artifacts/`. No fake
+managed-epoch getter or new production hook was introduced. Compilation and
+execution are still required; these three methods are not included in the
+earlier 571-method validation result. **All nine completion gates remain open.**

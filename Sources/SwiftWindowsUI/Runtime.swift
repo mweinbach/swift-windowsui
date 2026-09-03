@@ -1,8 +1,9 @@
 import Foundation
-
 import SwiftWindowsCore
-
 import SwiftWindowsGraphics
+/// Snapshot of property values used by the animation system to track previous
+/// state so it can interpolate between old and new values.
+import SwiftWindowsLayout
 
 // Gap/Fix: Granular dirty tracking — OptionSet replaces single isDirty boolean.
 
@@ -13,10 +14,6 @@ import SwiftWindowsGraphics
 /// Tracks the interpolation state for a single animated property change.
 
 /// Color-based animation state for interpolating between two colors over time.
-
-/// Snapshot of property values used by the animation system to track previous
-/// state so it can interpolate between old and new values.
-import SwiftWindowsLayout
 
 /// Exhaustion permanently disables optional selection replay rather than
 /// allowing an old scope stamp to match a later runtime state.
@@ -14910,6 +14907,43 @@ public final class RetainedViewRuntime {
         let remainingElements: Int
         let remainingRounds: Int
         let activePhysicalActivityIDs: [ObjectIdentifier]?
+    }
+
+    /// Temporary passive diagnostic, called only by the two instrumented tests.
+    /// Returns scalars only; never checks preparation currentness or walks nodes.
+    internal func keyboardProgressSnapshotForTesting(
+        preparation: RetainedLazyListKeyboardPreparation, adapter: RetainedLazyListRuntimeAdapter
+    ) -> String {
+        let phase: String
+        switch preparation.phase {
+        case .eligibility: phase = "eligibility"
+        case .selected: phase = "selected"
+        case .settling: phase = "settling"
+        case .released: phase = "released"
+        }
+        let recorded: String
+        switch recordedLayoutSettlement {
+        case .unavailable: recorded = "unavailable"
+        case .unsettled: recorded = "unsettled"
+        case .settled: recorded = "settled"
+        }
+        let lastUnmutated = lastUnmutatedLayoutPassRevision.map { String($0) } ?? "nil"
+        let request =
+            "prep=\(phase) revoked=\(preparation.wasRevoked) queriedEligibility=\(preparation.queriedEligibility) queriedSettlement=\(preparation.queriedSettlement) eligibilityPass=\(preparation.eligibilityPass != nil) settlementReceipt=\(preparation.settlement != nil)"
+        let geometry =
+            "recorded=\(recorded) geometry=\(layoutSettlementGeometryRevision) lastUnmutated=\(lastUnmutated) sequence=\(layoutSettlementResolutionSequence) layoutPass=\(layoutPassID) exhausted=\(layoutSettlementGenerationsExhausted)"
+        let queues =
+            "afterKeys=\(pendingAfterLayoutActionKeys.count) afterActions=\(pendingAfterLayoutActions.count) readyEntries=\(readyPreparedKeyboardNavigationReplays.count) replaySlots=\(preparedListNavigationReplays.count) retiredReplays=\(retiredPreparedListNavigationRetirements.count) preciseAlignments=\(pendingPreciseScrollAlignments.count) readerEntries=\(pendingGeometryReaderNodes.count)"
+        let callbacks =
+            "rendering=\(isRendering) layout=\(isLayoutInProgress) resolvingFrame=\(isResolvingLayoutFrame) resolvingSettlement=\(isResolvingLayoutSettlement) lifecycle=\(isDeliveringRenderLifecycleCallbacks) afterDrain=\(isDrainingAfterLayoutActions) scrollDelivery=\(scrollObserverRegistry?.isDelivering == true) longPressDepth=\(longPressReconciliationDepth) reconcileDrain=\(isDrainingReconciliationCallbacks) longPressCallbacks=\(pendingLongPressCallbacks.count) buildCompletions=\(pendingRetainedBuildCompletions.count)"
+        let build =
+            "building=\(retainedBuildCoordinatorStorage?.isBuilding == true) nativeBuildWork=\(retainedBuildCoordinatorStorage?.hasPendingNativeWork == true) activeBudget=\(lazyListResolutionBudget != nil) activeKeyboard=\(activeLazyListKeyboardPreparation != nil) logicalResolve=\(isResolvingLazyListLogicalTarget) activeMutation=\(activeAccessibilityMutation != nil) activeAccessibility=\(lazyListAccessibilityPreparation != nil) activeUIA=\(lazyListUIARequest != nil) replayDrain=\(isDrainingPreparedKeyboardNavigationReplays)"
+        let otherWork =
+            "anchorClamps=\(pendingLazyListAnchorClamps.count) anchorLayout=\(lazyListAnchorNeedsLayout) unsupported=\(lazyListUnsupportedThisPass) scrollSearch=\(lazyListScrollSearchNeedsMoreWork) probing=\(isProbingLazyListScrollTarget) taskCancellationDepth=\(renderLifecycleTaskCancellationDepth) focusRequests=\(pendingPresentationFocusRequests.count) focusDrain=\(isDrainingPresentationFocusRequests) revealPending=\(pendingListNavigationReveal != nil) revealConsuming=\(consumingListNavigationReveal != nil) revealDrain=\(isDrainingListNavigationReveal)"
+        // hasUnresolvedWork reads flags and a payload-free native generation proof only.
+        let adapterState =
+            "adapterUnresolved=\(adapter.hasUnresolvedWork) adapterOwnsOriginal=\(adapter.keyboardPreparation === preparation) prepUsesAdapter=\(preparation.adapter === adapter)"
+        return [request, geometry, queues, callbacks, build, otherWork, adapterState].joined(separator: " ")
     }
 
     internal var recordsLazyListUIAPhasesForTesting = false {

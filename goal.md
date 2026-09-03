@@ -17396,3 +17396,27 @@ test. The next execution checks these cases and gathers separate temporary
 primitive state diagnostics for the pending selection. Instrumented evidence
 must be followed by unchanged tests before claiming acceptance. The original
 budget, frame bounds, 155-method deadline and nine open gates stay unchanged.
+
+### 2026-09-02 — Observe the pending selection without changing its contract
+
+A temporary diagnostic adds per-frame scalar records to the original pending
+and intervening-source test bodies. Each selected method creates its own
+PID/UUID-named file under `artifacts/`, refuses overwrite, writes at most 132
+lines and explicitly closes its handle after fixture cleanup. I/O errors fail
+the diagnostic attempt. A terminated process does not prove deferred cleanup
+or disk durability. No environment, execution deadline or retry changes.
+
+One internal Runtime snapshot is called only by those test records. It reads
+stored preparation phase, query flags, raw settlement category, revisions,
+queue counts, native callback/build flags and adapter unresolved state. It
+does not validate authority, call a provider, run layout or walk the view tree.
+Post-render queue counts may describe the next replay and are not automatically
+the guard values at the earlier settlement attempt. All original assertions,
+loop conditions, budgets and callback order remain unchanged.
+
+Contracts and strict lint pass; root reviewed the diagnostic and formatter
+changes, including unchanged import membership. The exact formatted reverse
+is retained in `artifacts/keyboard-frame-progress-formatted-v2.patch`. The
+next run selects seven new adapter regressions and the pending keyboard case.
+This diagnostic must be removed before uninstrumented acceptance; it cannot
+qualify timing, the combined gate or any of the nine open completion gates.

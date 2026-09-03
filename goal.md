@@ -19440,3 +19440,52 @@ window; accessible root naming remains unqualified. No corrected controller has
 yet run. The separately policy-denied native
 acquisition harness remains HELD and was not invoked. All nine original product
 completion gates remain open.
+
+### 2026-09-03: source-provenance146 passes; ordinary app image lookup remains unresolved
+
+At fixed source `9c7cbb8dfd56e4d3c87c4d9f381a65c3f12e481c`, the
+TextSourceProvenance146 cohort compiled and passed all sixteen new and 130
+unchanged methods. Six serial batches recorded exactly 146 starts and passing
+terminals with no skips or extra methods. Each owned controller exited naturally
+with code 0, and its descendant processes, resources and signal handling closed
+without uncertainty, timeout, forced termination or errors. Source was preserved
+throughout. Initial build time was 375.12 seconds. The aggregate is
+`artifacts/text-source-provenance146-9c7cbb8-results.json` (SHA256
+`0d3284ea52310e22858caf839b39f1e2e17c23019ebfa89036595471c1b62601`);
+raw logs and per-batch ownership records remain in
+`artifacts/textsourceprovenance146-61d9e677774f4868bc53d91af8cdb840/`.
+This completes that prerequisite's focused execution, not Original155, the full
+suite, native TextPattern, source-mapped geometry or product completion.
+
+After all six batches closed, the reviewed caption-oracle correction actually
+ran in the separate ordinary GPUWorkbench journey. It used the unchanged
+historical `4330e9865e094e2d0eae77ced0b34e0d514a9ebb` staged executable,
+an isolated profile and cwd, and the same 180+10-second process allowance. The
+owned main window reported native title `GPU Workbench`, UIA type Pane, and
+an empty UIA root Name. This now supplies an actual empty-name observation for
+this third attempt; it does not retroactively establish the unknown name in the
+second attempt. Accessible window naming remains an explicit gap.
+
+The third attempt then failed its existing eight-second wait for the expected
+enabled, not-offscreen accessible image. It stopped before any keyboard or
+Invoke action, so editing, save, restart and persistence remain untested by this
+journey. A selector, projection or bounds cause has not yet been established;
+the failure is not proof of missing decoded pixels. The app accepted normal
+failure-cleanup close and exited 0. The controller exited naturally with code 1
+after 10.765 seconds. The owned Job became empty, and descendant/resource/signal
+closure was verified without errors, uncertainty, timeout or forced termination.
+The success predicates remain false because the functional journey failed.
+Source and staged-file endpoint checks matched; they are not continuous proof
+against external mutations or qualification of the current toolkit build.
+
+The original attempt remains under Temp directory
+`gpuworkbench-ordinary-journey-run-v5-7a9d03ce46db4e3699d119133943df08`.
+Its controller raw log is 4203 bytes, SHA256
+`defd0a93fb7f4a821a22b7a7417759c66fe5f1368a5560c058415a7e63e01501`.
+The immutable controller and binding hashes are respectively
+`24c03b537a5d94a08c76ec4040e3f8eafabcc1f01f8337fd0c3d592c59025426`
+and `a4567f7a90402d3ca560ac1d941ec5399d840c0424ab04d39652c8a5f12090a1`.
+No assertion was removed after this failure. No pixel, image decoding, hardware,
+live rendering, Narrator or clean-machine acceptance claim follows. The separate
+policy-denied native acquisition route remains HELD and was not invoked. All
+nine original completion gates remain open without a scope change.

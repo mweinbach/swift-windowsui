@@ -292,3 +292,14 @@ layout's hit metrics, retained placement/clipping and current ownership; existin
 editor wrapping or glyph-start approximations are not replacements. Full native
 TextPattern methods, events, editor/selection/IME integration and qualification
 remain open.
+
+The integrated provenance change was subsequently compiled and tested on
+2026-09-03 at `9c7cbb8`. All sixteen new tests and 130 unchanged text range,
+cache, editing-layout, shaping and measurement/paint controls passed. The six
+serial batches recorded exactly 146 starts and passing terminals, natural exit
+0 and complete owned process cleanup; source remained unchanged. The first
+build took 375.12 seconds. The
+[aggregate](../artifacts/text-source-provenance146-9c7cbb8-results.json) and
+[raw batch logs](../artifacts/textsourceprovenance146-61d9e677774f4868bc53d91af8cdb840/)
+replace the preparation-time pending status for this cohort only. This is not
+full-suite, native TextPattern, visible geometry or live presentation evidence.

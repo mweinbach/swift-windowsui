@@ -1201,13 +1201,16 @@ public final class ComponentHost {
         uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil
     ) -> RetainedLazyListAdoptionResult {
         let textInputChrome = RetainedTextInputChromeAdoptionScope(retainedRoots: [target], sourceRoots: [source])
-        let buttonActions = RetainedButtonActionAdoption(retainedRoots: [target], sourceRoots: [source])
+        let frameAccessibility = RetainedFrameAccessibilityAdoption(retainedRoots: [target], sourceRoots: [source])
+        let buttonActions = RetainedButtonActionAdoption(
+            retainedRoots: [target], sourceRoots: [source], requiresNativeTreeWitnesses: frameAccessibility != nil)
         // Keep the final primitive check outside the scope that owns matching,
         // transaction and retired-property payloads. Their destruction can
         // synchronously replace or close the provider.
         let check = NodeReconcileAdmission(
             admission, source: source, target: target, lazyJournal: lazyJournal, taskAdoption: taskAdoption,
-            buttonActions: buttonActions, uiaAuthority: uiaAuthority, textInputChrome: textInputChrome)
+            buttonActions: buttonActions, uiaAuthority: uiaAuthority, frameAccessibility: frameAccessibility,
+            textInputChrome: textInputChrome)
         textInputChrome?.associateOriginalContext(
             admission: admission, lazyJournal: lazyJournal, taskAdoption: taskAdoption,
             buttonActions: buttonActions, uiaAuthority: check.uiaAuthority)
@@ -1215,7 +1218,7 @@ public final class ComponentHost {
         let completed = performAdoption(
             source: source, into: target, admission: admission, taskAdoption: taskAdoption,
             lazyJournal: lazyJournal, buttonActions: buttonActions, uiaAuthority: check.uiaAuthority,
-            completion: &completion, textInputChrome: textInputChrome)
+            frameAccessibility: frameAccessibility, completion: &completion, textInputChrome: textInputChrome)
         if buttonActions == nil { textInputChrome?.closeAndReleaseConstruction() }
         let stayedCurrent = (completed || check.uiaAuthority != nil) && check.isCurrent
         return adoptionResult(
@@ -1229,15 +1232,18 @@ public final class ComponentHost {
         admission: RetainedLazyListAdoptionAdmission?, taskAdoption: RetainedTaskAdoptionContext?,
         lazyJournal: RetainedLazyListAdoptionJournal?,
         buttonActions: RetainedButtonActionAdoption?, uiaAuthority: RetainedLazyListUIAContinuationAuthority?,
+        frameAccessibility: RetainedFrameAccessibilityAdoption?,
         completion: inout RetainedLazyListAdoptionCompletion?, textInputChrome: RetainedTextInputChromeAdoptionScope?
     ) -> Bool {
         let check = NodeReconcileAdmission(
             admission, source: source, target: target, lazyJournal: lazyJournal, taskAdoption: taskAdoption,
-            buttonActions: buttonActions, uiaAuthority: uiaAuthority, textInputChrome: textInputChrome)
+            buttonActions: buttonActions, uiaAuthority: uiaAuthority, frameAccessibility: frameAccessibility,
+            textInputChrome: textInputChrome)
         guard check.isCurrent, admission?.permitsMutation(of: target) != false else { return false }
         guard source.selectedContentRole == target.selectedContentRole else { return false }
         if lazyJournal != nil, source.containsRejectedRetainedSource { return false }
         if source === target, admission != nil || check.uiaAuthority != nil {
+            guard frameAccessibility?.recordUnchangedSubtree(source) != false else { return false }
             lazyJournal?.recordUnchangedNode(target)
             completion = RetainedLazyListAdoptionCompletion(of: target)
             return check.recordUIACompletion(completion) && check.isCurrent
@@ -1263,7 +1269,8 @@ public final class ComponentHost {
                 let prepared = prepareChildrenPlan(
                     of: target, oldChildren: oldChildren, newNodes: newNodes, admission: admission,
                     sourceParent: preservesChildren ? target : source, lazyJournal: lazyJournal,
-                    buttonActions: buttonActions, uiaAuthority: check.uiaAuthority)
+                    buttonActions: buttonActions, uiaAuthority: check.uiaAuthority,
+                    frameAccessibility: frameAccessibility)
             else { return false }
             plan = prepared
         } else {
@@ -1290,14 +1297,16 @@ public final class ComponentHost {
         guard
             revokeDepartingTextInputOwnership(
                 source: source, target: target, plan: plan, admission: admission, lazyJournal: lazyJournal,
-                buttonActions: buttonActions, uiaAuthority: check.uiaAuthority)
+                buttonActions: buttonActions, uiaAuthority: check.uiaAuthority,
+                frameAccessibility: frameAccessibility)
         else { return false }
         guard check.isCurrent, plan?.isCurrent != false, plan?.stillOwnsOldChildren != false else { return false }
         lazyJournal?.prepareOwnedCandidateReaderReplacement(from: source, to: target)
         let propertyCheck = NodeReconcileAdmission(
             admission, source: source, target: target, childrenSnapshot: plan?.childrenSnapshot,
             lazyJournal: lazyJournal, taskAdoption: taskAdoption, buttonActions: buttonActions,
-            uiaAuthority: check.uiaAuthority, textInputChrome: textInputChrome)
+            uiaAuthority: check.uiaAuthority, frameAccessibility: frameAccessibility,
+            textInputChrome: textInputChrome)
         let previous = admission?.isLogicalInsertion(source: source) == true ? nil : target
         let completed = withReconcileAnimationTransaction(source: source, previous: previous, check: propertyCheck) {
             guard plan?.isCurrent != false, plan?.stillOwnsOldChildren != false else { return false }
@@ -1313,12 +1322,13 @@ public final class ComponentHost {
                 of: target, oldChildren: oldChildren, newNodes: newNodes, plan: plan, admission: admission,
                 preservesChildren: preservesChildren, sourceParent: source,
                 taskAdoption: taskAdoption, lazyJournal: lazyJournal, completionSources: completionSources,
-                buttonActions: buttonActions, uiaAuthority: check.uiaAuthority, textInputChrome: textInputChrome)
+                buttonActions: buttonActions, uiaAuthority: check.uiaAuthority, frameAccessibility: frameAccessibility,
+                textInputChrome: textInputChrome)
         }
         guard completed, check.isCurrent else { return false }
         check.recordCompletedNode(from: source, to: target)
         guard check.isCurrent else { return false }
-        if check.requiresCheckedReconciliation || buttonActions != nil {
+        if check.requiresCheckedReconciliation || buttonActions != nil || frameAccessibility != nil {
             completion = RetainedLazyListAdoptionCompletion(of: target)
             guard check.recordUIACompletion(completion) else { return false }
         }
@@ -1356,11 +1366,14 @@ public final class ComponentHost {
         } else {
             actionsAccepted = isComplete
         }
+        let framesAccepted =
+            check.frameAccessibility?.finish(
+                completed: isComplete && actionsAccepted, check: check, completion: completion) ?? true
         return RetainedLazyListAdoptionResult(
-            completed: isComplete && actionsAccepted,
+            completed: isComplete && actionsAccepted && framesAccepted,
             didMutate: (admission?.didMutate ?? (lazyJournal?.hasAcceptedContributions ?? completed))
                 || uiaAuthority?.didMutate == true,
-            children: parent.children, completion: isComplete && actionsAccepted ? completion : nil)
+            children: parent.children, completion: isComplete && actionsAccepted && framesAccepted ? completion : nil)
     }
 
     /// The actual retirement scope already owns matching. Preserve its parent
@@ -1403,6 +1416,7 @@ public final class ComponentHost {
         let lazyJournal: RetainedLazyListAdoptionJournal?
         let taskAdoption: RetainedTaskAdoptionContext?
         let buttonActions: RetainedButtonActionAdoption?
+        let frameAccessibility: RetainedFrameAccessibilityAdoption?
         let uiaAuthority: RetainedLazyListUIAContinuationAuthority?
         private let textInputChrome: RetainedTextInputChromeAdoptionScope?
         private let hasConsistentUIAAuthority: Bool
@@ -1420,12 +1434,14 @@ public final class ComponentHost {
             taskAdoption: RetainedTaskAdoptionContext? = nil,
             buttonActions: RetainedButtonActionAdoption? = nil,
             uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil,
+            frameAccessibility: RetainedFrameAccessibilityAdoption? = nil,
             textInputChrome: RetainedTextInputChromeAdoptionScope? = nil
         ) {
             self.admission = admission
             self.lazyJournal = lazyJournal
             self.taskAdoption = taskAdoption
             self.buttonActions = buttonActions
+            self.frameAccessibility = frameAccessibility
             self.textInputChrome = textInputChrome
             let journalAuthority = lazyJournal?.uiaContinuationAuthority
             self.uiaAuthority = uiaAuthority ?? journalAuthority
@@ -1443,8 +1459,17 @@ public final class ComponentHost {
 
         var isCurrent: Bool {
             guard hasConsistentUIAAuthority else { return false }
+            let current = buttonActions?.isCurrent != false && isCurrentAfterAcceptedButtonCleanup
+            if !current { uiaAuthority?.revoke() }
+            return current
+        }
+
+        /// Only the final frame publication uses this after Button.finish returned true.
+        /// The finished Button scope cannot be queried as an in-flight permission.
+        var isCurrentAfterAcceptedButtonCleanup: Bool {
+            guard hasConsistentUIAAuthority else { return false }
             let current =
-                buttonActions?.isCurrent != false && uiaAuthority?.isCurrent != false
+                frameAccessibility?.isCurrent != false && uiaAuthority?.isCurrent != false
                 && admission?.isCurrent != false && sourceAttachment?.isCurrent != false
                 && targetAttachment?.isCurrent != false && sourceIdentity?.isCurrent != false
                 && targetIdentity?.isCurrent != false && childrenSnapshot?.isCurrent != false
@@ -1509,6 +1534,7 @@ public final class ComponentHost {
         }
 
         func recordCompletedNode(from source: ViewNode, to target: ViewNode) {
+            guard frameAccessibility?.record(source: source, target: target) != false else { return }
             guard let lazyJournal else { return }
             associate(lazyJournal.recordAcceptedAttachment(from: source, to: target), from: source, to: target)
             associate(lazyJournal.recordCompletedNode(from: source, to: target), from: source, to: target)
@@ -1684,9 +1710,11 @@ public final class ComponentHost {
         inheritedChildren: ReconcileChildrenSnapshot? = nil, depth: Int = 0,
         lazyJournal: RetainedLazyListAdoptionJournal? = nil,
         buttonActions: RetainedButtonActionAdoption? = nil,
-        uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil
+        uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil,
+        frameAccessibility: RetainedFrameAccessibilityAdoption? = nil
     ) -> PreparedChildrenPlan? {
-        guard buttonActions?.isCurrent != false, admission?.isCurrent != false, uiaAuthority?.isCurrent != false,
+        guard frameAccessibility?.isCurrent != false,
+            buttonActions?.isCurrent != false, admission?.isCurrent != false, uiaAuthority?.isCurrent != false,
             (uiaAuthority != nil && lazyJournal?.isOrdinaryAdoption == true)
                 || lazyJournal?.canContinueAdoption != false,
             depth <= ViewNode.maximumTraversalDepth,
@@ -1706,7 +1734,8 @@ public final class ComponentHost {
             let matches = matchingChildren(
                 oldChildren: oldChildren, newNodes: newNodes, admission: admission, parent: parent,
                 childrenSnapshot: childrenSnapshot, lazyJournal: lazyJournal, buttonActions: buttonActions,
-                uiaAuthority: uiaAuthority),
+                uiaAuthority: uiaAuthority, frameAccessibility: frameAccessibility),
+            frameAccessibility?.isCurrent != false,
             buttonActions?.isCurrent != false, admission?.isCurrent != false, uiaAuthority?.isCurrent != false,
             (uiaAuthority != nil && lazyJournal?.isOrdinaryAdoption == true)
                 || lazyJournal?.canContinueAdoption != false,
@@ -1721,7 +1750,8 @@ public final class ComponentHost {
         var entries: [PreparedChildrenPlan.Entry] = []
         entries.reserveCapacity(newNodes.count)
         for (index, source) in newNodes.enumerated() {
-            guard buttonActions?.isCurrent != false, admission?.isCurrent != false, uiaAuthority?.isCurrent != false,
+            guard frameAccessibility?.isCurrent != false,
+                buttonActions?.isCurrent != false, admission?.isCurrent != false, uiaAuthority?.isCurrent != false,
                 (uiaAuthority != nil && lazyJournal?.isOrdinaryAdoption == true)
                     || lazyJournal?.canContinueAdoption != false,
                 parentAttachment.isCurrent, parentIdentity.isCurrent,
@@ -1741,7 +1771,7 @@ public final class ComponentHost {
                         newNodes: retained.childrenForLazyListReconciliation(from: source),
                         admission: admission, sourceParent: sourceParent, inheritedChildren: childrenSnapshot,
                         depth: depth + 1, lazyJournal: lazyJournal, buttonActions: buttonActions,
-                        uiaAuthority: uiaAuthority)
+                        uiaAuthority: uiaAuthority, frameAccessibility: frameAccessibility)
                 else { return nil }
                 descendants = childPlan
             } else {
@@ -1765,7 +1795,8 @@ public final class ComponentHost {
         else {
             return nil
         }
-        return buttonActions?.isCurrent != false && admission?.isCurrent != false && uiaAuthority?.isCurrent != false
+        return frameAccessibility?.isCurrent != false && buttonActions?.isCurrent != false
+            && admission?.isCurrent != false && uiaAuthority?.isCurrent != false
             && ((uiaAuthority != nil && lazyJournal?.isOrdinaryAdoption == true)
                 || lazyJournal?.canContinueAdoption != false)
             && plan.isCurrent && plan.stillOwnsOldChildren ? plan : nil
@@ -1825,20 +1856,25 @@ public final class ComponentHost {
         inheritedChildren: ReconcileChildrenSnapshot? = nil, depth: Int = 0,
         lazyJournal: RetainedLazyListAdoptionJournal? = nil,
         buttonActions: RetainedButtonActionAdoption? = nil,
-        uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil
+        uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil,
+        frameAccessibility: RetainedFrameAccessibilityAdoption? = nil
     ) -> Bool {
         let children = node.children
         let childrenSnapshot =
             admission == nil && lazyJournal?.isOrdinaryAdoption != false && uiaAuthority == nil
+                && frameAccessibility == nil
             ? nil
             : ReconcileChildrenSnapshot(
                 parent: node, oldChildren: children, sourceParent: nil, newNodes: children, ancestor: inheritedChildren)
         let check = NodeReconcileAdmission(
             admission, source: node, target: node, childrenSnapshot: childrenSnapshot,
             lazyJournal: lazyJournal, taskAdoption: taskAdoption, buttonActions: buttonActions,
-            uiaAuthority: uiaAuthority)
-        guard check.isCurrent, !check.requiresCheckedReconciliation || depth <= ViewNode.maximumTraversalDepth
+            uiaAuthority: uiaAuthority, frameAccessibility: frameAccessibility)
+        guard check.isCurrent,
+            (!check.requiresCheckedReconciliation && frameAccessibility == nil)
+                || depth <= ViewNode.maximumTraversalDepth
         else { return false }
+        guard frameAccessibility?.record(source: node, target: node) != false else { return false }
         guard admission?.beginInsertionNode(source: node, target: node, isFresh: true) != false else { return false }
         taskAdoption?.associate(source: node, target: node)
         guard check.isCurrent else { return false }
@@ -1860,7 +1896,8 @@ public final class ComponentHost {
                     prepareInsertedSubtree(
                         child, admission: admission, taskAdoption: taskAdoption,
                         inheritedChildren: childrenSnapshot, depth: depth + 1, lazyJournal: lazyJournal,
-                        buttonActions: buttonActions, uiaAuthority: check.uiaAuthority)
+                        buttonActions: buttonActions, uiaAuthority: check.uiaAuthority,
+                        frameAccessibility: frameAccessibility)
                 else { return false }
             }
             return check.isCurrent
@@ -1886,10 +1923,13 @@ public final class ComponentHost {
         uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil
     ) -> RetainedLazyListAdoptionResult {
         let textInputChrome = RetainedTextInputChromeAdoptionScope(retainedRoots: [parent], sourceRoots: newNodes)
-        let buttonActions = RetainedButtonActionAdoption(retainedRoots: [parent], sourceRoots: newNodes)
+        let frameAccessibility = RetainedFrameAccessibilityAdoption(retainedRoots: [parent], sourceRoots: newNodes)
+        let buttonActions = RetainedButtonActionAdoption(
+            retainedRoots: [parent], sourceRoots: newNodes, requiresNativeTreeWitnesses: frameAccessibility != nil)
         let check = NodeReconcileAdmission(
             admission, target: parent, lazyJournal: lazyJournal, taskAdoption: taskAdoption,
-            buttonActions: buttonActions, uiaAuthority: uiaAuthority, textInputChrome: textInputChrome)
+            buttonActions: buttonActions, uiaAuthority: uiaAuthority, frameAccessibility: frameAccessibility,
+            textInputChrome: textInputChrome)
         textInputChrome?.associateOriginalContext(
             admission: admission, lazyJournal: lazyJournal, taskAdoption: taskAdoption,
             buttonActions: buttonActions, uiaAuthority: check.uiaAuthority)
@@ -1897,7 +1937,8 @@ public final class ComponentHost {
         let completed = performChildrenReconciliation(
             of: parent, oldChildren: oldChildren, newNodes: newNodes, admission: admission,
             taskAdoption: taskAdoption, lazyJournal: lazyJournal, buttonActions: buttonActions,
-            uiaAuthority: check.uiaAuthority, completion: &completion, textInputChrome: textInputChrome)
+            uiaAuthority: check.uiaAuthority, frameAccessibility: frameAccessibility,
+            completion: &completion, textInputChrome: textInputChrome)
         if buttonActions == nil { textInputChrome?.closeAndReleaseConstruction() }
         let stayedCurrent = (completed || check.uiaAuthority != nil) && check.isCurrent
         return adoptionResult(
@@ -1911,11 +1952,13 @@ public final class ComponentHost {
         admission: RetainedLazyListAdoptionAdmission?, taskAdoption: RetainedTaskAdoptionContext?,
         lazyJournal: RetainedLazyListAdoptionJournal?,
         buttonActions: RetainedButtonActionAdoption?, uiaAuthority: RetainedLazyListUIAContinuationAuthority?,
+        frameAccessibility: RetainedFrameAccessibilityAdoption?,
         completion: inout RetainedLazyListAdoptionCompletion?, textInputChrome: RetainedTextInputChromeAdoptionScope?
     ) -> Bool {
         let check = NodeReconcileAdmission(
             admission, target: parent, lazyJournal: lazyJournal, taskAdoption: taskAdoption,
-            buttonActions: buttonActions, uiaAuthority: uiaAuthority, textInputChrome: textInputChrome)
+            buttonActions: buttonActions, uiaAuthority: uiaAuthority, frameAccessibility: frameAccessibility,
+            textInputChrome: textInputChrome)
         guard check.isCurrent, admission?.permitsMutation(of: parent) != false else { return false }
         if lazyJournal != nil, ViewNode.containsRejectedRetainedSource(in: newNodes) { return false }
         let completionSources: RetainedReconciliationSourceNodes?
@@ -1930,7 +1973,8 @@ public final class ComponentHost {
             guard
                 let prepared = prepareChildrenPlan(
                     of: parent, oldChildren: oldChildren, newNodes: newNodes, admission: admission,
-                    lazyJournal: lazyJournal, buttonActions: buttonActions, uiaAuthority: check.uiaAuthority)
+                    lazyJournal: lazyJournal, buttonActions: buttonActions, uiaAuthority: check.uiaAuthority,
+                    frameAccessibility: frameAccessibility)
             else { return false }
             plan = prepared
         } else {
@@ -1954,17 +1998,20 @@ public final class ComponentHost {
         guard
             revokeDepartingTextInputOwnership(
                 oldChildren: oldChildren, newNodes: newNodes, plan: plan, admission: admission,
-                parent: parent, lazyJournal: lazyJournal, buttonActions: buttonActions, uiaAuthority: check.uiaAuthority
+                parent: parent, lazyJournal: lazyJournal, buttonActions: buttonActions,
+                uiaAuthority: check.uiaAuthority,
+                frameAccessibility: frameAccessibility
             ), check.isCurrent
         else { return false }
         guard
             reconcilePreparedChildren(
                 of: parent, oldChildren: oldChildren, newNodes: newNodes, plan: plan, admission: admission,
                 taskAdoption: taskAdoption, lazyJournal: lazyJournal, completionSources: completionSources,
-                buttonActions: buttonActions, uiaAuthority: check.uiaAuthority, textInputChrome: textInputChrome),
+                buttonActions: buttonActions, uiaAuthority: check.uiaAuthority, frameAccessibility: frameAccessibility,
+                textInputChrome: textInputChrome),
             check.isCurrent
         else { return false }
-        if check.requiresCheckedReconciliation || buttonActions != nil {
+        if check.requiresCheckedReconciliation || buttonActions != nil || frameAccessibility != nil {
             completion = RetainedLazyListAdoptionCompletion(of: parent)
             guard check.recordUIACompletion(completion) else { return false }
         }
@@ -1979,6 +2026,7 @@ public final class ComponentHost {
         let admission: RetainedLazyListAdoptionAdmission?
         let lazyJournal: RetainedLazyListAdoptionJournal?
         let buttonActions: RetainedButtonActionAdoption?
+        let frameAccessibility: RetainedFrameAccessibilityAdoption?
         let uiaAuthority: RetainedLazyListUIAContinuationAuthority?
         private let hasConsistentUIAAuthority: Bool
         weak var parent: ViewNode?
@@ -1993,11 +2041,13 @@ public final class ComponentHost {
             _ admission: RetainedLazyListAdoptionAdmission?, oldChildren: [ViewNode], newNodes: [ViewNode],
             parent: ViewNode?, childrenSnapshot: ReconcileChildrenSnapshot?,
             lazyJournal: RetainedLazyListAdoptionJournal?, buttonActions: RetainedButtonActionAdoption?,
-            uiaAuthority: RetainedLazyListUIAContinuationAuthority?
+            uiaAuthority: RetainedLazyListUIAContinuationAuthority?,
+            frameAccessibility: RetainedFrameAccessibilityAdoption?
         ) {
             self.admission = admission
             self.lazyJournal = lazyJournal
             self.buttonActions = buttonActions
+            self.frameAccessibility = frameAccessibility
             let journalAuthority = lazyJournal?.uiaContinuationAuthority
             let effectiveAuthority = uiaAuthority ?? journalAuthority
             self.uiaAuthority = effectiveAuthority
@@ -2005,7 +2055,7 @@ public final class ComponentHost {
                 uiaAuthority == nil || journalAuthority == nil || uiaAuthority === journalAuthority
             let checked =
                 admission != nil || lazyJournal?.isOrdinaryAdoption == false || buttonActions != nil
-                || effectiveAuthority != nil
+                || effectiveAuthority != nil || frameAccessibility != nil
             self.parent = checked ? parent : nil
             hadParent = checked && parent != nil
             parentCheck =
@@ -2013,7 +2063,7 @@ public final class ComponentHost {
                 ? parent.map {
                     NodeReconcileAdmission(
                         admission, target: $0, lazyJournal: lazyJournal, buttonActions: buttonActions,
-                        uiaAuthority: effectiveAuthority)
+                        uiaAuthority: effectiveAuthority, frameAccessibility: frameAccessibility)
                 } : nil
             oldChildIdentifiers = checked ? oldChildren.map(ObjectIdentifier.init) : []
             let nodes = checked ? oldChildren + newNodes : []
@@ -2024,7 +2074,8 @@ public final class ComponentHost {
 
         var isCurrent: Bool {
             guard hasConsistentUIAAuthority else { return false }
-            guard buttonActions?.isCurrent != false, uiaAuthority?.isCurrent != false,
+            guard frameAccessibility?.isCurrent != false, buttonActions?.isCurrent != false,
+                uiaAuthority?.isCurrent != false,
                 admission?.isCurrent != false, parentCheck?.isCurrent != false,
                 attachments.allSatisfy({ $0.isCurrent }), identities.allSatisfy({ $0.isCurrent }),
                 childrenSnapshot?.isCurrent != false,
@@ -2051,12 +2102,13 @@ public final class ComponentHost {
         parent: ViewNode? = nil, childrenSnapshot: ReconcileChildrenSnapshot? = nil,
         lazyJournal: RetainedLazyListAdoptionJournal? = nil,
         buttonActions: RetainedButtonActionAdoption? = nil,
-        uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil
+        uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil,
+        frameAccessibility: RetainedFrameAccessibilityAdoption? = nil
     ) -> [ViewNode?]? {
         let check = MatchingChildrenAdmission(
             admission, oldChildren: oldChildren, newNodes: newNodes, parent: parent,
             childrenSnapshot: childrenSnapshot, lazyJournal: lazyJournal, buttonActions: buttonActions,
-            uiaAuthority: uiaAuthority)
+            uiaAuthority: uiaAuthority, frameAccessibility: frameAccessibility)
         guard check.isCurrent else { return nil }
         if check.uiaAuthority != nil {
             return matchingChildrenWhileUIAAuthorized(oldChildren: oldChildren, newNodes: newNodes, check: check)
@@ -2260,11 +2312,13 @@ public final class ComponentHost {
         admission: RetainedLazyListAdoptionAdmission? = nil,
         lazyJournal: RetainedLazyListAdoptionJournal? = nil,
         buttonActions: RetainedButtonActionAdoption? = nil,
-        uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil
+        uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil,
+        frameAccessibility: RetainedFrameAccessibilityAdoption? = nil
     ) -> Bool {
         let check = NodeReconcileAdmission(
             admission, source: source, target: target, childrenSnapshot: plan?.childrenSnapshot,
-            lazyJournal: lazyJournal, buttonActions: buttonActions, uiaAuthority: uiaAuthority)
+            lazyJournal: lazyJournal, buttonActions: buttonActions, uiaAuthority: uiaAuthority,
+            frameAccessibility: frameAccessibility)
         guard check.isCurrent, plan?.isCurrent != false else { return false }
         guard target.canAdoptStagedLazyListAdapter(from: source) else { return false }
         if source === target, admission != nil || check.uiaAuthority != nil { return true }
@@ -2285,7 +2339,7 @@ public final class ComponentHost {
             oldChildren: plan?.oldChildren ?? target.children,
             newNodes: plan?.entries.map(\.source) ?? target.childrenForLazyListReconciliation(from: source),
             plan: plan, admission: admission, parent: target, lazyJournal: lazyJournal,
-            buttonActions: buttonActions, uiaAuthority: check.uiaAuthority)
+            buttonActions: buttonActions, uiaAuthority: check.uiaAuthority, frameAccessibility: frameAccessibility)
     }
 
     private static func revokeDepartingTextInputOwnership(
@@ -2293,9 +2347,11 @@ public final class ComponentHost {
         admission: RetainedLazyListAdoptionAdmission? = nil,
         parent: ViewNode? = nil, lazyJournal: RetainedLazyListAdoptionJournal? = nil,
         buttonActions: RetainedButtonActionAdoption? = nil,
-        uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil
+        uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil,
+        frameAccessibility: RetainedFrameAccessibilityAdoption? = nil
     ) -> Bool {
-        guard buttonActions?.isCurrent != false, admission?.isCurrent != false, uiaAuthority?.isCurrent != false,
+        guard frameAccessibility?.isCurrent != false,
+            buttonActions?.isCurrent != false, admission?.isCurrent != false, uiaAuthority?.isCurrent != false,
             lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false,
             plan?.isCurrent != false, plan?.stillOwnsOldChildren != false
         else {
@@ -2305,9 +2361,11 @@ public final class ComponentHost {
             let matches = plan?.entries.map(\.retained)
                 ?? matchingChildren(
                     oldChildren: oldChildren, newNodes: newNodes, admission: admission, parent: parent,
-                    lazyJournal: lazyJournal, buttonActions: buttonActions, uiaAuthority: uiaAuthority)
+                    lazyJournal: lazyJournal, buttonActions: buttonActions, uiaAuthority: uiaAuthority,
+                    frameAccessibility: frameAccessibility)
         else { return false }
-        guard buttonActions?.isCurrent != false, admission?.isCurrent != false, uiaAuthority?.isCurrent != false,
+        guard frameAccessibility?.isCurrent != false,
+            buttonActions?.isCurrent != false, admission?.isCurrent != false, uiaAuthority?.isCurrent != false,
             lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false,
             plan?.isCurrent != false, plan?.stillOwnsOldChildren != false
         else {
@@ -2317,7 +2375,8 @@ public final class ComponentHost {
         let departing = oldChildren.filter { !survivors.contains(ObjectIdentifier($0)) }
         guard buttonActions?.prepareDepartures(in: departing) != false else { return false }
         for oldNode in oldChildren where !survivors.contains(ObjectIdentifier(oldNode)) {
-            guard buttonActions?.isCurrent != false, admission?.isCurrent != false, uiaAuthority?.isCurrent != false,
+            guard frameAccessibility?.isCurrent != false,
+                buttonActions?.isCurrent != false, admission?.isCurrent != false, uiaAuthority?.isCurrent != false,
                 lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false,
                 plan?.isCurrent != false, plan?.stillOwnsOldChildren != false
             else {
@@ -2326,7 +2385,8 @@ public final class ComponentHost {
             // Button admission is suspended by the native operation batch.
             // Permanent retirement belongs to actual departure, not matching.
             oldNode.revokeTextInputOwnership(revokesButtonActions: false)
-            guard buttonActions?.isCurrent != false, admission?.isCurrent != false, uiaAuthority?.isCurrent != false,
+            guard frameAccessibility?.isCurrent != false,
+                buttonActions?.isCurrent != false, admission?.isCurrent != false, uiaAuthority?.isCurrent != false,
                 lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false,
                 plan?.isCurrent != false, plan?.stillOwnsOldChildren != false
             else {
@@ -2334,7 +2394,8 @@ public final class ComponentHost {
             }
         }
         for (index, newNode) in newNodes.enumerated() {
-            guard buttonActions?.isCurrent != false, admission?.isCurrent != false, uiaAuthority?.isCurrent != false,
+            guard frameAccessibility?.isCurrent != false,
+                buttonActions?.isCurrent != false, admission?.isCurrent != false, uiaAuthority?.isCurrent != false,
                 lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false,
                 plan?.isCurrent != false, plan?.stillOwnsOldChildren != false,
                 plan?.entries[index].isCurrent != false
@@ -2343,17 +2404,20 @@ public final class ComponentHost {
                 guard
                     revokeDepartingTextInputOwnership(
                         source: newNode, target: oldNode, plan: plan?.entries[index].descendants, admission: admission,
-                        lazyJournal: lazyJournal, buttonActions: buttonActions, uiaAuthority: uiaAuthority)
+                        lazyJournal: lazyJournal, buttonActions: buttonActions, uiaAuthority: uiaAuthority,
+                        frameAccessibility: frameAccessibility)
                 else { return false }
             }
-            guard buttonActions?.isCurrent != false, admission?.isCurrent != false, uiaAuthority?.isCurrent != false,
+            guard frameAccessibility?.isCurrent != false,
+                buttonActions?.isCurrent != false, admission?.isCurrent != false, uiaAuthority?.isCurrent != false,
                 lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false,
                 plan?.isCurrent != false, plan?.stillOwnsOldChildren != false
             else {
                 return false
             }
         }
-        return buttonActions?.isCurrent != false && admission?.isCurrent != false && uiaAuthority?.isCurrent != false
+        return frameAccessibility?.isCurrent != false && buttonActions?.isCurrent != false
+            && admission?.isCurrent != false && uiaAuthority?.isCurrent != false
             && (lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false)
             && plan?.isCurrent != false && plan?.stillOwnsOldChildren != false
     }
@@ -2367,18 +2431,21 @@ public final class ComponentHost {
         completionSources: RetainedReconciliationSourceNodes?,
         buttonActions: RetainedButtonActionAdoption? = nil,
         uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil,
+        frameAccessibility: RetainedFrameAccessibilityAdoption? = nil,
         textInputChrome: RetainedTextInputChromeAdoptionScope? = nil
     ) -> Bool {
         let check = NodeReconcileAdmission(
             admission, target: parent, childrenSnapshot: plan?.childrenSnapshot,
             lazyJournal: lazyJournal, taskAdoption: taskAdoption, buttonActions: buttonActions,
-            uiaAuthority: uiaAuthority, textInputChrome: textInputChrome)
+            uiaAuthority: uiaAuthority, frameAccessibility: frameAccessibility,
+            textInputChrome: textInputChrome)
         guard check.isCurrent, plan?.isCurrent != false, plan?.stillOwnsOldChildren != false else { return false }
         guard
             let matches = plan?.entries.map(\.retained)
                 ?? matchingChildren(
                     oldChildren: oldChildren, newNodes: newNodes, admission: admission, parent: parent,
-                    lazyJournal: lazyJournal, buttonActions: buttonActions, uiaAuthority: check.uiaAuthority)
+                    lazyJournal: lazyJournal, buttonActions: buttonActions, uiaAuthority: check.uiaAuthority,
+                    frameAccessibility: frameAccessibility)
         else { return false }
         guard check.isCurrent else { return false }
 
@@ -2393,7 +2460,8 @@ public final class ComponentHost {
                     prepareInsertedSubtree(
                         newNode, admission: admission, taskAdoption: taskAdoption,
                         inheritedChildren: plan?.childrenSnapshot, lazyJournal: lazyJournal,
-                        buttonActions: buttonActions, uiaAuthority: check.uiaAuthority),
+                        buttonActions: buttonActions, uiaAuthority: check.uiaAuthority,
+                        frameAccessibility: frameAccessibility),
                     check.isCurrent,
                     plan?.entries[newIndex].isCurrent != false
                 else { return false }
@@ -2401,6 +2469,7 @@ public final class ComponentHost {
                 continue
             }
             if oldNode === newNode, admission != nil || preservesChildren || check.uiaAuthority != nil {
+                guard frameAccessibility?.recordUnchangedSubtree(oldNode) != false else { return false }
                 lazyJournal?.recordUnchangedNode(oldNode)
                 // A container whose adapter survives adopts its configuration,
                 // not its fresh candidate's empty materialized-child array.
@@ -2418,7 +2487,8 @@ public final class ComponentHost {
             let nodeCheck = NodeReconcileAdmission(
                 admission, source: newNode, target: oldNode, childrenSnapshot: childPlan?.childrenSnapshot,
                 lazyJournal: lazyJournal, taskAdoption: taskAdoption, buttonActions: buttonActions,
-                uiaAuthority: check.uiaAuthority, textInputChrome: textInputChrome)
+                uiaAuthority: check.uiaAuthority, frameAccessibility: frameAccessibility,
+                textInputChrome: textInputChrome)
             guard admission?.permitsMutation(of: oldNode) != false,
                 childPlan?.isCurrent != false, childPlan?.stillOwnsOldChildren != false
             else { return false }
@@ -2455,7 +2525,9 @@ public final class ComponentHost {
                     plan: childPlan, admission: admission,
                     preservesChildren: preservesChildren, sourceParent: newNode,
                     taskAdoption: taskAdoption, lazyJournal: lazyJournal, completionSources: completionSources,
-                    buttonActions: buttonActions, uiaAuthority: check.uiaAuthority, textInputChrome: textInputChrome)
+                    buttonActions: buttonActions, uiaAuthority: check.uiaAuthority,
+                    frameAccessibility: frameAccessibility,
+                    textInputChrome: textInputChrome)
             }
             guard completed, check.isCurrent, nodeCheck.isCurrent else { return false }
             nodeCheck.recordCompletedNode(from: newNode, to: oldNode)
@@ -2654,7 +2726,9 @@ public final class ComponentHost {
         _ keyPath: ReferenceWritableKeyPath<ViewNode, Value>, source: ViewNode, target: ViewNode,
         check: NodeReconcileAdmission
     ) -> Bool {
-        if check.admission == nil, check.lazyJournal == nil, check.buttonActions == nil, check.uiaAuthority == nil {
+        if check.admission == nil, check.lazyJournal == nil, check.buttonActions == nil, check.uiaAuthority == nil,
+            check.frameAccessibility == nil
+        {
             target[keyPath: keyPath] = source[keyPath: keyPath]
             return true
         }
@@ -2672,7 +2746,9 @@ public final class ComponentHost {
         _ keyPath: ReferenceWritableKeyPath<ViewNode, Value>, on target: ViewNode, value: Value,
         check: NodeReconcileAdmission
     ) -> Bool {
-        if check.admission == nil, check.lazyJournal == nil, check.buttonActions == nil, check.uiaAuthority == nil {
+        if check.admission == nil, check.lazyJournal == nil, check.buttonActions == nil, check.uiaAuthority == nil,
+            check.frameAccessibility == nil
+        {
             target[keyPath: keyPath] = value
             return true
         }
@@ -2696,7 +2772,10 @@ public final class ComponentHost {
     ) {
         let previous = target[keyPath: keyPath]
         target[keyPath: keyPath] = incoming
-        if keyPath == \ViewNode.retainedViewIdentity { check.buttonActions?.recordIdentityWrite(on: target) }
+        if keyPath == \ViewNode.retainedViewIdentity {
+            check.buttonActions?.recordIdentityWrite(on: target)
+            check.frameAccessibility?.recordIdentityWrite(on: target)
+        }
         if let source, let journal = check.lazyJournal {
             let accepted = journal.recordAcceptedProperty(from: source, to: target, keyPath: keyPath)
             check.associate(accepted, from: source, to: target)
@@ -2760,6 +2839,12 @@ public final class ComponentHost {
         target: ViewNode, source: ViewNode, check: NodeReconcileAdmission
     ) -> Bool {
         guard check.isCurrent else { return false }
+        if let frameAccessibility = check.frameAccessibility {
+            guard frameAccessibility.copyIntent(from: source, to: target),
+                copyNodeProperty(\.accessibilityFrameIntent, source: source, target: target, check: check),
+                check.isCurrent
+            else { return false }
+        }
         source.retainedLazyListAdapter?.stageInsertionBuildTransaction(RetainedBuildTransaction())
         guard check.isCurrent, copyButtonActionOwner(source: source, target: target, check: check), check.isCurrent
         else {

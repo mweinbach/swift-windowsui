@@ -36,8 +36,12 @@ as did the separate secure-value232, Button125, paint20 and caret3 selections.
 The two focused-field gallery images matched their baselines exactly and were
 visually reviewed. Earlier failing baselines remain recorded in `goal.md`.
 These overlapping focused selections do not qualify the full test suite.
-Existing caret raster tests and ordinary focused-field gallery images are
-additional collateral, not proof of Unicode adoption pixels, UIA TextPattern,
+Two additional CPU methods passed at `8cee4a0`, covering direct and nested
+Unicode caret/selection adoption with incoming style and literal interior-pixel
+expectations. A separate one-line fixture correction explicitly set the intended
+preferred size; every original assertion remained unchanged and the first
+failed run remains recorded. These checks use deterministic glyph metrics and
+masks, so they do not qualify native font ink, GPU output, UIA TextPattern,
 native IME or Narrator behavior.
 Secure and multiline inputs do not use this registration path. Full native
 text-input parity remains unqualified.

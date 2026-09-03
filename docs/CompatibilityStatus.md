@@ -60,6 +60,13 @@ Many symbols accept SwiftUI call shapes so shared sources compile. **API
 presence alone does not mean runtime parity.** Prefer this matrix over scanning
 public symbols.
 
+Accessibility through declared sizing frames has an integrated, source-reviewed
+candidate whose first 77-method execution is pending. Its metadata mapping
+preserves physical layout and actual controller ownership; conservative modal
+scroll continuation and dirty-layout refusals remain. See
+[FrameAccessibility.md](FrameAccessibility.md). This is not native parity or
+a completed compatibility category.
+
 ---
 
 ## Safe today (dashboard-style apps)

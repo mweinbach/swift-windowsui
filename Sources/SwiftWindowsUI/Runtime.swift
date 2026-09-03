@@ -5049,6 +5049,26 @@ public final class ViewNode {
     /// Generic node-property adoption must never copy it to a retained node.
     package var textInputChromeRegistration: RetainedTextInputChromeRegistration?
     fileprivate var storedAccessibilityAttachmentIdentity: RetainedAccessibilityIdentity?
+    var accessibilityFrameContentStorage: RetainedAccessibilityFrameContent?
+    private var accessibilityFrameIntentStorage: RetainedAccessibilityFrameIntentStorage?
+    var accessibilityFrameIntent: RetainedFrameAccessibilityIntent {
+        get { accessibilityFrameIntentStorage?.value ?? RetainedFrameAccessibilityIntent() }
+        set {
+            if newValue == RetainedFrameAccessibilityIntent() {
+                accessibilityFrameIntentStorage = nil
+            } else if let accessibilityFrameIntentStorage {
+                accessibilityFrameIntentStorage.value = newValue
+            } else {
+                accessibilityFrameIntentStorage = RetainedAccessibilityFrameIntentStorage(newValue)
+            }
+        }
+    }
+    var accessibilityFrameUpdateIdentity: RetainedAccessibilityIdentity?
+    var accessibilitySemanticElement: RetainedAccessibilitySemanticElement?
+    var accessibilityFrameMetadataMutationDepth = 0
+    var accessibilityFrameMetadataMutationElement: RetainedAccessibilitySemanticElement?
+    var accessibilityActionMutationIdentity: RetainedAccessibilityIdentity?
+    private var storedAccessibilityActions: [RetainedAccessibilityAction] = []
     private var storedAccessibilityTextContentIdentity: RetainedAccessibilityIdentity?
     private var dropHandlers: ViewNodeDropHandlers?
     private var lifecycleHandlers: ViewNodeLifecycleHandlers?
@@ -5214,6 +5234,13 @@ public final class ViewNode {
             animationModifierStorage == nil, selectedContentState == nil,
             selectedContentConstructionObservation == nil, selectedTaskMutationObservation == nil,
             textInputChromeRegistration == nil
+        else { return false }
+        // A generated recipe has no frame semantics or authored action history,
+        // including an explicit empty-action write after construction.
+        guard accessibilityFrameContentStorage == nil, accessibilityFrameIntentStorage == nil,
+            accessibilityFrameUpdateIdentity == nil, accessibilitySemanticElement == nil,
+            accessibilityFrameMetadataMutationDepth == 0, accessibilityFrameMetadataMutationElement == nil,
+            accessibilityActionMutationIdentity == nil
         else { return false }
         if let handlers = lifecycleHandlers {
             // The three lazy-list attachment/layout/view identity slots and
@@ -6368,27 +6395,69 @@ public final class ViewNode {
     }
 
     public var accessibilityLabel: String? {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(\.label, value: accessibilityLabel)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var accessibilityDescription: String? {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(\.description, value: accessibilityDescription)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var accessibilityValue: String? {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(\.value, value: accessibilityValue)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var accessibilityHint: String? {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(\.hint, value: accessibilityHint)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var accessibilityIdentifier: String? {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(\.identifier, value: accessibilityIdentifier)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var accessibilityLanguage: String? {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(\.language, value: accessibilityLanguage)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var tooltip: String? {
@@ -6396,23 +6465,69 @@ public final class ViewNode {
     }
 
     public var accessibilityTraits: RetainedAccessibilityTraits {
+        willSet { beginAccessibilityFrameMetadataMutation() }
         didSet {
             runtime?.invalidatePresentationModalCandidates()
             listNavigationOwner?.revokeIfRoleIsUnavailable()
             invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameTraits(removing: oldValue.subtracting(accessibilityTraits))
+                recordAccessibilityFrameTraits(adding: accessibilityTraits.subtracting(oldValue))
+            }
+            endAccessibilityFrameMetadataMutation()
         }
     }
 
     public var accessibilityChildBehavior: RetainedAccessibilityChildBehavior? {
-        didSet { invalidateRuntime(.paint) }
+        willSet {
+            beginAccessibilityFrameMetadataMutation()
+            if (newValue == nil) != (accessibilityChildBehavior == nil) { retireAccessibilityFrameStructure() }
+        }
+        didSet {
+            invalidateRuntime(.paint)
+            endAccessibilityFrameMetadataMutation()
+            if accessibilityFrameUpdateIdentity == nil,
+                accessibilityFrameContentStorage != nil || accessibilitySemanticElement != nil
+            {
+                publishAccessibilityFrameSubtree()
+            }
+        }
     }
 
     public var accessibilitySortPriority: Double {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(\.sortPriority, value: accessibilitySortPriority)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var accessibilityActions: [RetainedAccessibilityAction] {
-        didSet { invalidateRuntime(.paint) }
+        get { storedAccessibilityActions }
+        set {
+            let originalElement = accessibilitySemanticElement
+            let mutation = RetainedAccessibilityIdentity()
+            accessibilityActionMutationIdentity = mutation
+            originalElement?.suspendPublication()
+            replaceAccessibilityActions(newValue)
+            invalidateRuntime(.paint)
+            guard accessibilityActionMutationIdentity === mutation,
+                accessibilitySemanticElement === originalElement, accessibilityFrameUpdateIdentity == nil
+            else { return }
+            originalElement?.publish()
+        }
+    }
+
+    /// Release the outgoing action payload before a new operation publication.
+    /// A destructor can replace this same slot or interrupt frame adoption.
+    @inline(never)
+    private func replaceAccessibilityActions(_ value: [RetainedAccessibilityAction]) {
+        let previous = storedAccessibilityActions
+        storedAccessibilityActions = value
+        withExtendedLifetime(previous) {}
     }
 
     public var accessibilityRotors: [RetainedAccessibilityRotor] {
@@ -6424,39 +6539,103 @@ public final class ViewNode {
     }
 
     public var accessibilityInputLabels: [String] {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(\.inputLabels, value: accessibilityInputLabels)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var accessibilityHeadingLevel: RetainedAccessibilityHeadingLevel? {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(\.headingLevel, value: accessibilityHeadingLevel)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var accessibilityTextualContext: RetainedAccessibilityTextualContext? {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(\.textualContext, value: accessibilityTextualContext)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var isAccessibilityHidden: Bool {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(\.isHidden, value: isAccessibilityHidden)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var accessibilityIgnoresInvertColors: Bool {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(\.ignoresInvertColors, value: accessibilityIgnoresInvertColors)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var accessibilityRespondsToUserInteraction: Bool? {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(
+                    \.respondsToUserInteraction, value: accessibilityRespondsToUserInteraction)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var accessibilityPrefersSliderBehavior: Bool? {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(\.prefersSliderBehavior, value: accessibilityPrefersSliderBehavior)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var accessibilityRequiresActivationPoint: Bool? {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(\.requiresActivationPoint, value: accessibilityRequiresActivationPoint)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var accessibilityDirectTouchOptions: RetainedAccessibilityDirectTouchOptions? {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(\.directTouchOptions, value: accessibilityDirectTouchOptions)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var accessibilityMagicTapAction: (() -> Void)?
@@ -6468,11 +6647,26 @@ public final class ViewNode {
     public var onDismantlePlatformView: ((ViewNode) -> Void)?
 
     public var accessibilityPrefersCrossFadeTransitions: Bool? {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(
+                    \.prefersCrossFadeTransitions, value: accessibilityPrefersCrossFadeTransitions)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var accessibilityShowLargeContentViewer: Bool? {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(\.showLargeContentViewer, value: accessibilityShowLargeContentViewer)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var symbolVariableValue: Double? {
@@ -6717,43 +6911,114 @@ public final class ViewNode {
     }
 
     public var isAccessibilityShowsLargeContentViewer: Bool {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(
+                    \.showsLargeContentViewer, value: isAccessibilityShowsLargeContentViewer)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var isAccessibilityQuickActionEnabled: Bool {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(\.isQuickActionEnabled, value: isAccessibilityQuickActionEnabled)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var accessibilityQuickActionStyle: AccessibilityQuickActionStyle? {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(\.quickActionStyle, value: accessibilityQuickActionStyle)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var isAccessibilityZoomActionEnabled: Bool {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(\.isZoomActionEnabled, value: isAccessibilityZoomActionEnabled)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var isAccessibilityScrollActionEnabled: Bool {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(\.isScrollActionEnabled, value: isAccessibilityScrollActionEnabled)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var isAccessibilityFocusSection: Bool {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(\.isFocusSection, value: isAccessibilityFocusSection)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var isAccessibilityImage: Bool {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(\.isImage, value: isAccessibilityImage)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var accessibilityLinkDestination: URL? {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(\.linkDestination, value: accessibilityLinkDestination)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var accessibilityLinkedGroup: String? {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(\.linkedGroup, value: accessibilityLinkedGroup)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var accessibilityPage: String? {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(\.page, value: accessibilityPage)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var contextMenuForSelectionType: String? {
@@ -6937,11 +7202,25 @@ public final class ViewNode {
     }
 
     public var accessibilityActivationPoint: UnitPoint? {
-        didSet { invalidateRuntime(.layout) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.layout)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(\.activationPoint, value: accessibilityActivationPoint)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var accessibilityTextContentType: AccessibilityTextContentType? {
-        didSet { invalidateRuntime(.paint) }
+        willSet { beginAccessibilityFrameMetadataMutation() }
+        didSet {
+            invalidateRuntime(.paint)
+            if accessibilityFrameUpdateIdentity == nil {
+                recordAccessibilityFrameOverride(\.textContentType, value: accessibilityTextContentType)
+            }
+            endAccessibilityFrameMetadataMutation()
+        }
     }
 
     public var scenePaddingEdges: Edge.Set? {
@@ -6970,7 +7249,7 @@ public final class ViewNode {
     /// The latter keeps custom overlays valid on Apple's SwiftUI, where
     /// `AccessibilityTraits.isModal` is not part of the public API.
     public var isModalPresentationScope: Bool {
-        if accessibilityTraits.contains(.isModal) {
+        if accessibilityFrameModalTraits.contains(.isModal) {
             return true
         }
 
@@ -6987,7 +7266,7 @@ public final class ViewNode {
         // becomes modal when no explicitly marked presentation contains it.
         var ancestor = parent
         while let candidate = ancestor {
-            if candidate.accessibilityTraits.contains(.isModal) {
+            if candidate.accessibilityFrameModalTraits.contains(.isModal) {
                 return false
             }
             ancestor = candidate.parent
@@ -7016,8 +7295,30 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    private var storedAccessibilityRepresentationChildren: [ViewNode]?
     public var accessibilityRepresentationChildren: [ViewNode]? {
-        didSet { invalidateRuntime(.paint) }
+        get { storedAccessibilityRepresentationChildren }
+        set {
+            beginAccessibilityFrameMetadataMutation()
+            if (newValue == nil) != (storedAccessibilityRepresentationChildren == nil) {
+                retireAccessibilityFrameStructure()
+            }
+            replaceAccessibilityRepresentationChildren(newValue)
+            invalidateRuntime(.paint)
+            endAccessibilityFrameMetadataMutation()
+            if accessibilityFrameUpdateIdentity == nil,
+                accessibilityFrameContentStorage != nil || accessibilitySemanticElement != nil
+            {
+                publishAccessibilityFrameSubtree()
+            }
+        }
+    }
+
+    @inline(never)
+    private func replaceAccessibilityRepresentationChildren(_ value: [ViewNode]?) {
+        let previous = storedAccessibilityRepresentationChildren
+        storedAccessibilityRepresentationChildren = value
+        withExtendedLifetime(previous) {}
     }
 
     public var sectionHeaderChildCount: Int {
@@ -7275,10 +7576,12 @@ public final class ViewNode {
     public var textInputController: (any RetainedTextInputController)? {
         get { interactionHandlers?.textInputController }
         set {
+            beginAccessibilityFrameMetadataMutation()
             setInteractionHandler(newValue, at: \.textInputController)
             // Reconciliation can install an editor on an already-attached
             // node without changing child identities or calling setRuntime.
             if runtime != nil, !isRetiringLazyListAttachment { newValue?.attach(to: self) }
+            endAccessibilityFrameMetadataMutation()
         }
     }
 
@@ -7516,16 +7819,23 @@ public final class ViewNode {
     public var onActivate: (() -> Void)? {
         get { interactionHandlers?.activate }
         set {
-            let previous = interactionHandlers?.activate
-            let owner = buttonActionOwner
-            if newValue == nil {
-                owner?.retireIfInstalled(on: self)
-                buttonActionOwner = nil
-            }
-            setInteractionHandler(newValue, at: \.activate)
-            owner?.releaseRetiredPayload()
-            withExtendedLifetime(previous) {}
+            beginAccessibilityFrameMetadataMutation()
+            replaceActivationHandler(newValue)
+            endAccessibilityFrameMetadataMutation()
         }
+    }
+
+    @inline(never)
+    private func replaceActivationHandler(_ value: (() -> Void)?) {
+        let previous = interactionHandlers?.activate
+        let owner = buttonActionOwner
+        if value == nil {
+            owner?.retireIfInstalled(on: self)
+            buttonActionOwner = nil
+        }
+        setInteractionHandler(value, at: \.activate)
+        owner?.releaseRetiredPayload()
+        withExtendedLifetime(previous) {}
     }
     public var onRepeatActivate: (() -> Void)? {
         get { interactionHandlers?.repeatActivate }
@@ -8023,6 +8333,7 @@ public final class ViewNode {
         selectedTaskTransfer?.observe()
         defer { selectedTaskTransfer?.observe() }
         guard panelAssembly?.mayContinueRuntimeWork(cleanup: completingPanelDeparture) != false else { return nil }
+        retireAccessibilityFrameStructure()
         // Detached source transfers have never published physical activity.
         // Their reserved insertion IDs must survive until that first write.
         if runtime != nil {
@@ -8508,6 +8819,7 @@ public final class ViewNode {
     private var acceptsLifecycleTasks = true
 
     public private(set) weak var parent: ViewNode? {
+        willSet { if parent !== newValue { retireAccessibilityFrameStructure() } }
         didSet {
             selectedTaskMutationObservation?.record(.parent)
             if parent !== oldValue {
@@ -8518,6 +8830,11 @@ public final class ViewNode {
     }
     public private(set) var children: [ViewNode] {
         willSet {
+            if let declared = accessibilityDeclaredFrameContent,
+                !newValue.contains(where: { $0 === declared })
+            {
+                retireAccessibilityFrameStructure()
+            }
             selectedContentConstructionObservation?.replaceChildren()
             // Revoke only structural selection reads, before this literal
             // publication. Attachment, namespace, and removal receipts retain
@@ -8530,6 +8847,7 @@ public final class ViewNode {
     }
 
     fileprivate weak var runtime: RetainedViewRuntime? {
+        willSet { if runtime !== newValue { retireAccessibilityFrameStructure() } }
         didSet {
             if runtime !== oldValue {
                 oldValue?.invalidatePresentationModalCandidates()
@@ -9078,7 +9396,8 @@ public final class ViewNode {
         self.accessibilityTraits = accessibilityTraits
         self.accessibilityChildBehavior = accessibilityChildBehavior
         self.accessibilitySortPriority = accessibilitySortPriority
-        self.accessibilityActions = accessibilityActions
+        self.storedAccessibilityActions = accessibilityActions
+        self.accessibilityActionMutationIdentity = accessibilityActions.isEmpty ? nil : RetainedAccessibilityIdentity()
         self.accessibilityRotors = accessibilityRotors
         self.accessibilityCustomContent = accessibilityCustomContent
         self.accessibilityInputLabels = accessibilityInputLabels
@@ -9177,7 +9496,7 @@ public final class ViewNode {
         self.menuOrder = menuOrder
         self.toolbarTitleMenuChildren = toolbarTitleMenuChildren
         self.toolbarTitleActionsChildren = toolbarTitleActionsChildren
-        self.accessibilityRepresentationChildren = accessibilityRepresentationChildren
+        self.storedAccessibilityRepresentationChildren = accessibilityRepresentationChildren
         self.gestureName = gestureName
         self.textRenderer = textRenderer
         self.coordinateSpaceName = coordinateSpaceName
@@ -9200,7 +9519,7 @@ public final class ViewNode {
         self.fileDialogMessage = nil
         self.toolbarTitleMenuChildren = nil
         self.toolbarTitleActionsChildren = nil
-        self.accessibilityRepresentationChildren = nil
+        self.storedAccessibilityRepresentationChildren = nil
         self.isLineSelectable = nil
         self.accessibilityActivationPoint = nil
         self.accessibilityTextContentType = nil
@@ -10286,6 +10605,11 @@ public final class ViewNode {
                     on: self, to: runtime, cleanup: completingPanelDeparture) != false
             else { return }
             guard buttonActions?.isCurrent != false, textInputChrome?.isCurrent != false else { return }
+        }
+        if runtime != nil, accessibilityFrameContentStorage != nil,
+            parent?.accessibilityDeclaredFrameContent !== self
+        {
+            publishAccessibilityFrameSubtree()
         }
     }
 
@@ -17260,6 +17584,7 @@ fileprivate struct RetainedLazyListKeyboardEligibilityPass {
 private final class RetainedAccessibilityScrollContinuation {
     let mutation: RetainedAccessibilityMutation
     let attachment: RetainedAccessibilityTarget
+    let semanticRequest: RetainedAccessibilitySemanticRequest?
     weak var target: ViewNode?
     weak var container: ViewNode?
     let axis: ScrollAxis
@@ -17271,11 +17596,13 @@ private final class RetainedAccessibilityScrollContinuation {
 
     init(
         mutation: RetainedAccessibilityMutation, attachment: RetainedAccessibilityTarget,
+        semanticRequest: RetainedAccessibilitySemanticRequest?,
         target: ViewNode, container: ViewNode, axis: ScrollAxis,
         geometryRevision: UInt64, expectedOffset: Double, pointerSequence: UInt64
     ) {
         self.mutation = mutation
         self.attachment = attachment
+        self.semanticRequest = semanticRequest
         self.target = target
         self.container = container
         self.axis = axis
@@ -17336,12 +17663,14 @@ private final class RetainedFocusOperation {
     var mutationWitness: UInt64
     let listNavigationReceipt: RetainedListNavigationReceipt?
     let selectedPath: RetainedSelectedContentPath?
+    let semanticRequest: RetainedAccessibilitySemanticRequest?
     var remainingQualificationQueries = 4
 
     init(
         target: ViewNode?, origin: RetainedFocusOrigin, beganAttached: Bool,
         revision: UInt64?, mutationWitness: UInt64, listNavigationReceipt: RetainedListNavigationReceipt? = nil,
-        selectedPath: RetainedSelectedContentPath? = nil
+        selectedPath: RetainedSelectedContentPath? = nil,
+        semanticRequest: RetainedAccessibilitySemanticRequest? = nil
     ) {
         self.target = target
         self.hasTarget = target != nil
@@ -17351,12 +17680,17 @@ private final class RetainedFocusOperation {
         self.mutationWitness = mutationWitness
         self.listNavigationReceipt = listNavigationReceipt
         self.selectedPath = selectedPath
+        self.semanticRequest = semanticRequest
     }
 
     func hasCurrentSelectedPath(in runtime: RetainedViewRuntime) -> Bool {
+        guard semanticRequest?.isCurrent(in: runtime) != false else { return false }
         guard let selectedPath else { return true }
         return selectedPath.isCurrent && selectedPath.isInstalled(in: runtime)
-            && selectedPath.physicalRoot === runtime.root && selectedPath.selectedNode === target
+            && selectedPath.physicalRoot === runtime.root
+            && (selectedPath.selectedNode === target
+                || (semanticRequest?.semanticNode === target
+                    && semanticRequest?.containsPhysicalNode(selectedPath.selectedNode) == true))
     }
 }
 package enum RetainedSceneGeometryLimits {
@@ -17871,6 +18205,14 @@ public final class RetainedViewRuntime {
 
     var recordedScrollObservationInsertionCount: Int { scrollObserverRegistry?.recordedInsertionCount ?? 0 }
     var scrollObservationRegistrationCount: Int { scrollObserverRegistry?.registrationCount ?? 0 }
+    private struct FramePreciseScrollSuppression {
+        let semanticRequest: RetainedAccessibilitySemanticRequest
+        let pointerSequence: UInt64
+        let axis: ScrollAxis
+        let intent: RetainedLazyListAttachmentIdentity
+        let animation: FrameScrollAnimationIdentity?
+    }
+
     private struct PendingPreciseScrollAlignment {
         weak var target: ViewNode?
         weak var coarseTarget: ViewNode?
@@ -17880,7 +18222,73 @@ public final class RetainedViewRuntime {
         var anchorY: Double?
         var expectedOffset: Double
         var listNavigation: RetainedListNavigationReceipt? = nil
+        var frameSuppression: FramePreciseScrollSuppression? = nil
     }
+
+    /// Negative checks for one existing queue consumption, not a settlement
+    /// receipt or another accessibility mutation. Every stored node is weak.
+    @MainActor
+    private final class FramePreciseScrollConsumption {
+        enum Phase { case prepared, motionRemoved, committed }
+
+        let alignment: PendingPreciseScrollAlignment
+        let suppression: FramePreciseScrollSuppression
+        weak var placedTarget: ViewNode?
+        let layoutIdentity: RetainedLayoutSettlementIdentity?
+        let layoutPass: UInt64
+        let resolutionSequence: UInt64
+        let layoutKey: ViewLayoutCacheKey
+        let scrollLimit: Double
+        let hasVirtualizedDescendants: Bool
+        let indicatorAutoHides: Bool
+        let showsIndicator: Bool
+        let originalTween: ScrollPresentedTween?
+        let presentedOffset: Double
+        let animationCompletedNaturally: Bool
+        var phase = Phase.prepared
+        var isInvalid = false
+        var geometryRevision: UInt64
+        var presentationRevision: UInt64
+        var expectedOffset: Double
+        var expectedIntent: RetainedLazyListAttachmentIdentity
+        var expectedPresentedDelta: Double
+        var expectedTween: ScrollPresentedTween?
+
+        init(
+            alignment: PendingPreciseScrollAlignment, suppression: FramePreciseScrollSuppression,
+            placedTarget: ViewNode, container: ViewNode, layoutKey: ViewLayoutCacheKey,
+            tween: ScrollPresentedTween?, runtime: RetainedViewRuntime
+        ) {
+            self.alignment = alignment
+            self.suppression = suppression
+            self.placedTarget = placedTarget
+            layoutIdentity = runtime.layoutSettlementIdentity
+            layoutPass = runtime.layoutPassID
+            resolutionSequence = runtime.layoutSettlementResolutionSequence
+            self.layoutKey = layoutKey
+            scrollLimit = container.maxScrollOffset
+            hasVirtualizedDescendants = container.hasVirtualizedDescendants
+            indicatorAutoHides = container.scrollIndicatorAutoHides
+            showsIndicator = container.showsScrollIndicator
+            originalTween = tween
+            presentedOffset = container.effectiveScrollOffset
+            animationCompletedNaturally = suppression.animation?.completedNaturally ?? false
+            geometryRevision = runtime.layoutSettlementGeometryRevision
+            presentationRevision = runtime.presentationMutationRevision
+            expectedOffset = alignment.expectedOffset
+            expectedIntent = suppression.intent
+            expectedPresentedDelta = container.scrollPresentedDelta
+            expectedTween = tween
+        }
+    }
+
+    private struct FramePreciseScrollEffects {
+        let geometryBefore: UInt64
+        let geometryLimit: UInt64
+        let presentationBefore: UInt64
+        let presentationLimit: UInt64
+    }
+
     private var pendingPreciseScrollAlignments: [PendingPreciseScrollAlignment] = []
     private var cachedFrameSnapshot: FramePaintSnapshot?
     private var cachedSceneSnapshot: ScenePaintSnapshot?
@@ -19298,6 +19706,12 @@ public final class RetainedViewRuntime {
     // Programmatic requests share that presentation path with their authored
     // duration and easing. Their origin keeps input disabling from cancelling
     // an application-requested animation.
+    /// Only the natural terminal tick marks completion. Cancellation cannot
+    /// turn a missing original tween into permission for a queued correction.
+    fileprivate final class FrameScrollAnimationIdentity {
+        var completedNaturally = false
+    }
+
     fileprivate struct ScrollPresentedTween {
         enum Origin {
             case keyboard
@@ -19319,6 +19733,7 @@ public final class RetainedViewRuntime {
         var scrollLimit: Double
         var origin: Origin
         var listNavigationReveal: RetainedListNavigationRevealContinuation? = nil
+        var frameAnimationIdentity: FrameScrollAnimationIdentity? = nil
     }
     private var scrollPresentedTweens: [ObjectIdentifier: ScrollPresentedTween] = [:]
     private weak var latestListNavigationAction: RetainedListNavigationReceipt?
@@ -20782,12 +21197,17 @@ public final class RetainedViewRuntime {
     /// False can follow a callback that already changed focus; it is never a
     /// request to retry the operation or undo a newer accepted focus choice.
     package func requestAccessibilityFocus(
-        _ node: ViewNode, selectedPath: RetainedSelectedContentPath? = nil
+        _ node: ViewNode, selectedPath: RetainedSelectedContentPath? = nil,
+        semanticRequest: RetainedAccessibilitySemanticRequest? = nil
     ) -> Bool {
         func selectedPathIsCurrent() -> Bool {
+            guard semanticRequest?.isCurrent(in: self) != false else { return false }
             guard let selectedPath else { return true }
             return selectedPath.isCurrent && selectedPath.isInstalled(in: self)
-                && selectedPath.physicalRoot === root && selectedPath.selectedNode === node
+                && selectedPath.physicalRoot === root
+                && (selectedPath.selectedNode === node
+                    || (semanticRequest?.semanticNode === node
+                        && semanticRequest?.containsPhysicalNode(selectedPath.selectedNode) == true))
         }
         guard permitsRenderLifecycleCallbacks, !focusRevision.isExhausted,
             canReadLayoutSettlement, node.isFocusable, isPresentationNodeAvailable(node), selectedPathIsCurrent()
@@ -20798,7 +21218,8 @@ public final class RetainedViewRuntime {
             presentationFocusRevision == revision,
             accessibilityFocusContextIsCurrent(for: node), selectedPathIsCurrent()
         else { return false }
-        return updateFocusTarget(to: node, origin: .accessibility, selectedPath: selectedPath)
+        return updateFocusTarget(
+            to: node, origin: .accessibility, selectedPath: selectedPath, semanticRequest: semanticRequest)
     }
 
     /// Stored admission only: construction and retained callbacks must finish
@@ -20839,7 +21260,7 @@ public final class RetainedViewRuntime {
                 let node = dispatchNodes[index].node
                 // This is only a necessary condition. Keep suppressed custom
                 // overlays so live ancestor changes still use the full check.
-                if node.accessibilityTraits.contains(.isModal)
+                if node.accessibilityFrameModalTraits.contains(.isModal)
                     || (node.presentationChrome.hasBackgroundInteractionOverride
                         && !node.presentationChrome.allowsBackgroundInteraction)
                 {
@@ -20864,6 +21285,8 @@ public final class RetainedViewRuntime {
     fileprivate func invalidatePresentationModalCandidates() {
         presentationModalCandidates = nil
     }
+
+    func invalidateAccessibilityFrameModalCandidates() { invalidatePresentationModalCandidates() }
 
     /// The presentation itself is eligible for an implicit dismissal; it need
     /// not be focusable or hit-testable. Custom actions must belong to this
@@ -20988,7 +21411,7 @@ public final class RetainedViewRuntime {
         while let candidate = current, depth < ViewNode.maximumTraversalDepth {
             guard candidate.runtime === self, !candidate.isHidden, !candidate.isRemovalOverlay,
                 !candidate.isLayoutDeferredByVirtualization,
-                !requiresEnabled || candidate.accessibilityRespondsToUserInteraction != false
+                !requiresEnabled || candidate.effectiveAccessibilityRespondsToUserInteraction != false
             else { return false }
             if candidate === root { return true }
             current = candidate.parent
@@ -22437,16 +22860,19 @@ public final class RetainedViewRuntime {
     /// requests still work from after-layout callbacks and with input disabled.
     @inline(never)
     package func realizeAccessibilityTarget(
-        _ attachment: RetainedAccessibilityTarget, during mutation: RetainedAccessibilityMutation
+        _ attachment: RetainedAccessibilityTarget, during mutation: RetainedAccessibilityMutation,
+        semanticRequest: RetainedAccessibilitySemanticRequest? = nil
     ) -> Bool {
         guard let descendant = attachment.node,
             let element = AccessibilityProjection.mutationElement(
-                for: attachment, in: self, during: mutation, resolvingLayout: true),
+                for: attachment, in: self, during: mutation, resolvingLayout: true,
+                semanticRequest: semanticRequest),
             element.isVirtualizedPlaceholder,
             let (target, container) = descendant.nearestScrollTarget(), let axis = container.scrollAxis
         else { return false }
         let continuation = RetainedAccessibilityScrollContinuation(
-            mutation: mutation, attachment: attachment, target: target, container: container, axis: axis,
+            mutation: mutation, attachment: attachment, semanticRequest: semanticRequest,
+            target: target, container: container, axis: axis,
             geometryRevision: layoutSettlementGeometryRevision, expectedOffset: container.scrollOffset,
             pointerSequence: pointerSequence)
         guard permitsAccessibilityScrollCancellation(of: container) else { return false }
@@ -22467,7 +22893,8 @@ public final class RetainedViewRuntime {
             accessibility: continuation)
         // The helper has released its callback/temporary captures. Never run a
         // query or retry after an offset may already have been applied.
-        return performed && isAccessibilityTargetCurrent(attachment, during: mutation)
+        return performed && semanticRequest?.isCurrent(in: self) != false
+            && isAccessibilityTargetCurrent(attachment, during: mutation)
             && continuation.completionRevision == mutation.revision
             && container.scrollAxis == axis && container.scrollOffset == continuation.expectedOffset
     }
@@ -22479,7 +22906,7 @@ public final class RetainedViewRuntime {
         guard accessibilityScrollContinuationIsCurrent(continuation),
             let element = AccessibilityProjection.mutationElement(
                 for: continuation.attachment, in: self, during: continuation.mutation,
-                resolvingLayout: false), element.isVirtualizedPlaceholder
+                resolvingLayout: false, semanticRequest: continuation.semanticRequest), element.isVirtualizedPlaceholder
         else { return false }
         return true
     }
@@ -22487,7 +22914,8 @@ public final class RetainedViewRuntime {
     private func accessibilityScrollContinuationIsCurrent(
         _ continuation: RetainedAccessibilityScrollContinuation
     ) -> Bool {
-        guard isAccessibilityTargetCurrent(continuation.attachment, during: continuation.mutation),
+        guard continuation.semanticRequest?.isCurrent(in: self) != false,
+            isAccessibilityTargetCurrent(continuation.attachment, during: continuation.mutation),
             continuation.mutation.revision == continuation.expectedRevision,
             layoutSettlementGeometryRevision == continuation.geometryRevision,
             pointerSequence == continuation.pointerSequence,
@@ -22501,6 +22929,7 @@ public final class RetainedViewRuntime {
     }
 
     private func recordOwnedAccessibilityScrollEffects(_ continuation: RetainedAccessibilityScrollContinuation) {
+        // Owned scroll bookkeeping never refreshes the original semantic request.
         continuation.geometryRevision = layoutSettlementGeometryRevision
         continuation.expectedRevision = continuation.mutation.revision
     }
@@ -22591,6 +23020,276 @@ public final class RetainedViewRuntime {
         recordScrollPhase(phase, for: node)
         recordOwnedAccessibilityScrollEffects(continuation)
         withExtendedLifetime(retiredValues) {}
+    }
+
+    /// The original semantic publication is necessary but does not grant live
+    /// visibility, interaction, lifecycle or modal eligibility by itself.
+    private func framePreciseScrollPathIsCurrent(
+        _ alignment: PendingPreciseScrollAlignment, suppression: FramePreciseScrollSuppression,
+        placedTarget: ViewNode, expectedOffset: Double, expectedIntent: RetainedLazyListAttachmentIdentity,
+        allowsDeferredCoarse: Bool = false
+    ) -> Bool {
+        guard permitsRenderLifecycleCallbacks, activeAccessibilityMutation == nil, !isLayoutInProgress,
+            !layoutSettlementGenerationsExhausted, alignment.listNavigation == nil,
+            suppression.semanticRequest.isCurrent(in: self),
+            let target = alignment.target, let container = alignment.container,
+            suppression.semanticRequest.semanticNode === target,
+            target.runtime === self, container.runtime === self,
+            container.scrollAxis == suppression.axis, container.scrollSourceEpoch == alignment.containerEpoch,
+            container.scrollOffset == expectedOffset, container.lazyListScrollIntentIdentity === expectedIntent,
+            pointerSequence == suppression.pointerSequence, container.scrollOvershoot == 0,
+            !hasActiveScrollInputCapture(for: container), scrollMomenta[ObjectIdentifier(container)] == nil,
+            pendingListNavigationReveal?.container !== container,
+            consumingListNavigationReveal?.container !== container,
+            nearestRetainedScrollContainer(of: target) === container,
+            let placed = target.nearestScrollTarget(), placed.container === container, placed.target === placedTarget
+        else { return false }
+
+        var ancestors: Set<ObjectIdentifier> = []
+        var current: ViewNode? = target
+        var isAboveNearestModal = false
+        while let node = current, ancestors.count < ViewNode.maximumTraversalDepth {
+            guard ancestors.insert(ObjectIdentifier(node)).inserted, node.runtime === self,
+                !node.isHidden, !node.effectiveAccessibilityIsHidden, !node.isRemovalOverlay,
+                node.effectiveAccessibilityRespondsToUserInteraction != false
+            else { return false }
+            if node.isLayoutDeferredByVirtualization {
+                guard allowsDeferredCoarse, node === alignment.coarseTarget, node === placedTarget else {
+                    return false
+                }
+            }
+            // A modal overrides child policies only on its strict ancestors.
+            // Its own policy still decides whether this descendant is exposed.
+            if node !== target, !isAboveNearestModal,
+                node.accessibilityChildBehavior == .combine || node.accessibilityChildBehavior == .ignore
+                    || node.accessibilityRepresentationChildren != nil
+            {
+                return false
+            }
+            if node.isModalPresentationScope { isAboveNearestModal = true }
+            if node === root {
+                guard root.parent == nil else { return false }
+                // Deliberately conservative for sibling modal stacks; this
+                // prepaint-time continuation cannot invent a fresh modal order.
+                return Self.hasNoCompetingValueModal(in: root, ancestors: ancestors)
+            }
+            guard let parent = node.parent, parent.children.contains(where: { $0 === node }) else { return false }
+            current = parent
+        }
+        return false
+    }
+
+    private func framePreciseScrollAnimationIsCurrent(
+        _ alignment: PendingPreciseScrollAlignment, suppression: FramePreciseScrollSuppression
+    ) -> Bool {
+        guard let target = alignment.target, let container = alignment.container else { return false }
+        let tween = scrollPresentedTweens[ObjectIdentifier(container)]
+        guard let animation = suppression.animation, !animation.completedNaturally else {
+            return tween == nil && container.scrollPresentedDelta == 0
+        }
+        guard let tween, tween.frameAnimationIdentity === animation,
+            tween.node === container, tween.target === target, tween.origin.isProgrammatic,
+            tween.targetOffset == alignment.expectedOffset, tween.listNavigationReveal == nil,
+            container.scrollPresentedDelta.isFinite
+        else { return false }
+        return true
+    }
+
+    private func framePreciseScrollTween(
+        _ current: ScrollPresentedTween?, matches expected: ScrollPresentedTween?
+    ) -> Bool {
+        switch (current, expected) {
+        case (nil, nil):
+            return true
+        case (.some(let current), .some(let expected)):
+            guard let identity = expected.frameAnimationIdentity,
+                current.frameAnimationIdentity === identity,
+                current.node === expected.node, current.target === expected.target,
+                current.startDelta == expected.startDelta, current.startTime == expected.startTime,
+                current.lastTime == expected.lastTime, current.duration == expected.duration,
+                current.targetOffset == expected.targetOffset, current.scrollLimit == expected.scrollLimit,
+                current.listNavigationReveal == nil, expected.listNavigationReveal == nil,
+                case .programmatic(let currentEasing) = current.origin,
+                case .programmatic(let expectedEasing) = expected.origin
+            else { return false }
+            return currentEasing == expectedEasing
+        default:
+            return false
+        }
+    }
+
+    private func framePreciseScrollIsCurrent(_ consumption: FramePreciseScrollConsumption) -> Bool {
+        guard !consumption.isInvalid, isResolvingLayoutSettlement, isUpdatingResolvedLayout,
+            !isLayoutInProgress, !layoutSettlementGenerationsExhausted,
+            layoutSettlementIdentity === consumption.layoutIdentity, layoutPassID == consumption.layoutPass,
+            layoutSettlementResolutionSequence == consumption.resolutionSequence,
+            layoutSettlementGeometryRevision == consumption.geometryRevision,
+            presentationMutationRevision == consumption.presentationRevision,
+            (consumption.suppression.animation?.completedNaturally ?? false)
+                == consumption.animationCompletedNaturally,
+            let placedTarget = consumption.placedTarget, let container = consumption.alignment.container,
+            container.cachedLayoutKey == consumption.layoutKey, container.pendingLayoutKey == nil,
+            container.maxScrollOffset == consumption.scrollLimit,
+            container.hasVirtualizedDescendants == consumption.hasVirtualizedDescendants,
+            container.scrollIndicatorAutoHides == consumption.indicatorAutoHides,
+            container.showsScrollIndicator == consumption.showsIndicator,
+            container.scrollPresentedDelta == consumption.expectedPresentedDelta,
+            framePreciseScrollTween(
+                scrollPresentedTweens[ObjectIdentifier(container)], matches: consumption.expectedTween),
+            framePreciseScrollPathIsCurrent(
+                consumption.alignment, suppression: consumption.suppression, placedTarget: placedTarget,
+                expectedOffset: consumption.expectedOffset, expectedIntent: consumption.expectedIntent)
+        else { return false }
+        return true
+    }
+
+    private func reserveFramePreciseScrollEffects(
+        _ consumption: FramePreciseScrollConsumption, geometry: UInt64, presentation: UInt64
+    ) -> FramePreciseScrollEffects? {
+        guard framePreciseScrollIsCurrent(consumption) else { return nil }
+        let nextGeometry = consumption.geometryRevision.addingReportingOverflow(geometry)
+        let nextPresentation = consumption.presentationRevision.addingReportingOverflow(presentation)
+        guard !nextGeometry.overflow, nextGeometry.partialValue != UInt64.max,
+            !nextPresentation.overflow, nextPresentation.partialValue != UInt64.max
+        else { return nil }
+        return FramePreciseScrollEffects(
+            geometryBefore: consumption.geometryRevision, geometryLimit: nextGeometry.partialValue,
+            presentationBefore: consumption.presentationRevision, presentationLimit: nextPresentation.partialValue)
+    }
+
+    /// Called only inside the bounded native helpers, before their local pins
+    /// retire. The caller checks full original proof after each helper returns.
+    private func recordFramePreciseScrollEffects(
+        _ consumption: FramePreciseScrollConsumption, within bounds: FramePreciseScrollEffects
+    ) -> Bool {
+        guard !consumption.isInvalid, !layoutSettlementGenerationsExhausted,
+            isResolvingLayoutSettlement, isUpdatingResolvedLayout, !isLayoutInProgress,
+            layoutSettlementIdentity === consumption.layoutIdentity, layoutPassID == consumption.layoutPass,
+            layoutSettlementResolutionSequence == consumption.resolutionSequence,
+            consumption.geometryRevision == bounds.geometryBefore,
+            consumption.presentationRevision == bounds.presentationBefore,
+            layoutSettlementGeometryRevision >= bounds.geometryBefore,
+            layoutSettlementGeometryRevision <= bounds.geometryLimit,
+            presentationMutationRevision >= bounds.presentationBefore,
+            presentationMutationRevision <= bounds.presentationLimit
+        else {
+            consumption.isInvalid = true
+            return false
+        }
+        consumption.geometryRevision = layoutSettlementGeometryRevision
+        consumption.presentationRevision = presentationMutationRevision
+        return true
+    }
+
+    @inline(never)
+    private func cancelFramePreciseScrollMotion(_ consumption: FramePreciseScrollConsumption) -> Bool {
+        guard consumption.phase == .prepared, let container = consumption.alignment.container else { return false }
+        let retiredTween = consumption.expectedTween
+        let changes: UInt64 = retiredTween != nil && consumption.expectedPresentedDelta != 0 ? 1 : 0
+        guard
+            let bounds = reserveFramePreciseScrollEffects(
+                consumption, geometry: consumption.hasVirtualizedDescendants ? changes : 0, presentation: changes)
+        else { return false }
+        // Currentness has excluded replacement capture, momentum and List
+        // ownership. Only the exact original tween may be removed here.
+        cancelScrollMomentum(for: container)
+        cancelScrollPresentedTween(for: container)
+        consumption.expectedTween = nil
+        consumption.expectedPresentedDelta = 0
+        consumption.phase = .motionRemoved
+        let recorded = recordFramePreciseScrollEffects(consumption, within: bounds)
+        withExtendedLifetime((container, retiredTween)) {}
+        return recorded
+    }
+
+    @inline(never)
+    private func commitFramePreciseScrollOffset(
+        _ consumption: FramePreciseScrollConsumption, requestedOffset: Double
+    ) -> Bool {
+        guard consumption.phase == .motionRemoved, consumption.expectedTween == nil,
+            let container = consumption.alignment.container
+        else { return false }
+        let clampedOffset = container.clampedScrollOffset(for: requestedOffset)
+        let changed = clampedOffset != consumption.expectedOffset
+        let reveal: UInt64 = changed && consumption.indicatorAutoHides && consumption.showsIndicator ? 1 : 0
+        guard
+            let bounds = reserveFramePreciseScrollEffects(
+                consumption, geometry: (changed && consumption.hasVirtualizedDescendants ? 1 : 0) + reveal,
+                presentation: (changed ? 1 : 0) + reveal)
+        else { return false }
+        // With no old tween, List reveal or active layout, this shared setter
+        // cannot retire phase payloads. Equal requests supersede intent too.
+        container.revokeLazyListScrollIntent()
+        _ = container.setScrollOffset(requestedOffset)
+        consumption.expectedOffset = clampedOffset
+        consumption.expectedIntent = container.captureLazyListScrollIntentIdentity()
+        consumption.phase = .committed
+        let recorded = recordFramePreciseScrollEffects(consumption, within: bounds)
+        withExtendedLifetime(container) {}
+        return recorded
+    }
+
+    @inline(never)
+    private func installFramePreciseScrollTween(
+        _ consumption: FramePreciseScrollConsumption, animation: AnimationTransaction,
+        delta: Double, at timestamp: Double
+    ) -> Bool {
+        guard consumption.phase == .committed, consumption.expectedTween == nil,
+            let container = consumption.alignment.container, let target = consumption.alignment.target,
+            let identity = consumption.suppression.animation, !identity.completedNaturally,
+            let original = consumption.originalTween, case .programmatic(let easing) = original.origin,
+            timestamp == original.lastTime, animation.easing == easing,
+            animation.duration == max(0, original.duration - max(0, original.lastTime - original.startTime)),
+            delta == consumption.presentedOffset - consumption.expectedOffset
+        else { return false }
+        let changes: UInt64 = delta != consumption.expectedPresentedDelta ? 1 : 0
+        guard
+            let bounds = reserveFramePreciseScrollEffects(
+                consumption, geometry: consumption.hasVirtualizedDescendants ? changes : 0, presentation: changes)
+        else { return false }
+        container.scrollPresentedDelta = delta
+        let tween = ScrollPresentedTween(
+            node: container, target: target, startDelta: delta, startTime: timestamp, lastTime: timestamp,
+            duration: animation.duration, targetOffset: consumption.expectedOffset,
+            scrollLimit: consumption.scrollLimit,
+            origin: .programmatic(animation.easing), frameAnimationIdentity: identity)
+        scrollPresentedTweens[ObjectIdentifier(container)] = tween
+        consumption.expectedTween = tween
+        consumption.expectedPresentedDelta = delta
+        let recorded = recordFramePreciseScrollEffects(consumption, within: bounds)
+        withExtendedLifetime((container, target, identity)) {}
+        return recorded
+    }
+
+    @inline(never)
+    private func recordFramePreciseScrollPhase(
+        _ phase: RetainedScrollPhase, consumption: FramePreciseScrollConsumption, invalidatesPaint: Bool = false
+    ) -> Bool {
+        guard consumption.phase == .committed, let container = consumption.alignment.container,
+            let observerCount = UInt64(exactly: scrollObserverRegistry?.nodes.count ?? 0)
+        else { return false }
+        let changes = observerCount.addingReportingOverflow(invalidatesPaint ? 1 : 0)
+        guard !changes.overflow,
+            let bounds = reserveFramePreciseScrollEffects(consumption, geometry: 0, presentation: changes.partialValue)
+        else { return false }
+        var retiredValues: [Any] = []
+        if let registry = scrollObserverRegistry {
+            for reference in registry.nodes {
+                guard let owner = reference.node, owner.runtime === self,
+                    let storage = owner.scrollObserverStorage, !storage.phase.isEmpty
+                else { continue }
+                for observer in storage.geometry {
+                    if let value = observer.previousValue { retiredValues.append(value) }
+                }
+            }
+        }
+        if invalidatesPaint { invalidate(.paint) }
+        let phaseRecorded = recordScrollPhase(phase, for: container)
+        let recorded = recordFramePreciseScrollEffects(consumption, within: bounds)
+        withExtendedLifetime((container, retiredValues)) {}
+        // A retired authored value can reenter only after owned bookkeeping.
+        // Its effects are never absorbed by the caller's following validation.
+        return phaseRecorded && recorded
     }
 
     /// A valid action supersedes an older reveal even when its selection is
@@ -23117,8 +23816,22 @@ public final class RetainedViewRuntime {
         animation: AnimationTransaction?,
         at timestamp: Double,
         accessibility: RetainedAccessibilityScrollContinuation? = nil,
-        listNavigation: RetainedListNavigationReceipt? = nil
+        listNavigation: RetainedListNavigationReceipt? = nil,
+        framePrecise: FramePreciseScrollConsumption? = nil
     ) -> Bool {
+        if let framePrecise {
+            guard accessibility == nil, listNavigation == nil, activeAccessibilityMutation == nil,
+                framePrecise.alignment.target === descendant, framePreciseScrollIsCurrent(framePrecise)
+            else { return false }
+            if let original = framePrecise.originalTween {
+                guard let animation, case .programmatic(let easing) = original.origin,
+                    timestamp == original.lastTime, animation.easing == easing,
+                    animation.duration == max(0, original.duration - max(0, original.lastTime - original.startTime))
+                else { return false }
+            } else if animation != nil {
+                return false
+            }
+        }
         if let listNavigation, !listNavigation.permitsReveal(in: self, target: descendant) { return false }
         guard descendant.runtime === self, layoutPassID != 0, !Self.hasHiddenAncestor(descendant) else {
             return false
@@ -23138,6 +23851,11 @@ public final class RetainedViewRuntime {
             return false
         }
 
+        if let framePrecise {
+            guard framePrecise.placedTarget === target, framePrecise.alignment.container === scrollContainer,
+                framePrecise.suppression.axis == axis, framePreciseScrollIsCurrent(framePrecise)
+            else { return false }
+        }
         if let accessibility {
             guard accessibility.target === target, accessibility.container === scrollContainer,
                 permitsAccessibilityScrollCancellation(of: scrollContainer),
@@ -23194,14 +23912,21 @@ public final class RetainedViewRuntime {
             }
         }
         let presentedOffset = scrollContainer.effectiveScrollOffset
-        cancelScrollMomentum(for: scrollContainer)
-        cancelScrollPresentedTween(for: scrollContainer)
-        // These cancellations touch only owned scalar/weak-node scroll state.
-        // A later application callback may not rebase this geometry witness.
-        if let accessibility { recordOwnedAccessibilityScrollEffects(accessibility) }
+        if let framePrecise {
+            guard cancelFramePreciseScrollMotion(framePrecise), framePreciseScrollIsCurrent(framePrecise) else {
+                return false
+            }
+        } else {
+            cancelScrollMomentum(for: scrollContainer)
+            cancelScrollPresentedTween(for: scrollContainer)
+            // These cancellations touch only owned scalar/weak-node scroll state.
+            // A later application callback may not rebase this geometry witness.
+            if let accessibility { recordOwnedAccessibilityScrollEffects(accessibility) }
+        }
         if listNavigation == nil,
             scrollDragState?.node === scrollContainer || activeScrollIndicatorNode === scrollContainer
         {
+            guard framePrecise == nil else { return false }
             if let accessibility {
                 guard cancelAccessibilityScrollPointer(accessibility, at: timestamp),
                     accessibilityScrollContinuationIsCurrent(accessibility)
@@ -23215,9 +23940,15 @@ public final class RetainedViewRuntime {
         listNavigation?.consumePreparedLayoutSettlement()
         // A new explicit request supersedes prior intent even when clamping
         // produces the same number and the ordinary setter has no work to do.
-        scrollContainer.revokeLazyListScrollIntent()
-        _ = scrollContainer.setScrollOffset(requestedOffset)
-        accessibility?.expectedOffset = scrollContainer.scrollOffset
+        if let framePrecise {
+            guard commitFramePreciseScrollOffset(framePrecise, requestedOffset: requestedOffset),
+                framePreciseScrollIsCurrent(framePrecise)
+            else { return false }
+        } else {
+            scrollContainer.revokeLazyListScrollIntent()
+            _ = scrollContainer.setScrollOffset(requestedOffset)
+            accessibility?.expectedOffset = scrollContainer.scrollOffset
+        }
         let listReveal: RetainedListNavigationRevealContinuation?
         if let listNavigation, listNavigation.canRegisterRevealContinuation {
             guard
@@ -23231,25 +23962,38 @@ public final class RetainedViewRuntime {
         } else {
             listReveal = nil
         }
+        var originalFrameAnimation: FrameScrollAnimationIdentity? = nil
         let delta = presentedOffset - scrollContainer.scrollOffset
         if let animation, animation.duration.isFinite, animation.duration > 0,
             timestamp.isFinite, delta.isFinite, delta != 0
         {
             listReveal?.hasAnimation = true
-            scrollContainer.scrollPresentedDelta = delta
-            scrollPresentedTweens[ObjectIdentifier(scrollContainer)] = ScrollPresentedTween(
-                node: scrollContainer,
-                target: descendant,
-                startDelta: delta,
-                startTime: timestamp,
-                lastTime: timestamp,
-                duration: animation.duration,
-                targetOffset: scrollContainer.scrollOffset,
-                scrollLimit: scrollContainer.maxScrollOffset,
-                origin: .programmatic(animation.easing),
-                listNavigationReveal: listReveal
-            )
-            if let accessibility {
+            if let framePrecise {
+                guard installFramePreciseScrollTween(framePrecise, animation: animation, delta: delta, at: timestamp),
+                    framePreciseScrollIsCurrent(framePrecise)
+                else { return false }
+            } else {
+                if accessibility?.semanticRequest != nil { originalFrameAnimation = FrameScrollAnimationIdentity() }
+                scrollContainer.scrollPresentedDelta = delta
+                scrollPresentedTweens[ObjectIdentifier(scrollContainer)] = ScrollPresentedTween(
+                    node: scrollContainer,
+                    target: descendant,
+                    startDelta: delta,
+                    startTime: timestamp,
+                    lastTime: timestamp,
+                    duration: animation.duration,
+                    targetOffset: scrollContainer.scrollOffset,
+                    scrollLimit: scrollContainer.maxScrollOffset,
+                    origin: .programmatic(animation.easing),
+                    listNavigationReveal: listReveal,
+                    frameAnimationIdentity: originalFrameAnimation
+                )
+            }
+            if let framePrecise {
+                guard recordFramePreciseScrollPhase(.animating, consumption: framePrecise, invalidatesPaint: true),
+                    framePreciseScrollIsCurrent(framePrecise)
+                else { return false }
+            } else if let accessibility {
                 invalidate(.paint)
                 recordOwnedAccessibilityScrollEffects(accessibility)
                 recordAccessibilityScrollPhase(.animating, for: scrollContainer, continuation: accessibility)
@@ -23268,7 +24012,11 @@ public final class RetainedViewRuntime {
                 invalidate(.paint)
             }
         } else {
-            if let accessibility {
+            if let framePrecise {
+                guard recordFramePreciseScrollPhase(.idle, consumption: framePrecise),
+                    framePreciseScrollIsCurrent(framePrecise)
+                else { return false }
+            } else if let accessibility {
                 recordOwnedAccessibilityScrollEffects(accessibility)
                 recordAccessibilityScrollPhase(.idle, for: scrollContainer, continuation: accessibility)
             } else if let listNavigation {
@@ -23284,6 +24032,7 @@ public final class RetainedViewRuntime {
             }
         }
         if let accessibility, !accessibilityScrollContinuationIsCurrent(accessibility) { return false }
+        if let framePrecise, !framePreciseScrollIsCurrent(framePrecise) { return false }
 
         // The next explicit request for a container supersedes any older
         // deferred correction. Once its oversized lazy row is realized, an
@@ -23293,6 +24042,30 @@ public final class RetainedViewRuntime {
             $0.container == nil || $0.target == nil || $0.container === scrollContainer
         }
         if target !== descendant, listNavigation?.hasNativeRevealContinuation != true {
+            let frameSuppression: FramePreciseScrollSuppression?
+            if let framePrecise {
+                guard framePreciseScrollIsCurrent(framePrecise) else { return false }
+                frameSuppression = FramePreciseScrollSuppression(
+                    semanticRequest: framePrecise.suppression.semanticRequest,
+                    pointerSequence: framePrecise.suppression.pointerSequence, axis: framePrecise.suppression.axis,
+                    intent: framePrecise.expectedIntent, animation: framePrecise.suppression.animation)
+            } else if let accessibility, let semanticRequest = accessibility.semanticRequest {
+                guard semanticRequest.semanticNode === descendant else { return false }
+                if let originalFrameAnimation {
+                    guard let tween = scrollPresentedTweens[ObjectIdentifier(scrollContainer)],
+                        tween.frameAnimationIdentity === originalFrameAnimation,
+                        !originalFrameAnimation.completedNaturally,
+                        tween.node === scrollContainer, tween.target === descendant, tween.origin.isProgrammatic,
+                        tween.targetOffset == scrollContainer.scrollOffset, tween.listNavigationReveal == nil
+                    else { return false }
+                }
+                frameSuppression = FramePreciseScrollSuppression(
+                    semanticRequest: semanticRequest, pointerSequence: accessibility.pointerSequence,
+                    axis: accessibility.axis, intent: scrollContainer.captureLazyListScrollIntentIdentity(),
+                    animation: originalFrameAnimation)
+            } else {
+                frameSuppression = nil
+            }
             pendingPreciseScrollAlignments.append(
                 PendingPreciseScrollAlignment(
                     target: descendant,
@@ -23302,7 +24075,8 @@ public final class RetainedViewRuntime {
                     anchorX: anchorX,
                     anchorY: anchorY,
                     expectedOffset: scrollContainer.scrollOffset,
-                    listNavigation: listNavigation
+                    listNavigation: listNavigation,
+                    frameSuppression: frameSuppression
                 )
             )
         }
@@ -24480,6 +25254,10 @@ public final class RetainedViewRuntime {
         return nil
     }
 
+    func isAccessibilityAttachmentCurrent(_ target: RetainedAccessibilityTarget) -> Bool {
+        target.isCurrent(in: self)
+    }
+
     package func isAccessibilityTargetCurrent(
         _ target: RetainedAccessibilityTarget, during mutation: RetainedAccessibilityMutation
     ) -> Bool {
@@ -24505,12 +25283,12 @@ public final class RetainedViewRuntime {
         var candidate: ViewNode? = node
         while let current = candidate, ancestors.count < ViewNode.maximumTraversalDepth {
             guard ancestors.insert(ObjectIdentifier(current)).inserted,
-                !current.isHidden, !current.isAccessibilityHidden, !current.isRemovalOverlay,
+                !current.isHidden, !current.effectiveAccessibilityIsHidden, !current.isRemovalOverlay,
                 !current.isLayoutDeferredByVirtualization, !current.isPrivacySensitive,
                 current.redactionReasons.isEmpty, current.textInputController == nil,
-                !current.accessibilityTraits.contains(.isTextInput),
-                !current.accessibilityTraits.contains(.isSearchField),
-                !current.accessibilityTraits.contains(.isSecureTextInput),
+                !current.effectiveAccessibilityTraits.contains(.isTextInput),
+                !current.effectiveAccessibilityTraits.contains(.isSearchField),
+                !current.effectiveAccessibilityTraits.contains(.isSecureTextInput),
                 current.retainedLazyListAdapter == nil, current.accessibilityRepresentationChildren == nil
             else { return nil }
             // Combining or ignoring an ancestor's children removes this node
@@ -24540,8 +25318,9 @@ public final class RetainedViewRuntime {
         var candidate: ViewNode? = node
         while let current = candidate, ancestors.count < ViewNode.maximumTraversalDepth {
             guard ancestors.insert(ObjectIdentifier(current)).inserted,
-                !current.isHidden, !current.isAccessibilityHidden, !current.isRemovalOverlay,
-                !current.isLayoutDeferredByVirtualization, current.accessibilityRespondsToUserInteraction != false
+                !current.isHidden, !current.effectiveAccessibilityIsHidden, !current.isRemovalOverlay,
+                !current.isLayoutDeferredByVirtualization,
+                current.effectiveAccessibilityRespondsToUserInteraction != false
             else { return nil }
             if current === root { return root.parent == nil ? ancestors : nil }
             candidate = current.parent
@@ -25434,6 +26213,7 @@ public final class RetainedViewRuntime {
                     didUpdate = true
                     invalidate(.paint)
                 }
+                tween.frameAnimationIdentity?.completedNaturally = true
                 scrollPresentedTweens.removeValue(forKey: key)
             } else {
                 tween.lastTime = max(tween.lastTime, timestamp)
@@ -25613,6 +26393,49 @@ public final class RetainedViewRuntime {
             }
 
             let tween = scrollPresentedTweens[ObjectIdentifier(container)]
+            if let suppression = alignment.frameSuppression {
+                let isWaiting = placedTarget !== target && placedTarget === alignment.coarseTarget
+                guard
+                    framePreciseScrollPathIsCurrent(
+                        alignment, suppression: suppression, placedTarget: placedTarget,
+                        expectedOffset: alignment.expectedOffset, expectedIntent: suppression.intent,
+                        allowsDeferredCoarse: isWaiting),
+                    framePreciseScrollAnimationIsCurrent(alignment, suppression: suppression)
+                else { continue }
+                if isWaiting {
+                    // Keep only the original animated wait. A completed or
+                    // unanimated request gets no new retry or clock allowance.
+                    if let animation = suppression.animation, !animation.completedNaturally,
+                        tween?.frameAnimationIdentity === animation, tween?.origin.isProgrammatic == true
+                    {
+                        pendingPreciseScrollAlignments.append(alignment)
+                    }
+                    continue
+                }
+                guard placedTarget === target, let layoutKey = container.cachedLayoutKey,
+                    container.pendingLayoutKey == nil
+                else { continue }
+                let consumption = FramePreciseScrollConsumption(
+                    alignment: alignment, suppression: suppression, placedTarget: placedTarget,
+                    container: container, layoutKey: layoutKey, tween: tween, runtime: self)
+                guard framePreciseScrollIsCurrent(consumption) else { continue }
+                var timestamp = sampleAccessibilityScrollClock()
+                guard framePreciseScrollIsCurrent(consumption) else { continue }
+                var continuation: AnimationTransaction?
+                if let original = consumption.originalTween, case .programmatic(let easing) = original.origin {
+                    timestamp = original.lastTime
+                    continuation = AnimationTransaction(
+                        duration: max(0, original.duration - max(0, timestamp - original.startTime)), easing: easing)
+                }
+                if performProgrammaticScroll(
+                    to: target, anchorX: alignment.anchorX, anchorY: alignment.anchorY,
+                    animation: continuation, at: timestamp, framePrecise: consumption),
+                    framePreciseScrollIsCurrent(consumption)
+                {
+                    didResolve = true
+                }
+                continue
+            }
             if placedTarget !== target, placedTarget === alignment.coarseTarget {
                 // Presentation has not reached the deferred row yet. Keep
                 // its request without restarting the animation on every
@@ -27578,7 +28401,8 @@ public final class RetainedViewRuntime {
     private func updateFocusTarget(
         to nextFocusedNode: ViewNode?, origin: RetainedFocusOrigin = .ordinary,
         listNavigationReceipt: RetainedListNavigationReceipt? = nil,
-        selectedPath: RetainedSelectedContentPath? = nil
+        selectedPath: RetainedSelectedContentPath? = nil,
+        semanticRequest: RetainedAccessibilitySemanticRequest? = nil
     ) -> Bool {
         let isCleanup = origin == .cleanup && nextFocusedNode == nil
         guard permitsRenderLifecycleCallbacks || isCleanup else { return false }
@@ -27592,9 +28416,12 @@ public final class RetainedViewRuntime {
                 return false
             }
         }
+        guard semanticRequest?.isCurrent(in: self) != false else { return false }
         if let selectedPath {
-            guard selectedPath.isCurrent, selectedPath.isInstalled(in: self),
-                selectedPath.physicalRoot === root, selectedPath.selectedNode === nextFocusedNode
+            guard selectedPath.isCurrent, selectedPath.isInstalled(in: self), selectedPath.physicalRoot === root,
+                selectedPath.selectedNode === nextFocusedNode
+                    || (semanticRequest?.semanticNode === nextFocusedNode
+                        && semanticRequest?.containsPhysicalNode(selectedPath.selectedNode) == true)
             else { return false }
         }
         let revision = advanceFocusRevision()
@@ -27602,7 +28429,7 @@ public final class RetainedViewRuntime {
         let operation = RetainedFocusOperation(
             target: nextFocusedNode, origin: origin, beganAttached: beganAttached,
             revision: revision, mutationWitness: presentationMutationRevision,
-            listNavigationReceipt: listNavigationReceipt, selectedPath: selectedPath)
+            listNavigationReceipt: listNavigationReceipt, selectedPath: selectedPath, semanticRequest: semanticRequest)
         let completed = performFocusTransition(operation, to: nextFocusedNode)
         // The inner frame has released its old node and callback captures.
         // Final notification/cleanup can make an already performed transition
@@ -29137,7 +29964,15 @@ extension ViewNode {
                 admission?.recordCompletedOwnedSource(from: entry.node, to: entry.node, journal: lazyJournal)
             }
         }
-        return canContinue() ? entries : nil
+        guard canContinue() else { return nil }
+        for entry in entries
+        where entry.node.accessibilityFrameUpdateIdentity == nil
+            && entry.node.accessibilityFrameContentStorage != nil
+            && entry.node.parent?.accessibilityDeclaredFrameContent !== entry.node
+        {
+            entry.node.publishAccessibilityFrameSubtree()
+        }
+        return entries
     }
 }
 extension RetainedViewRuntime {

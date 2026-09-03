@@ -20906,3 +20906,30 @@ The separate selection `artifacts/field-chrome-cpu-allocation-after2.json` has
 SHA256 `cb348208a51fa7ba2b8e153ca6ea75e1c7a26c071d4894b0a462d9ea618e3e26` and 49 source pins. A new run is pending.
 This remains deterministic-font CPU coverage only; native fonts, GPU output,
 checked adoption, native UIA and every original completion gate remain open.
+
+
+### 2026-09-03: freeze Frame77 integration without changing completion requirements
+
+The generic frame accessibility candidate has completed root and independent source review, including its explicit composition with ChildTable, paint ancestry and native field-chrome adoption. The original sealed Frame72 packet and its rebase remain unchanged. A separate seven-field inventory amendment rejects frame metadata, declaration/publication state and authored action history in fresh generated chrome recipes; it does not restrict ordinary retained controls. Five additive tests include a real framed TextField with synchronous setter-triggered adoption and immediate chrome and semantic-publication checks.
+
+The candidate now has an exact 77-method roster: the original 72 selectors in their frozen order followed by those five inventory tests. Formatter derivatives preserve every test method and assertion; the Runtime derivative includes the separate inventory amendment. The roster binds all eighteen formatted source/test files and retains the unchanged prerequisite pins. Source review and byte-preservation checks are evidence about this candidate, not compilation or runtime behavior. Its first exact-commit focused execution is still pending. Previously passing chrome, secure-value, Button, paint and caret selections are separate evidence and do not qualify the new frame combination.
+
+The original semantic identity, controller, selected-content, physical ancestry and operation-lifetime requirements remain intact. Queued fine alignment after framed Realize still conservatively refuses an unchanged, previously admitted frontmost sibling-modal stack; the existing dirty-layout refusal also remains. Full supported modal-stack continuation is required future work, not a platform exception or a satisfied gate. This addition makes no clipping, native assistive-technology, visual parity, timing, Full or hosted-CI claim. All nine original completion gates remain OPEN; no prior failure, original assertion, threshold or goal requirement is removed or reclassified.
+
+Root has now integrated the reviewed nine source files and nine new test files
+onto `8cee4a09575fdfb699912c38a3e6958417fdf874`. The separate inventory amendment is included.
+All 45 handoff payloads and all 18 formatter input/output hashes were verified;
+only whitespace and forty statement-separator splits differ from frozen source.
+The original 72 methods, five new methods, assertions and quoted test literals
+are preserved. The 48-pin selection `artifacts/frame77-after-integration.json`
+has SHA256 `e20729b8c603e0d6639ca75a2dd0bfb8d3b91818de962437581e7bd8b06b87c0`. Integration receipt:
+`artifacts/frame77-integration-receipt.json`. Compilation and execution of this
+combination remain pending, and the GPUWorkbench consumer has not been rebuilt.
+
+Before this integration, both corrected CPU methods passed at `8cee4a09575fdfb699912c38a3e6958417fdf874`
+with all four cases and unchanged assertions. The result has exact starts/ends,
+natural zero and full owned-process/resource closure, with no timeout or
+termination. Raw SHA256 `81327b1ae0e68696d9087d4119ac4de2e0b2817889fbdddaad0989abfd244e79`;
+aggregate `artifacts/field-chrome-cpu2-8cee4a0-results.json`. This verifies the one-line fixture correction
+and CPU adoption pixels under deterministic font metrics/masks; it does not
+retroactively change the first failed run or qualify native font/GPU output.

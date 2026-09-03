@@ -290,6 +290,8 @@ The GUI demo was also launched with a short `swift run swift-windowsui` startup 
 ## Documentation
 
 Additional framework notes live in [`docs/WinSwiftUI.md`](docs/WinSwiftUI.md).
+Declared-frame accessibility, its pending focused validation and remaining
+scrolling limits are described in [`docs/FrameAccessibility.md`](docs/FrameAccessibility.md).
 Frame bitmap destinations, explicit device-raster placement, typed refusals,
 and remaining native qualification are described in
 [`docs/BitmapFramePlacement.md`](docs/BitmapFramePlacement.md).

@@ -123,6 +123,10 @@ public final class AccessibilityElementProjection {
     /// The retained node this element was projected from. Weak: the retained
     /// tree owns node lifetimes, and projections are short-lived reads.
     public private(set) weak var sourceNode: ViewNode?
+    /// Original accepted semantic authority. It contains no control payload.
+    package var semanticRequest: RetainedAccessibilitySemanticRequest?
+    /// The actual framed runtime root remains the window endpoint, not its content.
+    package var isNeutralFrameWindowRoot = false
     /// True when this element stands in for a subtree a lazy stack has not
     /// laid out yet — an off-screen row of a virtualized list.
     ///
@@ -140,7 +144,7 @@ public final class AccessibilityElementProjection {
 
     /// Structural modal ancestors remain in the tree for bounds/navigation,
     /// but their activation fallback is no more eligible than stored actions.
-    package var permitsModalActions: Bool { !isStructuralModalAncestor }
+    package var permitsModalActions: Bool { !isStructuralModalAncestor && !isNeutralFrameWindowRoot }
 
     public init(
         bounds: Rect,
@@ -244,10 +248,16 @@ private final class AccessibilityActionScope {
     }
 
     private func selectedPathIsCurrent(
-        _ path: RetainedSelectedContentPath?, for node: ViewNode, in runtime: RetainedViewRuntime?
+        _ path: RetainedSelectedContentPath?, for node: ViewNode, in runtime: RetainedViewRuntime?,
+        semanticRequest: RetainedAccessibilitySemanticRequest?
     ) -> Bool {
         guard let path else { return true }
-        guard path.physicalRoot === root, path.selectedNode === node, path.isCurrent else { return false }
+        guard path.physicalRoot === root, let selected = path.selectedNode, path.isCurrent else { return false }
+        if selected !== node {
+            guard let semanticRequest, semanticRequest.semanticNode === node,
+                semanticRequest.containsPhysicalNode(selected)
+            else { return false }
+        }
         guard hasRuntime else { return true }
         guard let runtime, root === runtime.root else { return false }
         return path.isInstalled(in: runtime)
@@ -267,8 +277,27 @@ private final class AccessibilityActionScope {
         }
     }
 
-    func invokeDefaultAction(on node: ViewNode, intent: AccessibilityDefaultActionIntent) -> Bool {
-        withCurrentElement(for: node) { element in
+    func invokeSemanticAction(
+        on node: ViewNode, request: RetainedAccessibilitySemanticRequest,
+        action: RetainedAccessibilitySemanticAction, isProjectedRoot: Bool = false
+    ) -> Bool {
+        guard request.isCurrent, action.isCurrent else { return false }
+        return withCurrentElement(
+            for: node, requiresSelectedRoot: isProjectedRoot, semanticRequest: request
+        ) { _ in
+            guard request.isCurrent, action.isCurrent else { return false }
+            return action.invokeIfCurrent()
+        }
+    }
+
+    func invokeDefaultAction(
+        on node: ViewNode, intent: AccessibilityDefaultActionIntent,
+        semanticRequest suppliedRequest: RetainedAccessibilitySemanticRequest? = nil
+    ) -> Bool {
+        let request = suppliedRequest ?? node.currentAccessibilitySemanticRequest
+        guard request?.isCurrent != false else { return false }
+        let target = request?.semanticNode ?? node
+        return withCurrentElement(for: target, semanticRequest: request) { element in
             switch intent {
             case .invoke:
                 break
@@ -283,23 +312,40 @@ private final class AccessibilityActionScope {
             }
             // Select only after validation. Rejection never falls through to
             // another handler, and callback reentry cannot cause a second call.
-            if let action = node.accessibilityActions.first(where: { $0.kind == .default })
-                ?? node.accessibilityActions.first
+            if let request {
+                if let action = request.actions.first(where: { $0.kind == .default }) ?? request.actions.first {
+                    guard request.isCurrent, action.isCurrent else { return false }
+                    return action.invokeIfCurrent()
+                }
+                guard request.isCurrent, let activate = target.onActivate else { return false }
+                activate()
+                return true
+            }
+            if let action = target.accessibilityActions.first(where: { $0.kind == .default })
+                ?? target.accessibilityActions.first
             {
                 action.handler()
                 return true
             }
-            guard let activate = node.onActivate else { return false }
+            guard let activate = target.onActivate else { return false }
             activate()
             return true
         }
     }
 
-    func invokeImplicitDefaultAction(on node: ViewNode, isProjectedRoot: Bool = false) -> Bool {
-        withCurrentElement(for: node, requiresSelectedRoot: isProjectedRoot) { _ in
+    func invokeImplicitDefaultAction(
+        on node: ViewNode, isProjectedRoot: Bool = false,
+        semanticRequest: RetainedAccessibilitySemanticRequest? = nil
+    ) -> Bool {
+        withCurrentElement(
+            for: node, requiresSelectedRoot: isProjectedRoot, semanticRequest: semanticRequest
+        ) { _ in
             // A saved implicit route cannot retarget a newly stored action.
             // Layout may install that list, so check only after validation.
-            guard node.accessibilityActions.isEmpty, let activate = node.onActivate else { return false }
+            guard semanticRequest?.isCurrent != false,
+                semanticRequest.map({ $0.actions.isEmpty }) ?? node.accessibilityActions.isEmpty,
+                let activate = node.onActivate
+            else { return false }
             activate()
             return true
         }
@@ -307,9 +353,10 @@ private final class AccessibilityActionScope {
 
     private func withCurrentElement(
         for node: ViewNode, requiresSelectedRoot: Bool = false,
+        semanticRequest: RetainedAccessibilitySemanticRequest? = nil,
         perform: (AccessibilityElementProjection) -> Bool
     ) -> Bool {
-        guard !isInvoking, let root else { return false }
+        guard !isInvoking, let root, semanticRequest?.isCurrent != false else { return false }
         let invocationRuntime = runtime
         let invocationPath: RetainedSelectedContentPath?
         if let selectedPath {
@@ -327,7 +374,10 @@ private final class AccessibilityActionScope {
         } else {
             invocationPath = nil
         }
-        guard selectedPathIsCurrent(invocationPath, for: node, in: invocationRuntime) else { return false }
+        guard
+            selectedPathIsCurrent(
+                invocationPath, for: node, in: invocationRuntime, semanticRequest: semanticRequest)
+        else { return false }
         isInvoking = true
         defer {
             isInvoking = false
@@ -340,16 +390,24 @@ private final class AccessibilityActionScope {
                 runtime.prepareProjectedAccessibilityActionLayout(),
                 runtime.permitsRetainedActionInvocation, case .settled = runtime.layoutSettlementStatus,
                 runtime.hasCurrentAccessibilityPrepaint,
-                selectedPathIsCurrent(invocationPath, for: node, in: runtime)
+                semanticRequest?.isCurrent(in: runtime) != false,
+                selectedPathIsCurrent(invocationPath, for: node, in: runtime, semanticRequest: semanticRequest)
             else { return false }
             projection = AccessibilityProjection.project(runtime: runtime)
         } else {
             projection = AccessibilityProjection.project(root: root)
         }
-        guard selectedPathIsCurrent(invocationPath, for: node, in: invocationRuntime),
+        guard semanticRequest?.isCurrent != false,
+            selectedPathIsCurrent(
+                invocationPath, for: node, in: invocationRuntime, semanticRequest: semanticRequest),
             let element = projection?.flattened().first(where: { $0.sourceNode === node }),
             element.isEnabled, element.permitsModalActions
         else { return false }
+        if let semanticRequest {
+            guard element.semanticRequest?.element === semanticRequest.element else { return false }
+        } else if element.semanticRequest != nil {
+            return false
+        }
         return perform(element)
     }
 }
@@ -375,16 +433,90 @@ public enum AccessibilityProjection {
         actionScope: AccessibilityActionScope
     ) -> AccessibilityElementProjection? {
         guard let operand = selectedContentOperand(for: root, inheritedIsEnabled: true) else { return nil }
-        let result = projectElement(
-            operand.node,
-            parentOrigin: .zero,
-            inheritedTransform: .identity,
-            forceElement: true,
-            activeModalNode: activeModalNode,
-            actionScope: actionScope,
-            inheritedIsEnabled: operand.inheritedIsEnabled
-        )
+        let result: AccessibilityElementProjection?
+        if root.accessibilityFrameProjectionRole == .transparent, root.retainedLazyListRuntime?.root === root {
+            result = projectNeutralFrameWindowRoot(root, activeModalNode: activeModalNode, actionScope: actionScope)
+        } else if operand.node.accessibilityFrameProjectionRole == .transparent {
+            result = projectFrameContentRoot(
+                operand.node, activeModalNode: activeModalNode, actionScope: actionScope,
+                inheritedIsEnabled: operand.inheritedIsEnabled)
+        } else {
+            result = projectElement(
+                operand.node,
+                parentOrigin: .zero,
+                inheritedTransform: .identity,
+                forceElement: true,
+                activeModalNode: activeModalNode,
+                actionScope: actionScope,
+                inheritedIsEnabled: operand.inheritedIsEnabled
+            )
+        }
         return operand.isCurrent ? result : nil
+    }
+
+    private static func projectNeutralFrameWindowRoot(
+        _ root: ViewNode, activeModalNode: ViewNode?, actionScope: AccessibilityActionScope
+    ) -> AccessibilityElementProjection? {
+        guard let request = root.currentAccessibilitySemanticRequest, request.isCurrent else { return nil }
+        let geometry = projectedGeometry(of: root, parentOrigin: .zero, inheritedTransform: .identity)
+        let children = projectChildren(
+            of: root,
+            parentOrigin: scrolledChildOrigin(of: root, absoluteOrigin: geometry.absoluteOrigin),
+            inheritedTransform: geometry.effectiveTransform,
+            activeModalNode: activeModalNode === root ? nil : activeModalNode,
+            actionScope: actionScope,
+            inheritedIsEnabled: root.effectiveAccessibilityRespondsToUserInteraction != false)
+        guard request.isCurrent else { return nil }
+        let result = AccessibilityElementProjection(
+            bounds: geometry.paintedBounds, name: "", value: nil, hint: nil, identifier: nil,
+            controlType: .pane, traits: [], headingLevel: nil, isEnabled: true,
+            isFocused: false, isSelected: false, sortPriority: 0, actions: [], children: children,
+            sourceNode: root)
+        result.isNeutralFrameWindowRoot = true
+        return result
+    }
+
+    /// A selected/subtree root may be a frame without being the window endpoint.
+    /// Its declared path still contributes every physical frame to the geometry.
+    private static func projectFrameContentRoot(
+        _ frame: ViewNode, activeModalNode: ViewNode?, actionScope: AccessibilityActionScope,
+        inheritedIsEnabled: Bool
+    ) -> AccessibilityElementProjection? {
+        guard let request = frame.currentAccessibilitySemanticRequest,
+            let path = declaredPhysicalPath(from: frame, request: request), let semantic = path.last
+        else { return nil }
+        var parentOrigin = Point.zero
+        var inheritedTransform = Transform2D.identity
+        var isEnabled = inheritedIsEnabled
+        var isVirtualized = false
+        var modal = activeModalNode
+        for physical in path.dropLast() {
+            isEnabled = isEnabled && physical.effectiveAccessibilityRespondsToUserInteraction != false
+            isVirtualized = isVirtualized || physical.isLayoutDeferredByVirtualization
+            if modal === physical { modal = nil }
+            // Only the original selected-role proof omits this hop's geometry.
+            // Physical frames on either side still contribute their full frame.
+            if request.isSelectedContentHop(physical) { continue }
+            if isVirtualized {
+                return projectVirtualizedPlaceholder(
+                    physical, parentOrigin: parentOrigin, inheritedTransform: inheritedTransform,
+                    activeModalNode: modal, actionScope: actionScope, inheritedIsEnabled: isEnabled)
+            }
+            let geometry = projectedGeometry(
+                of: physical, parentOrigin: parentOrigin, inheritedTransform: inheritedTransform)
+            parentOrigin = scrolledChildOrigin(of: physical, absoluteOrigin: geometry.absoluteOrigin)
+            inheritedTransform = geometry.effectiveTransform
+        }
+        guard request.isCurrent else { return nil }
+        if isVirtualized || semantic.isLayoutDeferredByVirtualization {
+            return projectVirtualizedPlaceholder(
+                semantic, parentOrigin: parentOrigin, inheritedTransform: inheritedTransform,
+                activeModalNode: modal, actionScope: actionScope, inheritedIsEnabled: isEnabled)
+        }
+        let result = projectElement(
+            semantic, parentOrigin: parentOrigin, inheritedTransform: inheritedTransform, forceElement: true,
+            activeModalNode: modal, actionScope: actionScope, inheritedIsEnabled: isEnabled)
+        return request.isCurrent ? result : nil
     }
 
     /// Projects a runtime's retained root. Its modal scope comes from the
@@ -400,10 +532,11 @@ public enum AccessibilityProjection {
     /// This is separate from the public projection's snapshot-only metadata.
     package static func invokeDefaultAction(
         on node: ViewNode, in runtime: RetainedViewRuntime, intent: AccessibilityDefaultActionIntent = .invoke,
-        selectedPath: RetainedSelectedContentPath? = nil
+        selectedPath: RetainedSelectedContentPath? = nil,
+        semanticRequest: RetainedAccessibilitySemanticRequest? = nil
     ) -> Bool {
         AccessibilityActionScope(root: runtime.root, runtime: runtime, selectedPath: selectedPath)
-            .invokeDefaultAction(on: node, intent: intent)
+            .invokeDefaultAction(on: node, intent: intent, semanticRequest: semanticRequest)
     }
 
     /// A mutating scroll request resolves the original attachment, not a
@@ -411,16 +544,22 @@ public enum AccessibilityProjection {
     /// have no physical scroll owner and cannot qualify through this route.
     package static func mutationElement(
         for target: RetainedAccessibilityTarget, in runtime: RetainedViewRuntime,
-        during mutation: RetainedAccessibilityMutation, resolvingLayout: Bool
+        during mutation: RetainedAccessibilityMutation, resolvingLayout: Bool,
+        semanticRequest: RetainedAccessibilitySemanticRequest? = nil
     ) -> AccessibilityElementProjection? {
-        guard runtime.isAccessibilityTargetCurrent(target, during: mutation),
+        guard semanticRequest?.isCurrent(in: runtime) != false,
+            runtime.isAccessibilityTargetCurrent(target, during: mutation),
             !resolvingLayout || runtime.prepareAccessibilityMutation(mutation),
+            semanticRequest?.isCurrent(in: runtime) != false,
             runtime.isAccessibilityTargetCurrent(target, during: mutation),
             case .settled = runtime.layoutSettlementStatus, runtime.hasCurrentAccessibilityPrepaint,
             let node = target.node,
             let element = project(runtime: runtime)?.flattened().first(where: { $0.sourceNode === node }),
             element.isEnabled, element.permitsModalActions
         else { return nil }
+        if let semanticRequest {
+            guard element.semanticRequest?.element === semanticRequest.element else { return nil }
+        }
         return element
     }
 
@@ -449,7 +588,14 @@ public enum AccessibilityProjection {
     //   node.text != nil    → text        (unlabeled bitmap text fallback)
     //   otherwise           → group       (labeled content with no type signal)
     public static func resolveControlType(for node: ViewNode) -> AccessibilityControlType {
-        let traits = node.accessibilityTraits
+        guard let metadata = node.effectiveAccessibilityMetadata else { return .group }
+        return resolveControlType(for: node, metadata: metadata)
+    }
+
+    private static func resolveControlType(
+        for node: ViewNode, metadata: RetainedAccessibilitySemanticMetadata
+    ) -> AccessibilityControlType {
+        let traits = metadata.traits
         if traits.contains(.isToggle) { return .checkBox }
         if traits.contains(.isSelectable) { return .listItem }
         if traits.contains(.isButton) { return .button }
@@ -459,9 +605,9 @@ public enum AccessibilityProjection {
         if traits.contains(.isProgressIndicator) { return .progressBar }
         if traits.contains(.isKeyboardKey) { return .button }
         if traits.contains(.isHeader) { return .header }
-        if traits.contains(.isImage) || node.isAccessibilityImage { return .image }
+        if traits.contains(.isImage) || metadata.isImage { return .image }
         if traits.contains(.isStaticText) { return .text }
-        if node.accessibilityPrefersSliderBehavior == true { return .slider }
+        if metadata.prefersSliderBehavior == true { return .slider }
         if traits.contains(.isSummaryElement) { return .group }
         if node.text != nil { return .text }
         return .group
@@ -481,7 +627,26 @@ public enum AccessibilityProjection {
     /// visual `isHidden` omit the node *and its entire subtree*, matching how
     /// hit testing skips hidden subtrees.
     private static func isSubtreeHidden(_ node: ViewNode) -> Bool {
-        node.isAccessibilityHidden || node.isHidden
+        node.accessibilityFrameProjectionRole == .unavailable || node.effectiveAccessibilityIsHidden || node.isHidden
+    }
+
+    /// Walk only the original declared association. This also checks hidden
+    /// physical hops below a deferred frame without claiming their geometry.
+    private static func declaredPhysicalPath(
+        from physical: ViewNode, request: RetainedAccessibilitySemanticRequest
+    ) -> [ViewNode]? {
+        guard request.isCurrent, request.containsPhysicalNode(physical), let semantic = request.semanticNode else {
+            return nil
+        }
+        var reversed: [ViewNode] = []
+        var current: ViewNode? = semantic
+        while let node = current, reversed.count <= ViewNode.maximumTraversalDepth {
+            guard request.containsPhysicalNode(node), !isSubtreeHidden(node) else { return nil }
+            reversed.append(node)
+            if node === physical { return request.isCurrent ? Array(reversed.reversed()) : nil }
+            current = node.parent
+        }
+        return nil
     }
 
     @MainActor
@@ -525,7 +690,7 @@ public enum AccessibilityProjection {
                 !isSubtreeHidden(current), current.children.count == 1,
                 let child = current.children.first, child.parent === current
             else { return nil }
-            isEnabled = isEnabled && current.accessibilityRespondsToUserInteraction != false
+            isEnabled = isEnabled && current.effectiveAccessibilityRespondsToUserInteraction != false
             isVirtualized = isVirtualized || current.isLayoutDeferredByVirtualization
             current = child
             depth += 1
@@ -620,14 +785,21 @@ public enum AccessibilityProjection {
     /// content (label/value/hint/identifier, traits, actions, or bitmap text)
     /// or when an explicit child behavior was set on it.
     private static func isAccessibilityElement(_ node: ViewNode) -> Bool {
+        guard node.accessibilityFrameProjectionRole == .ordinary,
+            let metadata = node.effectiveAccessibilityMetadata
+        else { return false }
         if node.isModalPresentationScope { return true }
         if node.accessibilityChildBehavior != nil { return true }
-        if node.accessibilityLabel != nil { return true }
-        if node.accessibilityValue != nil { return true }
-        if node.accessibilityHint != nil { return true }
-        if node.accessibilityIdentifier != nil { return true }
-        if !node.accessibilityTraits.isEmpty { return true }
-        if !node.accessibilityActions.isEmpty { return true }
+        if metadata.label != nil { return true }
+        if metadata.value != nil { return true }
+        if metadata.hint != nil { return true }
+        if metadata.identifier != nil { return true }
+        if !metadata.traits.isEmpty { return true }
+        if let request = node.currentAccessibilitySemanticRequest {
+            if !request.actions.isEmpty { return true }
+        } else if !node.accessibilityActions.isEmpty {
+            return true
+        }
         if node.text != nil { return true }
         return false
     }
@@ -642,7 +814,13 @@ public enum AccessibilityProjection {
         activeModalNode: ViewNode?,
         actionScope: AccessibilityActionScope,
         inheritedIsEnabled: Bool
-    ) -> AccessibilityElementProjection {
+    ) -> AccessibilityElementProjection? {
+        guard node.accessibilityFrameProjectionRole == .ordinary,
+            let metadata = node.effectiveAccessibilityMetadata
+        else { return nil }
+        let semanticRequest = node.currentAccessibilitySemanticRequest
+        guard semanticRequest?.isCurrent != false else { return nil }
+        if let semanticRequest, semanticRequest.semanticNode !== node { return nil }
         let geometry = projectedGeometry(
             of: node,
             parentOrigin: parentOrigin,
@@ -651,9 +829,9 @@ public enum AccessibilityProjection {
         let childOrigin = scrolledChildOrigin(of: node, absoluteOrigin: geometry.absoluteOrigin)
 
         let behavior = node.accessibilityChildBehavior
-        let isEnabled = inheritedIsEnabled && node.accessibilityRespondsToUserInteraction != false
+        let isEnabled = inheritedIsEnabled && metadata.respondsToUserInteraction != false
         let isStructuralModalAncestor = activeModalNode.map { $0 !== node } ?? false
-        var name = node.accessibilityLabel ?? node.text ?? ""
+        var name = metadata.label ?? node.text ?? ""
         var projectedChildren: [AccessibilityElementProjection] = []
 
         if let activeModalNode, node !== activeModalNode {
@@ -676,7 +854,7 @@ public enum AccessibilityProjection {
             case .combine:
                 // Children merge into this element: descendant labels/text
                 // fold into its name unless an explicit label already wins.
-                if node.accessibilityLabel == nil, node.text == nil {
+                if metadata.label == nil, node.text == nil {
                     name = combinedDescendantName(of: node)
                 }
             case .contain, nil:
@@ -697,32 +875,33 @@ public enum AccessibilityProjection {
         let result = AccessibilityElementProjection(
             bounds: geometry.paintedBounds,
             name: name,
-            value: node.accessibilityValue,
-            hint: node.accessibilityHint,
-            identifier: node.accessibilityIdentifier,
+            value: metadata.value,
+            hint: metadata.hint,
+            identifier: metadata.identifier,
             controlType: forceElement && !isAccessibilityElement(node)
                 ? .pane
-                : resolveControlType(for: node),
+                : resolveControlType(for: node, metadata: metadata),
             traits: node.isModalPresentationScope
-                ? node.accessibilityTraits.union(.isModal) : node.accessibilityTraits,
-            headingLevel: node.accessibilityHeadingLevel,
+                ? metadata.traits.union(.isModal) : metadata.traits,
+            headingLevel: metadata.headingLevel,
             isEnabled: isEnabled,
             isFocused: node.isFocused,
-            isSelected: node.accessibilityTraits.contains(.isSelected),
-            sortPriority: node.accessibilitySortPriority,
+            isSelected: metadata.traits.contains(.isSelected),
+            sortPriority: metadata.sortPriority,
             actions: isStructuralModalAncestor
                 ? []
                 : projectedActions(
-                    for: node, scope: actionScope, isProjectedRoot: forceElement),
+                    for: node, scope: actionScope, isProjectedRoot: forceElement, semanticRequest: semanticRequest),
             children: projectedChildren,
             sourceNode: node
         )
+        result.semanticRequest = semanticRequest
         result.isStructuralModalAncestor = isStructuralModalAncestor
         if !isStructuralModalAncestor {
             result.implicitDefaultAction = projectedImplicitDefaultAction(
-                for: node, scope: actionScope, isProjectedRoot: forceElement)
+                for: node, scope: actionScope, isProjectedRoot: forceElement, semanticRequest: semanticRequest)
         }
-        return result
+        return semanticRequest?.isCurrent == false ? nil : result
     }
 
     /// Projects a node's child list, splicing the projected children of
@@ -754,30 +933,30 @@ public enum AccessibilityProjection {
             // screen geometry, so the row is projected as one placeholder
             // instead.
             if operand.isVirtualized {
-                projected.append(
-                    projectVirtualizedPlaceholder(
-                        child,
-                        parentOrigin: parentOrigin,
-                        inheritedTransform: inheritedTransform,
-                        activeModalNode: activeModalNode,
-                        actionScope: actionScope,
-                        inheritedIsEnabled: operand.inheritedIsEnabled
-                    )
-                )
+                if let placeholder = projectVirtualizedPlaceholder(
+                    child,
+                    parentOrigin: parentOrigin,
+                    inheritedTransform: inheritedTransform,
+                    activeModalNode: activeModalNode,
+                    actionScope: actionScope,
+                    inheritedIsEnabled: operand.inheritedIsEnabled
+                ) {
+                    projected.append(placeholder)
+                }
                 continue
             }
             if isAccessibilityElement(child) {
-                projected.append(
-                    projectElement(
-                        child,
-                        parentOrigin: parentOrigin,
-                        inheritedTransform: inheritedTransform,
-                        forceElement: false,
-                        activeModalNode: activeModalNode,
-                        actionScope: actionScope,
-                        inheritedIsEnabled: operand.inheritedIsEnabled
-                    )
-                )
+                if let element = projectElement(
+                    child,
+                    parentOrigin: parentOrigin,
+                    inheritedTransform: inheritedTransform,
+                    forceElement: false,
+                    activeModalNode: activeModalNode,
+                    actionScope: actionScope,
+                    inheritedIsEnabled: operand.inheritedIsEnabled
+                ) {
+                    projected.append(element)
+                }
             } else {
                 // Transparent node: not an element itself, but its accessible
                 // descendants are spliced into this sibling list.
@@ -792,10 +971,10 @@ public enum AccessibilityProjection {
                         of: child,
                         parentOrigin: childOrigin,
                         inheritedTransform: geometry.effectiveTransform,
-                        activeModalNode: activeModalNode,
+                        activeModalNode: activeModalNode === child ? nil : activeModalNode,
                         actionScope: actionScope,
                         inheritedIsEnabled: operand.inheritedIsEnabled
-                            && child.accessibilityRespondsToUserInteraction != false
+                            && child.effectiveAccessibilityRespondsToUserInteraction != false
                     )
                 )
             }
@@ -818,42 +997,69 @@ public enum AccessibilityProjection {
         activeModalNode: ViewNode?,
         actionScope: AccessibilityActionScope,
         inheritedIsEnabled: Bool
-    ) -> AccessibilityElementProjection {
+    ) -> AccessibilityElementProjection? {
+        let semanticRequest = node.currentAccessibilitySemanticRequest
+        let physicalPath: [ViewNode]
+        let semantic: ViewNode
+        if node.accessibilityFrameProjectionRole == .transparent {
+            guard let semanticRequest,
+                let path = declaredPhysicalPath(from: node, request: semanticRequest), let content = path.last
+            else { return nil }
+            physicalPath = path
+            semantic = content
+        } else {
+            guard node.accessibilityFrameProjectionRole == .ordinary else { return nil }
+            physicalPath = [node]
+            semantic = node
+        }
+        guard semanticRequest?.isCurrent != false, let metadata = semantic.effectiveAccessibilityMetadata else {
+            return nil
+        }
         let geometry = projectedGeometry(
             of: node,
             parentOrigin: parentOrigin,
             inheritedTransform: inheritedTransform
         )
         // Runtime prepaint can select a modal inside a deferred row.
-        let isStructuralModalAncestor = activeModalNode.map { $0 !== node } ?? false
-        let ownName = node.accessibilityLabel ?? node.text
+        let isStructuralModalAncestor =
+            activeModalNode.map { modal in
+                !physicalPath.contains(where: { $0 === modal })
+            } ?? false
+        let ownName = metadata.label ?? semantic.text
         let name =
-            node.accessibilityChildBehavior == .ignore
+            semantic.accessibilityChildBehavior == .ignore
             ? (ownName ?? "")
-            : (ownName ?? combinedDescendantName(of: node))
+            : (ownName ?? combinedDescendantName(of: semantic))
+        let isEnabled =
+            inheritedIsEnabled
+            && physicalPath.allSatisfy { $0.effectiveAccessibilityRespondsToUserInteraction != false }
         let result = AccessibilityElementProjection(
             bounds: geometry.paintedBounds,
             name: name,
-            value: node.accessibilityValue,
-            hint: node.accessibilityHint,
-            identifier: node.accessibilityIdentifier,
-            controlType: isAccessibilityElement(node) ? resolveControlType(for: node) : .group,
-            traits: node.accessibilityTraits,
-            headingLevel: node.accessibilityHeadingLevel,
-            isEnabled: inheritedIsEnabled && node.accessibilityRespondsToUserInteraction != false,
-            isFocused: node.isFocused,
-            isSelected: node.accessibilityTraits.contains(.isSelected),
-            sortPriority: node.accessibilitySortPriority,
-            actions: isStructuralModalAncestor ? [] : projectedActions(for: node, scope: actionScope),
+            value: metadata.value,
+            hint: metadata.hint,
+            identifier: metadata.identifier,
+            controlType: isAccessibilityElement(semantic)
+                ? resolveControlType(for: semantic, metadata: metadata) : .group,
+            traits: metadata.traits,
+            headingLevel: metadata.headingLevel,
+            isEnabled: isEnabled,
+            isFocused: semantic.isFocused,
+            isSelected: metadata.traits.contains(.isSelected),
+            sortPriority: metadata.sortPriority,
+            actions: isStructuralModalAncestor
+                ? [] : projectedActions(for: semantic, scope: actionScope, semanticRequest: semanticRequest),
             children: [],
-            sourceNode: node,
+            sourceNode: semantic,
             isVirtualizedPlaceholder: true
         )
+        result.semanticRequest = semanticRequest
         result.isStructuralModalAncestor = isStructuralModalAncestor
         if !isStructuralModalAncestor {
-            result.implicitDefaultAction = projectedImplicitDefaultAction(for: node, scope: actionScope)
+            result.implicitDefaultAction = projectedImplicitDefaultAction(
+                for: semantic, scope: actionScope, semanticRequest: semanticRequest)
         }
-        return result
+        return semanticRequest?.isCurrent == false ? nil : result
     }
 
     private struct ProjectedGeometry {
@@ -927,7 +1133,12 @@ public enum AccessibilityProjection {
             guard let operand = selectedContentOperand(for: physicalChild, inheritedIsEnabled: true), operand.isCurrent
             else { continue }
             let child = operand.node
-            if let label = child.accessibilityLabel ?? child.text, !label.isEmpty {
+            if child.accessibilityFrameProjectionRole == .transparent {
+                collectDescendantNames(of: child, into: &parts)
+                continue
+            }
+            guard let metadata = child.effectiveAccessibilityMetadata else { continue }
+            if let label = metadata.label ?? child.text, !label.isEmpty {
                 parts.append(label)
             } else if child.accessibilityChildBehavior != .ignore {
                 collectDescendantNames(of: child, into: &parts)
@@ -936,18 +1147,33 @@ public enum AccessibilityProjection {
     }
 
     private static func projectedImplicitDefaultAction(
-        for node: ViewNode, scope: AccessibilityActionScope, isProjectedRoot: Bool = false
+        for node: ViewNode, scope: AccessibilityActionScope, isProjectedRoot: Bool = false,
+        semanticRequest: RetainedAccessibilitySemanticRequest? = nil
     ) -> (@MainActor () -> Bool)? {
-        guard node.accessibilityActions.isEmpty else { return nil }
+        guard semanticRequest.map({ $0.actions.isEmpty }) ?? node.accessibilityActions.isEmpty else { return nil }
         return { [weak node] in
             guard let node else { return false }
-            return scope.invokeImplicitDefaultAction(on: node, isProjectedRoot: isProjectedRoot)
+            return scope.invokeImplicitDefaultAction(
+                on: node, isProjectedRoot: isProjectedRoot, semanticRequest: semanticRequest)
         }
     }
 
     private static func projectedActions(
-        for node: ViewNode, scope: AccessibilityActionScope, isProjectedRoot: Bool = false
+        for node: ViewNode, scope: AccessibilityActionScope, isProjectedRoot: Bool = false,
+        semanticRequest: RetainedAccessibilitySemanticRequest? = nil
     ) -> [AccessibilityProjectedAction] {
+        if let semanticRequest {
+            return semanticRequest.actions.map { action in
+                AccessibilityProjectedAction(
+                    name: action.name ?? fallbackActionName(for: action.kind), kind: action.kind,
+                    isDefault: action.kind == .default,
+                    invoke: { [weak node] in
+                        guard let node else { return false }
+                        return scope.invokeSemanticAction(
+                            on: node, request: semanticRequest, action: action, isProjectedRoot: isProjectedRoot)
+                    })
+            }
+        }
         let actions = node.accessibilityActions
         let count = actions.count
         return actions.enumerated().map { index, action in

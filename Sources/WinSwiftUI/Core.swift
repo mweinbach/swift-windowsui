@@ -22457,6 +22457,7 @@ extension View {
                     isHitTestVisible: false,
                     children: [childNode]
                 )
+                root.declareAccessibilityFrameContent(childNode)
                 root.fixedPreferredSizeAxes = LayoutFillAxes(
                     horizontal: (width ?? 0) > 0 && (width?.isFinite ?? false),
                     vertical: (height ?? 0) > 0 && (height?.isFinite ?? false))
@@ -22471,7 +22472,7 @@ extension View {
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
-                return Controls.stackPanel(
+                let root = Controls.stackPanel(
                     preferredSize: nil,
                     stackLayout: .vertical(
                         padding: .zero,
@@ -22481,6 +22482,8 @@ extension View {
                     isHitTestVisible: false,
                     children: [childNode]
                 )
+                root.declareAccessibilityFrameContent(childNode)
+                return root
             }
         }
     }
@@ -22559,6 +22562,7 @@ extension View {
                     isHitTestVisible: false,
                     children: [childNode]
                 )
+                root.declareAccessibilityFrameContent(childNode)
                 root.layoutConstraints = constraints
                 root.layoutFillAxes = fillAxes
                 return root
@@ -28868,6 +28872,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilityLabel = label
+                childNode.recordAccessibilityFrameOverride(\.label, value: label)
                 return childNode
             }
         }
@@ -28879,6 +28884,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilityDescription = description
+                childNode.recordAccessibilityFrameOverride(\.description, value: description)
                 return childNode
             }
         }
@@ -28902,6 +28908,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilityValue = value
+                childNode.recordAccessibilityFrameOverride(\.value, value: value)
                 return childNode
             }
         }
@@ -28925,6 +28932,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilityHint = hint
+                childNode.recordAccessibilityFrameOverride(\.hint, value: hint)
                 return childNode
             }
         }
@@ -28971,6 +28979,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilityIgnoresInvertColors = shouldIgnore
+                childNode.recordAccessibilityFrameOverride(\.ignoresInvertColors, value: shouldIgnore)
                 return childNode
             }
         }
@@ -28982,6 +28991,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilityRespondsToUserInteraction = responds
+                childNode.recordAccessibilityFrameOverride(\.respondsToUserInteraction, value: responds)
                 return childNode
             }
         }
@@ -28993,6 +29003,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilityActivationPoint = activationPoint
+                childNode.recordAccessibilityFrameOverride(\.activationPoint, value: activationPoint)
                 return childNode
             }
         }
@@ -29008,6 +29019,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilityPrefersSliderBehavior = prefersSliderBehavior
+                childNode.recordAccessibilityFrameOverride(\.prefersSliderBehavior, value: prefersSliderBehavior)
                 return childNode
             }
         }
@@ -29019,6 +29031,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilityRequiresActivationPoint = requiresActivationPoint
+                childNode.recordAccessibilityFrameOverride(\.requiresActivationPoint, value: requiresActivationPoint)
                 return childNode
             }
         }
@@ -29030,6 +29043,8 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilityPrefersCrossFadeTransitions = prefersCrossFadeTransitions
+                childNode.recordAccessibilityFrameOverride(
+                    \.prefersCrossFadeTransitions, value: prefersCrossFadeTransitions)
                 return childNode
             }
         }
@@ -29041,6 +29056,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilityShowLargeContentViewer = showsLargeContentViewer
+                childNode.recordAccessibilityFrameOverride(\.showLargeContentViewer, value: showsLargeContentViewer)
                 return childNode
             }
         }
@@ -29052,6 +29068,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilityTextContentType = textContentType
+                childNode.recordAccessibilityFrameOverride(\.textContentType, value: textContentType)
                 return childNode
             }
         }
@@ -29127,6 +29144,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilityDescription = descriptor.title
+                childNode.recordAccessibilityFrameOverride(\.description, value: descriptor.title)
                 return childNode
             }
         }
@@ -29139,6 +29157,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilityDirectTouchOptions = options.retained
+                childNode.recordAccessibilityFrameOverride(\.directTouchOptions, value: options.retained)
                 return childNode
             }
         }
@@ -29211,6 +29230,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilityIdentifier = identifier
+                childNode.recordAccessibilityFrameOverride(\.identifier, value: identifier)
                 return childNode
             }
         }
@@ -29222,6 +29242,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilityLanguage = language
+                childNode.recordAccessibilityFrameOverride(\.language, value: language)
                 return childNode
             }
         }
@@ -29233,6 +29254,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.isAccessibilityHidden = hidden
+                childNode.recordAccessibilityFrameOverride(\.isHidden, value: hidden)
                 return childNode
             }
         }
@@ -29244,6 +29266,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilityTraits.formUnion(traits.retainedTraits)
+                childNode.recordAccessibilityFrameTraits(adding: traits.retainedTraits)
                 return childNode
             }
         }
@@ -29255,6 +29278,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilityTraits.subtract(traits.retainedTraits)
+                childNode.recordAccessibilityFrameTraits(removing: traits.retainedTraits)
                 return childNode
             }
         }
@@ -29281,6 +29305,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilitySortPriority = priority
+                childNode.recordAccessibilityFrameOverride(\.sortPriority, value: priority)
                 return childNode
             }
         }
@@ -29292,6 +29317,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilityInputLabels = inputLabels
+                childNode.recordAccessibilityFrameOverride(\.inputLabels, value: inputLabels)
                 return childNode
             }
         }
@@ -29303,6 +29329,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilityHeadingLevel = headingLevel.retained
+                childNode.recordAccessibilityFrameOverride(\.headingLevel, value: headingLevel.retained)
                 return childNode
             }
         }
@@ -29314,6 +29341,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilityTextualContext = context.retained
+                childNode.recordAccessibilityFrameOverride(\.textualContext, value: context.retained)
                 return childNode
             }
         }
@@ -29439,6 +29467,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.isAccessibilityShowsLargeContentViewer = true
+                childNode.recordAccessibilityFrameOverride(\.showsLargeContentViewer, value: true)
                 return childNode
             }
         }
@@ -29450,6 +29479,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.isAccessibilityQuickActionEnabled = true
+                childNode.recordAccessibilityFrameOverride(\.isQuickActionEnabled, value: true)
                 return childNode
             }
         }
@@ -29464,7 +29494,9 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.isAccessibilityQuickActionEnabled = true
+                childNode.recordAccessibilityFrameOverride(\.isQuickActionEnabled, value: true)
                 childNode.accessibilityQuickActionStyle = style
+                childNode.recordAccessibilityFrameOverride(\.quickActionStyle, value: style)
                 return childNode
             }
         }
@@ -29476,6 +29508,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.isAccessibilityZoomActionEnabled = true
+                childNode.recordAccessibilityFrameOverride(\.isZoomActionEnabled, value: true)
                 return childNode
             }
         }
@@ -29487,6 +29520,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.isAccessibilityScrollActionEnabled = true
+                childNode.recordAccessibilityFrameOverride(\.isScrollActionEnabled, value: true)
                 return childNode
             }
         }
@@ -29498,6 +29532,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.isAccessibilityFocusSection = isEnabled
+                childNode.recordAccessibilityFrameOverride(\.isFocusSection, value: isEnabled)
                 return childNode
             }
         }
@@ -29509,6 +29544,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.isAccessibilityImage = isImage
+                childNode.recordAccessibilityFrameOverride(\.isImage, value: isImage)
                 return childNode
             }
         }
@@ -29520,6 +29556,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilityLinkDestination = url
+                childNode.recordAccessibilityFrameOverride(\.linkDestination, value: url)
                 return childNode
             }
         }
@@ -29531,6 +29568,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilityLinkedGroup = id
+                childNode.recordAccessibilityFrameOverride(\.linkedGroup, value: id)
                 return childNode
             }
         }
@@ -29542,6 +29580,7 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilityPage = page
+                childNode.recordAccessibilityFrameOverride(\.page, value: page)
                 return childNode
             }
         }

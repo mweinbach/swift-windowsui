@@ -1844,3 +1844,21 @@ unchanged collateral methods, including all provider-proof, adapter and adoption
 methods, the original handoff singleton, diagnostics, and four modal/presentation
 classes. It does not replace the original whole155 gate. Compilation, execution
 and a fresh measured comparison are pending for this indexed implementation.
+
+## Declared-frame accessibility integration
+
+The first focused Frame77 selection is frozen in
+`artifacts/frame77-after-integration.json`: 72 original methods in their original
+order, followed by five closed-chrome-inventory methods. Nine test classes cover
+metadata presence, forwarding, ownership, passive adoption, precise scrolling,
+Realize publication, selected composition and synchronous framed-field edits.
+The roster binds 48 source files. Root must verify those hashes and a clean
+integration commit separately before using the generic focused runner; the
+runner does not validate the roster's source-hash map itself.
+
+The reviewed formatter derivative preserves all methods and assertions.
+Compilation and execution are pending. Follow with existing chrome, secure-value,
+Button, paint and CPU selections after the combination passes. These overlapping
+focused selections do not replace stock Full validation or the separate native
+GPUWorkbench journey. See [FrameAccessibility.md](FrameAccessibility.md) for
+the still-open behavioral limits.

@@ -181,6 +181,7 @@ final class RetainedButtonActionAdoption {
     }
 
     private let permission = RetainedButtonActionPermission()
+    private let hasButtonOwners: Bool
     private var witnesses: [ObjectIdentifier: Witness] = [:]
     private let retained: Set<ObjectIdentifier>
     private var sources: [RetainedButtonActionOwner] = []
@@ -192,16 +193,19 @@ final class RetainedButtonActionAdoption {
     private var isValid = true
     private var validationCounters: ValidationCounters?
 
+    /// Passive frame content can borrow the native tree witnesses without
+    /// enrolling any newly constructed Button in this adoption's cleanup.
     init?(
         retainedRoots: [ViewNode], sourceRoots: [ViewNode],
-        collectValidationDiagnostics: Bool = false
+        collectValidationDiagnostics: Bool = false,
+        requiresNativeTreeWitnesses: Bool = false
     ) {
         let oldNodes = RetainedButtonActionTree.nodes(in: retainedRoots)
         let newNodes = RetainedButtonActionTree.nodes(in: sourceRoots)
-        guard
+        hasButtonOwners =
             oldNodes.contains(where: { $0.buttonActionOwner != nil })
-                || newNodes.contains(where: { $0.buttonActionOwner != nil })
-        else { return nil }
+            || newNodes.contains(where: { $0.buttonActionOwner != nil })
+        guard hasButtonOwners || requiresNativeTreeWitnesses else { return nil }
         retained = Set(oldNodes.map(ObjectIdentifier.init))
         // Roots can belong to detached construction wrappers that are not
         // themselves source declarations. Witness their complete ancestry
@@ -226,7 +230,9 @@ final class RetainedButtonActionAdoption {
             ) {
                 if !runtimes.contains(where: { $0.runtime === runtime }) {
                     runtimes.append(RuntimeReference(runtime: runtime))
-                    constructions.append(RetainedButtonActionConstruction(runtime: runtime))
+                    if hasButtonOwners {
+                        constructions.append(RetainedButtonActionConstruction(runtime: runtime))
+                    }
                 }
             }
             if let flight = node.existingRetainedButtonActionFlight { suspend(flight) }
@@ -514,7 +520,9 @@ final class RetainedButtonActionAdoption {
             for owner in rejected { owner.retire() }
             // An already-left construction still installs a closed cleanup
             // frame if its pending payloads must be destroyed on this failure.
-            let cleanup = runtimes.compactMap(\.runtime).map { RetainedButtonActionConstruction(runtime: $0) }
+            let cleanup =
+                hasButtonOwners
+                ? runtimes.compactMap(\.runtime).map { RetainedButtonActionConstruction(runtime: $0) } : []
             for construction in cleanup { construction.permission.isAvailable = false }
             for owner in rejected { owner.releaseRetiredPayload() }
             for construction in cleanup.reversed() { construction.finish() }

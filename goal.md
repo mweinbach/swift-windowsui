@@ -16698,3 +16698,38 @@ format-only line wrap. The next focused run retains both original focus-failure 
 the corrected original replacement test, and the new continuation gate. Execution is
 pending. Remove the temporary trace once it identifies the concrete fix. The full original
 goal, all nine completion gates, and the required 155-test rerun remain open and unchanged.
+
+### 2026-09-02 — Distinct keyboard refusal causes and managed scene-storage retirement
+
+The four-case traced run at `62ce61f` compiled successfully and exited naturally with
+test status 1, verified empty owned Job, closed resources, restored signal handlers,
+unchanged source, and no timeout or cleanup error
+(`artifacts/keyboard-focus-diagnostic-6cc28595449140b18cecf0f60a82e570`). The corrected
+original root-replacement test and the additional replacement-continuation test passed.
+The two original focus tests still fail (four assertion failures total). The trace
+disproves a single shared cause: empty/disabled-selection fallback enters the warm
+handoff with 114 elements/three rounds left, reaches ordinary readiness with zero rounds,
+then returns pending after the setter and cancels through the existing warm replay refusal.
+Returning from row 900 to 899 enters the cold path and becomes obsolete with 115 elements
+and two rounds remaining. Its selection and binding-write assertions pass; focus does
+not complete. Separate fixes must preserve the original budgets, immediate focus
+assertions, and role/attachment protections. This traced run is not timing qualification,
+a full 155-test result, or evidence that either focus defect is fixed.
+
+The independent consumer's managed-window storage lifetime is now implemented for
+`@SceneStorage`: values belong to a concrete window owner carried by the environment,
+not the process-wide string-keyed table. Host close, failed-start teardown, owner
+replacement, and host deinitialization revoke access before releasing payloads. Stored
+values are cleared before their deinitializers can reenter storage. Escaped bindings
+keep their original managed owner; retired reads return the wrapper default and writes
+cannot recreate the closed store. Projections made before a build can acquire their
+first managed owner on a scoped read. Legacy uncoordinated string scopes remain
+process-lived, and persistence across launches is still unimplemented.
+
+Eleven new lifetime tests cover release despite escaped hosts/environments/bindings,
+reconstruction and separate windows, failed startup, deinitialization, release reentry,
+RawRepresentable conversion during close, deferred projections, and legacy compatibility.
+Root and independent source review, before/after contract checks, strict four-file lint,
+and whitespace checks passed. Compilation and execution of this storage slice remain
+pending. Compatibility documentation now states the precise lifetime and persistence
+limits. Original goal scope and all nine completion gates remain unchanged and open.

@@ -1312,7 +1312,31 @@ semantics. See [MountedState.md](MountedState.md)
 for metadata requirements, teardown ordering, inactive-container limits, and
 the remaining public API and native conformance work.
 `@AppStorage` supports common non-optional and optional `Bool`, `Int`, `Double`, `String`, `Data`, and `URL` values backed by `UserDefaults`, plus optional and non-optional `RawRepresentable` values with `String` or `Int` raw values for enum-backed preferences. Wrappers with an explicit `store:` keep using that store, while wrappers without one inherit `EnvironmentValues.defaultAppStorage` through `.defaultAppStorage(_:)` and remember that store for retained control actions. Optional nil writes remove the stored `UserDefaults` value. It exposes `$storage` as a `Binding` and invalidates the retained runtime after writes from the wrapper. It is a source-compatibility shim and does not yet observe external `UserDefaults` changes.
-`@SceneStorage` stores non-optional and optional `Bool`, `Int`, `Double`, `String`, `Data`, and `URL` values in a retained in-memory scene-state table, supports optional and non-optional `RawRepresentable` values with `String` or `Int` raw values for enum-backed scene state, exposes `$storage` as a `Binding`, and invalidates after writes. Optional nil writes remove the retained scene value. Coordinator-managed windows receive distinct scopes, including Settings windows, and isolation is covered by `WindowCoordinatorTests` and `SettingsSceneHostingTests`. Persistent scene restoration across application launches is not implemented.
+
+`@SceneStorage` stores non-optional and optional `Bool`, `Int`, `Double`,
+`String`, `Data`, and `URL` values in memory. It also supports optional and
+non-optional `RawRepresentable` values with `String` or `Int` raw values,
+exposes `$storage` as a `Binding`, and invalidates after accepted writes.
+Optional nil writes remove the stored scene value.
+
+Each coordinator-managed window, including Settings, owns an independent
+store. Reconstructed wrappers using the same key in that live window read the
+existing value. Host close, failed-start teardown, and host deinitialization
+retire the owner and release its stored values, even when callers retain an
+environment snapshot or binding from that window.
+
+Escaped bindings stay tied to their original managed window. After retirement,
+they read the wrapper's default value and ignore writes; they cannot reconnect
+to a replacement window. A projection created before a build can acquire its
+window on its first scoped read. Caller-held bindings can still retain their
+own default values; retirement releases the store's values, not arbitrary
+references held by application code.
+
+Hosts and wrappers without managed-window ownership keep the legacy string
+scopes: shared by default, in memory, and retained for the process lifetime.
+They do not gain automatic window-close retirement. Persistent scene
+restoration across application launches is not implemented.
+
 `@ScaledMetric` scales floating-point values with the same deterministic `DynamicTypeSize` table used by retained text, accepts `relativeTo:` for source compatibility, and exposes the requested text style as metadata. Closed and partial `.dynamicTypeSize(...)` ranges intersect inherited limits, and retained text, `@Environment(\.dynamicTypeSize)`, and `@ScaledMetric` all receive the same effective clamped size. It does not yet model SwiftUI's per-text-style scaling curves.
 `@GestureState` stores transient gesture values in a retained wrapper box. `DragGesture.updating(_:body:)` and `LongPressGesture.updating(_:body:)` write through that state while retained pointer/drag callbacks are active and reset it to the initial value when the gesture ends or cancels. The generic SwiftUI gesture-state arbitration model is not implemented yet.
 `ObservableObjectPublisher` supports source-compatible manual `objectWillChange.send()` invalidation for retained hosts and also behaves as a lightweight `Void` publisher for `sink` and `onReceive`. `Just`, `PassthroughSubject`, `CurrentValueSubject`, `AnyPublisher`, `ObservableObjectPublisher`, and `@Published` expose lightweight publishers with `sink(receiveValue:)`, `assign(to:on:)`, `eraseToAnyPublisher()`, `map`, `compactMap`, `filter`, `dropFirst`, `removeDuplicates`, and `AnyCancellable.store(in:)`; `@Published` and `CurrentValueSubject` subscribers receive the current value and later writes, while `PassthroughSubject` only sends future `send(_:)` values. `PassthroughSubject<Void, Failure>` also accepts `send()` for source-compatible event streams. Cancellables can be stored in `Set<AnyCancellable>` or array-like collections. `AnyCancellable` cancels on explicit `cancel()` or deinit, but this is not a full Combine publisher implementation and does not model failures, completion events, demand, or schedulers. `onReceive(_:perform:)` subscribes to WinSwiftUI lightweight publishers while the retained node is rendered and cancels the subscription when the node disappears. `@ObservedObject`, `@StateObject`, and `@EnvironmentObject` expose SwiftUI-shaped projected member bindings for writable object properties, so retained controls can consume shared-source bindings such as `$model.title` or `$model.isEnabled`. Mounted StateObject installation also establishes observation when the body only passes a projection. Its property changes share the existing observed-object batching and transaction path, while direct owned projections reject writes after retirement. Borrowed wrappers remain ordinary aliases. StateObject's mutable whole-object setter, projected-self API, and standalone cache remain explicit compatibility extensions; this is not full native lifetime or API conformance.

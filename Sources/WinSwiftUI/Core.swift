@@ -6671,6 +6671,9 @@ public struct EnvironmentValues: @unchecked Sendable {
     /// because it is a retained-runtime implementation detail, not a
     /// SwiftUI-shaped environment value.
     var sceneStorageScope: String
+    /// Managed windows carry their actual value owner through environment
+    /// copies. Uncoordinated callers retain the legacy string-scoped store.
+    var sceneStorageOwner: SceneStorageScope?
     public var focusedValues: FocusedValues
     public var environmentObjects: EnvironmentObjectValues
     public var backgroundMaterial: Material?
@@ -8011,37 +8014,51 @@ private final class SceneStorageCenter {
     /// coordinator; matches the historical process-global behavior.
     static let defaultScope = "shared"
 
-    /// Values are isolated per scene (window) scope so multi-window apps get
-    /// SwiftUI-style per-window `@SceneStorage`.
+    /// Legacy storage for callers without a managed window. Managed values
+    /// live in SceneStorageScope and never enter this process-wide table.
     private var values: [String: [String: Any]] = [:]
 
     /// Scope applied to the current read/write; set transiently via
     /// `withScope` so the many key-only read/write closures above stay
     /// unchanged.
     private var activeScope = SceneStorageCenter.defaultScope
+    private var activeOwner: SceneStorageScope?
 
-    func withScope<Result>(_ scope: String, _ body: () -> Result) -> Result {
+    func withScope<Result>(_ scope: String, owner: SceneStorageScope?, _ body: () -> Result) -> Result {
         let previous = activeScope
+        let previousOwner = activeOwner
         activeScope = scope
+        activeOwner = owner
         defer {
             activeScope = previous
+            activeOwner = previousOwner
         }
         return body()
     }
 
     func value<Value>(for key: String, default defaultValue: Value) -> Value {
-        values[activeScope]?[key] as? Value ?? defaultValue
+        if let activeOwner { return activeOwner.value(for: key, default: defaultValue) }
+        return values[activeScope]?[key] as? Value ?? defaultValue
     }
 
     func optionalValue<Value>(for key: String) -> Value? {
-        values[activeScope]?[key] as? Value
+        if let activeOwner { return activeOwner.optionalValue(for: key) }
+        return values[activeScope]?[key] as? Value
     }
 
     func setValue<Value>(_ value: Value, for key: String) {
+        if let activeOwner {
+            activeOwner.setValue(value, for: key)
+            return
+        }
         values[activeScope, default: [:]][key] = value
     }
 
     func removeValue(for key: String) {
+        if let activeOwner {
+            activeOwner.removeValue(for: key)
+            return
+        }
         values[activeScope]?[key] = nil
     }
 }
@@ -8060,6 +8077,7 @@ public struct SceneStorage<Value>: DynamicProperty {
         /// see a build context keep the shared default scope, preserving the
         /// historical single-window behavior.
         var scope = SceneStorageCenter.defaultScope
+        var scopeOwner: SceneStorageScope?
 
         init(
             key: String,
@@ -8073,18 +8091,73 @@ public struct SceneStorage<Value>: DynamicProperty {
             self.writeValue = writeValue
         }
 
+        func bind(to context: ViewBuildContext, requiresManagedOwner: Bool = false) {
+            // A retained wrapper from a closed scene cannot acquire a new
+            // window simply because its getter runs during another build.
+            guard scopeOwner?.isRetired != true else { return }
+            let previousOwner = scopeOwner
+            let environment = context.environmentValues
+            guard scopeOwner === previousOwner, previousOwner?.isRetired != true else { return }
+            guard !requiresManagedOwner || environment.sceneStorageOwner != nil else { return }
+            scope = environment.sceneStorageScope
+            scopeOwner = environment.sceneStorageOwner
+            invalidate = { context.invalidateStateMutation() }
+        }
+
         var value: Value {
-            get {
-                SceneStorageCenter.shared.withScope(scope) {
-                    readValue(key, defaultValue)
-                }
+            get { readScopedValue(in: scope, owner: scopeOwner) }
+            set { writeScopedValue(newValue, in: scope, owner: scopeOwner, invalidate: invalidate) }
+        }
+
+        func binding() -> Binding<Value> {
+            typealias Access = (
+                scope: String, owner: SceneStorageScope?, invalidate: (@MainActor () -> Void)?
+            )
+            var captured: Access? = scopeOwner.map { (scope, $0, invalidate) }
+            @MainActor func currentAccess(installContext: Bool) -> Access {
+                if let captured { return captured }
+                // Projections made before a build must still install when a
+                // retained control first reads them. Legacy string scopes keep
+                // their historical context behavior until a window is bound.
+                if installContext, let context = ViewBuildContextScope.current { bind(to: context) }
+                let access: Access = (scope, scopeOwner, invalidate)
+                if access.owner != nil { captured = access }
+                return access
             }
-            set {
-                SceneStorageCenter.shared.withScope(scope) {
-                    writeValue(key, newValue)
+            // Once acquired, capture the actual owner rather than mutable
+            // Storage.scopeOwner. An escaped binding never changes windows.
+            return Binding(
+                get: {
+                    let access = currentAccess(installContext: true)
+                    return self.readScopedValue(in: access.scope, owner: access.owner)
+                },
+                set: {
+                    let access = currentAccess(installContext: false)
+                    self.writeScopedValue($0, in: access.scope, owner: access.owner, invalidate: access.invalidate)
                 }
-                invalidate?()
+            )
+        }
+
+        private func readScopedValue(in scope: String, owner: SceneStorageScope?) -> Value {
+            guard owner?.isRetired != true else { return defaultValue }
+            let result = SceneStorageCenter.shared.withScope(scope, owner: owner) {
+                readValue(key, defaultValue)
             }
+            // RawRepresentable construction may itself close the window.
+            guard owner?.isRetired != true else { return defaultValue }
+            return result
+        }
+
+        private func writeScopedValue(
+            _ newValue: Value, in scope: String, owner: SceneStorageScope?,
+            invalidate: (@MainActor () -> Void)?
+        ) {
+            guard owner?.isRetired != true else { return }
+            SceneStorageCenter.shared.withScope(scope, owner: owner) {
+                writeValue(key, newValue)
+            }
+            guard owner?.isRetired != true else { return }
+            invalidate?()
         }
 
         private static func defaultReadValue(key: String, defaultValue: Value) -> Value {
@@ -8351,10 +8424,7 @@ public struct SceneStorage<Value>: DynamicProperty {
     public var wrappedValue: Value {
         get {
             if let context = ViewBuildContextScope.current {
-                storage.invalidate = {
-                    context.invalidateStateMutation()
-                }
-                storage.scope = context.environmentValues.sceneStorageScope
+                storage.bind(to: context)
             }
             return storage.value
         }
@@ -8364,14 +8434,10 @@ public struct SceneStorage<Value>: DynamicProperty {
     }
 
     public var projectedValue: Binding<Value> {
-        Binding(
-            get: {
-                wrappedValue
-            },
-            set: { newValue in
-                wrappedValue = newValue
-            }
-        )
+        if let context = ViewBuildContextScope.current {
+            storage.bind(to: context, requiresManagedOwner: true)
+        }
+        return storage.binding()
     }
 }
 @MainActor

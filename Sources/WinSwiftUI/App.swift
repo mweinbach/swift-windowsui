@@ -2318,7 +2318,9 @@ enum WindowHostInputEvent {
 /// created without a coordinator keep the historical defaults: no-op window
 /// actions, `supportsMultipleWindows == false`, and the shared scene-storage
 /// scope.
+@MainActor
 struct WindowSceneEnvironment {
+    let sceneStorageOwner = SceneStorageScope()
     var openWindow: OpenWindowAction
     var dismissWindow: DismissWindowAction
     var supportsMultipleWindows: Bool
@@ -3050,7 +3052,18 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
 
     /// Per-window environment installed by the window coordinator. Nil for
     /// hosts created outside a coordinator (tests, single-window boots).
-    var windowEnvironment: WindowSceneEnvironment?
+    var windowEnvironment: WindowSceneEnvironment? {
+        didSet {
+            let previousOwner = oldValue?.sceneStorageOwner
+            let currentOwner = windowEnvironment?.sceneStorageOwner
+            if hasTornDownWindow { currentOwner?.revoke() }
+            if previousOwner !== currentOwner {
+                previousOwner?.revoke()
+                previousOwner?.releaseValues()
+            }
+            if hasTornDownWindow { currentOwner?.releaseValues() }
+        }
+    }
 
     /// Invoked from `windowWillClose` after the host tears down its own UIA
     /// bridge; the window coordinator uses it to drop the window's record and
@@ -3251,6 +3264,7 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
     isolated deinit {
         if !hasTornDownWindow {
             hasTornDownWindow = true
+            windowEnvironment?.sceneStorageOwner.revoke()
             documentContext?.owner.revoke()
             let closeWorkPin = windowCloseRegistration?.pinDeferredWork()
             let closingParticipant = windowCloseParticipant
@@ -3280,6 +3294,7 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
             textInputTeardown.purgeHistory()
             runtime.cancelRenderLifecycleTasks()
             textInputTeardown.detach()
+            windowEnvironment?.sceneStorageOwner.releaseValues()
         }
     }
 
@@ -4436,6 +4451,7 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
     private func tearDownRetainedWindow() {
         guard !hasTornDownWindow else { return }
         hasTornDownWindow = true
+        windowEnvironment?.sceneStorageOwner.revoke()
         if usesNativePresentation {
             uiaBridge?.revokeNativeRequests()
             nativeSmokeProbe?.observation.record(.uiARevoked, windowKey: nativeLifetimeKey)
@@ -4501,6 +4517,7 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
             batchRenderer?.detach()
             renderer.detach()
         }
+        windowEnvironment?.sceneStorageOwner.releaseValues()
     }
 
     private var buildContext: ViewBuildContext {
@@ -4534,7 +4551,7 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
             },
             environmentValuesProvider: { [weak self] in
                 let displayScale = self?.runtime.displayScale ?? 1
-                return EnvironmentValues(
+                var environment = EnvironmentValues(
                     scenePhase: self?.resolvedScenePhase ?? .active,
                     controlActiveState: self?.resolvedControlActiveState ?? .active,
                     appearsActive: self?.resolvedAppearsActive ?? true,
@@ -4553,6 +4570,8 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
                     sceneStorageScope: self?.windowEnvironment?.sceneStorageScope ?? "shared"
                 )
                 .applyingSystemAppearance(self?.window.systemAppearance ?? .unavailable)
+                environment.sceneStorageOwner = self?.windowEnvironment?.sceneStorageOwner
+                return environment
             }
         )
     }

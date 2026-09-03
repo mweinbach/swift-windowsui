@@ -79,6 +79,9 @@ package struct RetainedLazyListGeneration: Equatable, Sendable {
     fileprivate func belongs(to owner: RetainedLazyListIdentity) -> Bool {
         self.owner === owner
     }
+
+    /// Identity of the exact native validity object, not an observed result.
+    fileprivate var nativeValidityIdentity: ObjectIdentifier { ObjectIdentifier(validity) }
 }
 
 /// Native provenance for an independently staged source. It retains neither
@@ -147,6 +150,15 @@ package struct RetainedLazyListRowRequest: Equatable, Sendable {
     @MainActor
     package var isGenerationCurrent: Bool {
         generation.isCurrent
+    }
+
+    /// Index immutable original requests by exact validity identity. Every
+    /// selected proof is still read afresh; no validity result is retained.
+    /// ObjectIdentifier hashing invokes no provider or authored key code.
+    @MainActor
+    static func distinctGenerationProofIndices(in requests: [Self]) -> [Int] {
+        var seen: Set<ObjectIdentifier> = []
+        return requests.indices.filter { seen.insert(requests[$0].generation.nativeValidityIdentity).inserted }
     }
 }
 

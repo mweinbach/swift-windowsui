@@ -19145,3 +19145,60 @@ or native presentation qualification. The prior 68-method results overlap
 this roster and must not be summed as additional distinct coverage. All nine
 original completion gates and the original 155-method keyboard gate remain
 open with their original tests and limits.
+
+### 2026-09-03: indexed validation inputs preserve live authority checks
+
+Two independently reviewed optimizations are integrated after the native-range80
+result. They address repeated work observed by the earlier diagnostic without
+using elapsed time to relax an authority check or change a test oracle.
+
+For lazy candidates, the full original immutable request array is retained.
+Construction records the first original index of each distinct native validity
+object. Every operation still reads each selected original request's live
+generation validity in first-occurrence order. This never caches a currentness
+result, filters out an already stale proof, or merges different objects using
+owner/token/generation equality. All other candidate, identity, configuration,
+admission, attachment and callback checks retain their ordering. The added
+indices retain no provider, factory or application payload. Nonisolated source
+destruction can race any successful weak observation; neither old repeated
+sampling nor this synchronous actor check synchronizes that destruction or
+guarantees currentness at return/publication. No identical arbitrary-concurrent
+sampling outcome is promised by either implementation.
+
+For modal lookup, candidate positions retain no nodes and are keyed by the
+original immutable prepaint identity. All installed dispatch-array replacements,
+including replay, publish a new identity. Only own modal intent or own blocking
+background-interaction intent determines candidate membership; suppression by
+ancestors and all original availability checks stay live. Trait/chrome changes
+and transfers invalidate the positions before existing cancellation or ownership
+callbacks can reenter. The original dispatch-array order and lookup lifetime are
+preserved. The sixth new modal test specifically covers a trait write that adds
+modal intent while role loss synchronously cancels queued navigation.
+
+The diagnostic schema is unchanged. Modal node visits now count full index
+construction plus live candidate checks; a cold lookup can count one entry
+twice, and visits are not distinct-node counts. Requests/scans retain their
+lookup-attempt meaning. The earlier inclusive timings do not identify either
+optimization's exclusive cost, and no speed improvement is claimed yet.
+
+The five integrated source/test files matched their exact reviewed before/after
+pins (`artifacts/validation-indices-integration.json`). Three production files
+and the six-test modal file needed no formatting changes. The seven-test proof
+file needed only two formatting hunks after two separately reviewed source-
+lifetime fixture defers. All original assertions and test IDs were retained.
+Strict lint and architecture contracts passed after formatting:
+`artifacts/validation-indices-lint-final.log`.
+
+The selected normal validation is **231 methods: 13 new and 218 unchanged**.
+It contains all 15 provider-proof, 55 adapter and 37 adoption methods; the
+unchanged original keyboard handoff; 20 diagnostics; 19 modal-isolation,
+16 presentation-activity, 23 focus-restoration and 32 modal-accessibility
+methods; and the new seven proof/six modal tests. Its exact roster is
+`artifacts/validation-indices231-selection.json` (SHA-256
+`aa4c9015f004792c89169a6cdbf4a886cbcaffcdca4e4194b0a42b8e8d9f3271`).
+Compilation and execution are pending at this integration entry. Fresh
+uninstrumented outcomes and any later diagnostic comparison are separate
+evidence. This roster is not a replacement for the unchanged whole155 command
+or its original 900-second execution allowance. All nine original product
+completion gates, live performance targets, full-suite and native/display
+qualification remain open without changed thresholds or scope.

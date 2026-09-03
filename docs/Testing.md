@@ -1807,3 +1807,26 @@ See `artifacts/keyboard-counter20-e3b2a89-results.json`,
 `artifacts/keyboard-handoff-counts-e3b2a89-analysis.json`. The next optimization
 must preserve the original authority, reentry and lifecycle checks and receive
 fresh uninstrumented validation; these results do not qualify performance.
+
+The next implementation indexes immutable inputs to those checks. A candidate
+retains every original row request and queries each distinct native generation
+validity object afresh on every operation. It does not retain a prior validity
+result or merge objects merely because their generation values compare equal.
+These synchronous actor checks do not synchronize concurrent destruction of a
+weak source, guarantee freshness at publication, or promise identical sampling
+under arbitrary concurrent destruction schedules; the old repeated checks did
+not supply those guarantees either.
+
+Modal lookup retains only candidate positions keyed by the exact prepaint
+identity. It still applies the original modal and availability predicates on
+every lookup. Traits, presentation chrome and runtime transfers invalidate the
+positions before existing callbacks can reenter. Modal visit counters now count
+both index-construction visits and live candidate checks, so a cold lookup can
+visit one entry twice. Requests and scans keep their existing lookup-attempt
+meaning; visits are not unique-node cardinality.
+
+The focused `validation-indices231` roster contains thirteen new tests and 218
+unchanged collateral methods, including all provider-proof, adapter and adoption
+methods, the original handoff singleton, diagnostics, and four modal/presentation
+classes. It does not replace the original whole155 gate. Compilation, execution
+and a fresh measured comparison are pending for this indexed implementation.

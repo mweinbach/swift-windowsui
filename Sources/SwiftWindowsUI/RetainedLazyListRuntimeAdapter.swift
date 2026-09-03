@@ -597,6 +597,7 @@ package final class RetainedLazyListRuntimeAdapter {
         package let virtualizedDepartureRoots: Set<ObjectIdentifier>
         fileprivate private(set) var records: [Record]
         fileprivate let requestProofs: [RetainedLazyListRowRequest]
+        fileprivate let requestGenerationIndices: [Int]
         fileprivate let identityProofs: [RetainedLazyListViewIdentityProof]
         fileprivate let generation: RetainedLazyListGeneration
         fileprivate let configuration: RetainedLazyListAdapterIdentity
@@ -638,7 +639,9 @@ package final class RetainedLazyListRuntimeAdapter {
             self.viewport = viewport
             self.records = records
             self.children = records.flatMap(\.nodes)
-            self.requestProofs = records.filter { carriedRecordProofs[$0.request.token] == nil }.map(\.request)
+            let requestProofs = records.filter { carriedRecordProofs[$0.request.token] == nil }.map(\.request)
+            self.requestProofs = requestProofs
+            requestGenerationIndices = RetainedLazyListRowRequest.distinctGenerationProofIndices(in: requestProofs)
             self.identityProofs = records.flatMap(\.identityProofs)
             self.generation = generation
             self.configuration = configuration
@@ -3593,7 +3596,7 @@ package final class RetainedLazyListRuntimeAdapter {
                 candidate.attempt, configuration: candidate.configuration, constructionHint: candidate.constructionHint)
             && generation == candidate.generation && candidate.generation.isCurrent
             && extentIndex?.context == candidate.viewport.context
-            && candidate.requestProofs.allSatisfy(\.isGenerationCurrent)
+            && candidate.requestGenerationIndices.allSatisfy { candidate.requestProofs[$0].isGenerationCurrent }
     }
 
     fileprivate func isCurrent(_ candidate: Candidate) -> Bool {

@@ -6213,6 +6213,7 @@ public final class ViewNode {
 
     public var accessibilityTraits: RetainedAccessibilityTraits {
         didSet {
+            runtime?.invalidatePresentationModalCandidates()
             listNavigationOwner?.revokeIfRoleIsUnavailable()
             invalidateRuntime(.paint)
         }
@@ -6774,7 +6775,10 @@ public final class ViewNode {
     public var textRenderer: Any?
 
     public var presentationChrome: RetainedPresentationChrome {
-        didSet { invalidateRuntime(.layout) }
+        didSet {
+            runtime?.invalidatePresentationModalCandidates()
+            invalidateRuntime(.layout)
+        }
     }
 
     /// Modal intent can be explicit accessibility metadata or the portable
@@ -8334,6 +8338,10 @@ public final class ViewNode {
 
     fileprivate weak var runtime: RetainedViewRuntime? {
         didSet {
+            if runtime !== oldValue {
+                oldValue?.invalidatePresentationModalCandidates()
+                runtime?.invalidatePresentationModalCandidates()
+            }
             selectedTaskMutationObservation?.record(.runtime)
             // Detached assembly's existing nil-to-nil stores are unchanged.
             if runtime !== oldValue { selectedContentConstructionObservation?.revokeAttachment() }
@@ -17639,6 +17647,9 @@ public final class RetainedViewRuntime {
     private var sceneAtlasRefreshPending = false
     internal private(set) var sceneAtlasDeferralCount: UInt64 = 0
     private var prepaintState = RuntimePrepaintState()
+    // Indices retain no nodes. The exact prepaint identity prevents replay or
+    // replacement from lending an older snapshot's offsets to a new array.
+    private var presentationModalCandidates: (generation: PrepaintSnapshotIdentity, indices: [Int])?
 
     /// Access to current prepaint state for testing deferred scene-path behavior.
     @MainActor
@@ -20471,11 +20482,43 @@ public final class RetainedViewRuntime {
         counters?.recordModalScan()
         var visited: UInt64 = 0
         defer { counters?.recordModalResult(nodeVisits: visited) }
-        return prepaintState.dispatchNodes.last {
+
+        let dispatchNodes = prepaintState.dispatchNodes
+        let generation = prepaintState.generation
+        let candidateIndices: [Int]
+        if let candidates = presentationModalCandidates, candidates.generation === generation {
+            candidateIndices = candidates.indices
+        } else {
+            var indices: [Int] = []
+            for index in dispatchNodes.indices {
+                if counters != nil { visited += 1 }
+                let node = dispatchNodes[index].node
+                // This is only a necessary condition. Keep suppressed custom
+                // overlays so live ancestor changes still use the full check.
+                if node.accessibilityTraits.contains(.isModal)
+                    || (node.presentationChrome.hasBackgroundInteractionOverride
+                        && !node.presentationChrome.allowsBackgroundInteraction)
+                {
+                    indices.append(index)
+                }
+            }
+            presentationModalCandidates = (generation: generation, indices: indices)
+            candidateIndices = indices
+        }
+        for index in candidateIndices.reversed() {
             if counters != nil { visited += 1 }
-            return $0.node.isModalPresentationScope
-                && isPresentationNodeAvailable($0.node, requiresEnabled: false)
-        }?.node
+            let node = dispatchNodes[index].node
+            if node.isModalPresentationScope && isPresentationNodeAvailable(node, requiresEnabled: false) {
+                return node
+            }
+        }
+        return nil
+    }
+
+    /// Drop only candidate membership, before a changed input can trigger
+    /// existing retirement callbacks. Availability is never stored here.
+    fileprivate func invalidatePresentationModalCandidates() {
+        presentationModalCandidates = nil
     }
 
     /// The presentation itself is eligible for an implicit dismissal; it need

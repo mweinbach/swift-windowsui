@@ -130,6 +130,7 @@ private final class FieldChromeCPUFixture {
         field.accessibilityIdentifier = "field-chrome-cpu"
         field.nodeTag = "field-chrome-cpu"
         field.frame = Rect(x: 12, y: 12, width: 120, height: 40)
+        field.preferredSize = Size(width: 120, height: 40)
         let nativeLayout = field.onLayout
         field.onLayout = { bounds in
             state.layouts += 1

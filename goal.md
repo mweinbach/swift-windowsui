@@ -20874,3 +20874,35 @@ The selection `artifacts/field-chrome-cpu-after2.json` has SHA256
 All existing tests and production sources remain unchanged. Compilation and
 the two new methods' first execution are pending; no passing claim follows
 from adding these tests.
+
+
+### 2026-09-03: preserve the first CPU failure and correct only fixture allocation
+
+The first real-field CPU run at `7c6f0c4579eafe2fed69bf0bbd6dc13c65da21f1` executed both selected
+methods and all four direct/nested cases, but failed four field-rectangle
+assertions, with zero unexpected failures. The actual allocation was
+`(12,12,220,28)` instead of the independently expected `(12,12,120,40)`.
+The real TextField constructor supplies a positive preferred size, which takes
+precedence over a raw frame. Earlier private source review missed that fixture
+requirement; its verdict and the failed run remain historical evidence.
+Other assertions emitted no failure, which does not make either method pass.
+
+The run closed naturally with status one in 352.281 owned seconds, including
+345.17 seconds of build work, with exact starts/ends and full owned-process and
+resource closure. No timeout or termination occurred. Raw SHA256
+`29ffda397b227d5d1ba2578f656c034747e80cdd722d325a6f135574221c9dc0`;
+aggregate: `artifacts/field-chrome-cpu2-7c6f0c4-results.json`.
+
+A separate independently reviewed correction adds only
+`field.preferredSize = Size(width: 120, height: 40)` in the shared field factory,
+before mounting or adoption. Both initial and incoming fields receive the same
+intended allocation. Removing this line restores every executed test byte.
+All eighty assertion/unwrap lines, expected values, selectors and production
+sources are unchanged. Root verified all twelve sealed packet payloads and
+all 49 original selection pins. Manifest SHA256 `ed8ce8fce4b55cea367777d55eb468b0880e222b7a39ffeded185d909069b257`;
+corrected test SHA256 `b965123d802eec1a6dae65a76267725e51b5aa29bc79b5c830ade4b5504a2e0c`.
+
+The separate selection `artifacts/field-chrome-cpu-allocation-after2.json` has
+SHA256 `cb348208a51fa7ba2b8e153ca6ea75e1c7a26c071d4894b0a462d9ea618e3e26` and 49 source pins. A new run is pending.
+This remains deterministic-font CPU coverage only; native fonts, GPU output,
+checked adoption, native UIA and every original completion gate remain open.

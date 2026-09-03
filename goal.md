@@ -20341,3 +20341,45 @@ payload release behavior are unchanged. The proposed scalar representation
 remains private and has no measured speed or allocation benefit. These tests
 do not resolve the four field-chrome failures or replace full-suite, performance,
 native presentation or any original completion requirement. All gates remain open.
+
+
+### 2026-09-03: qualify the original child-table implementation against 125 controls
+
+The complete baseline cohort at `d71015cf45b1fa0388b972135f86827274acfbb9`
+passed all 125 selected methods across six serial batches: the original 111
+controls and all fourteen frozen additive tests. Every selected method has
+exactly one start and passing terminal, with no skips, missing cases or extra
+executions. The first normal build took 259.12 seconds; compilation is included
+in the existing per-batch deadline, not excluded or replaced by cached results.
+
+The attempt is
+`artifacts/buttonchildtablebaseline125-0621845c5b6241d7bc0662e04f009ee3/`.
+The aggregate is `artifacts/button-child-table-baseline125-d71015c-results.json`,
+SHA256 `cadc9f536195ddaf3f11b11bfcc9d70186f507abbc4d338b92c858307d1939cc`.
+The first raw log SHA256 is
+`e851dcac2aebe832682aeb1059e6d6067f8bbb0568bc3be7d57fffb25431b5bf`;
+the final fourteen-method batch SHA256 is
+`7d713fff12eca3a8ced88ebb77f2d703f79ac59c296b3fcd5f1c73b66bba6665`.
+The aggregate retains all six raw hashes and supervision records. Each batch
+exited naturally with code zero and closed its direct child, owned descendants,
+resources and signal handlers without timeout, termination or uncertainty.
+Tracked source and all pinned files remained unchanged through the run.
+
+This validates the existing implementation against the frozen behavior before
+the candidate changes its private representation. It is not a result for that
+candidate and does not establish speed, allocation or compiler ARC equivalence.
+The independently reviewed source-only candidate is now eligible for a separate
+integration and the same 125-method comparison; any such integration must retain
+all original checks and remain distinct from the field-chrome correction.
+
+A separate read-only investigation rejected caching whole-cohort validity with
+the current hooks. Weak node, parent, runtime and noncohort-owner expiry lacks
+complete notification, and recoverable child-order query refusal differs from
+sticky failed-write refusal. A revision or permanent-valid flag cannot replace
+those predicates. No such cache or strong lifetime pin has been added.
+
+The Value adapter documentation now records the tested immutable-controller and
+copied-query privacy protections and the still-reproducing chrome transport
+defect. It distinguishes nineteen passing new privacy tests from the failed
+larger roster and the separately passing 46 controls. No claim of a full suite,
+hardware performance, native accessibility or completed original gate is made.

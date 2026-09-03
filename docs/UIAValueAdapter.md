@@ -65,6 +65,14 @@ Secure fields and multiline editors do not use this preparation. Arbitrary
 application mutation during a later query can still invalidate that request;
 preparation does not turn the cached constructor text into binding provenance.
 
+The current reconciliation path has a known transport defect: it copies the
+incoming child array before this preparation appends the chrome rows. The
+hidden label is adopted, but the caret or selection row can be omitted. Four
+unchanged `UIAFieldChromeAdoptionTests` reproduce this both in the Value roster
+and in isolation. Preparation alone therefore does not yet establish correct
+immediate chrome adoption. The correction must preserve the original child
+plan and ownership checks; adding another render or binding read is not a fix.
+
 ## Conservative modal qualification
 
 A modal marked `isAccessibilityHidden` still blocks ordinary input even though
@@ -134,6 +142,21 @@ no synthesized input. An arbitrary binding can still be constant, normalize
 input, or reject a write; snapshot metadata does not invent setter provenance
 or a guarantee that every proposed string will be accepted.
 
+Password protection also uses the built-in controller's immutable secure
+configuration. Removing an authored password trait cannot enable Value editing;
+the adapter rejects that controller before focus or a binding write. Snapshot
+construction captures password projection identities before logical refresh
+and bounds mapping. An effectful mapper cannot expose the copied secure value
+by removing or replacing that controller, and a newly installed secure
+controller protects the current projection too. A subsequent fresh query may
+report ordinary content after a legitimate nonsecure replacement.
+
+Platform Value reads mask password values using the same copied element's
+password flag, including calls through an already held or directly queried COM
+Value interface. Passive non-password values remain readable without advertised
+ValuePattern support. These protections do not add TextPattern or permit an
+internal display fragment to become an editable document.
+
 Nil undo managers and disabled registration do not remove the editor's attempt
 ownership. Document-backed bindings keep their existing document-owned history
 and selection sidecars rather than acquiring a duplicate local inverse.
@@ -158,6 +181,13 @@ and unexpected-child lifetime fixtures for the field preparation boundary.
 readback, custom setter outcomes, replacement and final-invalidation ordering,
 and refusal without publishing a secure or retired editor's value. The
 existing real TextField Value-pattern fixture remains unchanged.
+
+Nineteen additional secure-controller, effectful-mapper and copied-query tests
+in `UIAValueAdapterTests` and `UIASecureValueQueryTests` passed after integration.
+The larger 232-method roster stopped on the four field-chrome failures after
+186 observed methods; the remaining 46 passed in a separate run. Those results
+do not constitute a complete passing roster or qualify native window scheduling
+or Narrator. Exact attempts and source hashes are recorded in `goal.md`.
 
 Source review, contracts, and formatting do not establish that these fixtures
 compile or pass. Execution must be recorded after integration. COM apartment

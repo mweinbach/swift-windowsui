@@ -182,7 +182,7 @@ nor attach lifetimes to snapshots; callers must not disclose a stale or
 unauthorized snapshot through future providers. No completion requirement in
 `goal.md` is narrowed by this dependency.
 
-A private follow-on candidate adds internal held-handle clone, equality and
+The integrated follow-on adds internal held-handle clone, equality and
 endpoint-order queries. It still exposes no native text pattern or text range
 interface. A clone has an independent ticket and range record while sharing the
 original document authority. Peer operations revalidate both original documents,
@@ -210,8 +210,20 @@ status-load publication boundary remain unchanged. Foreign origins are
 E_INVALIDARG; stale origins are UIA_E_ELEMENTNOTAVAILABLE. Comparisons return
 only equality or -1/0/1 ordering, without claiming native text-unit distances.
 The separate optional operations table preserves the existing callback layouts,
-old factories and typed Invoke result. All tests for this follow-on remain
-source-only until the parent performs serial compilation and execution.
+old factories and typed Invoke result.
+
+All twelve `UIANativeTextRangeTests` methods compiled and passed on 2026-09-03
+at `2d61cdd`, alongside all 68 unchanged held-document, native-read, call-lease,
+native-request and actor-dispatch tests. The four serial batches had exactly
+80 starts and passing terminals, natural exit 0 and complete owned cleanup,
+with no skips, timeouts or source changes. The
+[aggregate result](../artifacts/native-range80-2d61cdd-results.json) and
+[raw output](../artifacts/nativerange80-ddf9ac7ab24846fb98b1eb926756d2c3/)
+record headless C-handle and actor-dispatch evidence, not installed UIA,
+ITextRangeProvider, Narrator, live-window or full-suite qualification. Strict
+lint and contracts also passed. Formatting preserved every test method and
+assertion; the separately reviewed fixture cleanup changes retained the
+preimplementation oracles.
 
 This prerequisite does not complete Microsoft's
 [TextPattern contracts](https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-implementingtextandtextrange).

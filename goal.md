@@ -19105,3 +19105,43 @@ Narrator flows remain open. All nine original completion gates, the original
 155-method keyboard gate, live performance qualification and the held native
 display harness remain open. The destination and acceptance thresholds are
 unchanged; the gallery and internal range slice close no complete product gate.
+
+### 2026-09-03: all 80 native range and collateral methods pass
+
+The internal range prerequisite is committed at
+`2d61cdd3c25d2f7a1da1bbffad0c75fd8fb1ce3c`. The sealed 80-method roster ran
+unchanged through the normal serial owned runner. All **80 PASS**: twelve new
+`UIANativeTextRangeTests` and 68 unchanged held-document, native-read, call-lease,
+native-request and actor-dispatch tests. The four batches contained 24, 24, 26
+and 6 methods, with exact starts and passing terminals, natural exit 0,
+complete owned descendant/resource closure, restored signal handlers, no
+pending signals, no errors or acquisition uncertainty, and no skips, timeouts,
+termination attempts or tracked source/index changes. First-batch compilation
+took 440.28 seconds; this is build duration, not a UI performance measurement.
+
+Evidence is retained in
+`artifacts/nativerange80-ddf9ac7ab24846fb98b1eb926756d2c3/` and independently
+aggregated in `artifacts/native-range80-2d61cdd-results.json`. Raw output
+SHA-256 values in batch order are:
+
+- `150600ede4ed15b090049ed2da054d2254fcc49999c9cebe129c339bfe3e561b`
+- `1b96bcc87e1390702dec2748a9f6840446708da2e3090a9966824ef9ddab3cce`
+- `67d23e9863a132d2b5c818388a1c79843718eacf830f58a8731e9749beeea6ed`
+- `b687e7b6de324d31dbbfdfc6a92b5c27bed790df89f7d353305ceacf0828a785`
+
+Independent formatting review verified all ten saved preformat files against
+their integration pins. The only production formatting changes were one
+assignment wrap and redundant guard parentheses; other production files and
+the documentation were byte-identical. The new test file changed only
+whitespace and one array trailing comma: all twelve method IDs and their order,
+193 assertions, 34 XCTUnwrap calls, and string/comment tokens were preserved.
+The five existing test files covering 68 methods stayed byte-identical.
+
+These results verify the local internal held-handle, original-authority,
+privacy, rollback, worker dispatch, reentry and retirement cases in this roster.
+They do not advertise TextPattern or establish installed COM text ranges,
+Character-unit behavior, ordinary-text geometry, Narrator, full-suite success
+or native presentation qualification. The prior 68-method results overlap
+this roster and must not be summed as additional distinct coverage. All nine
+original completion gates and the original 155-method keyboard gate remain
+open with their original tests and limits.

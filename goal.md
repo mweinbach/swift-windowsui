@@ -20620,3 +20620,46 @@ The field-chrome correction is still a separate private candidate. Its explicit
 rebase must preserve this Runtime change; exact old whole-file images may not
 overwrite it. The failed fifteen-method baseline, all prior failed gates and
 all nine original completion criteria remain open.
+
+
+### 2026-09-03: paint ancestry passes twenty controls and the compact diagnostic
+
+At `0a6e05d16da8526d72eab8071687d9e22384badc`, all twenty frozen paint
+ancestry controls passed: eight new regressions and twelve unchanged collateral
+methods. All started and ended exactly once. The attempt ended naturally with
+full owned-process closure, no timeout or termination, no supervision errors,
+and all eleven source pins unchanged. Raw log SHA256
+`6944b7f2b27f86a3bb88e6acf326c23bdc9e9c6eaeae265f0b197a499f6312ff` at
+`artifacts/paintancestryafter20-93481066a3a04a6ca3dcd6115054d8ad/`;
+aggregate SHA256 `912627522f9419832e0241594d3a4c7871be33399937ad1cde3d46294225eef7` at
+`artifacts/paint-ancestry-after20-0a6e05d-results.json`.
+
+The unchanged compact Data diagnostic passed in 15.061
+test seconds, compared with 15.767 in the prior
+after-ChildTable observation. Reconciliation measured
+3.663316 then 3.602223
+seconds, and scene construction 9.091332 then
+8.543857 seconds, including scene layout of
+2.531394 then 2.541171.
+This is one observation per revision, without controlled repetitions. It does
+not qualify a stable speedup, allocations, exclusive paint cost or hardware
+frame delivery. Nested intervals must not be summed.
+
+The attempt `artifacts/compactdatasnapshotphases-7df10f58359d4fbaa5a5a7a6f4a38a4c/`
+closed naturally with exact singleton success and preserved sources. Raw log
+SHA256 `4e9bf5106464aeddd54e224926c947843f60a4705f4121dd816e50de3ed6942c`; trace SHA256
+`055464b642e95d033c0903ba7838553077882fd5d7eee1fe1c12402c41b04edb`. All 22 measured boundaries paired and all ten
+existing validation counters remained zero. No partial marker or parser error
+occurred; the trace still lacks a whole-trace footer and final raster timing.
+The comparison is `artifacts/paint-ancestry-comparison-0a6e05d.json`, SHA256
+`66dc5eff7002afc9d1fcf7fd52530f73b8050a5ccf1f489a3041e5d0056a840d`.
+
+Root checked all seventeen payloads of the separate after-paint diagnostic
+manifest (`138e9177316985203026be8f05f76191d6dfa7b05e89536f19a3b7cbdfeddab0`),
+all 46 current source pins, and exact byte identity outside SOURCE_PINS against
+both preserved donor runners. Only two source hashes and a new 46th source pin
+changed. All 34 unchanged parser controls passed; log SHA256
+`b5b3839bc995afe171e7c4fe9221e0f10a437bf2dd21497b098eb97859070915`.
+No workload, test assertion, parser, supervision deadline or completion
+criterion changed. The independent field-chrome correction and all original
+failed gates remain open; this is not a full-suite or product completion claim.

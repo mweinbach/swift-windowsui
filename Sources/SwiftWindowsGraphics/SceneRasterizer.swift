@@ -615,6 +615,10 @@ private struct RasterTarget {
             return
         }
 
+        // Only the three exact authored selectors are implemented. A material
+        // already returned through its distinct replacement path above.
+        let separableBlendMode = SceneSeparableBlendCompositing.mode(for: quad.blendMode)
+
         // The plain quad shader widens its edge falloff by `blurRadius * 2`
         // instead of blurring. Only sub-pixel radii ever reach it — anything
         // that truncates to ≥ 1 went to the material path above — but the
@@ -637,7 +641,9 @@ private struct RasterTarget {
                     let color = shadedQuadColor(
                         quad, start: start, end: end, localX: localX, localY: localY, rect: rect)
                 else { continue }
-                blend(color.withAlphaMultiplier(Float(coverage * clipAlpha)), x: x, y: y)
+                blend(
+                    color.withAlphaMultiplier(Float(coverage * clipAlpha)), x: x, y: y,
+                    separableMode: separableBlendMode)
             }
         }
     }
@@ -1416,19 +1422,29 @@ private struct RasterTarget {
         pixels[offset + 3] = byte(color.alpha)
     }
 
-    /// Source-over, and only source-over.
-    ///
-    /// `QuadPrimitive.blendMode` used to select between five separable
-    /// modes here while the HLSL declared the field and never read it —
-    /// `.blendMode(.multiply)` was a multiply in every screenshot and a
-    /// plain composite on screen. The renderer-neutral contract now says
-    /// one thing: the scene composites source-over. See
-    /// `docs/GPURenderingPipeline.md` and
-    /// `CPUGPUBlendModeContractTests`.
-    private mutating func blend(_ color: RasterColor, x: Int, y: Int) {
+    /// Ordinary source-over, with an optional adjusted source for the three
+    /// implemented quad blend modes. The destination read includes an isolated
+    /// target's frozen backdrop, but the write updates only local foreground.
+    /// Keeping source alpha unchanged also preserves its separate coverage plane.
+    private mutating func blend(
+        _ color: RasterColor, x: Int, y: Int, separableMode: BlendMode? = nil
+    ) {
         let sourceAlpha = clamp(color.alpha, lower: 0, upper: 1)
         guard sourceAlpha > 0 else {
             return
+        }
+
+        let source: RasterColor
+        if let separableMode {
+            let backdrop = premultipliedColor(x: x, y: y)
+            source = RasterColor(
+                SceneSeparableBlendCompositing.adjustedSource(
+                    Color(red: color.red, green: color.green, blue: color.blue, alpha: sourceAlpha),
+                    premultipliedBackdrop: Color(
+                        red: backdrop.red, green: backdrop.green, blue: backdrop.blue, alpha: backdrop.alpha),
+                    mode: separableMode))
+        } else {
+            source = color
         }
 
         let offset = pixelOffset(x: x, y: y)
@@ -1442,11 +1458,11 @@ private struct RasterTarget {
         }
 
         pixels[offset] = byte(
-            (color.blue * sourceAlpha + destinationBlue * destinationAlpha * (1 - sourceAlpha)) / outputAlpha)
+            (source.blue * sourceAlpha + destinationBlue * destinationAlpha * (1 - sourceAlpha)) / outputAlpha)
         pixels[offset + 1] = byte(
-            (color.green * sourceAlpha + destinationGreen * destinationAlpha * (1 - sourceAlpha)) / outputAlpha)
+            (source.green * sourceAlpha + destinationGreen * destinationAlpha * (1 - sourceAlpha)) / outputAlpha)
         pixels[offset + 2] = byte(
-            (color.red * sourceAlpha + destinationRed * destinationAlpha * (1 - sourceAlpha)) / outputAlpha)
+            (source.red * sourceAlpha + destinationRed * destinationAlpha * (1 - sourceAlpha)) / outputAlpha)
         pixels[offset + 3] = byte(outputAlpha)
         accumulateReplacementCoverage(sourceAlpha, x: x, y: y)
     }

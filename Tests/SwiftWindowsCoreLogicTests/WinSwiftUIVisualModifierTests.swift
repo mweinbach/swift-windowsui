@@ -399,16 +399,10 @@ final class WinSwiftUIVisualModifierTests: XCTestCase {
 
     // MARK: - blendMode
 
-    // `.blendMode` is carried onto the primitive and interpreted by
-    // nobody: the HLSL declares `float blendMode;` and never reads it, and
-    // the blend state is a fixed `ONE / INV_SRC_ALPHA`. These tests used to
-    // assert the separable results the CPU rasterizer alone produced, which
-    // meant they passed on a picture the user never saw.
-    // `CPUGPUBlendModeContractTests` owns the decision and pins it on both
-    // backends; what is left here is that the modifier stays inert rather
-    // than becoming a partial, backend-specific effect again.
+    // Ordinary rectangle quads implement these three modes on both backends.
+    // Additive, material combinations and full View/group blending remain open.
 
-    func testBlendModeMultiplyCompositesSourceOver() async {
+    func testBlendModeMultiplyCompositesTheAuthoredColors() async {
         await MainActor.run {
             let bitmap = render(
                 ZStack {
@@ -423,14 +417,13 @@ final class WinSwiftUIVisualModifierTests: XCTestCase {
                 size: IntSize(width: 60, height: 60)
             )
             let center = colorAt(bitmap, x: 20, y: 20)
-            // Source-over of opaque blue: plain blue, not blue x red = black.
-            XCTAssertEqual(center?.red ?? -1, Color.blue.red, accuracy: 0.01)
-            XCTAssertEqual(center?.green ?? -1, Color.blue.green, accuracy: 0.01)
-            XCTAssertEqual(center?.blue ?? -1, Color.blue.blue, accuracy: 0.01)
+            XCTAssertEqual(center?.red ?? -1, Color.red.red * Color.blue.red, accuracy: 0.01)
+            XCTAssertEqual(center?.green ?? -1, Color.red.green * Color.blue.green, accuracy: 0.01)
+            XCTAssertEqual(center?.blue ?? -1, Color.red.blue * Color.blue.blue, accuracy: 0.01)
         }
     }
 
-    func testBlendModeScreenCompositesSourceOver() async {
+    func testBlendModeScreenCompositesTheAuthoredColors() async {
         await MainActor.run {
             let bitmap = render(
                 ZStack {
@@ -445,13 +438,13 @@ final class WinSwiftUIVisualModifierTests: XCTestCase {
                 size: IntSize(width: 60, height: 60)
             )
             let center = colorAt(bitmap, x: 20, y: 20)
-            XCTAssertEqual(
-                center?.red ?? -1, Color.blue.red, accuracy: 0.01, "screen would have lifted red toward 1")
-            XCTAssertEqual(center?.blue ?? -1, Color.blue.blue, accuracy: 0.01)
+            XCTAssertEqual(center?.red ?? -1, 1 - (1 - Color.red.red) * (1 - Color.blue.red), accuracy: 0.01)
+            XCTAssertEqual(center?.green ?? -1, 1 - (1 - Color.red.green) * (1 - Color.blue.green), accuracy: 0.01)
+            XCTAssertEqual(center?.blue ?? -1, 1 - (1 - Color.red.blue) * (1 - Color.blue.blue), accuracy: 0.01)
         }
     }
 
-    func testBlendModeOverlayCompositesSourceOver() async {
+    func testBlendModeOverlayCompositesTheAuthoredColors() async {
         await MainActor.run {
             let bitmap = render(
                 ZStack {
@@ -466,7 +459,9 @@ final class WinSwiftUIVisualModifierTests: XCTestCase {
                 size: IntSize(width: 60, height: 60)
             )
             let center = colorAt(bitmap, x: 20, y: 20)
-            XCTAssertEqual(center?.red ?? -1, 1, accuracy: 0.01, "overlay would have darkened white to ~0.5")
+            XCTAssertEqual(center?.red ?? -1, 0.5, accuracy: 0.01)
+            XCTAssertEqual(center?.green ?? -1, 0.5, accuracy: 0.01)
+            XCTAssertEqual(center?.blue ?? -1, 0.5, accuracy: 0.01)
         }
     }
 

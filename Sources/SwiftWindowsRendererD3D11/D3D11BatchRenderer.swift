@@ -265,11 +265,17 @@ final class D3D11BatchKernel {
     /// Driver preference the current offscreen attach was made with, so a
     /// device-loss rebuild recreates the same kind of device.
     private var offscreenDriver: OffscreenDriver = .hardwareFirst
+    /// Only the exact WARP test attachment refuses automatic driver recovery.
+    private var strictWARPForTesting = false
 
     // MARK: - Shader Pipeline State
 
     private var quadVS: UnsafeMutablePointer<ID3D11VertexShader>?
     private var quadPS: UnsafeMutablePointer<ID3D11PixelShader>?
+    private var separableBlendQuadPS: UnsafeMutablePointer<ID3D11PixelShader>?
+    private var separableBlendUniformBuffer: UnsafeMutablePointer<ID3D11Buffer>?
+    private var separableBlendDestinationSnapshot: D3D11BlendDestinationSnapshot?
+    internal var failSeparableBlendAfterDestinationBindingForTesting = false
     private var imageVS: UnsafeMutablePointer<ID3D11VertexShader>?
     private var imagePS: UnsafeMutablePointer<ID3D11PixelShader>?
     private var imageColorEffectPS: UnsafeMutablePointer<ID3D11PixelShader>?
@@ -703,6 +709,12 @@ final class D3D11BatchKernel {
 
         tally(quadVS.map(UnsafeMutableRawPointer.init))
         tally(quadPS.map(UnsafeMutableRawPointer.init))
+        tally(separableBlendQuadPS.map(UnsafeMutableRawPointer.init))
+        tally(separableBlendUniformBuffer.map(UnsafeMutableRawPointer.init))
+        if let snapshot = separableBlendDestinationSnapshot {
+            tally(snapshot.texture.map(UnsafeMutableRawPointer.init))
+            tally(snapshot.srv.map(UnsafeMutableRawPointer.init))
+        }
         tally(imageVS.map(UnsafeMutableRawPointer.init))
         tally(imagePS.map(UnsafeMutableRawPointer.init))
         tally(imageColorEffectPS.map(UnsafeMutableRawPointer.init))
@@ -1224,6 +1236,49 @@ final class D3D11BatchKernel {
         isAttached = true
     }
 
+    /// A strict setup seam for blend regressions. Existing attach/device
+    /// negotiation stays unchanged; this path attempts only WARP at FL11_0,
+    /// then executes the same real pipeline and offscreen target creation.
+    internal func attachOffscreenWARPForTesting(size: IntSize) throws {
+        detach()
+        var succeeded = false
+        defer { if !succeeded { detach() } }
+        targetPixelSize = size
+        renderTargetKind = .offscreen
+        offscreenDriver = .warpFirst
+        var createdDevice: UnsafeMutablePointer<ID3D11Device>?
+        var createdContext: UnsafeMutablePointer<ID3D11DeviceContext>?
+        var featureLevel = D3D_FEATURE_LEVEL(0)
+        defer {
+            releaseCOM(&createdContext)
+            releaseCOM(&createdDevice)
+        }
+        let levels = [D3D_FEATURE_LEVEL_11_0]
+        let flags = UINT(bitPattern: D3D11_CREATE_DEVICE_BGRA_SUPPORT.rawValue)
+        let result = levels.withUnsafeBufferPointer { requested in
+            D3D11CreateDevice(
+                nil, D3D_DRIVER_TYPE_WARP, nil, flags,
+                requested.baseAddress, UINT(requested.count), UINT(D3D11_SDK_VERSION),
+                &createdDevice, &featureLevel, &createdContext)
+        }
+        guard result >= 0, createdDevice != nil, createdContext != nil, featureLevel == D3D_FEATURE_LEVEL_11_0 else {
+            throw BatchRendererError(
+                operation: "D3D11CreateDevice(strict WARP)", hresult: result < 0 ? result : batchHresultHandle)
+        }
+        device = createdDevice
+        deviceContext = createdContext
+        createdDevice = nil
+        createdContext = nil
+        createdFeatureLevel = featureLevel
+        deviceGeneration = RendererDeviceGeneration.next()
+        attachGPUFrameTimingCollectorIfNeeded()
+        try createPipelineIfNeeded()
+        try createOffscreenTarget(size: size)
+        strictWARPForTesting = true
+        isAttached = true
+        succeeded = true
+    }
+
     /// Releases every D3D11 object this renderer owns and returns it to the
     /// pre-attach state.
     ///
@@ -1250,6 +1305,8 @@ final class D3D11BatchKernel {
         isolatedBlurPipeline?.detach()
         isolatedBlurPipeline = nil
         backdropIsolation = nil
+        separableBlendDestinationSnapshot?.release()
+        separableBlendDestinationSnapshot = nil
         releaseAllCachedPaths()
         releaseAllImageResources()
 
@@ -1275,6 +1332,9 @@ final class D3D11BatchKernel {
         releaseCOM(&imageReplacementBlendState)
         releaseCOM(&isolatedCoverageBlendState)
         releaseCOM(&frameUniformBuffer)
+        releaseCOM(&separableBlendUniformBuffer)
+        failSeparableBlendAfterDestinationBindingForTesting = false
+        strictWARPForTesting = false
         releaseCOM(&colorEffectUniformBuffer)
         releaseCOM(&isolatedBackdropBoundsBuffer)
 
@@ -1290,6 +1350,7 @@ final class D3D11BatchKernel {
         releaseCOM(&imageIsolatedCoveragePS)
         releaseCOM(&isolatedBackdropComposeVS)
         releaseCOM(&isolatedBackdropComposePS)
+        releaseCOM(&separableBlendQuadPS)
         releaseCOM(&quadPS)
         releaseCOM(&quadVS)
 
@@ -1337,6 +1398,10 @@ final class D3D11BatchKernel {
     }
 
     public func resize(to size: IntSize) throws {
+        if size != targetPixelSize, size.width > 0, size.height > 0 {
+            separableBlendDestinationSnapshot?.release()
+            separableBlendDestinationSnapshot = nil
+        }
         surface?.pixelSize = size
         targetPixelSize = size
         // A new surface size means new ping-pong allocations, so the
@@ -1588,16 +1653,8 @@ final class D3D11BatchKernel {
                 for segment in Self.splitQuadRangeForBackdropBlur(layer.quads, range: range) {
                     switch segment {
                     case .normal(let subRange):
-                        try renderBatch(
-                            layer.quads,
-                            range: subRange,
-                            capacity: &quadInstanceCapacity,
-                            buffer: &quadInstanceBuffer,
-                            srv: &quadInstanceSRV,
-                            vs: quadVS, ps: quadPS,
-                            label: "quad",
-                            deviceContext: deviceContext
-                        )
+                        try renderOrdinaryQuadRange(
+                            layer.quads, range: subRange, deviceContext: deviceContext, surfaceSize: surfaceSize)
                     case .blurred(let index):
                         try renderMaterialQuad(
                             layer.quads,
@@ -2235,6 +2292,103 @@ final class D3D11BatchKernel {
         buffer = nil
     }
 
+    private func renderSeparableBlendQuad(
+        _ quads: [QuadPrimitive], index: Int, mode: BlendMode,
+        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>, surfaceSize: IntSize
+    ) throws {
+        guard let region = Self.separableBlendDestinationRegion(quads[index], surfaceSize: surfaceSize) else {
+            return
+        }
+        guard let device else {
+            throw BatchRendererError(operation: "Resolve separable blend device", hresult: batchHresultHandle)
+        }
+        defer {
+            var noResource: UnsafeMutablePointer<ID3D11ShaderResourceView>?
+            deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 1, 1, &noResource)
+            deviceContext.pointee.lpVtbl.pointee.VSSetShaderResources(deviceContext, 0, 1, &noResource)
+            var noConstants: UnsafeMutablePointer<ID3D11Buffer>?
+            deviceContext.pointee.lpVtbl.pointee.PSSetConstantBuffers(deviceContext, 2, 1, &noConstants)
+            bindFramePipelineState(deviceContext: deviceContext, surfaceSize: surfaceSize)
+        }
+        try ensureSeparableBlendPipeline()
+        guard let separableBlendQuadPS, let separableBlendUniformBuffer else {
+            throw BatchRendererError(operation: "Resolve separable blend pipeline", hresult: batchHresultHandle)
+        }
+
+        // No destination remains bound for reading when the allocation is
+        // copied again. Immediate-context ordering preserves earlier reads
+        // before the next write; the pixels themselves are never cached.
+        var noDestination: UnsafeMutablePointer<ID3D11ShaderResourceView>?
+        deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 1, 1, &noDestination)
+        let destinationSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>
+        let destinationRegion: SubTextureRegion
+        if let isolation = backdropIsolation {
+            guard let texture = isolation.composed.texture, let view = isolation.composed.srv else {
+                throw BatchRendererError(operation: "Resolve isolated blend destination", hresult: batchHresultHandle)
+            }
+            destinationRegion = SubTextureRegion(
+                textureWidth: Int(surfaceSize.width), textureHeight: Int(surfaceSize.height))
+            try D3D11BlendDestinationSnapshot.validateSource(texture, region: destinationRegion)
+            // This existing scratch texture contains F + (1-K)B. Blending
+            // against F alone would lose the frozen group's visible backdrop.
+            try composeIsolationBackdrop(isolation, deviceContext: deviceContext)
+            destinationSRV = view
+        } else {
+            var sourceOwner: UnsafeMutablePointer<ID3D11Texture2D>? = try acquireBackBuffer()
+            defer { releaseCOM(&sourceOwner) }
+            guard let source = sourceOwner else {
+                throw BatchRendererError(operation: "Resolve blend destination target", hresult: batchHresultHandle)
+            }
+            try D3D11BlendDestinationSnapshot.validateSource(source, region: region)
+            if separableBlendDestinationSnapshot == nil
+                || region.width > (separableBlendDestinationSnapshot?.capacityWidth ?? 0)
+                || region.height > (separableBlendDestinationSnapshot?.capacityHeight ?? 0)
+            {
+                var descriptor = D3D11_TEXTURE2D_DESC()
+                source.pointee.lpVtbl.pointee.GetDesc(source, &descriptor)
+                let fullTarget = SubTextureRegion(
+                    textureWidth: Int(descriptor.Width), textureHeight: Int(descriptor.Height))
+                // Allocate once for an actual target, not once per quad size.
+                // The initializer also copies that full target on first use;
+                // every draw below then recopies only its conservative region.
+                let replacement = try D3D11BlendDestinationSnapshot(
+                    device: device, context: deviceContext, source: source, region: fullTarget)
+                separableBlendDestinationSnapshot?.release()
+                separableBlendDestinationSnapshot = replacement
+            }
+            guard let snapshot = separableBlendDestinationSnapshot, let view = snapshot.srv else {
+                throw BatchRendererError(operation: "Resolve blend destination snapshot", hresult: batchHresultHandle)
+            }
+            try snapshot.capture(context: deviceContext, source: source, region: region)
+            destinationSRV = view
+            destinationRegion = snapshot.region
+        }
+
+        var uniforms = D3D11SeparableBlendUniforms(region: destinationRegion, mode: mode)
+        let uniformResource = UnsafeMutableRawPointer(separableBlendUniformBuffer)
+            .assumingMemoryBound(to: ID3D11Resource.self)
+        withUnsafeBytes(of: &uniforms) { bytes in
+            deviceContext.pointee.lpVtbl.pointee.UpdateSubresource(
+                deviceContext, uniformResource, 0, nil, bytes.baseAddress, 0, 0)
+        }
+        var constants: UnsafeMutablePointer<ID3D11Buffer>? = separableBlendUniformBuffer
+        deviceContext.pointee.lpVtbl.pointee.PSSetConstantBuffers(deviceContext, 2, 1, &constants)
+        var destination: UnsafeMutablePointer<ID3D11ShaderResourceView>? = destinationSRV
+        deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 1, 1, &destination)
+        if failSeparableBlendAfterDestinationBindingForTesting {
+            throw BatchRendererError(
+                operation: "Draw separable blend quad", hresult: batchHresultOutOfMemory,
+                details: "Injected failure after the destination and uniforms were bound.")
+        }
+        // The shader emits adjusted source Q, whose alpha is still source
+        // coverage. Normal ONE/INV_SRC_ALPHA and the existing alpha-only
+        // isolated coverage draw therefore remain the correct blend states.
+        try renderBatch(
+            quads, range: index..<(index + 1), capacity: &quadInstanceCapacity,
+            buffer: &quadInstanceBuffer, srv: &quadInstanceSRV, vs: quadVS, ps: separableBlendQuadPS,
+            label: "quad", deviceContext: deviceContext)
+    }
+
     /// The result already contains its parent backdrop. Retain destination
     /// coverage, not (1 - result alpha), including on translucent targets.
     private func renderCurrentTargetImage(
@@ -2723,6 +2877,13 @@ final class D3D11BatchKernel {
     /// typed `.deviceLost`, and this renderer is left detached so the host's
     /// downgrade does not inherit a half-built device.
     private func recoverFromDeviceLoss(hresult: HRESULT, operation: String) throws {
+        if strictWARPForTesting {
+            detach()
+            throw BatchRendererError(
+                operation: operation, hresult: hresult,
+                details: "Strict WARP test device loss requires a new explicit attachment.",
+                failureKind: .deviceLost)
+        }
         gpuFrameTimingCollector?.detach(status: .deviceLost)
         deviceLostRecoveryAttempts += 1
         let attempt = deviceLostRecoveryAttempts
@@ -3001,6 +3162,7 @@ final class D3D11BatchKernel {
     public static func validateBatchShadersForTesting() throws {
         let shaders: [(source: String, vertex: String, pixel: String)] = [
             (batchQuadShaderSource, "vsMain", "psMain"),
+            (batchSeparableBlendQuadShaderSource, "vsMain", "psMain"),
             (batchImageShaderSource, "vsMain", "psMain"),
             (batchImageColorEffectShaderSource, "vsMain", "psMain"),
             (batchImageReplacementShaderSource, "vsMain", "psMain"),
@@ -3865,6 +4027,135 @@ final class D3D11BatchKernel {
     private func noteDrawCall(instanceCount: Int) {
         lastDrawCallCount &+= 1
         lastDrawnInstanceCount &+= instanceCount
+    }
+
+    private static func separableBlendMode(_ encoded: Float) -> BlendMode? {
+        switch encoded {
+        case Float(BlendMode.multiply.rawValue): return .multiply
+        case Float(BlendMode.screen.rawValue): return .screen
+        case Float(BlendMode.overlay.rawValue): return .overlay
+        default: return nil
+        }
+    }
+
+    /// Materials have already been separated by the caller. Every supported
+    /// ordinary blend observes all earlier draws, including earlier instances
+    /// in this run. Normal, additive and unrecognized modes retain batching.
+    private func renderOrdinaryQuadRange(
+        _ quads: [QuadPrimitive], range: Range<Int>,
+        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>, surfaceSize: IntSize
+    ) throws {
+        var cursor = range.lowerBound
+        while cursor < range.upperBound {
+            if let mode = Self.separableBlendMode(quads[cursor].blendMode) {
+                try renderSeparableBlendQuad(
+                    quads, index: cursor, mode: mode, deviceContext: deviceContext, surfaceSize: surfaceSize)
+                cursor += 1
+            } else {
+                let runStart = cursor
+                cursor += 1
+                while cursor < range.upperBound, Self.separableBlendMode(quads[cursor].blendMode) == nil {
+                    cursor += 1
+                }
+                try renderBatch(
+                    quads, range: runStart..<cursor, capacity: &quadInstanceCapacity,
+                    buffer: &quadInstanceBuffer, srv: &quadInstanceSRV, vs: quadVS, ps: quadPS,
+                    label: "quad", deviceContext: deviceContext)
+            }
+        }
+    }
+
+    /// A conservative window of actual rasterized pixels, never a new image
+    /// pass or its pixel-budget admission. The vertex shader does not expand
+    /// ordinary geometry for AA or a subpixel blur radius. Rotated bounds use
+    /// the sum of absolute half-extents so large finite angles cannot expose
+    /// a CPU/HLSL trigonometry disagreement at the copy boundary. Signed
+    /// dimensions are preserved: admission can retain a rotated signed quad.
+    private static func separableBlendDestinationRegion(
+        _ quad: QuadPrimitive, surfaceSize: IntSize
+    ) -> SubTextureRegion? {
+        guard surfaceSize.width > 0, surfaceSize.height > 0 else { return nil }
+        guard
+            !GPUIClipEncoding.isEmpty(
+                clipX: quad.clipX, clipY: quad.clipY, clipWidth: quad.clipWidth, clipHeight: quad.clipHeight)
+        else { return nil }
+
+        let halfWidth = Double(quad.width) * 0.5
+        let halfHeight = Double(quad.height) * 0.5
+        let centerX = Double(quad.x) + halfWidth
+        let centerY = Double(quad.y) + halfHeight
+        let rotatedExtent = abs(halfWidth) + abs(halfHeight)
+        let extentX = quad.rotationRadians == 0 ? abs(halfWidth) : rotatedExtent
+        let extentY = quad.rotationRadians == 0 ? abs(halfHeight) : rotatedExtent
+        // One pixel covers Float vertex arithmetic and raster rounding.
+        var minX = centerX - extentX - 1
+        var minY = centerY - extentY - 1
+        var maxX = centerX + extentX + 1
+        var maxY = centerY + extentY + 1
+        if !GPUIClipEncoding.isAbsent(
+            clipX: quad.clipX, clipY: quad.clipY, clipWidth: quad.clipWidth, clipHeight: quad.clipHeight)
+        {
+            minX = max(minX, Double(quad.clipX) - 1)
+            minY = max(minY, Double(quad.clipY) - 1)
+            maxX = min(maxX, Double(quad.clipX) + Double(quad.clipWidth) + 1)
+            maxY = min(maxY, Double(quad.clipY) + Double(quad.clipHeight) + 1)
+        }
+        // Clamp floating values before integer conversion, even for geometry
+        // spanning far outside the target. Scene admission rejects nonfinite
+        // geometry; this guard also makes the helper safe in isolation.
+        guard minX.isFinite, minY.isFinite, maxX.isFinite, maxY.isFinite else { return nil }
+        let width = Int(surfaceSize.width)
+        let height = Int(surfaceSize.height)
+        let left = Int(max(0, min(Double(width), floor(minX))))
+        let top = Int(max(0, min(Double(height), floor(minY))))
+        let right = Int(max(0, min(Double(width), ceil(maxX))))
+        let bottom = Int(max(0, min(Double(height), ceil(maxY))))
+        guard right > left, bottom > top else { return nil }
+        return SubTextureRegion(
+            originX: left, originY: top, width: right - left, height: bottom - top,
+            textureWidth: width, textureHeight: height)
+    }
+
+    private func ensureSeparableBlendPipeline() throws {
+        if separableBlendQuadPS != nil, separableBlendUniformBuffer != nil { return }
+        guard let device else {
+            throw BatchRendererError(operation: "Create separable blend pipeline", hresult: batchHresultHandle)
+        }
+        var shaderBlob: UnsafeMutablePointer<ID3DBlob>? = try Self.compileShaderSource(
+            source: batchSeparableBlendQuadShaderSource, entryPoint: "psMain", profile: "ps_5_0")
+        defer { releaseCOM(&shaderBlob) }
+        guard let shaderBlob else {
+            throw BatchRendererError(operation: "Compile separable blend shader", hresult: batchHresultHandle)
+        }
+        var shader: UnsafeMutablePointer<ID3D11PixelShader>?
+        var buffer: UnsafeMutablePointer<ID3D11Buffer>?
+        defer {
+            releaseCOM(&shader)
+            releaseCOM(&buffer)
+        }
+        let shaderHR = makeCOM(into: &shader) { value in
+            device.pointee.lpVtbl.pointee.CreatePixelShader(
+                device, shaderBlob.pointee.lpVtbl.pointee.GetBufferPointer(shaderBlob),
+                SIZE_T(shaderBlob.pointee.lpVtbl.pointee.GetBufferSize(shaderBlob)), nil, &value)
+        }
+        try throwIfFailed(shaderHR, operation: "ID3D11Device.CreatePixelShader(separable blend)")
+        var descriptor = D3D11_BUFFER_DESC()
+        descriptor.ByteWidth = UINT(MemoryLayout<D3D11SeparableBlendUniforms>.stride)
+        descriptor.Usage = D3D11_USAGE_DEFAULT
+        descriptor.BindFlags = UINT(D3D11_BIND_CONSTANT_BUFFER.rawValue)
+        let bufferHR = makeCOM(into: &buffer) { value in
+            device.pointee.lpVtbl.pointee.CreateBuffer(device, &descriptor, nil, &value)
+        }
+        try throwIfFailed(bufferHR, operation: "ID3D11Device.CreateBuffer(separable blend)")
+        guard shader != nil, buffer != nil else {
+            throw BatchRendererError(operation: "Resolve separable blend pipeline", hresult: batchHresultHandle)
+        }
+        releaseCOM(&separableBlendQuadPS)
+        releaseCOM(&separableBlendUniformBuffer)
+        separableBlendQuadPS = shader
+        separableBlendUniformBuffer = buffer
+        shader = nil
+        buffer = nil
     }
 
     /// Unified batch draw: uploads instances to a structured buffer, binds

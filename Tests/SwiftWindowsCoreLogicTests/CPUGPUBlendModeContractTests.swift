@@ -5,28 +5,11 @@ import XCTest
 
 @testable import SwiftWindowsRendererD3D11
 
-/// The renderer-neutral contract composites source-over, and only
-/// source-over.
-///
-/// `QuadPrimitive.blendMode` used to be honoured by exactly one of the two
-/// renderers. The CPU rasterizer implemented five separable modes; the
-/// HLSL declared `float blendMode;` and never read it, and the blend state
-/// is a fixed `ONE / INV_SRC_ALPHA`. So `.blendMode(.multiply)` was a
-/// multiply in every screenshot, gallery image and golden hash, and a
-/// plain composite on the screen the user was looking at — the sharpest
-/// instance of the reference renderer validating something that is not
-/// shipped.
-///
-/// The decision this suite gates is the one WS-08 made: **the field is
-/// carried, not interpreted.** The painter still lowers `.blendMode` onto
-/// the primitive so the information survives for a future GPU
-/// implementation (three of the five modes — multiply, screen, plusLighter
-/// — are expressible as fixed-function blend states and would need batch
-/// splitting; overlay is not), but no backend acts on it and the reference
-/// render no longer claims otherwise.
-///
-/// Landing the opposite decision means implementing the modes on the GPU
-/// and then deleting this suite — which is the point of having it.
+/// The renderer-neutral contract implements multiply, screen and overlay for
+/// ordinary quads on both the CPU and D3D11 paths. Additive remains source-over;
+/// material quads, other primitive families and full View/group blend semantics
+/// are separate open work. Carrier checks remain, and fixed pixel oracles plus
+/// actual batch/legacy regressions replace the former blanket no-op decision.
 @MainActor
 final class CPUGPUBlendModeContractTests: XCTestCase {
 
@@ -52,15 +35,14 @@ final class CPUGPUBlendModeContractTests: XCTestCase {
         return scene
     }
 
-    func testEveryBlendModeRasterizesAsSourceOver() async {
-        let reference = GPUIRawSceneRasterizer.rasterize(
-            Self.overlayScene(mode: .normal), size: Self.surface)
-        for mode in [BlendMode.multiply, .screen, .overlay, .additive] {
+    func testSeparableModesHaveReferencePixelsAndAdditiveRemainsSourceOver() async {
+        let normal = GPUIRawSceneRasterizer.rasterize(Self.overlayScene(mode: .normal), size: Self.surface)
+        let additive = GPUIRawSceneRasterizer.rasterize(Self.overlayScene(mode: .additive), size: Self.surface)
+        XCTAssertEqual(additive.pixels, normal.pixels)
+        for (mode, expected) in Self.separableExpectedPixels {
             let rendered = GPUIRawSceneRasterizer.rasterize(Self.overlayScene(mode: mode), size: Self.surface)
-            XCTAssertEqual(
-                rendered.pixels, reference.pixels,
-                "\(mode) must composite exactly as .normal does — the shipping shader has no other option, "
-                    + "so the reference renderer must not invent one")
+            XCTAssertNotEqual(rendered.pixels, normal.pixels)
+            Self.assertCenter(rendered, equals: expected)
         }
     }
 
@@ -75,18 +57,21 @@ final class CPUGPUBlendModeContractTests: XCTestCase {
             "dropping the field at the contract boundary would make the decision irreversible")
     }
 
-    /// And the shipping backend agrees, measured rather than argued: a
-    /// `.multiply` overlay renders the same on WARP as on the CPU.
+    /// Every implemented non-normal mode must agree with the shipping batch path.
+    /// The new strict WARP regressions additionally reject setup skips/fallbacks.
     func testCrossBackendAgreementForANonNormalMode() async throws {
-        let scene = Self.overlayScene(mode: .multiply)
-        let cpu = GPUIRawSceneRasterizer.rasterize(scene, size: Self.surface)
-        let gpu = try WARPBatchRenderer.render(scene, size: Self.surface)
-        let report = comparePixels(gpu, cpu, tolerance: 4)
-        XCTAssertGreaterThanOrEqual(
-            report.matchRatio, 0.995,
-            String(
-                format: "a .multiply overlay must render identically on both backends: %.4f within tolerance",
-                report.matchRatio))
+        for (mode, expected) in Self.separableExpectedPixels {
+            let scene = Self.overlayScene(mode: mode)
+            let cpu = GPUIRawSceneRasterizer.rasterize(scene, size: Self.surface)
+            let gpu = try WARPBatchRenderer.render(scene, size: Self.surface)
+            Self.assertCenter(cpu, equals: expected)
+            let report = comparePixels(gpu, cpu, tolerance: 4)
+            XCTAssertGreaterThanOrEqual(
+                report.matchRatio, 0.995,
+                String(
+                    format: "\(mode) must render identically on both backends: %.4f within tolerance",
+                    report.matchRatio))
+        }
     }
 
     // MARK: - The frame path makes the same decision
@@ -109,20 +94,16 @@ final class CPUGPUBlendModeContractTests: XCTestCase {
         return frame
     }
 
-    /// A presenter swap must not change how `.blendMode(.multiply)` looks.
-    /// The runtime lowers non-normal modes onto the frame commands as well as
-    /// onto the primitives, so the frame path needs the same source-over
-    /// guarantee the scene path has — the fallback renderer owns exactly one
-    /// `ID3D11BlendState` and nothing selects another.
-    func testEveryBlendModeRendersAsSourceOverOnTheFramePath() async {
-        let reference = GPUIRawSceneRasterizer.rasterize(
-            Self.overlayFrame(mode: .normal), size: Self.surface)
-        for mode in [BlendMode.multiply, .screen, .overlay, .additive] {
+    /// This is the CPU frame-to-scene bridge. Actual legacy D3D11 frame pixels
+    /// are covered separately; this method must not stand in for that evidence.
+    func testFrameBridgeUsesSeparablePixelsAndKeepsAdditiveSourceOver() async {
+        let normal = GPUIRawSceneRasterizer.rasterize(Self.overlayFrame(mode: .normal), size: Self.surface)
+        let additive = GPUIRawSceneRasterizer.rasterize(Self.overlayFrame(mode: .additive), size: Self.surface)
+        XCTAssertEqual(additive.pixels, normal.pixels)
+        for (mode, expected) in Self.separableExpectedPixels {
             let rendered = GPUIRawSceneRasterizer.rasterize(Self.overlayFrame(mode: mode), size: Self.surface)
-            XCTAssertEqual(
-                rendered.pixels, reference.pixels,
-                "\(mode) on a frame command must composite exactly as .normal does, or the fallback "
-                    + "presenter and the batch presenter disagree about the same tree")
+            XCTAssertNotEqual(rendered.pixels, normal.pixels)
+            Self.assertCenter(rendered, equals: expected)
         }
     }
 
@@ -135,5 +116,23 @@ final class CPUGPUBlendModeContractTests: XCTestCase {
         XCTAssertTrue(
             modes.contains(Float(BlendMode.multiply.rawValue)),
             "the frame path must carry the mode exactly as the painter does")
+    }
+
+    // Opaque backdrop (.9,.2,.4), source (.3,.7,.9) at alpha .75.
+    // These are fixed hand-derived values, not a call to the production helper.
+    private static let separableExpectedPixels: [(BlendMode, Color)] = [
+        (.multiply, Color(red: 0.4275, green: 0.155, blue: 0.37, alpha: 1)),
+        (.screen, Color(red: 0.9225, green: 0.62, blue: 0.805, alpha: 1)),
+        (.overlay, Color(red: 0.87, green: 0.26, blue: 0.64, alpha: 1)),
+    ]
+
+    private static func assertCenter(
+        _ bitmap: BitmapSurface, equals expected: Color, file: StaticString = #filePath, line: UInt = #line
+    ) {
+        let offset = 32 * Int(bitmap.bytesPerRow) + 32 * 4
+        XCTAssertEqual(Float(bitmap.pixels[offset + 2]) / 255, expected.red, accuracy: 0.01, file: file, line: line)
+        XCTAssertEqual(Float(bitmap.pixels[offset + 1]) / 255, expected.green, accuracy: 0.01, file: file, line: line)
+        XCTAssertEqual(Float(bitmap.pixels[offset]) / 255, expected.blue, accuracy: 0.01, file: file, line: line)
+        XCTAssertEqual(Float(bitmap.pixels[offset + 3]) / 255, expected.alpha, accuracy: 0.01, file: file, line: line)
     }
 }

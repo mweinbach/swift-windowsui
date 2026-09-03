@@ -490,7 +490,7 @@ Downstream of the contract, every remaining `Float → Int` conversion
 uses `GPUISceneValue.int`, which saturates instead of trapping
 (`splitQuadRangeForBackdropBlur`, `D3D11BackdropBlurEngine.blurRegion`
 — which converts *before* clamping — the CPU rasterizer's blur radius,
-blend-mode selector, glyph and image UVs, and the path scanline spans).
+glyph and image UVs, and the path scanline spans).
 Curve flattening is depth-capped and the arc angle-normalisation loop is
 turn-capped, so termination is a property of the algorithm rather than
 of its callers.
@@ -2176,11 +2176,11 @@ pins the convention: a cell with colour and no alpha draws nothing.
 
 ## 7a. What the reference renderer actually models
 
-The CPU rasterizer's job is to draw what the shaders draw. Six models it
-used to get wrong, and what it does now — each pinned by
-`SharedCoverageKernelTests`, `CPURasterizerGPUModelTests`,
-`PathRasterizationQualityTests` or `CPUGPUBlendModeContractTests`, and all
-six measured end-to-end by `CrossBackendPixelParityTests`.
+The CPU rasterizer's job is to draw what the shaders draw. The models below
+have coverage in `SharedCoverageKernelTests`, `CPURasterizerGPUModelTests`,
+`PathRasterizationQualityTests`, `CPUGPUBlendModeContractTests` and
+`CrossBackendPixelParityTests`. The new three-mode blend coverage is separate
+from earlier results; its source implementation is not a parity qualification.
 
 **Coverage.** `GPUIQuadCoverage` is the single Swift transcription of
 `roundedRectDistance` + `saturate(0.5 - d/aa)`, used by the quad body, the
@@ -2336,30 +2336,38 @@ and physical-GPU performance qualification remain incomplete. Independent
 filter isolation does not implicitly import an enclosing backdrop; the new
 material-dependent content-blur input is a separate contract below.
 
-**Blend modes.** Ordinary drawing uses **source-over, and only source-over**;
-material and dependent-image replacement are separate coverage operations.
-`QuadPrimitive.blendMode` used to be honoured by the CPU rasterizer's
-`blend` (five separable modes) and ignored by the HLSL, which declares
-`float blendMode;` and never reads it against a fixed
-`ONE / INV_SRC_ALPHA` blend state — so `.blendMode(.multiply)` was a
-multiply in every screenshot and a plain composite on screen. The field is
-still lowered onto the primitive so the information survives, but no
-backend interprets it. Implementing it means splitting quad batches and
-swapping `ID3D11BlendState` (multiply, screen and plusLighter are
-expressible as fixed-function states; overlay is not);
-`CPUGPUBlendModeContractTests` is what that work would delete.
+**Blend modes.** The source implementation interprets multiply, screen and
+overlay for ordinary `QuadPrimitive` and legacy `FillRectCommand` drawing
+across CPU and both D3D11 paths. Ordinary quads recognize exactly selectors
+1, 2 and 3; normal and additive retain their existing source-over behavior.
+Additive/plusLighter correctness is not implemented by this change.
 
-The **frame path makes the same decision**, because a presenter swap must
-not change how a tree looks. `RetainedViewRuntime.appendCommands` lowers
-non-normal modes onto `FillRectCommand.blendMode` exactly as the painter
-lowers them onto the primitive, `GPUISceneBridge` forwards the field onto
-the quad (it used to drop it, which lost the data the reversibility
-argument depends on), and nothing reads it: the fallback `D3D11Renderer`
-owns exactly one `ID3D11BlendState`. It used to build an additive and a
-multiply state too, plus an `activateBlendMode` helper to swap between
-them — never called, so the divergence was one call site away rather than
-live. The frame half is pinned by
-`CPUGPUBlendModeContractTests.testEveryBlendModeRendersAsSourceOverOnTheFramePath`.
+For straight source colour `Cs`, source alpha `as`, premultiplied destination
+`D` with alpha `ad`, and its straight colour `Cd`, the adjusted source is
+`q.rgb = as * ((1 - ad) * Cs + ad * B(Cs, Cd))`, `q.a = as`.
+Existing source-over composition then adds `(1 - as) * D`. This retains
+source alpha and coverage; isolated drawing reads the existing virtual
+foreground-plus-backdrop destination without replacing the coverage plane.
+
+The batch renderer splits supported ordinary quad occurrences and reads
+the latest actual target before each draw. The legacy renderer uses D3D11
+for frames containing supported `FillRectCommand` modes, with a premultiplied
+clear for those frames. It captures the active scissor so Float geometry
+cannot outgrow a narrower Double copy window, and subsequent eligible frames
+can return to Direct2D. Normal/additive-only legacy clear behavior is unchanged.
+The larger scissor copy is not a performance qualification.
+
+`CPUGPUBlendModeContractTests` remains: its assertions now distinguish these
+three modes while preserving mode transport and normal/additive behavior.
+Focused CPU, batch and genuine legacy tests define additional coverage; their
+presence is not a recorded pass. See [Testing.md](Testing.md). The legacy WARP
+composition-swapchain seam draws without an HWND or Present; it does not
+replace separate native/display qualification.
+
+Materials and dependent-image replacement keep their separate coverage
+operations. Material-plus-blend combinations, other primitive families,
+remaining public modes, general drawing-group mappings and complete
+View/group blend semantics remain open.
 
 ## 7b. Path fill and stroke
 

@@ -70,6 +70,11 @@ private struct FrameClipStackEntry {
     var operation: ClipOperation
 }
 
+enum D3D11FrameDrawingPath: Equatable {
+    case direct2D
+    case direct3D11
+}
+
 /// Owns frame-presentation resources on the thread that creates and uses it.
 /// The legacy MainActor facade and the native presentation owner each create
 /// their own kernel; this mutable COM owner is deliberately not Sendable.
@@ -77,6 +82,9 @@ final class D3D11FrameKernel {
     private(set) var isAttached = false
 
     private(set) var isDirect2DEnabled = false
+    /// Records completed drawing only; this is not a Present result.
+    private(set) var lastFrameDrawingPathForTesting: D3D11FrameDrawingPath?
+    private var isOffscreenForTesting = false
     /// Replaced for every render attempt. Only an actual Present result can
     /// mark work submitted; rebuilding a lost device does not submit a frame.
     private(set) var lastFrameSubmission: BackendFrameSubmission?
@@ -157,6 +165,9 @@ final class D3D11FrameKernel {
     private var vertexShader: UnsafeMutablePointer<ID3D11VertexShader>?
     private var pixelShader: UnsafeMutablePointer<ID3D11PixelShader>?
     private var constantBuffer: UnsafeMutablePointer<ID3D11Buffer>?
+    private var separableBlendPixelShader: UnsafeMutablePointer<ID3D11PixelShader>?
+    private var separableBlendConstantBuffer: UnsafeMutablePointer<ID3D11Buffer>?
+    private var separableBlendDestinationSnapshot: D3D11BlendDestinationSnapshot?
     private var bitmapVertexShader: UnsafeMutablePointer<ID3D11VertexShader>?
     private var bitmapPixelShader: UnsafeMutablePointer<ID3D11PixelShader>?
     private var bitmapConstantBuffer: UnsafeMutablePointer<ID3D11Buffer>?
@@ -268,6 +279,131 @@ final class D3D11FrameKernel {
         isAttached = true
     }
 
+    /// Strict internal test attachment. No HWND, hardware fallback, or Present;
+    /// drawing still uses this kernel's real Direct2D and D3D11 frame branches.
+    func attachOffscreenForTesting(size: IntSize) throws {
+        guard size.width > 0, size.height > 0,
+            size.width <= 16_384, size.height <= 16_384
+        else {
+            throw D3D11RendererError(operation: "Create legacy offscreen surface", hresult: hresultInvalidArgument)
+        }
+        detach()
+        var completed = false
+        defer { if !completed { detach() } }
+        surface = SurfaceDescriptor(offscreenPixelSize: size)
+        var level = D3D_FEATURE_LEVEL_11_0
+        var actualLevel = D3D_FEATURE_LEVEL(0)
+        let hr = D3D11CreateDevice(
+            nil, D3D_DRIVER_TYPE_WARP, nil, UINT(bitPattern: D3D11_CREATE_DEVICE_BGRA_SUPPORT.rawValue),
+            &level, 1, UINT(D3D11_SDK_VERSION), &device, &actualLevel, &deviceContext)
+        try throwIfFailed(hr, operation: "D3D11CreateDevice(legacy WARP test)")
+        guard let device, deviceContext != nil, actualLevel == D3D_FEATURE_LEVEL_11_0 else {
+            throw D3D11RendererError(operation: "Resolve legacy WARP test device", hresult: hresultHandle)
+        }
+        deviceGeneration = RendererDeviceGeneration.next()
+        try createFactoryIfNeeded()
+        tearingSupported = false
+        try createPipelineIfNeeded()
+        guard let dxgiFactory else {
+            throw D3D11RendererError(operation: "Resolve legacy offscreen factory", hresult: hresultHandle)
+        }
+        var descriptor = DXGI_SWAP_CHAIN_DESC1()
+        descriptor.Width = UINT(size.width)
+        descriptor.Height = UINT(size.height)
+        descriptor.Format = DXGI_FORMAT_B8G8R8A8_UNORM
+        descriptor.SampleDesc = DXGI_SAMPLE_DESC(Count: 1, Quality: 0)
+        descriptor.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT
+        descriptor.BufferCount = 2
+        descriptor.Scaling = DXGI_SCALING_STRETCH
+        descriptor.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL
+        descriptor.AlphaMode = DXGI_ALPHA_MODE_IGNORE
+        let unknownDevice = UnsafeMutableRawPointer(device).assumingMemoryBound(to: IUnknown.self)
+        let chainHR = makeCOM(into: &swapChain) { chain in
+            dxgiFactory.pointee.lpVtbl.pointee.CreateSwapChainForComposition(
+                dxgiFactory, unknownDevice, &descriptor, nil, &chain)
+        }
+        try throwIfFailed(chainHR, operation: "IDXGIFactory2.CreateSwapChainForComposition(legacy test)")
+        guard swapChain != nil else {
+            throw D3D11RendererError(operation: "Resolve legacy offscreen swap chain", hresult: hresultHandle)
+        }
+        try createRenderTargetView()
+        // Unlike the public best-effort setup, a failed test setup must throw.
+        didAttemptDirect2DSetup = true
+        try createDirect2DResourcesIfNeeded()
+        try createDirect2DTargetIfNeeded()
+        guard renderTargetView != nil, direct2DDeviceContext != nil, direct2DTargetBitmap != nil else {
+            throw D3D11RendererError(operation: "Resolve legacy offscreen targets", hresult: hresultHandle)
+        }
+        isDirect2DEnabled = true
+        isOffscreenForTesting = true
+        isAttached = true
+        completed = true
+    }
+
+    func renderOffscreenForTesting(frame: RenderFrame) throws {
+        guard isOffscreenForTesting else {
+            throw D3D11RendererError(operation: "Render legacy offscreen test", hresult: hresultHandle)
+        }
+        try render(frame: frame, presents: false)
+    }
+
+    func readOffscreenPixelsForTesting() throws -> BitmapSurface {
+        guard isOffscreenForTesting, let swapChain, let device, let deviceContext, let surface else {
+            throw D3D11RendererError(operation: "Read legacy offscreen test", hresult: hresultHandle)
+        }
+        var raw: UnsafeMutableRawPointer?
+        var iid = IID_ID3D11Texture2D
+        let bufferHR = swapChain.pointee.lpVtbl.pointee.GetBuffer(swapChain, 0, &iid, &raw)
+        var texture = raw?.assumingMemoryBound(to: ID3D11Texture2D.self)
+        defer { releaseCOM(&texture) }
+        try throwIfFailed(bufferHR, operation: "Get legacy offscreen buffer")
+        guard let texture else {
+            throw D3D11RendererError(operation: "Resolve legacy offscreen buffer", hresult: hresultHandle)
+        }
+        var descriptor = D3D11_TEXTURE2D_DESC()
+        texture.pointee.lpVtbl.pointee.GetDesc(texture, &descriptor)
+        guard descriptor.Width == UINT(surface.pixelSize.width), descriptor.Height == UINT(surface.pixelSize.height),
+            descriptor.Format == DXGI_FORMAT_B8G8R8A8_UNORM,
+            descriptor.MipLevels == 1, descriptor.ArraySize == 1, descriptor.SampleDesc.Count == 1
+        else {
+            throw D3D11RendererError(operation: "Validate legacy offscreen readback geometry", hresult: hresultHandle)
+        }
+        descriptor.Usage = D3D11_USAGE_STAGING
+        descriptor.BindFlags = 0
+        descriptor.CPUAccessFlags = UINT(D3D11_CPU_ACCESS_READ.rawValue)
+        descriptor.MiscFlags = 0
+        var staging: UnsafeMutablePointer<ID3D11Texture2D>?
+        defer { releaseCOM(&staging) }
+        let createHR = device.pointee.lpVtbl.pointee.CreateTexture2D(device, &descriptor, nil, &staging)
+        try throwIfFailed(createHR, operation: "Create legacy offscreen staging texture")
+        guard let staging else {
+            throw D3D11RendererError(operation: "Resolve legacy offscreen staging texture", hresult: hresultHandle)
+        }
+        let source = UnsafeMutableRawPointer(texture).assumingMemoryBound(to: ID3D11Resource.self)
+        let destination = UnsafeMutableRawPointer(staging).assumingMemoryBound(to: ID3D11Resource.self)
+        deviceContext.pointee.lpVtbl.pointee.CopyResource(deviceContext, destination, source)
+        var mapped = D3D11_MAPPED_SUBRESOURCE()
+        let mapHR = deviceContext.pointee.lpVtbl.pointee.Map(deviceContext, destination, 0, D3D11_MAP_READ, 0, &mapped)
+        try throwIfFailed(mapHR, operation: "Map legacy offscreen staging texture")
+        defer { deviceContext.pointee.lpVtbl.pointee.Unmap(deviceContext, destination, 0) }
+        let rowBytes = Int(surface.pixelSize.width) * 4
+        let height = Int(surface.pixelSize.height)
+        guard let pointer = mapped.pData, Int(mapped.RowPitch) >= rowBytes else {
+            throw D3D11RendererError(operation: "Resolve legacy offscreen mapping", hresult: hresultHandle)
+        }
+        var pixels = Data(count: rowBytes * height)
+        pixels.withUnsafeMutableBytes { bytes in
+            guard let target = bytes.baseAddress else { return }
+            for row in 0..<height {
+                target.advanced(by: row * rowBytes).copyMemory(
+                    from: pointer.advanced(by: row * Int(mapped.RowPitch)), byteCount: rowBytes)
+            }
+        }
+        return BitmapSurface(
+            width: surface.pixelSize.width, height: surface.pixelSize.height,
+            bytesPerRow: Int32(rowBytes), pixels: pixels, format: .bgra8Premultiplied)
+    }
+
     /// Releases every D3D11 and Direct2D object this renderer owns and
     /// returns it to the pre-attach state.
     ///
@@ -294,6 +430,10 @@ final class D3D11FrameKernel {
         releaseCOM(&bitmapConstantBuffer)
         releaseCOM(&bitmapPixelShader)
         releaseCOM(&bitmapVertexShader)
+        separableBlendDestinationSnapshot?.release()
+        separableBlendDestinationSnapshot = nil
+        releaseCOM(&separableBlendConstantBuffer)
+        releaseCOM(&separableBlendPixelShader)
         releaseCOM(&constantBuffer)
         releaseCOM(&pixelShader)
         releaseCOM(&vertexShader)
@@ -317,6 +457,8 @@ final class D3D11FrameKernel {
         // judge the one that replaces it; the mode itself survives.
         presentPacingPolicy.reset()
         isAttached = false
+        isOffscreenForTesting = false
+        lastFrameDrawingPathForTesting = nil
         lastFrameSubmission = nil
         // `deviceLostRecoveryAttempts` deliberately survives: detach is a
         // *step* of device-loss recovery, and resetting the budget here
@@ -350,6 +492,8 @@ final class D3D11FrameKernel {
         releaseDirect2DTarget()
         releaseCOM(&renderTargetView)
         deviceContext?.pointee.lpVtbl.pointee.ClearState(deviceContext)
+        separableBlendDestinationSnapshot?.release()
+        separableBlendDestinationSnapshot = nil
 
         var resizeFlags: UINT = 0
         if tearingSupported {
@@ -376,9 +520,17 @@ final class D3D11FrameKernel {
     }
 
     func render(frame: RenderFrame) throws {
+        guard !isOffscreenForTesting else {
+            throw D3D11RendererError(operation: "Present is unavailable for legacy offscreen tests", hresult: hresultHandle)
+        }
+        try render(frame: frame, presents: true)
+    }
+
+    private func render(frame: RenderFrame, presents: Bool) throws {
         // A no-op must never retain an earlier frame's successful outcome.
         // The frame path issues no GPU timing queries.
         lastFrameSubmission = BackendFrameSubmission(outcome: .skipped, gpuTimingStatus: .disabled)
+        lastFrameDrawingPathForTesting = nil
         lastPresentSeconds = 0
         guard isAttached, let swapChain, let surface else {
             return
@@ -414,6 +566,10 @@ final class D3D11FrameKernel {
         // branches. Refusals retain original command indices and are reported
         // once, before any bitmap upload; valid siblings still present.
         let frame = prepareFrameForNativeDrawing(frame, scaleFactor: scaleFactor)
+        let needsSeparableBlending = frame.commands.contains { command in
+            guard case .fillRect(let fill) = command else { return false }
+            return supportsFrameSeparableBlend(fill.blendMode)
+        }
 
         // Present sits *outside* this block on purpose. It used to be the
         // last statement inside the Direct2D `do`, so a present error — a
@@ -425,6 +581,7 @@ final class D3D11FrameKernel {
         var didDrawFrame = false
         if
             isDirect2DEnabled,
+            !needsSeparableBlending,
             frameSupportsDirect2DImageSampling(frame),
             let direct2DDeviceContext,
             let direct2DTargetBitmap
@@ -439,6 +596,7 @@ final class D3D11FrameKernel {
                     targetBitmap: direct2DTargetBitmap
                 )
                 didDrawFrame = true
+                lastFrameDrawingPathForTesting = .direct2D
             } catch {
                 // Real Direct2D device/draw failures demote for the session.
                 // Unsupported path/blur/text commands soft-skip inside renderWithDirect2D
@@ -452,7 +610,7 @@ final class D3D11FrameKernel {
         }
 
         if didDrawFrame {
-            try presentFrame(swapChain: swapChain)
+            if presents { try presentFrame(swapChain: swapChain) }
             return
         }
 
@@ -514,7 +672,13 @@ final class D3D11FrameKernel {
             deviceContext.pointee.lpVtbl.pointee.OMSetBlendState(deviceContext, blendState, buffer.baseAddress, UINT.max)
         }
 
-        let values: [FLOAT] = [clearColor.red, clearColor.green, clearColor.blue, clearColor.alpha]
+        // The newly supported destination-reading route needs premultiplied
+        // destination bytes. Preserve the historical clear on other frames.
+        let clearRGBScale: Float = needsSeparableBlending ? clearColor.alpha : 1
+        let values: [FLOAT] = [
+            clearColor.red * clearRGBScale, clearColor.green * clearRGBScale,
+            clearColor.blue * clearRGBScale, clearColor.alpha,
+        ]
 
         values.withUnsafeBufferPointer { buffer in
             deviceContext.pointee.lpVtbl.pointee.ClearRenderTargetView(deviceContext, renderTargetView, buffer.baseAddress)
@@ -598,7 +762,8 @@ final class D3D11FrameKernel {
             skippedCount: skippedUnsupportedCount
         )
 
-        try presentFrame(swapChain: swapChain)
+        lastFrameDrawingPathForTesting = .direct3D11
+        if presents { try presentFrame(swapChain: swapChain) }
     }
 
     private func beginFrameSubmission() {
@@ -863,15 +1028,9 @@ final class D3D11FrameKernel {
         }
         try throwIfFailed(samplerStateHR, operation: "ID3D11Device.CreateSamplerState")
 
-        // Source-over, and only source-over — the same contract the scene
-        // path ships (`CPUGPUBlendModeContractTests`). This used to build an
-        // additive and a multiply state as well, with an `activateBlendMode`
-        // helper to swap between them; nothing ever called it, so the two
-        // extra states were a per-attach allocation and a standing invitation
-        // to make the fallback presenter composite differently from the
-        // batch presenter for the same tree. `FillRectCommand.blendMode` is
-        // still carried through this renderer for reversibility, exactly as
-        // `QuadPrimitive.blendMode` is; neither is interpreted.
+        // Ordinary source-over also completes the adjusted premultiplied
+        // source emitted by the separable FillRect pixel shader.
+        // Additive and other primitive families retain their prior fallback.
         var blendDescriptor = D3D11_BLEND_DESC()
         blendDescriptor.AlphaToCoverageEnable = false
         blendDescriptor.IndependentBlendEnable = false
@@ -1342,6 +1501,28 @@ final class D3D11FrameKernel {
         deviceContext.pointee.lpVtbl.pointee.VSSetConstantBuffers(deviceContext, 0, 1, &shaderConstantBuffer)
         deviceContext.pointee.lpVtbl.pointee.PSSetConstantBuffers(deviceContext, 0, 1, &shaderConstantBuffer)
 
+        // Refresh this command's destination before its disjoint gradient
+        // segments. Reusing an allocation must not reuse earlier pixels.
+        let destinationSnapshot: D3D11BlendDestinationSnapshot?
+        if supportsFrameSeparableBlend(command.blendMode) {
+            // Use the active scissor because Float shader geometry can extend
+            // beyond the CPU's Double rectangle bounds.
+            destinationSnapshot = try bindSeparableBlendDestination(
+                mode: command.blendMode, copyRect: scissorRect, deviceContext: deviceContext)
+        } else {
+            destinationSnapshot = nil
+        }
+        defer {
+            if destinationSnapshot != nil {
+                var noView: UnsafeMutablePointer<ID3D11ShaderResourceView>?
+                var noBuffer: UnsafeMutablePointer<ID3D11Buffer>?
+                deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 1, 1, &noView)
+                deviceContext.pointee.lpVtbl.pointee.PSSetConstantBuffers(deviceContext, 2, 1, &noBuffer)
+                // Keep the allocation; the next supported fill recopies
+                // its current destination bytes before drawing.
+            }
+        }
+
         let linearGradient: LinearGradient? = {
             if case .linear(let lg) = scaledCommand.gradient { return lg }
             return nil
@@ -1420,6 +1601,102 @@ final class D3D11FrameKernel {
                 deviceContext, constantBufferResource, 0, nil, UnsafeRawPointer(pointer), 0, 0)
         }
         deviceContext.pointee.lpVtbl.pointee.Draw(deviceContext, 6, 0)
+    }
+
+    private func bindSeparableBlendDestination(
+        mode: BlendMode,
+        copyRect: D3D11_RECT,
+        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>
+    ) throws -> D3D11BlendDestinationSnapshot {
+        try createSeparableBlendPipelineIfNeeded()
+        guard let device, let renderTargetView, let separableBlendPixelShader, let separableBlendConstantBuffer else {
+            throw D3D11RendererError(operation: "Resolve legacy separable blend pipeline", hresult: hresultHandle)
+        }
+        var resource: UnsafeMutablePointer<ID3D11Resource>?
+        renderTargetView.pointee.lpVtbl.pointee.GetResource(renderTargetView, &resource)
+        defer { releaseCOM(&resource) }
+        guard let resource else {
+            throw D3D11RendererError(operation: "Resolve legacy blend target resource", hresult: hresultHandle)
+        }
+        var rawTexture: UnsafeMutableRawPointer?
+        var iid = IID_ID3D11Texture2D
+        let queryHR = resource.pointee.lpVtbl.pointee.QueryInterface(resource, &iid, &rawTexture)
+        var ownedTexture = rawTexture?.assumingMemoryBound(to: ID3D11Texture2D.self)
+        defer { releaseCOM(&ownedTexture) }
+        try throwIfFailed(queryHR, operation: "Query legacy blend target texture")
+        guard let texture = ownedTexture else {
+            throw D3D11RendererError(operation: "Resolve legacy blend target texture", hresult: hresultHandle)
+        }
+        var descriptor = D3D11_TEXTURE2D_DESC()
+        texture.pointee.lpVtbl.pointee.GetDesc(texture, &descriptor)
+        let region = SubTextureRegion(
+            originX: Int(copyRect.left), originY: Int(copyRect.top),
+            width: Int(copyRect.right - copyRect.left), height: Int(copyRect.bottom - copyRect.top),
+            textureWidth: Int(descriptor.Width), textureHeight: Int(descriptor.Height))
+        var noView: UnsafeMutablePointer<ID3D11ShaderResourceView>?
+        deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 1, 1, &noView)
+        deviceContext.pointee.lpVtbl.pointee.OMSetRenderTargets(deviceContext, 0, nil, nil)
+        defer {
+            var restoredTarget: UnsafeMutablePointer<ID3D11RenderTargetView>? = renderTargetView
+            deviceContext.pointee.lpVtbl.pointee.OMSetRenderTargets(deviceContext, 1, &restoredTarget, nil)
+        }
+        let snapshot: D3D11BlendDestinationSnapshot
+        if let retained = separableBlendDestinationSnapshot {
+            snapshot = retained
+        } else {
+            // One target-sized allocation for this owner until real resize or
+            // detach. The initializer's first full-target copy is a one-time
+            // setup cost; later fills copy only their requested region.
+            snapshot = try D3D11BlendDestinationSnapshot(
+                device: device, context: deviceContext, source: texture,
+                region: SubTextureRegion(textureWidth: Int(descriptor.Width), textureHeight: Int(descriptor.Height)))
+            separableBlendDestinationSnapshot = snapshot
+        }
+        try snapshot.capture(context: deviceContext, source: texture, region: region)
+        guard let srv = snapshot.srv else {
+            snapshot.release()
+            separableBlendDestinationSnapshot = nil
+            throw D3D11RendererError(operation: "Resolve legacy blend destination view", hresult: hresultHandle)
+        }
+        var uniforms = D3D11SeparableBlendUniforms(region: region, mode: mode)
+        let uniformResource = UnsafeMutableRawPointer(separableBlendConstantBuffer).assumingMemoryBound(to: ID3D11Resource.self)
+        withUnsafePointer(to: &uniforms) { pointer in
+            deviceContext.pointee.lpVtbl.pointee.UpdateSubresource(
+                deviceContext, uniformResource, 0, nil, UnsafeRawPointer(pointer), 0, 0)
+        }
+        var activeView: UnsafeMutablePointer<ID3D11ShaderResourceView>? = srv
+        var activeBuffer: UnsafeMutablePointer<ID3D11Buffer>? = separableBlendConstantBuffer
+        deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 1, 1, &activeView)
+        deviceContext.pointee.lpVtbl.pointee.PSSetConstantBuffers(deviceContext, 2, 1, &activeBuffer)
+        deviceContext.pointee.lpVtbl.pointee.PSSetShader(deviceContext, separableBlendPixelShader, nil, 0)
+        return snapshot
+    }
+
+    private func createSeparableBlendPipelineIfNeeded() throws {
+        if separableBlendPixelShader != nil, separableBlendConstantBuffer != nil { return }
+        guard let device else {
+            throw D3D11RendererError(operation: "Create legacy separable blend pipeline", hresult: hresultHandle)
+        }
+        var blob: UnsafeMutablePointer<ID3DBlob>? = try compileShader(
+            source: separableRectangleShaderSource, entryPoint: "psMain", profile: "ps_4_0")
+        defer { releaseCOM(&blob) }
+        guard let blob else {
+            throw D3D11RendererError(operation: "Resolve legacy separable blend shader", hresult: hresultHandle)
+        }
+        let shaderHR = makeCOM(into: &separableBlendPixelShader) { shader in
+            device.pointee.lpVtbl.pointee.CreatePixelShader(
+                device, blob.pointee.lpVtbl.pointee.GetBufferPointer(blob),
+                SIZE_T(blob.pointee.lpVtbl.pointee.GetBufferSize(blob)), nil, &shader)
+        }
+        try throwIfFailed(shaderHR, operation: "Create legacy separable blend pixel shader")
+        var descriptor = D3D11_BUFFER_DESC()
+        descriptor.ByteWidth = UINT(MemoryLayout<D3D11SeparableBlendUniforms>.stride)
+        descriptor.Usage = D3D11_USAGE_DEFAULT
+        descriptor.BindFlags = UINT(D3D11_BIND_CONSTANT_BUFFER.rawValue)
+        let bufferHR = makeCOM(into: &separableBlendConstantBuffer) { buffer in
+            device.pointee.lpVtbl.pointee.CreateBuffer(device, &descriptor, nil, &buffer)
+        }
+        try throwIfFailed(bufferHR, operation: "Create legacy separable blend uniform buffer")
     }
 
     private func draw(
@@ -1980,6 +2257,13 @@ func frameSupportsDirect2DImageSampling(_ frame: RenderFrame) -> Bool {
     }
 }
 
+private func supportsFrameSeparableBlend(_ mode: BlendMode) -> Bool {
+    switch mode {
+    case .multiply, .screen, .overlay: return true
+    case .normal, .additive: return false
+    }
+}
+
 func frameBitmapSamplingFailure(_ command: DrawBitmapCommand) -> ImageSamplingFailure? {
     command.sampling.validationFailure(
         sourceSize: IntSize(width: command.bitmap.width, height: command.bitmap.height)
@@ -2261,9 +2545,16 @@ float4 psMain(VSOutput input) : SV_Target
     }
 
     float4 color = lerp(input.startColor, input.endColor, gradientT);
+#ifdef SWUI_SEPARABLE_BLEND
+    return applySeparableBlend(float4(color.rgb * color.a * alpha, color.a * alpha), input.position.xy);
+#else
     return float4(color.rgb * color.a * alpha, color.a * alpha);
+#endif
 }
 """#
+
+private let separableRectangleShaderSource =
+    "#define SWUI_SEPARABLE_BLEND 1\n" + separableBlendShaderSource + "\n" + rectangleShaderSource
 
 private let bitmapShaderSource = imageSamplingShaderSource + "\n" + #"""
 cbuffer BitmapUniforms : register(b0)

@@ -324,8 +324,8 @@ float gradientProgress(VSOutput input)
 }
 """#
 
-let batchQuadShaderSource = batchQuadShaderSharedSource + "\n" + #"""
-float4 psMain(VSOutput input) : SV_Target
+private let batchQuadPixelShaderSource = #"""
+float4 quadSourceColor(VSOutput input)
 {
     float clipAlpha = originalClipCoverage(
         input.pixelPosition, input.clipRect, input.clipShapeRect, input.clipRadii);
@@ -387,6 +387,24 @@ float4 psMain(VSOutput input) : SV_Target
     }
 
     return float4(color.rgb * color.a * alpha * clipAlpha, color.a * alpha * clipAlpha);
+}
+"""#
+
+let batchQuadShaderSource = batchQuadShaderSharedSource + "\n" + batchQuadPixelShaderSource + "\n" + #"""
+float4 psMain(VSOutput input) : SV_Target
+{
+    return quadSourceColor(input);
+}
+"""#
+
+// The ordinary color/coverage calculation is shared verbatim. Only this
+// separately selected shader reads the destination; normal and additive
+// continue through the unchanged source-over entry point above.
+let batchSeparableBlendQuadShaderSource =
+    batchQuadShaderSharedSource + "\n" + batchQuadPixelShaderSource + "\n" + separableBlendShaderSource + "\n" + #"""
+float4 psMain(VSOutput input) : SV_Target
+{
+    return applySeparableBlend(quadSourceColor(input), input.position.xy);
 }
 """#
 

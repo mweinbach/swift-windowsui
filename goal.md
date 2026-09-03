@@ -18077,3 +18077,40 @@ and a current settlement receipt. Strict lint and contracts passed. These
 fixture corrections and the new counterexample are not yet runtime-verified;
 the preserved 69-pass/two-fail record remains the executed evidence. No goal
 requirement or completion gate is narrowed.
+
+### 2026-09-03 — Implement three ordinary blend modes on CPU and both D3D11 paths
+
+Multiply, screen and overlay now have source implementations for ordinary
+scene quads and legacy FillRect commands. CPU and GPU compute the same adjusted
+source term before source-over composition, preserving source alpha. Batch
+drawing splits supported occurrences in presentation order, and each occurrence
+reads the current destination after preceding draws. Isolated groups use their
+existing foreground-plus-backdrop destination while keeping coverage separate.
+Normal and additive retain their previous path; additive correctness and full
+View/group blend semantics remain open requirements.
+
+Destination texture allocations are reused until resize or detach, but pixels
+are copied again for every supported draw. Binding cleanup also runs after a
+failed draw. Legacy frames containing supported fills use D3D11 with the required
+premultiplied clear and can return to Direct2D on a later eligible frame. The
+legacy test seam uses WARP drawing without an HWND or Present; it is explicitly
+not native/display qualification. Material combinations and other primitive
+families remain outside this implementation slice without leaving the goal.
+
+Forty new methods cover fixed numerical values, CPU output, both real D3D11
+drawing routes, coverage, nested composition, destination refresh, resource
+reuse, failure cleanup and strict WARP behavior. Nine selected existing methods
+retain carrier/additive checks while replacing obsolete no-op expectations with
+the newly implemented colors where appropriate. Those expectation changes are
+intentional behavior coverage, not removal of backend-agreement assertions.
+The exact Blend49 roster remains separate from Calendar/Text and the original
+155-method gate.
+
+Root integration verified 817 preexisting runtime, compatibility, test and goal
+files remained byte-identical, excluding only the two reviewed blend test files
+whose expectations intentionally changed. The receipt is
+`artifacts/blend-integration-74baff93.json`. Architecture checks before and
+after integration and strict lint on all 15 changed Swift files passed.
+Compilation and runtime tests have not yet executed on this integrated source.
+No gallery baseline, live GPU result, native-reference comparison, hardware
+performance result or completion gate is claimed from source review alone.

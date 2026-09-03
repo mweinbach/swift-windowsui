@@ -46,7 +46,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   `scripts/test-lint-paths.ps1` checks selection and failure propagation using
   owned synthetic files and fake tooling; it never runs a formatter or compiler.
 - `agent-check.ps1 -Quick` runs contract checks, focused scene/renderer/runtime tests (including the two WARP suites, `D3D11BatchRendererRenderTests` and `CrossBackendPixelParityTests`, the pixel-format contract `PixelFormatContractTests`, and the device-loss suites `DeviceLostPolicyTests` / `DeviceLossRecoveryTests` / `PresentationFailurePolicyTests`), and the demo executable build serially. Add `-GalleryCompare` to also run the gallery regression gate.
-- Four P1 invariant suites gate Quick as well: `ScenePresentationOrderTests` (the single draw-order authority), `SharedCoverageKernelTests` (the CPU/GPU coverage kernel), `CPUGPUBlendModeContractTests` (source-over on both paths) and `ClipAbstractionTests` (one clip value, one space). All four are cheap — 0.02 s to 0.4 s of test time each, ~2.5 s of wall clock apiece once the build is warm, since a `swift test` invocation dominates. The remaining P1 suites (`CPURasterizerGPUModelTests`, `PathRasterizationQualityTests`, `BorderCornerArcGeometryTests`, `TextShapingPipelineTests`) stay Full-only. Keep the Quick gate under ~10 minutes: measure a candidate before promoting it.
+- Four P1 invariant suites gate Quick as well: `ScenePresentationOrderTests` (the single draw-order authority), `SharedCoverageKernelTests` (the CPU/GPU coverage kernel), `CPUGPUBlendModeContractTests` (ordinary multiply/screen/overlay and unchanged normal/additive behavior) and `ClipAbstractionTests` (one clip value, one space). The expanded blend selection needs fresh timing before earlier Quick runtime estimates can be reused. The remaining P1 suites (`CPURasterizerGPUModelTests`, `PathRasterizationQualityTests`, `BorderCornerArcGeometryTests`, `TextShapingPipelineTests`) stay Full-only. Keep the Quick gate under ~10 minutes: measure a candidate before promoting it.
 - Three P2 invariant suites joined them in P2F-GATES: `RenderPassAbstractionTests` (0.71 s — the render-pass vocabulary both backends speak; the contract check can only see that each side *mentions* the shared derivations, this checks they agree on the answers), `StrokeStyleContractTests` (0.03 s — caps, joins and the bounds outset that has to cover them, on both stroke routes), and `GlyphAtlasExhaustionSafetyTests` (0.06 s — never ship a glyph quad addressing someone else's atlas cell). All three are invisible to the screenshot gates: a stale UV renders as a plausible wrong character, and a blur schedule mismatch only shows on the GPU, which no screenshot goes through. The heavier P2 suites (`D3D11PathCacheTests`, `PathDashingTests`, `CacheComplexityAndReclamationTests`, `LazyStackVirtualizationTests`) stay Full-only.
 - Product/runtime behavior also gates Quick: `GradientRenderingFidelityTests`, `PathGradientRenderingTests`, and `CanvasPathGradientIntegrationTests` check directional GPU-quad promotion, CPU/D3D11 gradient parity, authored stops/endpoints, retained lowering, and frame degradation; `ViewNodeSparseStorageTests` pins genuinely lazy optional capabilities and IME/caret callback reconciliation; `ListVirtualizationTests` pins viewport-bounded large-list layout, exact pixels, far-row keyboard navigation, programmatic scrolling, and accessibility placeholders; `UIAAdvancedPatternTests` drives secure Value, Toggle, Selection/SelectionItem, and VirtualizedItem patterns through real COM vtables; `HighContrastSystemPaletteTests` pins exact native contrast-theme role propagation; `TextInputSelectionTests` covers Unicode/grapheme-aware word navigation and bound selection; `DemoCommandPaletteAndTableWorkflowTests` covers global command shortcuts, responsive product chrome, sorting, pagination, and validated settings; `RuntimeProgrammaticScrollTests` plus `WinSwiftUIScrollViewReaderTests` pin anchored scrolling, first-render replay, deferred lazy rows, and reader ownership; and `ClipboardFileFormatTests` plus `DropFilesPayloadHardeningTests` keep typed paste and hostile cross-process file-list validation fail-closed.
 - Quick also registers the document file/session/undo and template-hosting
@@ -1136,13 +1136,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   coverage at each 45° midpoint, the arc union spanning the whole corner
   square, areas and counts agreeing across quadrants, no sub-arc inverting,
   and full-width and dashed borders still emitting every corner.
-- `CPUGPUBlendModeContractTests` — source-over, and only source-over, on
-  **both** paths: every mode rasterizes as `.normal` on the scene path and
-  on the frame path, a `.multiply` overlay matches on WARP, and the mode
-  still survives onto `QuadPrimitive.blendMode` — through the painter and
-  through `GPUISceneBridge` — so the decision stays reversible. Landing the
-  opposite decision means implementing the modes on the GPU and deleting
-  this suite.
+- `CPUGPUBlendModeContractTests` — ordinary multiply/screen/overlay reference
+  pixels on CPU, comparisons with D3D11 batch output, CPU frame-to-scene
+  conversion, unchanged normal/additive behavior, and mode preservation on
+  `QuadPrimitive` and through `GPUISceneBridge`. The suite remains in place;
+  implementing these three modes does not delete its compatibility checks.
+  `D3D11LegacySeparableBlendTests` and `D3D11LegacyBlendScissorCoverageTests`
+  separately exercise the actual legacy `FillRectCommand` kernel rather than
+  only the frame-to-scene bridge. Their strict WARP composition swap chain
+  draws without an HWND or Present and does not establish native/display
+  qualification. These definitions are not a recorded execution result.
+  Additive/plusLighter correctness, material-plus-blend combinations, other
+  primitive families and remaining public modes, and complete View/group
+  semantics remain open.
 - `SystemAppearanceTests` — sampling, the mapping tables, and the
   settings-change routing: the generic high-frequency broadcasts
   (environment, policy) are filtered when the four-field snapshot did not

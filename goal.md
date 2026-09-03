@@ -20721,3 +20721,46 @@ The original patch's absolute Windows headers are preserved as provenance;
 the portable derivative changes only those headers. Source review found no
 concrete blocker, but compilation, actual positive acceptance, refusal,
 cache recovery and rendering remain unqualified. No completion gate changes.
+
+
+### 2026-09-03: integrate native field-chrome transport for unchanged regression testing
+
+The six-source candidate now transports a closed native text/style/caret recipe
+through the original retained reconciliation. It takes an operation-entry
+census before authored callbacks, binds the original matched field and label,
+and keeps generated rows hidden until their original attachment, identity,
+layout and completion evidence permits activation. Checked insertion retains
+the existing journal, task and UIA authority; Button adoption admits only the
+disjoint ownerless native forest and finishes visibility before closing its
+existing permission. Provisional construction ownership is released before
+the final checks, so captured payload cleanup cannot run after publication.
+
+The source does not re-read matching children after reconciliation callbacks,
+refresh stale original receipts, stamp native rows as authored sources, bypass
+existing hidden-state invalidation, or substitute an expected refusal for a
+required positive result. Acknowledged cache entries carry weak installation
+evidence; refusal, removal or attachment change cannot permanently suppress a
+later normal refresh using the same value. The payload inventory remains
+deliberately conservative and requires regression coverage as node fields grow.
+
+Root and independent positive/negative source reviews found no concrete
+blocker. Initial strict lint found style differences. The separate formatter
+derivative changes wrapping in ComponentHost/Runtime and wrapping, three
+redundant ternary parentheses and one statement separator in the new helper;
+root reviewed all 148 diff lines and verified these exact changes. The other
+three source files are byte-identical to the frozen candidate. All six files
+pass strict lint and pre-integration architecture contracts. Original sealed
+sources and test freezes remain preserved.
+
+The integration receipt is `artifacts/field-chrome-source-integration.json`,
+SHA256 `8cb5a8062b09e22aef124c4a5f0e7783ea31efbd1d0ae1d48dc7a17b0f27d087`.
+The original eight, transport seven and supplemental three methods are all
+unchanged. Their next exact selection is
+`artifacts/field-chrome-candidate-after18.json`, SHA256 `49a4631fce9fc6cffdd09c67560bf37ba5fdacbec52a368ed24a0acbc98614f6`,
+with 34 verified source pins. Compilation and runtime behavior have not yet
+been observed for this correction. Earlier failures remain evidence; no
+full-suite, native presentation, timing or completion-gate claim is made.
+
+Post-integration strict lint and architecture contracts also passed. The
+architecture and current limits are documented in
+`docs/TextInputChromeAdoption.md`; it does not claim completed native parity.

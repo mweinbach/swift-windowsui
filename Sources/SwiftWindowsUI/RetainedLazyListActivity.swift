@@ -2077,6 +2077,15 @@ final class RetainedOwnedPhysicalReferenceHolder {
         self.storage === storage && targetID === storage.targetID && attachmentID === storage.attachmentID
     }
 
+    /// Checked insertion may allocate an empty native binding for chrome.
+    /// A withdrawn or superseded holder is not that binding, even when empty.
+    var hasOnlyTextInputChromeBookkeeping: Bool {
+        guard fields.isEmpty, let storage, matches(storage), storage.ownedPhysicalReferences === self else {
+            return false
+        }
+        return true
+    }
+
     fileprivate func contains(_ reference: RetainedOwnedPhysicalReference) -> Bool {
         guard let storage, matches(storage) else { return false }
         return fields[reference.field]?.contains(where: { $0 === reference }) == true
@@ -2226,6 +2235,37 @@ final class RetainedLazyListNodeActivityStorage {
         let attachment = RetainedLazyListAttachmentID()
         attachmentID = attachment
         descriptorOwnerLifetime = RetainedLazyListDescriptorOwnerLifetime(target: targetID, attachment: attachment)
+    }
+
+    /// Journal preparation and actual-attachment capture can create these
+    /// identities without declaring a source, contribution, or owned field.
+    /// Inspect only stored native presence; never mint a witness or ask an
+    /// authored payload to compare itself while qualifying generated chrome.
+    var hasOnlyTextInputChromeBookkeeping: Bool {
+        guard descriptorOwnerLifetime.isCurrent, descriptorOwnerLifetime.target === targetID,
+            descriptorOwnerLifetime.attachment === attachmentID,
+            sourceOutputs.isEmpty, sourceDescriptor == nil, descriptorOutputs.isEmpty,
+            committedDescriptorContributions.isEmpty, !wasRejectedSource,
+            ownedCandidateField == nil, ownedCandidateBoundarySource == nil,
+            ownedCandidateDeferredSource == nil, ownedCandidateDeferredAnchor == nil,
+            ownedPayloadPermissions.isEmpty, ownedStructuralPermissions.isEmpty,
+            ownedEmptyStructuralPermissions.isEmpty, ownedEmptyStructuralNamespaces.isEmpty,
+            ownedDeclaredStructuralPermissions.isEmpty, ownedDeclaredStructuralNamespaces.isEmpty,
+            ownedPayloadComponents.isEmpty, ownedStructuralComponents.isEmpty,
+            ownedEmptyStructuralComponents.isEmpty, ownedEmptyRowRevisions.isEmpty,
+            ownedDeclaredStructuralComponents.isEmpty, ownedDeclaredStructuralRevision == 0,
+            ownedRegionStructuralPermissions.isEmpty, ownedRegionStructuralComponents.isEmpty,
+            ownedDeferredRegions.isEmpty, ownedScopeDeclaredSlots.isEmpty,
+            ownedScopeDeclaredComponents.isEmpty, acceptedLogicalDeclaration == nil,
+            committedContributions.isEmpty, physicalAttachmentRetirements.isEmpty,
+            deferredSubtreeAnchor == nil, descriptorDeferredSubtreeAnchor == nil
+        else { return false }
+        if let holder = ownedPhysicalReferences {
+            guard holder.matches(self), holder.hasOnlyTextInputChromeBookkeeping else { return false }
+        }
+        // Empty map/binding observations contain only native identity. Their
+        // weak presence cannot supply a source, permission, or component.
+        return true
     }
 
     func captureActualAttachment(of node: ViewNode, in runtime: RetainedViewRuntime) -> RetainedLazyListActualAttachment

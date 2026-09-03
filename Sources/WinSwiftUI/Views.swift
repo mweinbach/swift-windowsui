@@ -15381,9 +15381,9 @@ private final class TextInputInteractionController: TextInputAccessibilityValueR
             visualCaretAffinity = authoredSelection?.affinity ?? .downstream
         }
 
-        // Complete this edit's predictable Field chrome on the incoming
-        // construction tree. ComponentHost adopts those children after this
-        // method returns; refreshing live children here would be overwritten.
+        // Stage this edit's predictable Field chrome using the original
+        // construction registration. The native adoption scope transports
+        // it without changing the source's already-captured child list.
         // The constructor's cached text/style need no replacement getter.
         if let previous, previous.accessibilityValueOwner === accessibilityValueOwner,
             accessibilityValueOwner.isValid, accessibilityValueOwner.hasStagedSelection,
@@ -15594,28 +15594,37 @@ private func textInputComponent(
         if !allowsNewlines, !isSecure {
             let constructedLabelStyle = labelNode.textStyle
             let constructedSelectionColor = context.tint.opacity(0.35)
+            let registration = RetainedTextInputChromeRegistration(
+                source: node, controller: controller, label: labelNode,
+                text: contentText, style: constructedLabelStyle)
+            node.textInputChromeRegistration = registration
+            chromeState.registration = registration
             controller.prepareFieldChromeForAdoption = {
                 [weak controller, weak node, weak labelNode] candidate, editing in
                 guard let controller, let node, let labelNode, candidate === node,
                     let retained = controller.node, retained !== candidate,
                     controller.current === controller, candidate.textInputController === controller,
-                    chromeState.signature == nil,
+                    chromeState.signature == nil, chromeState.preparedSignature == nil,
                     candidate.children.count == 1, candidate.children.first === labelNode,
                     labelNode.parent === candidate, labelNode.children.isEmpty,
                     labelNode.textInputController == nil, !labelNode.isHidden,
                     labelNode.text == contentText, labelNode.textStyle == constructedLabelStyle
                 else { return }
-                // Unexpected authored children or a reused candidate remain
-                // untouched. Only these fresh framework rows are appended;
-                // even the original label is never removed and reattached.
-                updateTextInputEditingChrome(
-                    node: candidate, labelNode: labelNode, contentText: contentText,
-                    isShowingPlaceholder: isShowingPlaceholder, caretColor: textColor,
-                    selectionColor: constructedSelectionColor,
-                    caretSize: Size(width: 1.5, height: caretLineHeight),
-                    state: chromeState, editingState: editing, preparingDetachedCandidate: true,
-                    makeSegmentLabel: { makeTextLabel($0) },
-                    makeMarkedSegmentLabel: { makeTextLabel($0, underlined: true) })
+                let presentation = TextInputEditingChromePresentation(
+                    contentText: contentText, isShowingPlaceholder: isShowingPlaceholder,
+                    editing: editing)
+                guard presentation.signature.isActive,
+                    let installation = registration.stage(
+                        recipe: presentation.recipe(
+                            style: constructedLabelStyle, caretColor: textColor,
+                            selectionColor: constructedSelectionColor,
+                            caretSize: Size(width: 1.5, height: caretLineHeight)))
+                else { return }
+                // The receipt exposes no generated node. A signature only
+                // becomes reusable after the outer native scope acknowledges
+                // its exact installation; refusal leaves the base visible.
+                chromeState.preparedSignature = presentation.signature
+                chromeState.preparedInstallation = installation
             }
         }
         @MainActor func refreshChrome() {
@@ -15655,6 +15664,7 @@ private func textInputComponent(
             if labelChanged { labelNode.text = contentText }
             let changedChrome = updateTextInputEditingChrome(
                 node: node,
+                controller: controller,
                 labelNode: labelNode,
                 contentText: contentText,
                 isShowingPlaceholder: isShowingPlaceholder,
@@ -16836,7 +16846,203 @@ private final class TextInputEditingChromeState {
         var markedText: String
     }
 
+    final class RefreshAttempt {
+        let signature: Signature
+
+        init(signature: Signature) { self.signature = signature }
+    }
+
+    var registration: RetainedTextInputChromeRegistration?
     var signature: Signature?
+    var preparedSignature: Signature?
+    var preparedInstallation: RetainedTextInputChromeInstallation?
+    private var cache: RetainedTextInputChromeCache?
+    private var refreshAttempt: RefreshAttempt?
+
+    @MainActor
+    private func resolvePreparedInstallation() {
+        guard let installation = preparedInstallation else { return }
+        if installation.isAcknowledged, installation.isCurrent,
+            let observation = installation.cacheObservation, observation.isCurrent
+        {
+            signature = preparedSignature
+            cache = observation
+        }
+        if installation.isAcknowledged || !installation.isCurrent {
+            preparedSignature = nil
+            preparedInstallation = nil
+        }
+    }
+
+    @MainActor
+    func beginRefresh(signature: Signature) -> RefreshAttempt? {
+        resolvePreparedInstallation()
+        if let refreshAttempt {
+            // Preserve the old equal-state recursion suppression without
+            // treating work in progress as an installed cache entry.
+            guard refreshAttempt.signature != signature else { return nil }
+        } else if self.signature == signature, cache?.isCurrent == true {
+            return nil
+        }
+        let attempt = RefreshAttempt(signature: signature)
+        refreshAttempt = attempt
+        return attempt
+    }
+
+    @MainActor
+    func completeRefresh(
+        _ attempt: RefreshAttempt, root: ViewNode, field: ViewNode,
+        controller: TextInputInteractionController
+    ) {
+        guard refreshAttempt === attempt else { return }
+        let observation = RetainedTextInputChromeCache(root: root, field: field, controller: controller)
+        guard refreshAttempt === attempt else { return }
+        refreshAttempt = nil
+        preparedSignature = nil
+        preparedInstallation = nil
+        cache = observation
+        signature = observation?.isCurrent == true ? attempt.signature : nil
+    }
+
+    func endRefresh(_ attempt: RefreshAttempt) {
+        if refreshAttempt === attempt { refreshAttempt = nil }
+    }
+}
+
+/// One scalar segmentation algorithm serves both normal refresh and the
+/// detached native recipe. No node, binding, or callback enters this value.
+private struct TextInputEditingChromePresentation {
+    enum Segment {
+        case text(String)
+        case markedText(String)
+        case selectedText(String)
+        case caret
+        case selectionTail
+    }
+
+    let signature: TextInputEditingChromeState.Signature
+    private let displayText: String
+    private let selection: Range<Int>?
+    private let caret: Int
+    private let markedRange: Range<Int>?
+    private let showsCaret: Bool
+
+    init(
+        contentText: String, isShowingPlaceholder: Bool,
+        editing: TextInputEditingChromeState.EditingState
+    ) {
+        let baseSelection =
+            isShowingPlaceholder ? nil : editing.selection?.editableCharacterRange(in: contentText)
+        let baseCaret = clampedTextOffset(editing.caret, in: contentText)
+        let display = textInputCompositionDisplayState(
+            contentText: contentText, caret: baseCaret, selection: baseSelection,
+            markedText: editing.markedText)
+        displayText = display.text
+        selection = display.selection
+        caret = display.caret
+        markedRange = display.markedRange
+        showsCaret = editing.isFocused && display.selection == nil
+        signature = TextInputEditingChromeState.Signature(
+            contentText: contentText,
+            isShowingPlaceholder: isShowingPlaceholder,
+            isFocused: editing.isFocused,
+            caret: display.caret,
+            selectionLower: display.selection?.lowerBound ?? display.caret,
+            selectionUpper: display.selection?.upperBound ?? display.caret,
+            isActive: showsCaret || display.selection != nil || display.markedRange != nil,
+            markedText: editing.markedText ?? "")
+    }
+
+    private func row(line: String, lineLowerBound: Int, isCaretLine: Bool) -> [Segment] {
+        let lineUpperBound = lineLowerBound + line.count
+        var segments: [Segment] = []
+        let selectionInLine: Range<Int>? = selection.flatMap { range in
+            let lower = max(range.lowerBound, lineLowerBound)
+            let upper = min(range.upperBound, lineUpperBound)
+            return lower < upper ? (lower - lineLowerBound)..<(upper - lineLowerBound) : nil
+        }
+        let selectionIncludesLineBreak =
+            selection.map { $0.lowerBound <= lineUpperBound && $0.upperBound > lineUpperBound } ?? false
+        let markedInLine: Range<Int>? = markedRange.flatMap { range in
+            let lower = max(range.lowerBound, lineLowerBound)
+            let upper = min(range.upperBound, lineUpperBound)
+            return lower < upper ? (lower - lineLowerBound)..<(upper - lineLowerBound) : nil
+        }
+
+        if let markedInLine {
+            let pre = line.textSubstring(in: 0..<markedInLine.lowerBound)
+            let marked = line.textSubstring(in: markedInLine)
+            let post = line.textSubstring(in: markedInLine.upperBound..<line.count)
+            if !pre.isEmpty { segments.append(.text(pre)) }
+            segments.append(.markedText(marked))
+            if isCaretLine { segments.append(.caret) }
+            if !post.isEmpty { segments.append(.text(post)) }
+        } else if let selectionInLine {
+            let pre = line.textSubstring(in: 0..<selectionInLine.lowerBound)
+            let highlighted = line.textSubstring(in: selectionInLine)
+            let post = line.textSubstring(in: selectionInLine.upperBound..<line.count)
+            if !pre.isEmpty { segments.append(.text(pre)) }
+            segments.append(.selectedText(highlighted))
+            if !post.isEmpty { segments.append(.text(post)) }
+        } else if isCaretLine {
+            let caretColumn = caret - lineLowerBound
+            let pre = line.textSubstring(in: 0..<caretColumn)
+            let post = line.textSubstring(in: caretColumn..<line.count)
+            if !pre.isEmpty { segments.append(.text(pre)) }
+            segments.append(.caret)
+            if !post.isEmpty { segments.append(.text(post)) }
+        } else {
+            segments.append(.text(line))
+        }
+        if selectionIncludesLineBreak { segments.append(.selectionTail) }
+        return segments
+    }
+
+    var rows: [[Segment]] {
+        var lineRanges: [Range<Int>] = []
+        var lineStart = 0
+        var offset = 0
+        for character in displayText {
+            if character == "\n" {
+                lineRanges.append(lineStart..<offset)
+                lineStart = offset + 1
+            }
+            offset += 1
+        }
+        lineRanges.append(lineStart..<offset)
+        let caretLineIndex = lineRanges.lastIndex(where: { $0.lowerBound <= caret }) ?? 0
+        return lineRanges.enumerated().map { index, lineRange in
+            row(
+                line: displayText.textSubstring(in: lineRange), lineLowerBound: lineRange.lowerBound,
+                isCaretLine: showsCaret && index == caretLineIndex)
+        }
+    }
+
+    @MainActor
+    func recipe(
+        style: PixelTextStyle, caretColor: Color, selectionColor: Color, caretSize: Size
+    ) -> RetainedTextInputChromeRecipe {
+        RetainedTextInputChromeRecipe(
+            rows: rows.map { row in
+                row.map { segment in
+                    switch segment {
+                    case .text(let text):
+                        return .text(text, style: style, background: nil)
+                    case .markedText(let text):
+                        var markedStyle = style
+                        markedStyle.underline = true
+                        return .text(text, style: markedStyle, background: nil)
+                    case .selectedText(let text):
+                        return .text(text, style: style, background: selectionColor)
+                    case .caret:
+                        return .caret(caretSize, caretColor)
+                    case .selectionTail:
+                        return .selectionTail(
+                            Size(width: caretSize.width * 3, height: caretSize.height), selectionColor)
+                    }
+                }
+            })
+    }
 }
 /// Display-space text state while an IME composition is active: the marked
 /// (composition) text visually replaces the selection — or inserts at the
@@ -16904,6 +17110,7 @@ private func queueTextFieldContentLayout(controller: TextInputInteractionControl
 @discardableResult
 private func updateTextInputEditingChrome(
     node: ViewNode,
+    controller: TextInputInteractionController,
     labelNode: ViewNode,
     contentText: String,
     isShowingPlaceholder: Bool,
@@ -16912,60 +17119,27 @@ private func updateTextInputEditingChrome(
     caretSize: Size,
     markedText: String? = nil,
     state: TextInputEditingChromeState,
-    editingState: TextInputEditingChromeState.EditingState? = nil,
-    preparingDetachedCandidate: Bool = false,
     makeSegmentLabel: @MainActor (String) -> ViewNode,
     makeMarkedSegmentLabel: (@MainActor (String) -> ViewNode)? = nil
 ) -> ViewNode? {
-    if preparingDetachedCandidate {
-        guard node.children.count == 1, node.children.first === labelNode,
-            labelNode.parent === node, labelNode.children.isEmpty
-        else { return nil }
-    }
-    let editing =
-        editingState
-        ?? TextInputEditingChromeState.EditingState(
+    let presentation = TextInputEditingChromePresentation(
+        contentText: contentText, isShowingPlaceholder: isShowingPlaceholder,
+        editing: TextInputEditingChromeState.EditingState(
             caret: node.textInputCaretOffset, selection: node.textInputSelection,
-            isFocused: node.isFocused, markedText: markedText)
-    let baseSelection =
-        isShowingPlaceholder ? nil : editing.selection?.editableCharacterRange(in: contentText)
-    let baseCaret = clampedTextOffset(editing.caret, in: contentText)
-    let display = textInputCompositionDisplayState(
-        contentText: contentText,
-        caret: baseCaret,
-        selection: baseSelection,
-        markedText: editing.markedText
-    )
-    let displayText = display.text
-    let selection = display.selection
-    let caret = display.caret
-    let markedRange = display.markedRange
-    let showsHighlight = selection != nil
-    let showsCaret = editing.isFocused && selection == nil
-    let isActive = showsCaret || showsHighlight || markedRange != nil
-    let signature = TextInputEditingChromeState.Signature(
-        contentText: contentText,
-        isShowingPlaceholder: isShowingPlaceholder,
-        isFocused: editing.isFocused,
-        caret: caret,
-        selectionLower: selection?.lowerBound ?? caret,
-        selectionUpper: selection?.upperBound ?? caret,
-        isActive: isActive,
-        markedText: editing.markedText ?? ""
-    )
-    guard signature != state.signature else {
-        return nil
-    }
-    state.signature = signature
+            isFocused: node.isFocused, markedText: markedText))
+    guard let attempt = state.beginRefresh(signature: presentation.signature) else { return nil }
+    defer { state.endRefresh(attempt) }
 
-    if !isActive {
+    if !presentation.signature.isActive {
         let visibilityChanged = labelNode.isHidden
         if visibilityChanged { labelNode.isHidden = false }
         guard node.children.count != 1 || node.children.first !== labelNode else {
+            state.completeRefresh(attempt, root: labelNode, field: node, controller: controller)
             return visibilityChanged ? labelNode : nil
         }
         node.removeAllChildren()
         node.addChild(labelNode)
+        state.completeRefresh(attempt, root: labelNode, field: node, controller: controller)
         return labelNode
     }
 
@@ -16989,98 +17163,27 @@ private func updateTextInputEditingChrome(
         return tail
     }
 
-    @MainActor func makeRow(line: String, lineLowerBound: Int, isCaretLine: Bool) -> ViewNode {
-        let lineUpperBound = lineLowerBound + line.count
-        var children: [ViewNode] = []
-
-        let selectionInLine: Range<Int>? = selection.flatMap { range in
-            let lower = max(range.lowerBound, lineLowerBound)
-            let upper = min(range.upperBound, lineUpperBound)
-            return lower < upper ? (lower - lineLowerBound)..<(upper - lineLowerBound) : nil
+    let rows = presentation.rows.map { row in
+        let children = row.map { segment -> ViewNode in
+            switch segment {
+            case .text(let text):
+                return makeSegmentLabel(text)
+            case .markedText(let text):
+                return makeMarkedSegmentLabel?(text) ?? makeSegmentLabel(text)
+            case .selectedText(let text):
+                let label = makeSegmentLabel(text)
+                label.backgroundColor = selectionColor
+                return label
+            case .caret:
+                return makeCaretNode()
+            case .selectionTail:
+                return makeHighlightTail()
+            }
         }
-        let selectionIncludesLineBreak =
-            selection.map { $0.lowerBound <= lineUpperBound && $0.upperBound > lineUpperBound } ?? false
-        let markedInLine: Range<Int>? = markedRange.flatMap { range in
-            let lower = max(range.lowerBound, lineLowerBound)
-            let upper = min(range.upperBound, lineUpperBound)
-            return lower < upper ? (lower - lineLowerBound)..<(upper - lineLowerBound) : nil
-        }
-
-        if let markedInLine {
-            // IME marked text: underlined segment, caret at its end.
-            let pre = line.textSubstring(in: 0..<markedInLine.lowerBound)
-            let marked = line.textSubstring(in: markedInLine)
-            let post = line.textSubstring(in: markedInLine.upperBound..<line.count)
-            if !pre.isEmpty {
-                children.append(makeSegmentLabel(pre))
-            }
-            if let makeMarkedSegmentLabel {
-                children.append(makeMarkedSegmentLabel(marked))
-            } else {
-                children.append(makeSegmentLabel(marked))
-            }
-            if isCaretLine {
-                children.append(makeCaretNode())
-            }
-            if !post.isEmpty {
-                children.append(makeSegmentLabel(post))
-            }
-        } else if let selectionInLine {
-            let pre = line.textSubstring(in: 0..<selectionInLine.lowerBound)
-            let highlighted = line.textSubstring(in: selectionInLine)
-            let post = line.textSubstring(in: selectionInLine.upperBound..<line.count)
-            if !pre.isEmpty {
-                children.append(makeSegmentLabel(pre))
-            }
-            let highlightLabel = makeSegmentLabel(highlighted)
-            highlightLabel.backgroundColor = selectionColor
-            children.append(highlightLabel)
-            if !post.isEmpty {
-                children.append(makeSegmentLabel(post))
-            }
-        } else if isCaretLine {
-            let caretColumn = caret - lineLowerBound
-            let pre = line.textSubstring(in: 0..<caretColumn)
-            let post = line.textSubstring(in: caretColumn..<line.count)
-            if !pre.isEmpty {
-                children.append(makeSegmentLabel(pre))
-            }
-            children.append(makeCaretNode())
-            if !post.isEmpty {
-                children.append(makeSegmentLabel(post))
-            }
-        } else {
-            children.append(makeSegmentLabel(line))
-        }
-        if selectionIncludesLineBreak {
-            children.append(makeHighlightTail())
-        }
-
         return Controls.stackPanel(
             stackLayout: .horizontal(spacing: 0, padding: .zero, alignment: .center),
             isHitTestVisible: false,
             children: children
-        )
-    }
-
-    var lineRanges: [Range<Int>] = []
-    var lineStart = 0
-    var offset = 0
-    for character in displayText {
-        if character == "\n" {
-            lineRanges.append(lineStart..<offset)
-            lineStart = offset + 1
-        }
-        offset += 1
-    }
-    lineRanges.append(lineStart..<offset)
-
-    let caretLineIndex = lineRanges.lastIndex(where: { $0.lowerBound <= caret }) ?? 0
-    let rows = lineRanges.enumerated().map { index, lineRange in
-        makeRow(
-            line: displayText.textSubstring(in: lineRange),
-            lineLowerBound: lineRange.lowerBound,
-            isCaretLine: showsCaret && index == caretLineIndex
         )
     }
     let contentNode: ViewNode
@@ -17095,11 +17198,10 @@ private func updateTextInputEditingChrome(
     }
 
     labelNode.isHidden = true
-    if !preparingDetachedCandidate {
-        node.removeAllChildren()
-        node.addChild(labelNode)
-    }
+    node.removeAllChildren()
+    node.addChild(labelNode)
     node.addChild(contentNode)
+    state.completeRefresh(attempt, root: contentNode, field: node, controller: controller)
     return contentNode
 }
 /// Maps a root-space pointer point to a character offset in a retained text

@@ -1200,23 +1200,28 @@ public final class ComponentHost {
         lazyJournal: RetainedLazyListAdoptionJournal? = nil,
         uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil
     ) -> RetainedLazyListAdoptionResult {
+        let textInputChrome = RetainedTextInputChromeAdoptionScope(retainedRoots: [target], sourceRoots: [source])
         let buttonActions = RetainedButtonActionAdoption(retainedRoots: [target], sourceRoots: [source])
         // Keep the final primitive check outside the scope that owns matching,
         // transaction and retired-property payloads. Their destruction can
         // synchronously replace or close the provider.
         let check = NodeReconcileAdmission(
             admission, source: source, target: target, lazyJournal: lazyJournal, taskAdoption: taskAdoption,
-            buttonActions: buttonActions, uiaAuthority: uiaAuthority)
+            buttonActions: buttonActions, uiaAuthority: uiaAuthority, textInputChrome: textInputChrome)
+        textInputChrome?.associateOriginalContext(
+            admission: admission, lazyJournal: lazyJournal, taskAdoption: taskAdoption,
+            buttonActions: buttonActions, uiaAuthority: check.uiaAuthority)
         var completion: RetainedLazyListAdoptionCompletion?
         let completed = performAdoption(
             source: source, into: target, admission: admission, taskAdoption: taskAdoption,
             lazyJournal: lazyJournal, buttonActions: buttonActions, uiaAuthority: check.uiaAuthority,
-            completion: &completion)
+            completion: &completion, textInputChrome: textInputChrome)
+        if buttonActions == nil { textInputChrome?.closeAndReleaseConstruction() }
         let stayedCurrent = (completed || check.uiaAuthority != nil) && check.isCurrent
         return adoptionResult(
             of: target, completed: completed && stayedCurrent,
             admission: admission, completion: completion, lazyJournal: lazyJournal, buttonActions: buttonActions,
-            uiaAuthority: check.uiaAuthority, check: check)
+            uiaAuthority: check.uiaAuthority, check: check, textInputChrome: textInputChrome)
     }
 
     private static func performAdoption(
@@ -1224,11 +1229,11 @@ public final class ComponentHost {
         admission: RetainedLazyListAdoptionAdmission?, taskAdoption: RetainedTaskAdoptionContext?,
         lazyJournal: RetainedLazyListAdoptionJournal?,
         buttonActions: RetainedButtonActionAdoption?, uiaAuthority: RetainedLazyListUIAContinuationAuthority?,
-        completion: inout RetainedLazyListAdoptionCompletion?
+        completion: inout RetainedLazyListAdoptionCompletion?, textInputChrome: RetainedTextInputChromeAdoptionScope?
     ) -> Bool {
         let check = NodeReconcileAdmission(
             admission, source: source, target: target, lazyJournal: lazyJournal, taskAdoption: taskAdoption,
-            buttonActions: buttonActions, uiaAuthority: uiaAuthority)
+            buttonActions: buttonActions, uiaAuthority: uiaAuthority, textInputChrome: textInputChrome)
         guard check.isCurrent, admission?.permitsMutation(of: target) != false else { return false }
         guard source.selectedContentRole == target.selectedContentRole else { return false }
         if lazyJournal != nil, source.containsRejectedRetainedSource { return false }
@@ -1244,6 +1249,11 @@ public final class ComponentHost {
         } else {
             completionSources = nil
         }
+        guard
+            textInputChrome?.bind(
+                source: source, target: target, strict: check.requiresCheckedReconciliation || buttonActions != nil)
+                != false
+        else { return false }
         let preservesChildren = preservesLazyListChildren(source: source, target: target)
         let newNodes = target.childrenForLazyListReconciliation(from: source)
         let oldChildren = target.children
@@ -1287,7 +1297,7 @@ public final class ComponentHost {
         let propertyCheck = NodeReconcileAdmission(
             admission, source: source, target: target, childrenSnapshot: plan?.childrenSnapshot,
             lazyJournal: lazyJournal, taskAdoption: taskAdoption, buttonActions: buttonActions,
-            uiaAuthority: check.uiaAuthority)
+            uiaAuthority: check.uiaAuthority, textInputChrome: textInputChrome)
         let previous = admission?.isLogicalInsertion(source: source) == true ? nil : target
         let completed = withReconcileAnimationTransaction(source: source, previous: previous, check: propertyCheck) {
             guard plan?.isCurrent != false, plan?.stillOwnsOldChildren != false else { return false }
@@ -1303,7 +1313,7 @@ public final class ComponentHost {
                 of: target, oldChildren: oldChildren, newNodes: newNodes, plan: plan, admission: admission,
                 preservesChildren: preservesChildren, sourceParent: source,
                 taskAdoption: taskAdoption, lazyJournal: lazyJournal, completionSources: completionSources,
-                buttonActions: buttonActions, uiaAuthority: check.uiaAuthority)
+                buttonActions: buttonActions, uiaAuthority: check.uiaAuthority, textInputChrome: textInputChrome)
         }
         guard completed, check.isCurrent else { return false }
         check.recordCompletedNode(from: source, to: target)
@@ -1326,14 +1336,26 @@ public final class ComponentHost {
         of parent: ViewNode, completed: Bool, admission: RetainedLazyListAdoptionAdmission?,
         completion: RetainedLazyListAdoptionCompletion?, lazyJournal: RetainedLazyListAdoptionJournal?,
         buttonActions: RetainedButtonActionAdoption?, uiaAuthority: RetainedLazyListUIAContinuationAuthority?,
-        check: NodeReconcileAdmission
+        check: NodeReconcileAdmission, textInputChrome: RetainedTextInputChromeAdoptionScope?
     ) -> RetainedLazyListAdoptionResult {
         let isComplete =
             completed && admission?.isCurrent != false && uiaAuthority?.isCurrent != false
             && ((admission == nil && lazyJournal?.isOrdinaryAdoption != false && uiaAuthority == nil)
                 || completion?.isCurrent == true)
-        let actionsAccepted =
-            buttonActions?.finish(completed: isComplete, check: check, completion: completion) ?? isComplete
+        let actionsAccepted: Bool
+        if let buttonActions {
+            actionsAccepted = buttonActions.finish(
+                completed: isComplete, check: check, completion: completion, textInputChrome: textInputChrome)
+        } else if let textInputChrome {
+            let accepted =
+                isComplete
+                && textInputChrome.beginActivation(
+                    check: check, completion: completion, requiringCompletion: check.requiresCheckedReconciliation)
+            textInputChrome.finishActivation(accepted: accepted)
+            actionsAccepted = accepted
+        } else {
+            actionsAccepted = isComplete
+        }
         return RetainedLazyListAdoptionResult(
             completed: isComplete && actionsAccepted,
             didMutate: (admission?.didMutate ?? (lazyJournal?.hasAcceptedContributions ?? completed))
@@ -1382,6 +1404,7 @@ public final class ComponentHost {
         let taskAdoption: RetainedTaskAdoptionContext?
         let buttonActions: RetainedButtonActionAdoption?
         let uiaAuthority: RetainedLazyListUIAContinuationAuthority?
+        private let textInputChrome: RetainedTextInputChromeAdoptionScope?
         private let hasConsistentUIAAuthority: Bool
         weak var source: ViewNode?
         let sourceAttachment: RetainedLazyListAttachmentProof?
@@ -1396,12 +1419,14 @@ public final class ComponentHost {
             lazyJournal: RetainedLazyListAdoptionJournal? = nil,
             taskAdoption: RetainedTaskAdoptionContext? = nil,
             buttonActions: RetainedButtonActionAdoption? = nil,
-            uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil
+            uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil,
+            textInputChrome: RetainedTextInputChromeAdoptionScope? = nil
         ) {
             self.admission = admission
             self.lazyJournal = lazyJournal
             self.taskAdoption = taskAdoption
             self.buttonActions = buttonActions
+            self.textInputChrome = textInputChrome
             let journalAuthority = lazyJournal?.uiaContinuationAuthority
             self.uiaAuthority = uiaAuthority ?? journalAuthority
             hasConsistentUIAAuthority =
@@ -1424,6 +1449,8 @@ public final class ComponentHost {
                 && targetAttachment?.isCurrent != false && sourceIdentity?.isCurrent != false
                 && targetIdentity?.isCurrent != false && childrenSnapshot?.isCurrent != false
                 && (lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false)
+                && textInputChrome?.permitsContinuation(
+                    strict: requiresCheckedReconciliation || buttonActions != nil) != false
             if !current { uiaAuthority?.revoke() }
             return current
         }
@@ -1858,20 +1885,25 @@ public final class ComponentHost {
         lazyJournal: RetainedLazyListAdoptionJournal? = nil,
         uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil
     ) -> RetainedLazyListAdoptionResult {
+        let textInputChrome = RetainedTextInputChromeAdoptionScope(retainedRoots: [parent], sourceRoots: newNodes)
         let buttonActions = RetainedButtonActionAdoption(retainedRoots: [parent], sourceRoots: newNodes)
         let check = NodeReconcileAdmission(
             admission, target: parent, lazyJournal: lazyJournal, taskAdoption: taskAdoption,
-            buttonActions: buttonActions, uiaAuthority: uiaAuthority)
+            buttonActions: buttonActions, uiaAuthority: uiaAuthority, textInputChrome: textInputChrome)
+        textInputChrome?.associateOriginalContext(
+            admission: admission, lazyJournal: lazyJournal, taskAdoption: taskAdoption,
+            buttonActions: buttonActions, uiaAuthority: check.uiaAuthority)
         var completion: RetainedLazyListAdoptionCompletion?
         let completed = performChildrenReconciliation(
             of: parent, oldChildren: oldChildren, newNodes: newNodes, admission: admission,
             taskAdoption: taskAdoption, lazyJournal: lazyJournal, buttonActions: buttonActions,
-            uiaAuthority: check.uiaAuthority, completion: &completion)
+            uiaAuthority: check.uiaAuthority, completion: &completion, textInputChrome: textInputChrome)
+        if buttonActions == nil { textInputChrome?.closeAndReleaseConstruction() }
         let stayedCurrent = (completed || check.uiaAuthority != nil) && check.isCurrent
         return adoptionResult(
             of: parent, completed: completed && stayedCurrent,
             admission: admission, completion: completion, lazyJournal: lazyJournal, buttonActions: buttonActions,
-            uiaAuthority: check.uiaAuthority, check: check)
+            uiaAuthority: check.uiaAuthority, check: check, textInputChrome: textInputChrome)
     }
 
     private static func performChildrenReconciliation(
@@ -1879,11 +1911,11 @@ public final class ComponentHost {
         admission: RetainedLazyListAdoptionAdmission?, taskAdoption: RetainedTaskAdoptionContext?,
         lazyJournal: RetainedLazyListAdoptionJournal?,
         buttonActions: RetainedButtonActionAdoption?, uiaAuthority: RetainedLazyListUIAContinuationAuthority?,
-        completion: inout RetainedLazyListAdoptionCompletion?
+        completion: inout RetainedLazyListAdoptionCompletion?, textInputChrome: RetainedTextInputChromeAdoptionScope?
     ) -> Bool {
         let check = NodeReconcileAdmission(
             admission, target: parent, lazyJournal: lazyJournal, taskAdoption: taskAdoption,
-            buttonActions: buttonActions, uiaAuthority: uiaAuthority)
+            buttonActions: buttonActions, uiaAuthority: uiaAuthority, textInputChrome: textInputChrome)
         guard check.isCurrent, admission?.permitsMutation(of: parent) != false else { return false }
         if lazyJournal != nil, ViewNode.containsRejectedRetainedSource(in: newNodes) { return false }
         let completionSources: RetainedReconciliationSourceNodes?
@@ -1929,7 +1961,7 @@ public final class ComponentHost {
             reconcilePreparedChildren(
                 of: parent, oldChildren: oldChildren, newNodes: newNodes, plan: plan, admission: admission,
                 taskAdoption: taskAdoption, lazyJournal: lazyJournal, completionSources: completionSources,
-                buttonActions: buttonActions, uiaAuthority: check.uiaAuthority),
+                buttonActions: buttonActions, uiaAuthority: check.uiaAuthority, textInputChrome: textInputChrome),
             check.isCurrent
         else { return false }
         if check.requiresCheckedReconciliation || buttonActions != nil {
@@ -2334,12 +2366,13 @@ public final class ComponentHost {
         lazyJournal: RetainedLazyListAdoptionJournal? = nil,
         completionSources: RetainedReconciliationSourceNodes?,
         buttonActions: RetainedButtonActionAdoption? = nil,
-        uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil
+        uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil,
+        textInputChrome: RetainedTextInputChromeAdoptionScope? = nil
     ) -> Bool {
         let check = NodeReconcileAdmission(
             admission, target: parent, childrenSnapshot: plan?.childrenSnapshot,
             lazyJournal: lazyJournal, taskAdoption: taskAdoption, buttonActions: buttonActions,
-            uiaAuthority: uiaAuthority)
+            uiaAuthority: uiaAuthority, textInputChrome: textInputChrome)
         guard check.isCurrent, plan?.isCurrent != false, plan?.stillOwnsOldChildren != false else { return false }
         guard
             let matches = plan?.entries.map(\.retained)
@@ -2385,9 +2418,14 @@ public final class ComponentHost {
             let nodeCheck = NodeReconcileAdmission(
                 admission, source: newNode, target: oldNode, childrenSnapshot: childPlan?.childrenSnapshot,
                 lazyJournal: lazyJournal, taskAdoption: taskAdoption, buttonActions: buttonActions,
-                uiaAuthority: check.uiaAuthority)
+                uiaAuthority: check.uiaAuthority, textInputChrome: textInputChrome)
             guard admission?.permitsMutation(of: oldNode) != false,
                 childPlan?.isCurrent != false, childPlan?.stillOwnsOldChildren != false
+            else { return false }
+            guard
+                textInputChrome?.bind(
+                    source: newNode, target: oldNode,
+                    strict: nodeCheck.requiresCheckedReconciliation || buttonActions != nil) != false
             else { return false }
             let preservesChildren = preservesLazyListChildren(source: newNode, target: oldNode)
             let previousChildren = childPlan?.oldChildren ?? oldNode.children
@@ -2417,7 +2455,7 @@ public final class ComponentHost {
                     plan: childPlan, admission: admission,
                     preservesChildren: preservesChildren, sourceParent: newNode,
                     taskAdoption: taskAdoption, lazyJournal: lazyJournal, completionSources: completionSources,
-                    buttonActions: buttonActions, uiaAuthority: check.uiaAuthority)
+                    buttonActions: buttonActions, uiaAuthority: check.uiaAuthority, textInputChrome: textInputChrome)
             }
             guard completed, check.isCurrent, nodeCheck.isCurrent else { return false }
             nodeCheck.recordCompletedNode(from: newNode, to: oldNode)
@@ -2426,11 +2464,16 @@ public final class ComponentHost {
         }
 
         guard check.isCurrent, plan?.isCurrent != false, plan?.stillOwnsOldChildren != false else { return false }
+        let preparedChrome = textInputChrome?.contribution(
+            for: sourceParent, target: parent, reconciledChildren: nextChildren, buttonActions: buttonActions)
+        if let preparedChrome { nextChildren.append(preparedChrome.root) }
+        guard check.isCurrent, plan?.isCurrent != false, plan?.stillOwnsOldChildren != false else { return false }
         guard plan?.childrenSnapshot?.beginTransfers() != false else { return false }
         let result = parent.setChildren(
             nextChildren, admission: admission, lazyJournal: lazyJournal, taskAdoption: taskAdoption,
             sourceParent: sourceParent, completionSources: completionSources,
-            buttonActions: buttonActions, uiaAuthority: check.uiaAuthority)
+            buttonActions: buttonActions, uiaAuthority: check.uiaAuthority,
+            textInputChrome: preparedChrome?.contribution)
         guard result.completed, check.isCurrent else { return false }
         guard check.recordUIACompletion(result.completion) else { return false }
         if let admission {

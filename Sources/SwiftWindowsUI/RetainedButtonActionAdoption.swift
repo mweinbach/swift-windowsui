@@ -18,7 +18,7 @@ final class RetainedButtonActionAdoption {
     struct ValidationCounters {
         private var checkCount: UInt64
         private var witnessVisitCount: UInt64
-        private let witnessCount: Int
+        private var witnessCount: Int
         private var didOverflow = false
 
         init(witnessCount: Int, checkCount: UInt64 = 0, witnessVisitCount: UInt64 = 0) {
@@ -41,6 +41,16 @@ final class RetainedButtonActionAdoption {
             } else {
                 witnessVisitCount += 1
             }
+        }
+
+        mutating func recordAdditionalWitnesses(_ count: Int) -> Bool {
+            let addition = witnessCount.addingReportingOverflow(count)
+            guard count >= 0, !addition.overflow else {
+                didOverflow = true
+                return false
+            }
+            witnessCount = addition.partialValue
+            return true
         }
 
         var snapshot: ValidationSnapshot {
@@ -262,6 +272,24 @@ final class RetainedButtonActionAdoption {
         return true
     }
 
+    /// Supplement only the fixed private native forest after checking every
+    /// original witness. These nodes carry no executable payload or owner;
+    /// enrollment never refreshes an existing witness or expands its authority.
+    func admitGeneratedForest(_ contribution: RetainedTextInputChromeContribution) -> Bool {
+        guard isCurrent, contribution.belongs(to: self),
+            let nodes = contribution.validatedDetachedNodes(), !nodes.isEmpty
+        else { return false }
+        let identities = nodes.map(ObjectIdentifier.init)
+        guard Set(identities).count == nodes.count,
+            identities.allSatisfy({ witnesses[$0] == nil })
+        else { return false }
+        if validationCounters?.recordAdditionalWitnesses(nodes.count) == false { return false }
+        for node in nodes {
+            witnesses[ObjectIdentifier(node)] = Witness(node, participatesInPayloadCohort: false)
+        }
+        return true
+    }
+
     /// A source departure may still owe cleanup after insertion is refused.
     /// Keep that refusal permanent while its old native cleanup continues.
     func observeDepartureContinuation() {
@@ -431,7 +459,8 @@ final class RetainedButtonActionAdoption {
     @discardableResult
     func finish(
         completed: Bool, check: ComponentHost.NodeReconcileAdmission,
-        completion: RetainedLazyListAdoptionCompletion?
+        completion: RetainedLazyListAdoptionCompletion?,
+        textInputChrome: RetainedTextInputChromeAdoptionScope? = nil
     ) -> Bool {
         guard !isFinished else { return false }
         var accepted = completed && isCurrent && check.isCurrent && completion?.isCurrent == true
@@ -445,6 +474,7 @@ final class RetainedButtonActionAdoption {
         }
         let owned = witnesses.values.filter(\.participatesInPayloadCohort).compactMap(\.owner) + sources
         for owner in owned { owner.releaseRetiredPayload() }
+        textInputChrome?.closeAndReleaseConstruction()
         for construction in constructions.reversed() { construction.finish() }
         // These concrete native operation witnesses include provider, journal,
         // and complete subtree authority. Destruction above may revoke any of
@@ -456,6 +486,18 @@ final class RetainedButtonActionAdoption {
                 guard let node = publication.node else { return false }
                 return publication.owner.canAccept(on: node, using: permission)
             }
+        if accepted, let textInputChrome {
+            accepted = textInputChrome.beginActivation(check: check, completion: completion, requiringCompletion: true)
+            // Visibility invalidation can revoke native authority. Recheck the
+            // same operation and publications before accepting any owner.
+            accepted = accepted && isCurrent && check.isCurrent && completion?.isCurrent == true
+            accepted =
+                accepted
+                && proposed.allSatisfy { publication in
+                    guard let node = publication.node else { return false }
+                    return publication.owner.canAccept(on: node, using: permission)
+                }
+        }
         if accepted {
             // All checks and writes in this phase are native. No application
             // payload can unwind between the preflight and these acceptances.
@@ -466,6 +508,7 @@ final class RetainedButtonActionAdoption {
                 }
             }
         }
+        textInputChrome?.finishActivation(accepted: accepted)
         if !accepted {
             let rejected = sources.filter { $0.isClaimed(by: permission) }
             for owner in rejected { owner.retire() }

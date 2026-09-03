@@ -2333,6 +2333,39 @@ fileprivate struct RetainedLazyListLocalLayoutProof {
         node?.lazyListLayoutIdentity === identity && attachment.isCurrent
     }
 }
+/// A construction node's own layout configuration, independent of its
+/// attachment. The one native chrome attachment transition does not grant a
+/// replacement configuration witness after an authored mutation.
+@MainActor
+final class RetainedTextInputChromeLocalLayoutWitness {
+    private weak var node: ViewNode?
+    private let identity: RetainedLazyListAttachmentIdentity
+
+    fileprivate init(node: ViewNode, identity: RetainedLazyListAttachmentIdentity) {
+        self.node = node
+        self.identity = identity
+    }
+
+    var isCurrent: Bool { node?.lazyListLayoutIdentity === identity }
+}
+
+/// Suppression-only evidence that provisional chrome has not been consumed by
+/// a layout or a layout-only resolution before final visibility publication.
+@MainActor
+final class RetainedTextInputChromeLayoutPassWitness {
+    fileprivate weak var runtime: RetainedViewRuntime?
+    fileprivate let pass: UInt64
+    fileprivate let resolutionSequence: UInt64
+
+    fileprivate init(runtime: RetainedViewRuntime, pass: UInt64, resolutionSequence: UInt64) {
+        self.runtime = runtime
+        self.pass = pass
+        self.resolutionSequence = resolutionSequence
+    }
+
+    var isCurrent: Bool { runtime?.isTextInputChromeLayoutPassCurrent(self) == true }
+}
+
 @MainActor
 final class RetainedLazyListViewIdentityProof {
     private weak var node: ViewNode?
@@ -5012,6 +5045,9 @@ final class RetainedSelectedContentPaintOperand {
 @MainActor
 public final class ViewNode {
     private var interactionHandlers: ViewNodeInteractionHandlers?
+    /// Factory registration is confined to the original construction field.
+    /// Generic node-property adoption must never copy it to a retained node.
+    package var textInputChromeRegistration: RetainedTextInputChromeRegistration?
     fileprivate var storedAccessibilityAttachmentIdentity: RetainedAccessibilityIdentity?
     private var storedAccessibilityTextContentIdentity: RetainedAccessibilityIdentity?
     private var dropHandlers: ViewNodeDropHandlers?
@@ -5167,6 +5203,143 @@ public final class ViewNode {
     internal var hasAllocatedDropHandlers: Bool { dropHandlers != nil }
     internal var hasAllocatedLifecycleHandlers: Bool { lifecycleHandlers != nil }
     internal var hasAllocatedChartMetadata: Bool { chartMetadata != nil }
+
+    /// The native chrome recipe can introduce only plain labels, caret/tail
+    /// leaves, and fixed stacks. This checks stored payload/default metadata;
+    /// the contribution separately checks its exact scalar recipe and census.
+    /// It never creates a task, activity, controller, or identity payload.
+    var hasClosedTextInputChromePayload: Bool {
+        guard interactionHandlers == nil, dropHandlers == nil, chartMetadata == nil,
+            storedScrollObserverStorage == nil, scrollContainerState == nil,
+            animationModifierStorage == nil, selectedContentState == nil,
+            selectedContentConstructionObservation == nil, selectedTaskMutationObservation == nil,
+            textInputChromeRegistration == nil
+        else { return false }
+        if let handlers = lifecycleHandlers {
+            // The three lazy-list attachment/layout/view identity slots and
+            // empty journal attachment bookkeeping are native-only. Source,
+            // declaration, descriptor, permission, and task payloads stay absent.
+            guard handlers.layout == nil, handlers.layoutWithNode == nil, handlers.absoluteChildFrame == nil,
+                handlers.appearWithNode == nil, handlers.disappearWithNode == nil,
+                handlers.appear == nil, handlers.disappear == nil, handlers.sizeChange == nil,
+                handlers.geometryReaderBuild == nil, handlers.retainedSubtreeBuildLease == nil,
+                handlers.geometryReaderConstructionIdentity == nil, handlers.retainedTasks == nil,
+                handlers.retainedLazyListActivity?.hasOnlyTextInputChromeBookkeeping != false,
+                handlers.retainedOwnedPhysicalReferences?.hasOnlyTextInputChromeBookkeeping != false,
+                handlers.completedLazyTaskAppearance == nil, handlers.retainedLazyListAdapter == nil,
+                handlers.retainedLazyListGap == nil, handlers.retainedLazyListRowChrome == nil,
+                handlers.lazyListContentRevision == 0, handlers.lazyListEnvironmentRevision == 0,
+                handlers.lazyListScrollIntentIdentity == nil, handlers.lazyListRetirementIdentity == nil,
+                handlers.lazyListPresentedPaint == nil, handlers.lazyListCanvasPaintAlpha == nil
+            else { return false }
+            if let holder = handlers.retainedOwnedPhysicalReferences {
+                guard let activity = handlers.retainedLazyListActivity, holder.matches(activity) else { return false }
+            }
+        }
+        guard canvasDraw == nil, onDeleteAction == nil, onMoveAction == nil, dragContainerItemID == nil,
+            accessibilityMagicTapAction == nil, platformView == nil, platformViewCoordinator == nil,
+            platformViewTypeName == nil, onUpdatePlatformView == nil, onDismantlePlatformView == nil,
+            textRenderer == nil, widgetBackgroundStyle == nil, retainedViewIdentity == nil,
+            previousPropertyValues == nil, phaseAnimatorState == nil, implicitReconcileAnimation == nil,
+            interactionSurface == nil, fileExporterConfiguration == nil, fileImporterConfiguration == nil,
+            fileImporterMultiConfiguration == nil, fileMoverConfiguration == nil, fileDialogPresenterLease == nil,
+            !fileDialogPresenterIsDeparting, fileDialogPreparedRevocations == 0,
+            swipeActionsLeading == nil, swipeActionsTrailing == nil, toolbarTitleMenuChildren == nil,
+            toolbarTitleActionsChildren == nil, accessibilityRepresentationChildren == nil
+        else { return false }
+        guard accessibilityActions.isEmpty, commandHandlers.isEmpty, retainedPreferenceValues.isEmpty,
+            retainedPreferenceTransformBoundaries.isEmpty, retainedLayoutValues.isEmpty,
+            retainedContainerValues.isEmpty, animationStates.isEmpty, pendingLifecycleTaskLaunches.isEmpty,
+            lifecycleTasks.isEmpty, acceptsLifecycleTasks
+        else { return false }
+        guard backgroundGradient == nil, bitmapSurface == nil, borderGradient == nil, borderStrokeStyle == nil,
+            cornerRadii == nil, backgroundPath == nil, clipFillStyle == nil,
+            layoutConstraints == nil, fixedSizeAxes == nil, aspectFitLayout == nil,
+            gridCellAnchor == nil, gridColumnAlignment == nil, geometryEffect == nil,
+            drawingGroup == nil, viewMask == nil, listRowSeparator == nil, listRowSeparatorTint == nil,
+            listSectionSeparator == nil, listSectionSeparatorTint == nil, alternatingRowBackgrounds == nil,
+            listItemTint == nil, listRowHoverStyle == nil, listRowPlatterColor == nil,
+            navigationSplitViewColumnWidth == nil, preferredCompactColumn == nil,
+            selectionDisabledOverride == nil, deleteDisabledOverride == nil, moveDisabledOverride == nil,
+            editActions == nil, dynamicContentIndex == nil, dynamicDropPayloadType == nil, dropPayloadType == nil,
+            dragDropPreviewsFormation == nil, springLoadingBehavior == nil, dragPayloadType == nil,
+            dragContainerNamespaceID == nil
+        else { return false }
+        guard scrollTargetBehavior == nil, scrollIndicatorsFlashTrigger == nil, scrollTransition == nil,
+            scrollPosition == nil, scrollReaderID == nil, position == nil, contentTransition == nil,
+            sensoryFeedback == nil, scrollAxis == nil, initialScrollAnchor == nil, scrollSizeChangeAnchor == nil,
+            accessibilityLabel == nil, accessibilityDescription == nil, accessibilityValue == nil,
+            accessibilityHint == nil, accessibilityIdentifier == nil, accessibilityLanguage == nil, tooltip == nil,
+            accessibilityChildBehavior == nil, accessibilityHeadingLevel == nil, accessibilityTextualContext == nil,
+            accessibilityRespondsToUserInteraction == nil, accessibilityPrefersSliderBehavior == nil,
+            accessibilityRequiresActivationPoint == nil, accessibilityDirectTouchOptions == nil,
+            accessibilityPrefersCrossFadeTransitions == nil, accessibilityShowLargeContentViewer == nil,
+            accessibilityQuickActionStyle == nil, accessibilityLinkDestination == nil,
+            accessibilityLinkedGroup == nil, accessibilityPage == nil, accessibilityActivationPoint == nil,
+            accessibilityTextContentType == nil
+        else { return false }
+        guard symbolVariableValue == nil, symbolRenderingMode == nil, imageResizingMode == nil, imageCapInsets == nil,
+            imageSamplingFailure == nil, imageRenderingMode == nil, imageAntialiased == nil,
+            textSelectability == nil, textInputSelection == nil, textContentType == nil, textInputCompletion == nil,
+            writingToolsBehavior == nil, textInputDictationBehavior == nil, textInputMarkedText == nil,
+            submitScopeTriggersRawValue == nil, focusNamespace == nil, hoverEffect == nil, pointerStyle == nil,
+            pointerVisibility == nil, digitalCrownRotation == nil, windowDragInteraction == nil,
+            windowResizeInteraction == nil, windowDismissBehavior == nil, windowFullScreenBehavior == nil,
+            windowMinimizeBehavior == nil, windowResizeBehavior == nil
+        else { return false }
+        guard contextMenuForSelectionType == nil, widgetURL == nil, widgetAccentedRenderingMode == nil,
+            widgetBackgroundPlacement == nil, widgetRelevancy == nil, paletteSelectionEffect == nil,
+            matchedGeometryEffect == nil, matchedTransitionSource == nil, navigationTransition == nil,
+            tableColumnHeadersVisible == nil, isContentInvalidatable == nil, isLineSelectable == nil,
+            scenePaddingEdges == nil, coordinateSpaceName == nil, gestureName == nil, menuOrder == nil,
+            formRowLabelChildIndex == nil, nodeTag == nil, inspectorColumnWidth == nil,
+            inspectorColumnWidthFraction == nil, inspectorColumnWidthMin == nil, inspectorPresentationStyle == nil,
+            fileDialogCustomizationID == nil, fileDialogConfirmationLabel == nil, fileDialogDefaultDirectory == nil,
+            fileDialogMessage == nil, geometryReaderBuiltSize == nil
+        else { return false }
+        guard alignmentGuides.isEmpty, gridCellUnsizedAxes.isEmpty, colorEffects.isEmpty, visualEffects.isEmpty,
+            dynamicInsertContentTypes.isEmpty, dropAcceptedContentTypes.isEmpty,
+            dragItemProviderTypeIdentifiers.isEmpty,
+            scrollInputBehaviors.isEmpty, scrollObservations.isEmpty, scrollProxyRequests.isEmpty,
+            accessibilityTraits.isEmpty, accessibilityRotors.isEmpty, accessibilityCustomContent.isEmpty,
+            accessibilityInputLabels.isEmpty, keyboardShortcuts.isEmpty, textInputSuggestions.isEmpty,
+            contentShapes.isEmpty, redactionReasons.isEmpty, toolbarPlacementTags.isEmpty
+        else { return false }
+        guard !clipsToBounds, !forwardsStackMainAxisProposal, !forwardsChildSize, !blurOpaque, !contentBlurOpaque,
+            !isCompositingGroup, !selectionDisabled, !deleteDisabled, !moveDisabled, !isDropDestinationEnabled,
+            !hasDropConfiguration, !hasDragPreview, !isScrollTargetLayout, !scrollIndicatorsFlashOnAppear,
+            !showsScrollIndicator, !scrollIndicatorAutoHides, !isFocusable, !isHitTestVisible,
+            !isAccessibilityHidden, !accessibilityIgnoresInvertColors, !imageUsesBitmapResizing,
+            !isFindDisabled, !isReplaceDisabled, !isFindNavigatorPresented, !isSubmitScopeBoundary, !isFocusSection,
+            !prefersDefaultFocus, !isGeometryGroup, !isHovered, !isHoverEffectDisabled, !isFocusEffectDisabled,
+            !isFocusDestination, !isFocusActive, !isFocused, !isPrivacySensitive,
+            !isAccessibilityShowsLargeContentViewer, !isAccessibilityQuickActionEnabled,
+            !isAccessibilityZoomActionEnabled, !isAccessibilityScrollActionEnabled,
+            !isAccessibilityFocusSection, !isAccessibilityImage, !isWidgetAccentable, !paintsInDeferredPhase,
+            !isToolbarContainer, !isSeparatorRule, !interceptsVerticalArrowKeys, !isRemovalOverlay
+        else { return false }
+        guard borderColor == .clear, outlineColor == .clear, shadowColor == .clear,
+            borderWidth == 0, outlineWidth == 0, shadowSpread == 0, cornerRadius == 0,
+            shadowOffset == .zero, ignoresSafeAreaInsets == .zero,
+            fixedPreferredSizeMask == 0, explicitFrameFillMask == 0, layoutFillAxes.isEmpty,
+            layoutPriority == 0, spatialCompressionResistance == 0, spatialExpansionResistance == 0,
+            gridCellColumns == 1, flexItem == .default, flexItemStyle == FlexItemStyle(),
+            blurRadius == 0, contentBlurRadius == 0, zIndex == 0,
+            blendMode == .normal, transform == .identity, transition == .identity,
+            swipeActionsAllowsFullSwipe, horizontalScrollBounceBehavior == "automatic",
+            verticalScrollBounceBehavior == "automatic", storedScrollOffset == 0,
+            resolvedScrollOffset == 0, scrollOvershoot == 0, scrollPresentedDelta == 0,
+            allowsAutomaticWindowDecorations, isFocusEnabled, accessibilitySortPriority == 0,
+            textInputCaretOffset == 0, windowCornerRadius == 0, symbolVariants == .none,
+            imageBitmapScale == 1, imageInterpolation == .medium, textInputSubmitLabel == .return,
+            textSelectionAffinity == .automatic, writingToolsAffordanceVisibility == .automatic,
+            buttonRepeatBehavior == .automatic, textInputKeyboardType == .default,
+            presentationChrome == .empty, sectionHeaderChildCount == 0, sectionFooterChildCount == 0
+        else { return false }
+        // Visibility, caret blink opacity, attachment/layout witnesses, and
+        // native render caches are governed by the contribution's own phase.
+        return true
+    }
 
     internal var existingRetainedTaskState: RetainedTaskNodeState? { lifecycleHandlers?.retainedTasks }
     internal var retainedLazyListRuntime: RetainedViewRuntime? { runtime }
@@ -7791,6 +7964,15 @@ public final class ViewNode {
             node: self, identity: lifecycleHandlers!.lazyListLayoutIdentity!, attachment: attachment)
     }
 
+    func captureTextInputChromeLocalLayoutWitness() -> RetainedTextInputChromeLocalLayoutWitness {
+        if lifecycleHandlers == nil { lifecycleHandlers = ViewNodeLifecycleHandlers() }
+        if lifecycleHandlers?.lazyListLayoutIdentity == nil {
+            lifecycleHandlers?.lazyListLayoutIdentity = RetainedLazyListAttachmentIdentity()
+        }
+        return RetainedTextInputChromeLocalLayoutWitness(
+            node: self, identity: lifecycleHandlers!.lazyListLayoutIdentity!)
+    }
+
     /// Before body construction, either a body or lease assignment revokes the
     /// old reader operation, including replacement followed by restoration.
     /// Capturing this marker does not retain the body or lease payload.
@@ -9574,9 +9756,12 @@ public final class ViewNode {
         taskAdoption: RetainedTaskAdoptionContext? = nil, sourceParent: ViewNode? = nil,
         completionSources: RetainedReconciliationSourceNodes? = nil,
         buttonActions: RetainedButtonActionAdoption? = nil,
+        textInputChrome: RetainedTextInputChromeContribution? = nil,
         finalChildrenCutWasRefused: inout Bool
     ) {
-        guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
+        guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false,
+            textInputChrome?.isCurrent != false
+        else { return }
         let selectedTaskAdoption = prepareSelectedTaskSourceAdoption(
             nextChildren, sourceParent: sourceParent, journal: lazyJournal)
         defer { selectedTaskAdoption?.observe() }
@@ -9650,10 +9835,13 @@ public final class ViewNode {
                 }
             }
             for node in Self.lazyListNodes(in: nextChildren.filter { $0.parent !== self }) ?? [] {
-                _ = lazyJournal.prepareInsertedNode(from: node)
+                let prepared = lazyJournal.prepareInsertedNode(from: node)
+                if textInputChrome?.contains(node) == true, !prepared { return }
+                guard textInputChrome?.isCurrent != false else { return }
             }
         }
         Self.revokeTextInputOwnership(in: departing)
+        guard textInputChrome?.isCurrent != false else { return }
         var recordsEmptyDeclaration = false
         if nextChildren.isEmpty, let sourceParent, let lazyJournal {
             recordsEmptyDeclaration = lazyJournal.prepareOwnedStructuralDeclaration(from: sourceParent, to: self)
@@ -9673,22 +9861,30 @@ public final class ViewNode {
                 originalRemoval: originalRemovalAttachments[ObjectIdentifier(child)])
             selectedTaskAdoption?.observe()
         }
-        guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
+        guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false,
+            textInputChrome?.isCurrent != false
+        else { return }
         for child in nextChildren {
-            guard !child.isRetiringLazyListAttachment, child.parent?.isRetiringLazyListAttachment != true else {
+            guard !child.isRetiringLazyListAttachment, child.parent?.isRetiringLazyListAttachment != true,
+                textInputChrome?.isCurrent != false
+            else {
                 return
             }
             var selectedTaskTransfer: RetainedSelectedContentSourceTransfer?
             if child.parent !== self {
                 selectedTaskTransfer = selectedTaskAdoption?.sourceTransfer(of: child, from: child.parent)
+                if textInputChrome?.contains(child) == true, selectedTaskTransfer != nil { return }
                 guard buttonActions?.beginInsertion(in: [child]) != false else { return }
                 child.removeFromParent(buttonActions: buttonActions, selectedTaskTransfer: selectedTaskTransfer)
                 selectedTaskTransfer?.observe()
                 guard !isRetiringLazyListAttachment, !child.isRetiringLazyListAttachment, child.parent == nil,
-                    buttonActions?.isCurrent != false
+                    buttonActions?.isCurrent != false, textInputChrome?.isCurrent != false
                 else {
                     return
                 }
+                guard
+                    textInputChrome?.beginAttachmentWrite(on: child, parent: self, runtime: child.runtime) != false
+                else { return }
                 child.revokeLazyListAttachmentProofs(
                     removalWrite: nil, panelAssembly: nil, selectedTaskTransfer: selectedTaskTransfer)
                 selectedTaskTransfer?.observe()
@@ -9696,16 +9892,20 @@ public final class ViewNode {
                 child.parent = self
                 selectedTaskTransfer?.didWrite(parentTaskWrite)
                 guard buttonActions?.recordAttachmentWrite(on: child) != false else { return }
+                guard textInputChrome?.recordAttachmentWrite(on: child) != false else { return }
             }
-            child.setRuntime(runtime, buttonActions: buttonActions, selectedTaskTransfer: selectedTaskTransfer)
+            child.setRuntime(
+                runtime, buttonActions: buttonActions, selectedTaskTransfer: selectedTaskTransfer,
+                textInputChrome: textInputChrome)
             selectedTaskAdoption?.observe()
             guard !isRetiringLazyListAttachment, !child.isRetiringLazyListAttachment, child.parent === self,
-                buttonActions?.isCurrent != false
+                buttonActions?.isCurrent != false, textInputChrome?.isCurrent != false
             else {
                 return
             }
         }
         guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false,
+            textInputChrome?.isCurrent != false,
             !nextChildren.contains(where: \.isRetiringLazyListAttachment)
         else { return }
         var recordsDeclaration = false
@@ -9723,6 +9923,7 @@ public final class ViewNode {
         writeFinalChildren(nextChildren)
         selectedTaskAdoption?.didWrite(finalTaskWrite)
         guard buttonActions?.recordChildrenWrite(on: self) != false else { return }
+        guard textInputChrome?.recordFinalChildrenWrite(on: self) != false else { return }
         guard buttonActions?.recordInsertion(in: nextChildren) != false else { return }
         if recordsDeclaration, let sourceParent {
             lazyJournal?.recordAcceptedOwnedStructuralDeclaration(from: sourceParent, to: self)
@@ -9880,22 +10081,30 @@ public final class ViewNode {
         buttonActions: RetainedButtonActionAdoption? = nil,
         removalOverlay: RetainedRemovalOverlayEntry? = nil,
         panelAssembly: RetainedSelectedContentPanelAssemblySlot? = nil, completingPanelDeparture: Bool = false,
-        selectedTaskTransfer: RetainedSelectedContentSourceTransfer? = nil
+        selectedTaskTransfer: RetainedSelectedContentSourceTransfer? = nil,
+        textInputChrome: RetainedTextInputChromeContribution? = nil
     ) {
+        if textInputChrome?.contains(self) == true,
+            selectedTaskTransfer != nil || panelAssembly != nil || removalOverlay != nil
+        {
+            return
+        }
         selectedTaskTransfer?.observe()
         defer { selectedTaskTransfer?.observe() }
         guard
             panelAssembly?.mayContinueRuntimeWork(
                 on: self, to: runtime, cleanup: completingPanelDeparture) != false
         else { return }
-        guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
+        guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false,
+            textInputChrome?.isCurrent != false
+        else { return }
         buttonActionOwner?.runtimeWillChange(from: self.runtime, to: runtime)
         selectedTaskTransfer?.observe()
         guard
             panelAssembly?.mayContinueRuntimeWork(
                 on: self, to: runtime, cleanup: completingPanelDeparture) != false
         else { return }
-        guard buttonActions?.isCurrent != false else { return }
+        guard buttonActions?.isCurrent != false, textInputChrome?.isCurrent != false else { return }
         if let previousRuntime = self.runtime, previousRuntime !== runtime,
             let adapter = retainedLazyListAdapter, adapter.ownsAttachment(self)
         {
@@ -9920,11 +10129,15 @@ public final class ViewNode {
                 on: self, to: runtime, cleanup: completingPanelDeparture) != false
         else { return }
         if didChangeRuntime {
+            guard textInputChrome?.beginAttachmentWrite(on: self, parent: parent, runtime: self.runtime) != false else {
+                return
+            }
             revokeLazyListAttachmentProofs(
                 removalWrite: runtime == nil ? removalOverlay?.prepareRevoke() : nil, panelAssembly: nil,
                 selectedTaskTransfer: selectedTaskTransfer)
             selectedTaskTransfer?.observe()
             guard buttonActions?.recordAttachmentWrite(on: self) != false else { return }
+            guard textInputChrome?.recordAttachmentWrite(on: self) != false else { return }
             self.runtime?.unregisterLazyListContainer(self)
             selectedTaskTransfer?.observe()
             guard
@@ -9939,7 +10152,7 @@ public final class ViewNode {
                     on: self, to: runtime, cleanup: completingPanelDeparture) != false
             else { return }
         }
-        guard buttonActions?.isCurrent != false else { return }
+        guard buttonActions?.isCurrent != false, textInputChrome?.isCurrent != false else { return }
         if didChangeRuntime {
             fileDialogPresenterLease?.invalidate()
             selectedTaskTransfer?.observe()
@@ -9956,21 +10169,27 @@ public final class ViewNode {
                 panelAssembly?.mayContinueRuntimeWork(
                     on: self, to: runtime, cleanup: completingPanelDeparture) != false
             else { return }
-            guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
+            guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false,
+                textInputChrome?.isCurrent != false
+            else { return }
             if self.runtime != nil { textInputController?.willDetach(from: self) }
             selectedTaskTransfer?.observe()
             guard
                 panelAssembly?.mayContinueRuntimeWork(
                     on: self, to: runtime, cleanup: completingPanelDeparture) != false
             else { return }
-            guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
+            guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false,
+                textInputChrome?.isCurrent != false
+            else { return }
             self.runtime?.releaseInteractionTargets(in: self)
             selectedTaskTransfer?.observe()
             guard
                 panelAssembly?.mayContinueRuntimeWork(
                     on: self, to: runtime, cleanup: completingPanelDeparture) != false
             else { return }
-            guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
+            guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false,
+                textInputChrome?.isCurrent != false
+            else { return }
             self.runtime?.cancelColorAnimations(of: self)
             selectedTaskTransfer?.observe()
             guard
@@ -9984,7 +10203,9 @@ public final class ViewNode {
                     panelAssembly?.mayContinueRuntimeWork(
                         on: self, to: runtime, cleanup: completingPanelDeparture) != false
                 else { return }
-                guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
+                guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false,
+                    textInputChrome?.isCurrent != false
+                else { return }
             }
         }
 
@@ -10000,7 +10221,8 @@ public final class ViewNode {
             panelAssembly?.mayContinueRuntimeWork(
                 on: self, to: runtime, cleanup: completingPanelDeparture) != false
         else { return }
-        guard buttonActions?.isCurrent != false else { return }
+        guard buttonActions?.isCurrent != false, textInputChrome?.isCurrent != false else { return }
+        guard textInputChrome?.beginAttachmentWrite(on: self, parent: parent, runtime: runtime) != false else { return }
         if runtime == nil {
             writeRemovalRuntimeNil(
                 removalWrite: removalOverlay?.prepareRuntimeNil(), selectedTaskTransfer: selectedTaskTransfer)
@@ -10014,6 +10236,7 @@ public final class ViewNode {
                 on: self, to: runtime, cleanup: completingPanelDeparture) != false
         else { return }
         guard buttonActions?.recordAttachmentWrite(on: self) != false else { return }
+        guard textInputChrome?.recordAttachmentWrite(on: self) != false else { return }
         // A native reattachment starts a different physical lifetime. Its
         // later admission cannot inherit the old overlay's input/task fence;
         // stale overlay completion still owns only its captured old payload.
@@ -10029,14 +10252,16 @@ public final class ViewNode {
             fileDialogPreparedRevocations = 0
         }
         if runtime != nil {
-            guard buttonActions?.isCurrent != false else { return }
+            guard buttonActions?.isCurrent != false, textInputChrome?.isCurrent != false else { return }
             textInputController?.attach(to: self)
             selectedTaskTransfer?.observe()
             guard
                 panelAssembly?.mayContinueRuntimeWork(
                     on: self, to: runtime, cleanup: completingPanelDeparture) != false
             else { return }
-            guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
+            guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false,
+                textInputChrome?.isCurrent != false
+            else { return }
         }
         if scrollObserverStorage != nil {
             runtime?.registerScrollObservationNode(self)
@@ -10049,18 +10274,18 @@ public final class ViewNode {
                 panelAssembly?.mayContinueRuntimeWork(
                     on: self, to: runtime, cleanup: completingPanelDeparture) != false
             else { return }
-            guard buttonActions?.isCurrent != false else { return }
+            guard buttonActions?.isCurrent != false, textInputChrome?.isCurrent != false else { return }
             child.setRuntime(
                 runtime, hasRevokedTextInputOwnership: hasRevokedTextInputOwnership || isLeavingRuntime,
                 buttonActions: buttonActions, panelAssembly: panelAssembly,
                 completingPanelDeparture: completingPanelDeparture,
-                selectedTaskTransfer: selectedTaskTransfer)
+                selectedTaskTransfer: selectedTaskTransfer, textInputChrome: textInputChrome)
             selectedTaskTransfer?.observe()
             guard
                 panelAssembly?.mayContinueRuntimeWork(
                     on: self, to: runtime, cleanup: completingPanelDeparture) != false
             else { return }
-            guard buttonActions?.isCurrent != false else { return }
+            guard buttonActions?.isCurrent != false, textInputChrome?.isCurrent != false else { return }
         }
     }
 
@@ -17779,6 +18004,104 @@ public final class RetainedViewRuntime {
         !isRendering
             && !dirtyFlags.intersection([.layout, .children]).isEmpty
             && !root.subtreeDirtyFlags.intersection([.layout, .children]).isEmpty
+    }
+
+    func captureTextInputChromeLayoutPassWitness() -> RetainedTextInputChromeLayoutPassWitness {
+        RetainedTextInputChromeLayoutPassWitness(
+            runtime: self, pass: layoutPassID, resolutionSequence: layoutSettlementResolutionSequence)
+    }
+
+    fileprivate func isTextInputChromeLayoutPassCurrent(_ witness: RetainedTextInputChromeLayoutPassWitness) -> Bool {
+        witness.runtime === self && !layoutSettlementGenerationsExhausted
+            && witness.pass == layoutPassID && witness.resolutionSequence == layoutSettlementResolutionSequence
+    }
+
+    /// The original contribution still supplies attachment, identity, shape,
+    /// and admission evidence. This guard only proves that the existing public
+    /// visibility setters have no interaction cleanup or layout callback to
+    /// perform, and that this exact field already owes a later layout.
+    func canChangeTextInputChromeVisibility(
+        field: ViewNode, base: ViewNode, root: ViewNode,
+        layoutWitness: RetainedTextInputChromeLayoutPassWitness
+    ) -> Bool {
+        guard !isLayoutInProgress, isTextInputChromeLayoutPassCurrent(layoutWitness),
+            field !== base, field !== root, base !== root,
+            base.parent === field, root.parent === field,
+            textInputChromeHasCurrentNativePath(field),
+            textInputChromeHasCurrentNativePath(base), textInputChromeHasCurrentNativePath(root)
+        else { return false }
+
+        let layoutFlags: DirtyFlags = [.layout, .children]
+        if isRendering {
+            guard !pendingDirtyFlags.intersection(layoutFlags).isEmpty,
+                pendingDirtyNodes.contains(where: {
+                    $0.node.node === field && !$0.flags.intersection(layoutFlags).isEmpty
+                })
+            else { return false }
+        } else {
+            guard !dirtyFlags.intersection(layoutFlags).isEmpty,
+                !field.subtreeDirtyFlags.intersection(layoutFlags).isEmpty
+            else { return false }
+        }
+
+        // Hiding either root calls releaseInteractionTargets. Validate every
+        // target its cleanup can inspect, including scroll tween destinations.
+        let targets = [
+            pressedNode, longPressAttempt?.node, nodeDragState?.node,
+            scrollDragState?.node, activeScrollIndicatorNode, hoveredNode,
+            hoveredScrollIndicatorNode, focusedNode,
+        ]
+        guard targets.allSatisfy({ textInputChromeTargetIsOutside($0, base: base, root: root) }) else {
+            return false
+        }
+        for state in scrollMomenta.values {
+            guard textInputChromeTargetIsOutside(state.node, base: base, root: root) else { return false }
+        }
+        for tween in scrollPresentedTweens.values {
+            guard textInputChromeTargetIsOutside(tween.node, base: base, root: root),
+                textInputChromeTargetIsOutside(tween.target, base: base, root: root)
+            else { return false }
+        }
+        for alignment in pendingPreciseScrollAlignments {
+            // Even an unrelated expired entry would be removed by the public
+            // setter and could release its retained navigation payload.
+            guard let target = alignment.target, let container = alignment.container,
+                textInputChromeTargetIsOutside(target, base: base, root: root),
+                textInputChromeTargetIsOutside(container, base: base, root: root)
+            else { return false }
+        }
+        return true
+    }
+
+    private func textInputChromeHasCurrentNativePath(_ candidate: ViewNode) -> Bool {
+        var current: ViewNode? = candidate
+        var seen = Set<ObjectIdentifier>()
+        while let node = current, seen.count < ViewNode.maximumTraversalDepth {
+            guard seen.insert(ObjectIdentifier(node)).inserted, node.runtime === self,
+                !node.isRetiringLazyListAttachment, !node.isRemovalOverlay
+            else { return false }
+            if node === self.root { return node.parent == nil }
+            guard let parent = node.parent,
+                parent.children.filter({ $0 === node }).count == 1
+            else { return false }
+            current = parent
+        }
+        return false
+    }
+
+    /// A malformed or over-depth target chain is a refusal, not evidence that
+    /// the target is outside the two subtrees whose visibility may change.
+    private func textInputChromeTargetIsOutside(_ candidate: ViewNode?, base: ViewNode, root: ViewNode) -> Bool {
+        var current = candidate
+        var seen = Set<ObjectIdentifier>()
+        while let node = current {
+            guard seen.count < ViewNode.maximumTraversalDepth, seen.insert(ObjectIdentifier(node)).inserted,
+                node !== base, node !== root
+            else { return false }
+            if let parent = node.parent, parent.children.filter({ $0 === node }).count != 1 { return false }
+            current = node.parent
+        }
+        return true
     }
 
     // Layout-only queries leave render dirty flags intact. Their settlement
@@ -28244,7 +28567,8 @@ extension ViewNode {
         sourceParent: ViewNode? = nil,
         completionSources: RetainedReconciliationSourceNodes? = nil,
         buttonActions: RetainedButtonActionAdoption? = nil,
-        uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil
+        uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil,
+        textInputChrome: RetainedTextInputChromeContribution? = nil
     ) -> RetainedLazyListAdoptionResult {
         if let uiaAuthority, let journalAuthority = lazyJournal?.uiaContinuationAuthority,
             uiaAuthority !== journalAuthority
@@ -28254,6 +28578,11 @@ extension ViewNode {
         }
         let uiaAuthority = uiaAuthority ?? lazyJournal?.uiaContinuationAuthority
         guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false, uiaAuthority?.isCurrent != false,
+            textInputChrome?.isCurrent != false,
+            textInputChrome?.matchesContext(
+                admission: admission, lazyJournal: lazyJournal, taskAdoption: taskAdoption,
+                buttonActions: buttonActions,
+                uiaAuthority: uiaAuthority) != false,
             lazyJournal?.isOrdinaryAdoption == true || lazyJournal?.canContinueAdoption != false
         else {
             return RetainedLazyListAdoptionResult(
@@ -28264,12 +28593,12 @@ extension ViewNode {
             var finalChildrenCutWasRefused = false
             setChildrenUnchecked(
                 nextChildren, lazyJournal: lazyJournal, taskAdoption: taskAdoption, sourceParent: sourceParent,
-                completionSources: completionSources, buttonActions: buttonActions,
+                completionSources: completionSources, buttonActions: buttonActions, textInputChrome: textInputChrome,
                 finalChildrenCutWasRefused: &finalChildrenCutWasRefused)
             return RetainedLazyListAdoptionResult(
                 completed:
                     !finalChildrenCutWasRefused && isChildListUnchanged(nextChildren)
-                    && buttonActions?.isCurrent != false,
+                    && buttonActions?.isCurrent != false && textInputChrome?.isCurrent != false,
                 didMutate: changed, children: children)
         }
         guard admission?.permitsMutation(of: self) != false else {
@@ -28284,7 +28613,7 @@ extension ViewNode {
             nextChildren, admission: admission, parentAttachment: parentAttachment, parentIdentity: parentIdentity,
             removalReason: removalReason,
             lazyJournal: lazyJournal, taskAdoption: taskAdoption, sourceParent: sourceParent,
-            buttonActions: buttonActions, uiaAuthority: uiaAuthority)
+            buttonActions: buttonActions, uiaAuthority: uiaAuthority, textInputChrome: textInputChrome)
         // Do not form the result in a return followed by a defer. Ending this
         // scope can drain callbacks that change both admission and children.
         interactionRuntime?.endLongPressReconciliation()
@@ -28294,7 +28623,7 @@ extension ViewNode {
         return lazyListChildResult(
             completionIsCurrent == true && parentIsCurrent
                 && admission?.permitsMutation(of: self) != false && buttonActions?.isCurrent != false
-                && uiaAuthority?.isCurrent != false,
+                && uiaAuthority?.isCurrent != false && textInputChrome?.isCurrent != false,
             admission: admission, lazyJournal: lazyJournal, completion: completion, uiaAuthority: uiaAuthority)
     }
 
@@ -28320,11 +28649,14 @@ extension ViewNode {
         removalReason: RetainedChildRemovalReason,
         lazyJournal: RetainedLazyListAdoptionJournal?, taskAdoption: RetainedTaskAdoptionContext?,
         sourceParent: ViewNode?, buttonActions: RetainedButtonActionAdoption?,
-        uiaAuthority: RetainedLazyListUIAContinuationAuthority?
+        uiaAuthority: RetainedLazyListUIAContinuationAuthority?,
+        textInputChrome: RetainedTextInputChromeContribution? = nil
     ) -> RetainedLazyListAdoptionCompletion? {
         let metadataOnly = uiaAuthority != nil && lazyJournal?.isOrdinaryAdoption == true
         func canContinue() -> Bool {
-            let nativeCurrent = parentAttachment.isCurrent && parentIdentity.isCurrent
+            let nativeCurrent =
+                parentAttachment.isCurrent && parentIdentity.isCurrent
+                && textInputChrome?.isCurrent != false
             if !nativeCurrent { uiaAuthority?.revoke() }
             return nativeCurrent && buttonActions?.isCurrent != false && admission?.isCurrent != false
                 && uiaAuthority?.isCurrent != false
@@ -28386,7 +28718,7 @@ extension ViewNode {
             for node in nodes {
                 guard canContinue() else { return nil }
                 let prepared = lazyJournal?.prepareInsertedNode(from: node)
-                guard metadataOnly || prepared != false else { return nil }
+                guard (metadataOnly && textInputChrome?.contains(node) != true) || prepared != false else { return nil }
             }
         }
         guard canContinue(), childrenAreCurrent(oldChildren)
@@ -28460,11 +28792,15 @@ extension ViewNode {
                 guard metadataOnly || started != false, canContinue() else { return nil }
                 admission?.markMutationStarted()
                 uiaAuthority?.markMutationStarted()
+                guard
+                    textInputChrome?.beginAttachmentWrite(on: child, parent: nil, runtime: child.runtime) != false
+                else { return nil }
                 temporaryParent.children.remove(at: index)
                 child.revokeLazyListAttachmentProofs()
                 child.parent = nil
                 guard buttonActions?.recordAttachmentWrite(on: child, afterChildrenWriteOf: temporaryParent) != false
                 else { return nil }
+                guard textInputChrome?.recordAttachmentWrite(on: child) != false else { return nil }
                 temporaryParent.invalidateRuntime(.children)
                 entries[0].attachment = child.captureLazyListAttachmentProof()
                 // This matches the existing move out of a temporary parent:
@@ -28488,6 +28824,9 @@ extension ViewNode {
             guard metadataOnly || started != false, canContinue() else { return nil }
             admission?.markMutationStarted()
             uiaAuthority?.markMutationStarted()
+            guard textInputChrome?.beginAttachmentWrite(on: child, parent: self, runtime: child.runtime) != false else {
+                return nil
+            }
             child.revokeLazyListAttachmentProofs()
             child.parent = self
             expectedChildren = publishedChildren
@@ -28495,6 +28834,7 @@ extension ViewNode {
             guard buttonActions?.recordAttachmentWrite(on: child, afterChildrenWriteOf: self) != false else {
                 return nil
             }
+            guard textInputChrome?.recordAttachmentWrite(on: child) != false else { return nil }
             if recordsFinalChildren, let sourceParent {
                 lazyJournal?.recordAcceptedOwnedStructuralDeclaration(from: sourceParent, to: self)
             }
@@ -28518,7 +28858,7 @@ extension ViewNode {
                 let attachedEntries = child.attachLazyListCandidate(
                     entries: entries, to: runtime, published: published, admission: admission,
                     lazyJournal: lazyJournal, taskAdoption: taskAdoption, buttonActions: buttonActions,
-                    uiaAuthority: uiaAuthority),
+                    uiaAuthority: uiaAuthority, textInputChrome: textInputChrome),
                 canContinue(),
                 entriesAreCurrent(retainedEntries), childrenAreCurrent(expectedChildren)
             else { return nil }
@@ -28530,6 +28870,7 @@ extension ViewNode {
         guard canContinue(),
             entriesAreCurrent(retainedEntries), childrenAreCurrent(nextChildren, includingAttachment: true)
         else { return nil }
+        guard textInputChrome?.recordFinalChildrenWrite(on: self) != false else { return nil }
         return RetainedLazyListAdoptionCompletion(of: self)
     }
 
@@ -28698,12 +29039,15 @@ extension ViewNode {
         published: LazyListPublishedChildrenProof,
         admission: RetainedLazyListAdoptionAdmission?,
         lazyJournal: RetainedLazyListAdoptionJournal?, taskAdoption: RetainedTaskAdoptionContext?,
-        buttonActions: RetainedButtonActionAdoption?, uiaAuthority: RetainedLazyListUIAContinuationAuthority?
+        buttonActions: RetainedButtonActionAdoption?, uiaAuthority: RetainedLazyListUIAContinuationAuthority?,
+        textInputChrome: RetainedTextInputChromeContribution? = nil
     ) -> [LazyListAttachmentEntry]? {
         var entries = originalEntries
         let metadataOnly = uiaAuthority != nil && lazyJournal?.isOrdinaryAdoption == true
         func canContinue() -> Bool {
-            let nativeCurrent = published.isCurrent && entries.allSatisfy(\.isCurrent)
+            let nativeCurrent =
+                published.isCurrent && entries.allSatisfy(\.isCurrent)
+                && textInputChrome?.isCurrent != false
             if !nativeCurrent { uiaAuthority?.revoke() }
             return nativeCurrent && buttonActions?.isCurrent != false && admission?.isCurrent != false
                 && uiaAuthority?.isCurrent != false
@@ -28715,8 +29059,10 @@ extension ViewNode {
         else { return nil }
         uiaAuthority?.markMutationStarted()
         for entry in entries {
-            guard buttonActions?.isCurrent != false else { return nil }
+            guard buttonActions?.isCurrent != false, textInputChrome?.isCurrent != false else { return nil }
             let node = entry.node
+            guard textInputChrome?.beginAttachmentWrite(on: node, parent: node.parent, runtime: nextRuntime) != false
+            else { return nil }
             if nextRuntime != nil {
                 node.storedAccessibilityAttachmentIdentity = nil
                 node.revokeLazyListAttachmentProofs()
@@ -28728,6 +29074,7 @@ extension ViewNode {
             node.buttonActionOwner?.runtimeWillChange(from: node.runtime, to: nextRuntime)
             node.runtime = nextRuntime
             guard buttonActions?.recordAttachmentWrite(on: node) != false else { return nil }
+            guard textInputChrome?.recordAttachmentWrite(on: node) != false else { return nil }
             if !node.animationStates.isEmpty { nextRuntime?.registerAnimatingNode(node) }
             if entry.observerStorage != nil { nextRuntime?.registerScrollObservationNode(node) }
             if entry.adapter != nil { nextRuntime?.registerLazyListContainer(node) }

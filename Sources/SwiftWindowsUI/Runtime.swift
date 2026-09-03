@@ -8931,8 +8931,14 @@ public final class ViewNode {
         var recordToken: RetainedLazyListRowToken?
         var recordOrigin = 0.0
         var localOffset = 0.0
+        // Each measurement below ends with a full visit check. Only native
+        // placement bookkeeping follows it before the next iteration.
+        if !plan.placements.isEmpty, !runtime.lazyListVisitIsCurrent(visit) {
+            runtime.rejectLazyListLayoutVisit()
+            return
+        }
         for placement in plan.placements {
-            guard runtime.lazyListVisitIsCurrent(visit), placement.node.parent === self,
+            guard placement.node.parent === self,
                 placement.node.runtime === runtime
             else {
                 runtime.rejectLazyListLayoutVisit()

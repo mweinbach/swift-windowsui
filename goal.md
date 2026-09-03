@@ -17653,3 +17653,36 @@ The three new ordinary-correction methods still need reported outcomes after
 the combined timeout. They will run with the seven checked-identity tests
 against the cached build before the original 155-method gate. The timeout
 remains recorded, and all nine original completion gates remain open.
+
+### 2026-09-03 — Verify all new keyboard correction controls and remove one redundant layout check
+
+The ten-method focused run at `3592b719` completed naturally with all ten
+methods passing. The three ordinary-measurement methods cover five
+configurations: stale successor rows remain within the same paid round,
+focus and layout-input ABA stop further phases, and queued callbacks retain
+their ordinary epilogue ordering for both benign invalidation and source
+replacement. They passed in 100.468, 231.865 and 283.514 seconds respectively.
+The seven checked-identity methods also passed. This run took 621.563 seconds
+including a cached 0.48-second build; its debug elapsed time is not a hardware
+performance qualification.
+
+Exact starts and terminals, natural child/wrapper exit 0, preserved source and
+complete owned cleanup were verified in
+`artifacts/ordinary-keyboard-new-controls-4da69b38ab324ec8aa9d3f2cef8c7b88`;
+raw SHA-256 `0f6b0f2bc0a9c344cbad899c9eda7e7793e217d48be1864030b1347c46b6f994`.
+This establishes the new controls without changing the original tests or
+turning the earlier sixteen-method timeout into a combined pass.
+
+A separate narrow layout change now checks the lazy-list visit once before a
+nonempty placement loop instead of repeating the previous measurement's full
+check at each loop entry. Every placement still checks its parent/runtime,
+and every measurement still ends with the full visit and attachment checks.
+The intervening code only reads scalar alignment guides, updates plain frames
+and scalar cache state, and records weak-node measurement data. The placement
+plan keeps the leaf nodes alive throughout this native bookkeeping span.
+No authored callback, budget, phase, request or admission rule was removed.
+
+Contract checks before and after the change and strict Runtime lint passed.
+Execution must still verify the existing detachment, multiple-leaf and alignment
+controls and the original 155-method gate. No timing improvement is claimed
+from source review. All nine original completion gates remain open.

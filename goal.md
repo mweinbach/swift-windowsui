@@ -18477,3 +18477,54 @@ none of the nine original completion requirements has been narrowed or closed.
   `OrdinaryOwnedHandoffTests` is pending at this entry. No claim that calendar
   behavior is repaired or that all owner retirement is correct is made before
   those results. All nine original completion gates remain open.
+
+### Ordinary insertion validation and remaining calendar State failure (2026-09-03)
+
+- At clean `cc2475f50171bb306982eef1896e680499a636a7`, the exact 21-method
+  roster completed with **18 passing and 3 failing** tests. All three new
+  `OrdinaryPreparedInsertionIsolationTests` and all fifteen unchanged
+  `OrdinaryOwnedHandoffTests` passed. The three original calendar methods
+  remain failing; neither their assertions nor their source files changed.
+- The normal build succeeded in 293.04 seconds; the owned run closed naturally
+  after 315.890 seconds with exit 1. All 21 starts and terminals match the
+  roster, with no skips, timeout, termination, signals, acquisition uncertainty
+  or cleanup errors. The source revision remained clean throughout. Result:
+  `artifacts/prepared-insertion21-cc2475f-results.json`; raw log:
+  `artifacts/prepared-insertion21-c86e4b8216744416ad7eae6a9c3845f9/batch-01.log`,
+  SHA-256 `c2dbf1d4e6597d12263090ce9b708665c27b4754cc3c01f25d350a664434c073`.
+- In the unchanged graphical diagnostic, the pre-fix run lost the surface
+  during the post-action render, so the month-title assertion threw. The
+  current run rebuilds the reader and retains a surface, but it displays
+  January instead of February. Its existing counters change from
+  reads/writes/outer/geometry `7/0/2/3` after the action to `9/0/2/4` after
+  rendering; the prior diagnostic remained at `7/0/2/3`. This distinguishes
+  repaired ordinary attachment publication from the remaining State lifetime
+  failure. The other graphical method has the same January/February mismatch;
+  the multi-date method retains February instead of March.
+- Passing isolation and handoff tests proves this bounded fact-publication
+  correction under their stated fixtures. It does not prove every calendar
+  owner's retirement is correct, repair the calendar controls, qualify the
+  original keyboard cohort, or replace full-suite/native validation. Further
+  work preserves the original month-state, rejected-candidate, physical
+  departure and ownership assertions. All nine original gates remain open.
+- Two unchanged collateral rosters also passed at the same clean revision:
+  **AccessibilityCollateral71: 71/71** in four batches, and
+  **CatalogFixture26: 26/26** in two batches. Every batch had exact selected
+  starts and passing terminals, natural exit 0 and complete owned cleanup,
+  without source changes, skips, timeout or uncertainty. Their aggregates are
+  `artifacts/accessibility-collateral71-cc2475f-results.json` and
+  `artifacts/catalogfixture26-cc2475f-results.json`. These are focused,
+  potentially overlapping rosters, not a full-suite total or a substitute for
+  the separate calendar and original keyboard cohorts.
+- The original calendar oracle is unchanged and more specific than merely
+  retaining or resetting State: a previously accepted, still-declared candidate
+  keeps its browsing month while cold; its old callbacks and physical
+  publication are unavailable. Actual declaration removal resets the month.
+  The fixture's constant canvas hint can cause a root reload to select the
+  narrow fallback before the reader resolves at the wider runtime size.
+  Production already reads current runtime root size, but a reader's resolved
+  container slot can still differ from its construction hint. No fixture or
+  host-size workaround is integrated. Source review identifies native owner
+  revocation and subsequent fresh State-cell seeding as a candidate mechanism;
+  exact browsing-cell/owner correlation and repair remain pending. Revoked
+  write authority must not be revived to preserve a value.

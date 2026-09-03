@@ -19691,3 +19691,23 @@ The reviewed launcher SHA256 is
 `aea2bfa3841b951210836bacfb02f09dd6bed1ed987ae93fad6af03e22c9d886`.
 The stock Full run itself has not started. All nine original completion gates
 remain open and unchanged.
+
+### 2026-09-03: repair Image test discovery with signature-only async methods
+
+All twenty-two methods in WinSwiftUIImageAccessibilityDefaultsTests now use
+the async form required for MainActor XCTest classes by the existing Windows
+testing guide. Root reviewed every changed line and independently verified that
+removing precisely those twenty-two inserted ` async` tokens restores the
+entire original file byte-for-byte. Test bodies, helpers, assertions, values,
+fixtures and production files are unchanged. Strict lint and contracts pass
+without formatting changes. Patch SHA256:
+`93bd676e1053a1fa764991254f592a7be890f84c0209ef89395a4fdf192913b1`;
+the resulting test file SHA256 is
+`9037ca9ceec6cf9bd484c2f8ecc5b0feef7f15d8dde4461af051bd452fa0507c`.
+
+The successor combined360 roster retains every selector in its original order
+and every other source pin. Root verified all thirty-five file hashes. Its
+SHA256 is `4324595e6ff76e9a5e8b9e5d1508954f03d563f3a5cec6e46b1aa535ca1bf064`.
+The same selected workload will rerun from a fresh committed source state; no
+execution result is claimed by the signature correction. Prior failed outputs
+and all nine original completion requirements remain unchanged.

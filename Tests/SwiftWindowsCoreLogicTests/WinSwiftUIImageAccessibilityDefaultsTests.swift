@@ -67,22 +67,22 @@ final class WinSwiftUIImageAccessibilityDefaultsTests: XCTestCase {
         if let name { XCTAssertEqual(image.name, name, file: file, line: line) }
     }
 
-    func testUnlabelledBitmapIsAnImageDescendant() throws {
+    func testUnlabelledBitmapIsAnImageDescendant() async throws {
         let fixture = Fixture(Image(bitmap: bitmap()))
         try assertSingleImage(fixture, name: "")
         XCTAssertTrue(fixture.node.accessibilityTraits.contains(.isImage))
         XCTAssertFalse(fixture.node.isAccessibilityImage, "The removable trait owns the default role")
     }
 
-    func testLabelledBitmapIsOneNamedImage() throws {
+    func testLabelledBitmapIsOneNamedImage() async throws {
         try assertSingleImage(Fixture(Image(bitmap: bitmap()).accessibilityLabel("Mark")), name: "Mark")
     }
 
-    func testUnlabelledSystemSymbolIsAnImageDescendant() throws {
+    func testUnlabelledSystemSymbolIsAnImageDescendant() async throws {
         try assertSingleImage(Fixture(Image(systemName: "gearshape")))
     }
 
-    func testSystemSymbolInitializerLabelCanBeOverridden() throws {
+    func testSystemSymbolInitializerLabelCanBeOverridden() async throws {
         try assertSingleImage(
             Fixture(Image(systemName: "gearshape", label: Text("Settings"))), name: "Settings")
         try assertSingleImage(
@@ -90,7 +90,7 @@ final class WinSwiftUIImageAccessibilityDefaultsTests: XCTestCase {
             name: "Preferences")
     }
 
-    func testNamedBitmapSourceIsOneNamedImage() throws {
+    func testNamedBitmapSourceIsOneNamedImage() async throws {
         try withBitmapFile { path in
             let fixture = Fixture(Image(path, label: Text("Resource mark")))
             XCTAssertNotNil(fixture.node.bitmapSurface)
@@ -98,7 +98,7 @@ final class WinSwiftUIImageAccessibilityDefaultsTests: XCTestCase {
         }
     }
 
-    func testMissingNamedSourceKeepsImageSemanticsWithoutClaimingDecode() throws {
+    func testMissingNamedSourceKeepsImageSemanticsWithoutClaimingDecode() async throws {
         let path = FileManager.default.temporaryDirectory
             .appendingPathComponent("missing-image-\(UUID().uuidString).png").path
         XCTAssertFalse(FileManager.default.fileExists(atPath: path))
@@ -108,7 +108,7 @@ final class WinSwiftUIImageAccessibilityDefaultsTests: XCTestCase {
         XCTAssertTrue(Fixture(Image(decorative: path)).descendants.isEmpty)
     }
 
-    func testDecorativeResourceAndTypedFitAreOmittedUnlessExplicitlyUnhidden() throws {
+    func testDecorativeResourceAndTypedFitAreOmittedUnlessExplicitlyUnhidden() async throws {
         try withBitmapFile { path in
             XCTAssertTrue(Fixture(Image(decorative: path).accessibilityLabel("Decoration")).descendants.isEmpty)
             XCTAssertTrue(
@@ -120,13 +120,13 @@ final class WinSwiftUIImageAccessibilityDefaultsTests: XCTestCase {
         }
     }
 
-    func testExplicitHiddenModifierOmitsEveryPublicRepresentation() {
+    func testExplicitHiddenModifierOmitsEveryPublicRepresentation() async {
         for image in representations() {
             XCTAssertTrue(Fixture(image.accessibilityLabel("Hidden").accessibilityHidden(true)).descendants.isEmpty)
         }
     }
 
-    func testRemovingImageTraitOmitsUnlabelledBitmapAndTypedFit() {
+    func testRemovingImageTraitOmitsUnlabelledBitmapAndTypedFit() async {
         for image in [AnyView(Image(bitmap: bitmap())), AnyView(Image(bitmap: bitmap()).resizable().scaledToFit())] {
             let fixture = Fixture(image.accessibilityRemoveTraits(.isImage))
             XCTAssertFalse(fixture.node.accessibilityTraits.contains(.isImage))
@@ -134,7 +134,7 @@ final class WinSwiftUIImageAccessibilityDefaultsTests: XCTestCase {
         }
     }
 
-    func testRemovingImageTraitPreservesLabelWithoutReinsertingImageRole() throws {
+    func testRemovingImageTraitPreservesLabelWithoutReinsertingImageRole() async throws {
         for image in representations() {
             let fixture = Fixture(image.accessibilityLabel("Role override").accessibilityRemoveTraits(.isImage))
             XCTAssertFalse(fixture.node.accessibilityTraits.contains(.isImage))
@@ -146,7 +146,7 @@ final class WinSwiftUIImageAccessibilityDefaultsTests: XCTestCase {
         }
     }
 
-    func testExplicitlyAddingImageTraitAgainRestoresEveryRepresentation() throws {
+    func testExplicitlyAddingImageTraitAgainRestoresEveryRepresentation() async throws {
         for image in representations() {
             try assertSingleImage(
                 Fixture(
@@ -155,7 +155,7 @@ final class WinSwiftUIImageAccessibilityDefaultsTests: XCTestCase {
         }
     }
 
-    func testExplicitButtonTraitTakesPrecedenceOverImageDefault() throws {
+    func testExplicitButtonTraitTakesPrecedenceOverImageDefault() async throws {
         for image in representations() {
             let fixture = Fixture(image.accessibilityLabel("Action image").accessibilityAddTraits(.isButton))
             XCTAssertEqual(fixture.descendants.count, 1)
@@ -165,7 +165,7 @@ final class WinSwiftUIImageAccessibilityDefaultsTests: XCTestCase {
         }
     }
 
-    func testTypedFitHasOneImageAtItsOwnSemanticRoot() throws {
+    func testTypedFitHasOneImageAtItsOwnSemanticRoot() async throws {
         let fixture = Fixture(Image(bitmap: bitmap()).resizable().scaledToFit())
         try assertSingleImage(fixture, name: "")
         XCTAssertNotNil(fixture.node.aspectFitLayout)
@@ -178,7 +178,7 @@ final class WinSwiftUIImageAccessibilityDefaultsTests: XCTestCase {
         XCTAssertTrue(leaf.parent === fixture.node)
     }
 
-    func testTypedFitLabelDoesNotMovePaintMetadataFromBitmap() throws {
+    func testTypedFitLabelDoesNotMovePaintMetadataFromBitmap() async throws {
         let fixture = Fixture(
             Image(bitmap: bitmap()).resizable().interpolation(.none).scaledToFit().accessibilityLabel("Fitted mark"))
         try assertSingleImage(fixture, name: "Fitted mark")
@@ -190,7 +190,7 @@ final class WinSwiftUIImageAccessibilityDefaultsTests: XCTestCase {
         XCTAssertNil(fixture.node.imageResizingMode)
     }
 
-    func testCompositeSymbolVariantsExposeExactlyOneNamedImage() throws {
+    func testCompositeSymbolVariantsExposeExactlyOneNamedImage() async throws {
         for variants in [SymbolVariants.circle, .square, .rectangle, .slash, [.circle, .fill, .slash]] {
             let fixture = Fixture(Image(systemName: "gearshape", label: Text("Settings")).symbolVariant(variants))
             try assertSingleImage(fixture, name: "Settings")
@@ -202,7 +202,7 @@ final class WinSwiftUIImageAccessibilityDefaultsTests: XCTestCase {
         }
     }
 
-    func testCompositeSymbolKeepsPaintMetadataOnRootAndIcon() throws {
+    func testCompositeSymbolKeepsPaintMetadataOnRootAndIcon() async throws {
         let fixture = Fixture(
             Image(systemName: "gearshape", variableValue: 0.5).resizable(resizingMode: .tile)
                 .symbolVariant([.circle, .fill, .slash]).accessibilityLabel("Decorated settings"))
@@ -220,7 +220,7 @@ final class WinSwiftUIImageAccessibilityDefaultsTests: XCTestCase {
         XCTAssertEqual(fixture.node.children[1].nodeTag, "symbol-variant-slash")
     }
 
-    func testUnlabelledFrameProjectsOnlyItsImageLeafAndKeepsLayout() throws {
+    func testUnlabelledFrameProjectsOnlyItsImageLeafAndKeepsLayout() async throws {
         let fixture = Fixture(Image(bitmap: bitmap()).resizable().frame(width: 32, height: 24))
         try assertSingleImage(fixture, name: "")
         XCTAssertEqual(fixture.node.preferredSize, Size(width: 32, height: 24))
@@ -229,7 +229,7 @@ final class WinSwiftUIImageAccessibilityDefaultsTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(fixture.node.children.first).parent === fixture.node)
     }
 
-    func testLabelBeforeFrameRemainsOnTheSingleImageLeaf() throws {
+    func testLabelBeforeFrameRemainsOnTheSingleImageLeaf() async throws {
         let fixture = Fixture(
             Image(bitmap: bitmap()).resizable().accessibilityLabel("Inner label").frame(width: 32, height: 24))
         try assertSingleImage(fixture, name: "Inner label")
@@ -237,7 +237,7 @@ final class WinSwiftUIImageAccessibilityDefaultsTests: XCTestCase {
         XCTAssertNil(fixture.node.selectedContentRole)
     }
 
-    func testLabelledNonImageFrameRemainsAGroup() throws {
+    func testLabelledNonImageFrameRemainsAGroup() async throws {
         let fixture = Fixture(Color.clear.frame(width: 32, height: 24).accessibilityLabel("Layout"))
         XCTAssertEqual(fixture.descendants.count, 1)
         let snapshot = try XCTUnwrap(fixture.descendants.first)
@@ -245,7 +245,7 @@ final class WinSwiftUIImageAccessibilityDefaultsTests: XCTestCase {
         XCTAssertEqual(snapshot.controlType, Int32(SWU_UIA_CONTROL_TYPE_GROUP))
     }
 
-    func testExplicitFrameChildBehaviorsAreNotOverriddenByImageDefault() throws {
+    func testExplicitFrameChildBehaviorsAreNotOverriddenByImageDefault() async throws {
         for behavior in [AccessibilityChildBehavior.ignore, .combine, .contain] {
             let fixture = Fixture(
                 Image(bitmap: bitmap()).accessibilityLabel("Child").frame(width: 32, height: 24)
@@ -261,7 +261,7 @@ final class WinSwiftUIImageAccessibilityDefaultsTests: XCTestCase {
         }
     }
 
-    func testViewThatFitsProjectsTheSelectedImageOnly() throws {
+    func testViewThatFitsProjectsTheSelectedImageOnly() async throws {
         let fixture = Fixture(
             ViewThatFits {
                 Image(bitmap: bitmap()).accessibilityLabel("Selected")
@@ -273,7 +273,7 @@ final class WinSwiftUIImageAccessibilityDefaultsTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(fixture.node.children.first).parent === fixture.node)
     }
 
-    func testInternalBitmapPrimitiveDoesNotAcquirePublicImageSemantics() {
+    func testInternalBitmapPrimitiveDoesNotAcquirePublicImageSemantics() async {
         let root = ViewNode()
         let runtime = RetainedViewRuntime(root: root)
         let primitive = Controls.image(bitmap())

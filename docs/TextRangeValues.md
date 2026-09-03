@@ -122,9 +122,44 @@ Owner checks here describe actor-side ownership, not native readiness. Native
 attachment quiescence can revoke its session before the actor callback context
 is cleared, so a direct package range read may remain available during that
 interval. Existing native request publication separately requires its session
-and complete-call lease. The new internal request cases have no native callback
-or COM registration and do not advertise TextPattern. Native held-range teardown
-and complete provider behavior remain open qualification work.
+and complete-call lease. Direct actor document/range requests still have no COM
+registration and do not advertise TextPattern.
+
+The native held-text read candidate adds a separate optional callback table and
+an internal IUnknown-only handle for acquire/read/release. It exposes neither
+ITextProvider nor ITextRangeProvider. Each handle retains its original native
+context and a non-reused ticket; the bridge alone stores the corresponding
+actor range. Native reads enter the unchanged session and complete-call lease
+path, so native quiescence rejects them even while the direct actor control
+above can still read. Final handle release queues only the ticket for actor
+cleanup and never waits for the actor. Terminal bridge revocation closes the
+store before its weak callback link is cleared. A failed acquisition retires
+its preissued ticket only after synchronous actor registration has completed,
+including when the reply is suppressed. Allocation failure before registration
+creates no record. Existing callback table layouts and typed Invoke behavior
+are preserved.
+
+This adapter explicitly selects the Core helper's UTF16-budget/Character-safe
+truncation policy; that is still not native text-unit qualification. It maps a
+maximum below -1 to E_INVALIDARG, denied authority to UIA_E_ELEMENTNOTAVAILABLE,
+and allocation failure to E_OUTOFMEMORY. Empty eligible text is a nonnull empty
+BSTR, not a denial. Checked exact UTF16 length preserves embedded NUL. Acquire
+requires exactly S_OK after registration; unexpected positive callback results
+are E_UNEXPECTED, with failed complete-call status taking precedence.
+
+Native output permission linearizes at the final call-status load after BSTR
+allocation. Revocation observed there suppresses the result. This does not
+promise suppression for revocation racing between that load and the following
+output-pointer store, nor for arbitrary UI mutations after the actor snapshot.
+The complete call remains retained through output cleanup/publication; merely
+holding a read handle retains no permanent call and does not block quiescence.
+
+Twelve new `UIANativeTextReadTests` methods are authored for this private
+candidate and remain uncompiled/unrun. They target local headless C helpers,
+the real retained source, actor dispatch, and call ownership, not installed UIA,
+COM TextPattern or Narrator. The preceding sixteen actor-test results remain
+unchanged evidence with their narrower scope. Native held-range teardown and
+complete provider behavior still require qualification.
 
 All work required for real TextPattern remains open: retained TextEditor and
 TextField selection and composition integration; text and geometry revisions;

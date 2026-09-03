@@ -12,6 +12,9 @@ package enum UIAProviderRequest: Equatable, Sendable {
     /// Internal held-document wiring; neither case has a native callback yet.
     case textDocument(element: UInt64)
     case textRangeContent(range: UIATextRange, maximumUTF16Length: Int)
+    /// Internal native read tickets; neither exposes a UIA text pattern.
+    case acquireTextRead(element: UInt64, ticket: UInt64)
+    case readTextRead(ticket: UInt64, maximumUTF16Length: Int32)
     case controlType(element: UInt64)
     case boolProperty(element: UInt64, property: Int32)
     case hasInvokeAction(element: UInt64)

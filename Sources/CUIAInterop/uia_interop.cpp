@@ -55,6 +55,16 @@ static_assert(SWU_UIA_CONTROL_TYPE_HEADER == UIA_HeaderControlTypeId, "control t
 namespace {
 SWUUIACallbacks makeCallAdapters(const SWUUIACallCallbacks &callbacks);
 int32_t invokeCallResult(void *raw, uint64_t element);
+
+HRESULT takeTextReadTicket(uint64_t *next, uint64_t *result) {
+    if (result == nullptr) return E_POINTER;
+    *result = 0;
+    if (next == nullptr) return E_POINTER;
+    if (*next == 0) return E_OUTOFMEMORY;
+    *result = *next;
+    *next = *next == (std::numeric_limits<uint64_t>::max)() ? 0 : *next + 1;
+    return S_OK;
+}
 }
 
 // Admission and the one drain notification share a short lock. No callback,
@@ -67,6 +77,7 @@ struct SWUUIAProviderContext {
     const SWUUIADrainWake drainWake;
     int32_t (*const invokeDefaultActionResult)(void *, uint64_t);
     int32_t (*const callInvokeDefaultActionResult)(SWUUIACall *, uint64_t);
+    const SWUUIATextReadCallbacks textReadCallbacks{};
 
     SWUUIAProviderContext(
         const SWUUIACallbacks &value, void (*release)(void *),
@@ -81,6 +92,24 @@ struct SWUUIAProviderContext {
           releaseContext(release), drainWake(wake),
           invokeDefaultActionResult(invokeResult != nullptr ? invokeCallResult : nullptr),
           callInvokeDefaultActionResult(invokeResult) {}
+
+    SWUUIAProviderContext(
+        const SWUUIACallCallbacks &value, void (*release)(void *), const SWUUIADrainWake &wake,
+        int32_t (*invokeResult)(SWUUIACall *, uint64_t), const SWUUIATextReadCallbacks &textRead)
+        : callbacks(makeCallAdapters(value)), callCallbacks(value), usesExplicitCalls(true),
+          releaseContext(release), drainWake(wake),
+          invokeDefaultActionResult(invokeResult != nullptr ? invokeCallResult : nullptr),
+          callInvokeDefaultActionResult(invokeResult), textReadCallbacks(textRead) {}
+
+    bool hasTextReadCallbacks() const {
+        return usesExplicitCalls && textReadCallbacks.acquire != nullptr &&
+            textReadCallbacks.copyText != nullptr && textReadCallbacks.retire != nullptr;
+    }
+
+    HRESULT issueTextReadTicket(uint64_t *result) {
+        std::lock_guard<std::mutex> guard(textTicketMutex);
+        return takeTextReadTicket(&nextTextTicket, result);
+    }
 
     void retain() { references.fetch_add(1, std::memory_order_relaxed); }
 
@@ -162,6 +191,8 @@ private:
     uint64_t activeCalls = 0;
     bool hasClaimedDrainNotification = false;
     std::atomic<HRESULT> wakeResult{S_OK};
+    std::mutex textTicketMutex;
+    uint64_t nextTextTicket = 1;
 };
 
 // The native method and its actor request each own a reference. Admission is
@@ -592,6 +623,7 @@ public:
     bool isAvailable() const { return context_->isAvailable(); }
     void revoke() { context_->revoke(); }
     SWUUIAProviderContext *providerContext() const { return context_; }
+    uint64_t textReadElement() const { return element_; }
     HWND ownedRootWindowHandle() const {
         return ownedHWNDIdentity_ && isRoot_ ? hwnd_ : nullptr;
     }
@@ -1366,6 +1398,78 @@ IRawElementProviderFragmentRoot *asRoot(void *provider) {
     return static_cast<IRawElementProviderFragmentRoot *>(asProvider(provider));
 }
 
+// No text COM interface is exposed. An eventual range provider can own this
+// capability, but may not bypass its original context and full-call admission.
+class SWUTextReadHandle final : public IUnknown {
+public:
+    SWUTextReadHandle(SWUUIAProviderContext *context, uint64_t ticket)
+        : context_(context), ticket_(ticket) { context_->retain(); }
+
+    IFACEMETHODIMP QueryInterface(REFIID riid, void **result) override {
+        if (result == nullptr) return E_POINTER;
+        *result = nullptr;
+        if (riid != IID_IUnknown) return E_NOINTERFACE;
+        *result = static_cast<IUnknown *>(this);
+        AddRef();
+        return S_OK;
+    }
+
+    IFACEMETHODIMP_(ULONG) AddRef() override {
+        return references_.fetch_add(1, std::memory_order_relaxed) + 1;
+    }
+
+    IFACEMETHODIMP_(ULONG) Release() override {
+        ULONG remaining = references_.fetch_sub(1, std::memory_order_acq_rel) - 1;
+        if (remaining == 0) delete this;
+        return remaining;
+    }
+
+    SWUUIAProviderContext *context() const { return context_; }
+    uint64_t ticket() const { return ticket_; }
+
+private:
+    ~SWUTextReadHandle() {
+        // Registration has finished before an unpublished guard can get here.
+        // This callback enqueues only a number and needs no live call lease.
+        context_->textReadCallbacks.retire(context_->callbacks.context, ticket_);
+        context_->release();
+    }
+
+    SWUUIAProviderContext *const context_;
+    const uint64_t ticket_;
+    std::atomic<ULONG> references_{1};
+};
+
+HRESULT acquireTextRead(void *provider, void **result, bool refuseAllocation) {
+    if (result == nullptr) return E_POINTER;
+    *result = nullptr;
+    if (provider == nullptr) return E_POINTER;
+    auto *original = asProvider(provider);
+    auto *context = original->providerContext();
+    ProviderCall call(asSimple(provider), context);
+    HRESULT status = call.status();
+    if (FAILED(status)) return status;
+    if (!context->hasTextReadCallbacks()) return E_NOINTERFACE;
+    uint64_t ticket = 0;
+    status = context->issueTextReadTicket(&ticket);
+    if (FAILED(status)) return status;
+    COMOwned<SWUTextReadHandle> handle(
+        refuseAllocation ? nullptr : new (std::nothrow) SWUTextReadHandle(context, ticket));
+    status = call.status();
+    if (FAILED(status)) return status;
+    if (!handle) return E_OUTOFMEMORY;
+    const HRESULT registered = context->textReadCallbacks.acquire(
+        static_cast<SWUUIACall *>(call.callbackContext()), original->textReadElement(), ticket);
+    // The callback synchronously waits for actor receive completion. Dropping
+    // this guard can therefore never race ahead of a later registration.
+    status = call.status();
+    if (FAILED(status)) return status;
+    if (registered != S_OK) return FAILED(registered) ? registered : E_UNEXPECTED;
+    // Permission linearizes at the status load above, not at the pointer store.
+    *result = handle.release();
+    return S_OK;
+}
+
 struct DisconnectResult {
     HRESULT status;
     bool usedPrivateIdentity = false;
@@ -1425,6 +1529,8 @@ const IID &interfaceID(int32_t kind) {
     case SWU_UIA_INTERFACE_SELECTION_ITEM: return IID_ISelectionItemProvider;
     case SWU_UIA_INTERFACE_VIRTUALIZED_ITEM: return IID_IVirtualizedItemProvider;
     case SWU_UIA_INTERFACE_ITEM_CONTAINER: return IID_IItemContainerProvider;
+    case SWU_UIA_INTERFACE_TEXT: return IID_ITextProvider;
+    case SWU_UIA_INTERFACE_TEXT_RANGE: return IID_ITextRangeProvider;
     default: return IID_NULL;
     }
 }
@@ -1493,6 +1599,64 @@ SWUUIAProviderContext *SWU_UIACreateProviderContextWithCallsAndInvokeResult(
     if (callbacks == nullptr) return nullptr;
     return new (std::nothrow) SWUUIAProviderContext(
         *callbacks, releaseContext, drainWake != nullptr ? *drainWake : SWUUIADrainWake{}, invokeResult);
+}
+
+SWUUIAProviderContext *SWU_UIACreateProviderContextWithCallsAndTextRead(
+    const SWUUIACallCallbacks *callbacks, void (*releaseContext)(void *),
+    const SWUUIADrainWake *drainWake,
+    int32_t (*invokeResult)(SWUUIACall *, uint64_t), const SWUUIATextReadCallbacks *textRead) {
+    if (callbacks == nullptr) return nullptr;
+    return new (std::nothrow) SWUUIAProviderContext(
+        *callbacks, releaseContext, drainWake != nullptr ? *drainWake : SWUUIADrainWake{},
+        invokeResult, textRead != nullptr ? *textRead : SWUUIATextReadCallbacks{});
+}
+
+int32_t SWU_UIAProviderAcquireTextRead(void *provider, void **result) {
+    return acquireTextRead(provider, result, false);
+}
+
+int32_t SWU_UIAProviderAcquireTextReadWithAllocationFailureForTesting(void *provider, void **result) {
+    return acquireTextRead(provider, result, true);
+}
+
+int32_t SWU_UIATextReadNextTicket(uint64_t *next, uint64_t *result) {
+    return takeTextReadTicket(next, result);
+}
+
+int32_t SWU_UIATextReadGetText(void *handle, int32_t maximumUTF16Length, uint16_t **result) {
+    if (result == nullptr) return E_POINTER;
+    *result = nullptr;
+    if (handle == nullptr) return E_POINTER;
+    auto *original = static_cast<SWUTextReadHandle *>(handle);
+    auto *context = original->context();
+    ProviderCall call(original, context);
+    HRESULT status = call.status();
+    if (FAILED(status)) return status;
+    if (maximumUTF16Length < -1) return E_INVALIDARG;
+    OwnedBSTR value(reinterpret_cast<BSTR>(context->textReadCallbacks.copyText(
+        static_cast<SWUUIACall *>(call.callbackContext()), original->ticket(), maximumUTF16Length)));
+    // Allocation and rejected-output cleanup stay inside the complete call.
+    // This load is the permission linearization point, not the pointer store.
+    status = call.status();
+    if (FAILED(status)) return status;
+    if (!value) return E_OUTOFMEMORY;
+    *result = reinterpret_cast<uint16_t *>(value.release());
+    return S_OK;
+}
+
+void SWU_UIATextReadRetain(void *handle) {
+    if (handle != nullptr) static_cast<SWUTextReadHandle *>(handle)->AddRef();
+}
+
+void SWU_UIATextReadRelease(void *handle) {
+    if (handle != nullptr) static_cast<SWUTextReadHandle *>(handle)->Release();
+}
+
+int32_t SWU_UIATextReadQueryInterfaceResult(void *handle, int32_t interfaceKind, void **result) {
+    if (result == nullptr) return E_POINTER;
+    *result = nullptr;
+    if (handle == nullptr) return E_POINTER;
+    return static_cast<SWUTextReadHandle *>(handle)->QueryInterface(interfaceID(interfaceKind), result);
 }
 
 void SWU_UIARetainProviderContext(SWUUIAProviderContext *context) {

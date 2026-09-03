@@ -18694,3 +18694,68 @@ integrated by this entry. A proposed keyboard counter diagnostic remains
 private while a review finding is corrected: it must not change existing
 FILE14-only event schemas or discard original phase events at its counter cap.
 No historical diagnostic reader is relaxed, and no push has occurred.
+
+### 2026-09-03: native held-text read adapter enters focused validation
+
+The next accessibility slice adds an internal native acquire/read/release
+adapter for the already tested actor-side held-text range. It adds a separate
+optional C callback table without changing either existing callback layout,
+old factory behavior, typed Invoke semantics, or the session/dispatcher
+admission algorithms. The native handle implements only IUnknown and retains
+its original context and a non-reused numeric ticket. It advertises neither
+TextPattern nor ITextRangeProvider.
+
+Only the actor bridge stores the range. Acquisition preissues the ticket and
+allocates the unpublished native handle before synchronous actor registration;
+rollback cannot retire that ticket before registration finishes. Exactly S_OK
+publishes the handle. Unexpected positive callback results are E_UNEXPECTED,
+and failed full-call status takes precedence. Allocation failure before
+registration leaves no actor record. Final worker-thread Release queues only
+the ticket, without retaining UI objects or synchronously waiting for the
+actor. Mailbox scheduling and batch consumption share a mutex. Terminal
+bridge teardown closes and clears the store before clearing its weak callback
+link; duplicate or obsolete retirements cannot acquire another context's range.
+
+Read calls use the existing native session and complete-call lease, with the
+original weak attachment/content/privacy checks. Native quiescence rejects
+the call before actor entry even if a direct actor-side range remains readable.
+The adapter explicitly selects the Core helper's UTF16-budget and Character-safe
+truncation policy, not a native text-unit parity claim. Checked UTF16 length
+preserves embedded NUL; eligible empty text returns a nonnull empty BSTR.
+Maximum lengths below -1 fail with E_INVALIDARG; denied authority does not
+become empty success, and allocation failure reports E_OUTOFMEMORY.
+
+Output permission linearizes at the final full-call status load after BSTR
+allocation. Revocation observed there suppresses publication, and the full
+call stays retained through output cleanup/publication. This does not promise
+suppression of a revocation racing after that load and before the output
+pointer store, or arbitrary mutations after the actor snapshot. Merely holding
+the native read handle owns no permanent call and does not prevent quiescence.
+
+The reviewed final patch changes nine paths: seven source files, a new test
+file and `docs/TextRangeValues.md`. Root and independent peers read all source
+and all twelve new tests. Review strengthened the existing worker test with a
+nested general request across the global admission guard, and changed the
+worker-release test to observe actual scheduled retirement rather than manually
+draining it. Their original frozen drafts and the separate corrections remain
+preserved. The five-second actor observation deadline is checked only when the
+actor runs; it is not a guaranteed wall-time bound under actor starvation.
+
+The final private patch hash is
+`ab0b132473c9cc5a41095413d305dc53db5cd736fe87af04ceffd6bbd03fcb52`.
+Root applied it after the additive/gallery validation commit `359dce0` and
+formatted exactly six Swift files following an initial strict lint failure.
+The subsequent strict lint and architecture contracts pass, recorded in
+`artifacts/native-held-text68-lint-formatted.log`. This entry records source
+integration only; compilation and execution of the adapter remain pending.
+
+The focused roster contains twelve new methods plus 56 unchanged methods:
+HeldText16, CallLease14, NativeRequest16 and ActorDispatch10. The exact 68-ID
+JSON is 8,124 bytes, SHA-256
+`e35f5d2e7bdba7de50c3e4c23cc6916174e5d477420d20c0e71c15fae42f66ea`;
+the runner will bind it to the actual clean integration commit. These headless
+tests use C handles, the retained source and real actor dispatch; they do not
+install UIA, open an HWND, advertise TextPattern, or exercise Narrator. Full
+text-provider methods, editor integration, geometry, selection, scrolling,
+attributes/children, events, native text units and installed accessibility
+qualification remain open. No original completion gate is checked off.

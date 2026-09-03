@@ -319,6 +319,7 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
     private let nativeContext: OpaquePointer?
     private let nativeSession: UIANativeProviderSession?
     private let nativeCallbackContext: UIANativeCallbackContext?
+    private let nativeTextReads = UIANativeTextReadStore()
     private let beforeNativeRequest:
         (@MainActor (NativeWindowKey, UInt64, NativeWindowGeometry) -> Result<Void, NativeWindowOwnerFailure>)?
     private var hwnd: UnsafeMutableRawPointer?
@@ -407,6 +408,7 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
     /// disconnection and resource release after the complete C call drains.
     package func revokeNativeRequests() {
         nativeSession?.revoke()
+        closeNativeTextReads()
         nativeCallbackContext?.bridge = nil
         if let nativeContext { SWU_UIARevokeProviderContext(nativeContext) }
         callbackContext.bridge = nil
@@ -416,6 +418,7 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
         // Local revocation is sufficient for safety even when Windows cannot
         // disconnect providers. Never make an outbound COM call from deinit.
         nativeSession?.revoke()
+        closeNativeTextReads()
         nativeCallbackContext?.bridge = nil
         if let nativeContext { SWU_UIARevokeProviderContext(nativeContext) }
         callbackContext.bridge = nil
@@ -436,6 +439,18 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
     package var permitsHeldTextReads: Bool {
         if let nativeCallbackContext { return nativeCallbackContext.bridge === self }
         return callbackContext.bridge === self
+    }
+
+    internal var nativeTextReadCount: Int { nativeTextReads.count }
+
+    internal func drainNativeTextReadRetirements() {
+        guard let nativeCallbackContext else { return }
+        nativeTextReads.retire(nativeCallbackContext.textReadRetirements.take())
+    }
+
+    private func closeNativeTextReads() {
+        nativeTextReads.close()
+        nativeCallbackContext?.textReadRetirements.close()
     }
 
     internal var callbackContextObjectForTesting: AnyObject { callbackContext }
@@ -840,6 +855,18 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
             let text = try range.getText(maximumUTF16Length: maximumUTF16Length)
             guard isAvailable(), range.isCurrent else { return .string(nil) }
             return .string(text)
+        case .acquireTextRead(let element, let ticket):
+            guard ticket != 0, isAvailable(), permitsHeldTextReads,
+                case .textDocument(let document) = try replyForNativeRequest(
+                    .textDocument(element: element), geometry: geometry, isAvailable: isAvailable),
+                let range = document?.documentRange(), isAvailable(), range.isCurrent
+            else { return .integer(0) }
+            return .integer(nativeTextReads.register(range, ticket: ticket) ? 1 : 0)
+        case .readTextRead(let ticket, let maximumUTF16Length):
+            guard isAvailable(), let range = nativeTextReads.range(for: ticket) else { return .string(nil) }
+            return try replyForNativeRequest(
+                .textRangeContent(range: range, maximumUTF16Length: Int(maximumUTF16Length)),
+                geometry: geometry, isAvailable: isAvailable)
         case .controlType(let element):
             return .integer(try nativeQuerySnapshot(geometry).controlType(element))
         case .boolProperty(let element, let property):

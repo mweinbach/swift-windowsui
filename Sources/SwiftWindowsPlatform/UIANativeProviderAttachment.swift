@@ -47,16 +47,17 @@ struct UIANativeProviderFactory: NativeWindowOwnerAttachmentFactory {
         let retainedWake = Unmanaged.passRetained(drainWake).toOpaque()
         var callbacks = UIANativeProviderCallbacks.make(
             context: retainedCallback, supportsLogicalItems: supportsLogicalItems)
+        var textCallbacks = UIANativeTextReadCallbacks.make()
         var wake = SWUUIADrainWake()
         wake.context = retainedWake
         wake.signal = signalUIANativeDrainWake
         wake.releaseContext = releaseUIANativeDrainWake
         guard
-            let nativeContext = SWU_UIACreateProviderContextWithCallsAndInvokeResult(
+            let nativeContext = SWU_UIACreateProviderContextWithCallsAndTextRead(
                 &callbacks, releaseUIANativeCallbackContext, &wake,
                 { call, element in
                     UIANativeProviderCallbacks.invokeDefaultActionResult(call, element)
-                })
+                }, &textCallbacks)
         else {
             // The factory adopts both boxes only on success.
             releaseUIANativeCallbackContext(retainedCallback)

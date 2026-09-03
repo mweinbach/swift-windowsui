@@ -248,6 +248,40 @@ SWUUIAProviderContext *SWU_UIACreateProviderContextWithInvokeResult(
 SWUUIAProviderContext *SWU_UIACreateProviderContextWithCallsAndInvokeResult(
     const SWUUIACallCallbacks *callbacks, void (*releaseContext)(void *), const SWUUIADrainWake *drainWake,
     int32_t (*invokeResult)(SWUUIACall *call, uint64_t element));
+// Optional internal held-text read ABI, separate from both existing tables.
+// Shares callCallbacks.context and its ONE release hook. Acquire returns exactly
+// S_OK only after registration completes; positive nonzero results are invalid.
+// copyText transfers a BSTR, including nonnull empty success; denied content
+// must fail the call, not silently return a successful empty string.
+// retire is any-thread cleanup WITHOUT a call lease: enqueue only the numeric
+// ticket, never synchronously wait for an actor or destroy actor-owned values.
+typedef struct SWUUIATextReadCallbacks {
+    int32_t (*acquire)(SWUUIACall *call, uint64_t element, uint64_t ticket);
+    uint16_t *(*copyText)(SWUUIACall *call, uint64_t ticket, int32_t maximumUTF16Length);
+    void (*retire)(void *context, uint64_t ticket);
+} SWUUIATextReadCallbacks;
+SWUUIAProviderContext *SWU_UIACreateProviderContextWithCallsAndTextRead(
+    const SWUUIACallCallbacks *callbacks, void (*releaseContext)(void *),
+    const SWUUIADrainWake *drainWake,
+    int32_t (*invokeResult)(SWUUIACall *, uint64_t), const SWUUIATextReadCallbacks *textRead);
+
+// These handles implement IUnknown ONLY, not ITextProvider/ITextRangeProvider.
+// They retain the original context and ticket, never a permanent call lease.
+// A revoked context refuses acquire/read; QI/retain/release remain valid.
+// Use ONLY these handle helpers, never SWUProvider's downcasting helpers.
+int32_t SWU_UIAProviderAcquireTextRead(void *provider, void **result);
+int32_t SWU_UIATextReadGetText(void *handle, int32_t maximumUTF16Length, uint16_t **result);
+void SWU_UIATextReadRetain(void *handle);
+void SWU_UIATextReadRelease(void *handle);
+int32_t SWU_UIATextReadQueryInterfaceResult(void *handle, int32_t interfaceKind, void **result);
+
+// Bounded headless seams. The first is the exact counter primitive used under
+// the context's ticket lock: max is issued once, then zero means exhaustion.
+// The second refuses handle allocation before invoking any actor callback.
+// Neither creates a native window, dispatcher, event, or publication gate.
+int32_t SWU_UIATextReadNextTicket(uint64_t *next, uint64_t *result);
+int32_t SWU_UIAProviderAcquireTextReadWithAllocationFailureForTesting(void *provider, void **result);
+
 void SWU_UIARetainProviderContext(SWUUIAProviderContext *context);
 void SWU_UIAReleaseProviderContext(SWUUIAProviderContext *context);
 void SWU_UIARevokeProviderContext(SWUUIAProviderContext *context);
@@ -422,6 +456,9 @@ enum {
     SWU_UIA_INTERFACE_SELECTION_ITEM = 8,
     SWU_UIA_INTERFACE_VIRTUALIZED_ITEM = 9,
     SWU_UIA_INTERFACE_ITEM_CONTAINER = 10,
+    // Identifiers for negative QI checks; neither interface is implemented.
+    SWU_UIA_INTERFACE_TEXT = 11,
+    SWU_UIA_INTERFACE_TEXT_RANGE = 12,
 };
 // QueryInterface and pattern results are genuine interface pointers. Use only
 // their matching pattern helpers or AddRef/ReleaseProvider with these handles.

@@ -274,6 +274,7 @@ final class UIANativeCallbackContext {
     nonisolated let windowKey: NativeWindowKey
     nonisolated let snapshotSource: any NativeWindowSnapshotSource
     nonisolated let diagnostics: UIANativeDiagnostics
+    nonisolated let textReadRetirements = UIANativeTextReadRetirements()
     weak var bridge: UIAProviderBridge?
 
     init(
@@ -296,6 +297,19 @@ final class UIANativeCallbackContext {
         }
         defer { withExtendedLifetime(bridge) {} }
         return bridge.receiveNativeRequest(envelope, lease: lease)
+    }
+
+    nonisolated func retireTextRead(_ ticket: UInt64) {
+        guard textReadRetirements.enqueue(ticket) else { return }
+        Task { @MainActor [self] in
+            // Cleanup is intentionally outside request admission: quiescence
+            // must not prevent a final worker Release from retiring its ticket.
+            if let bridge {
+                bridge.drainNativeTextReadRetirements()
+            } else {
+                textReadRetirements.close()
+            }
+        }
     }
 }
 

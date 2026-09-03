@@ -844,7 +844,7 @@ private final class CandidateSourceLookupFixture {
                     (0..<2).map { index in
                         let node = ViewNode()
                         node.text = "source \(value)/\(index)"
-                        node.retainedViewIdentity = prefix.appending(
+                        node.retainedViewIdentity = prefix.appending(.slot(index)).appending(
                             .explicit(.init(CandidateSourceLookupKey(value: index, probe: probe))))
                         let descendant = ViewNode()
                         descendant.retainedViewIdentity = node.retainedViewIdentity?.appending(.slot(0))
@@ -868,7 +868,7 @@ private final class CandidateSourceLookupFixture {
             let prefix = try XCTUnwrap(provider.identityPrefix(for: request))
             for index in 0..<2 {
                 let actual = actuals[value * 2 + index]
-                actual.retainedViewIdentity = prefix.appending(
+                actual.retainedViewIdentity = prefix.appending(.slot(index)).appending(
                     .explicit(.init(CandidateSourceLookupKey(value: index, probe: probe))))
                 actual.text = "old \(value)/\(index)"
             }

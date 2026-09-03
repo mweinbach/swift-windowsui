@@ -19589,3 +19589,25 @@ integration hashes are recorded in
 `docs/UIAWindowRootNames.md`. Native COM delivery, Narrator and the unrelated
 generic framed-image lookup remain unqualified. All original product gates stay
 open, with their original scope unchanged.
+
+### 2026-09-03: correct source-lookup fixture identities without relaxing assertions
+
+The three failed new candidate-source tests now append `.slot(index)` before
+their existing authored explicit key, on both source roots and matching retained
+roots. Those are the only two changed expressions. The adapter's existing
+identityMatchesPrefix requirement rejected the previous explicit-only suffix
+before Candidate construction; production lookup and admission code are unchanged.
+The original file prefix and all three new test bodies remain byte-for-byte
+unchanged, including assertions, callbacks, budgets, negative cases and cleanup.
+Sibling slots can avoid comparing authored keys during setup, but no oracle
+depends on those setup counts; the explicit lookup assertions still require zero
+authored equality/hash callbacks after their counters are reset.
+
+Root and an independent peer reviewed the exact amendment. Patch SHA256:
+`c13106b238babd02d4d7a9083c396b9c18a18121ed4b05454d5c1069ce8e3e5a`.
+The changed test file SHA256 is
+`b260f2a839779d127591b80edb24b89b618de25283bc78a222ff236e055458f2`.
+Strict lint and contracts pass with no formatting or production changes. Runtime
+validation remains pending in a fresh combined run that preserves every method
+from the original 255 selection. The previous 252-pass/3-failure result stays
+unchanged and no completion gate is closed by this setup correction.

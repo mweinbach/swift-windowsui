@@ -13813,6 +13813,16 @@ package enum RetainedLazyListKeyboardEligibility {
     case unsupported
 }
 
+/// The warm handoff may use only its original demand and operation budget.
+@MainActor
+package struct RetainedLazyListWarmKeyboardHandoff {
+    fileprivate weak var item: RetainedLazyListAccessibilityItem?
+    fileprivate weak var receipt: RetainedListNavigationReceipt?
+    fileprivate let budget: RetainedLazyListWorkBudget
+    fileprivate let realization: RetainedLazyListLogicalRealization
+    fileprivate let pointerSequence: UInt64
+}
+
 @MainActor
 package final class RetainedLazyListKeyboardPreparation {
     fileprivate enum Phase { case eligibility, selected, settling, released }
@@ -14901,33 +14911,6 @@ public final class RetainedViewRuntime {
         let activePhysicalActivityIDs: [ObjectIdentifier]?
     }
 
-    static let tracesListKeyboardFocus =
-        ProcessInfo.processInfo.environment[
-            "SWIFT_WINDOWSUI_DIAGNOSTIC_LIST_KEYBOARD_FOCUS"] == "1"
-    private var listKeyboardFocusTraceCount = 0
-
-    // Temporary passive trace: no authority, query, or budget is retained.
-    func traceListKeyboardFocus(
-        _ stage: StaticString, originalRemaining: inout (Int, Int)?, originalIsActive: Bool
-    ) {
-        guard Self.tracesListKeyboardFocus, listKeyboardFocusTraceCount < 128 else { return }
-        listKeyboardFocusTraceCount += 1
-        let elements = lazyListResolutionBudget?.remainingElements ?? -1
-        let rounds = lazyListResolutionBudget?.remainingRounds ?? -1
-        if originalIsActive { originalRemaining = (elements, rounds) }
-        let recorded: StaticString
-        switch recordedLayoutSettlement {
-        case .settled: recorded = "settled"
-        case .unsettled: recorded = "unsettled"
-        case .unavailable: recorded = "unavailable"
-        }
-        print(
-            "list-keyboard-focus stage=\(stage) originalActive=\(originalIsActive)"
-                + " originalElements=\(originalRemaining?.0 ?? -1) originalRounds=\(originalRemaining?.1 ?? -1)"
-                + " currentElements=\(elements) currentRounds=\(rounds) recorded=\(recorded)"
-                + " geometry=\(layoutSettlementGeometryRevision) sequence=\(layoutSettlementResolutionSequence)")
-    }
-
     internal var recordsLazyListUIAPhasesForTesting = false {
         didSet {
             if recordsLazyListUIAPhasesForTesting { lazyListUIAPhasesForTesting.removeAll(keepingCapacity: true) }
@@ -15565,6 +15548,7 @@ public final class RetainedViewRuntime {
     /// Local offset zero below a header can still preserve a keyed anchor.
     private func lazyListAnchorMayControl(_ scroll: ViewNode) -> Bool {
         lazyListLogicalRevealScroll !== scroll
+            && activeLazyListKeyboardPreparation?.scroll !== scroll
             && !(pendingListNavigationReveal?.container === scroll
                 && pendingListNavigationReveal.map(isListNavigationRevealCurrent) == true)
             && scroll.scrollAxis == .vertical && scroll.scrollPresentedDelta == 0 && scroll.scrollOvershoot == 0
@@ -22092,7 +22076,6 @@ public final class RetainedViewRuntime {
                         lazyListKeyboardMeasurementCorrectionIsCurrent(
                             correction, for: keyboardPreparation, chargedTo: chargedBudget)
                     else {
-                        keyboardPreparation.receipt?.traceKeyboardFocus("cold.correction.invalidated")
                         keyboardPreparation.wasRevoked = true
                         return
                     }
@@ -27355,9 +27338,6 @@ extension RetainedViewRuntime {
         _ offset: Double, in scroll: ViewNode, for content: ViewNode, adapter: RetainedLazyListRuntimeAdapter
     ) -> Bool {
         guard let preparation = lazyListAccessibilityPreparation, preparation.scroll === scroll else {
-            if let keyboard = activeLazyListKeyboardPreparation, keyboard.scroll === scroll {
-                keyboard.receipt?.traceKeyboardFocus("cold.anchor.ordinary-write")
-            }
             scroll.scrollOffset = offset
             return true
         }
@@ -27516,23 +27496,12 @@ extension RetainedViewRuntime {
             let content = preparation.original.content, let current = content.retainedLazyListAdapter,
             current.containsKeyboardCohort(preparation), current.hasKeyboardRealization(preparation.realization),
             let scroll = preparation.scroll, preparation.scrollAttachment.isCurrent(in: self),
-            scroll.scrollAxis == .vertical, scroll.scrollSourceEpoch == preparation.scrollEpoch
-        else {
-            preparation.receipt?.traceKeyboardFocus("cold.current.before-intent")
-            return false
-        }
-        guard scroll.lazyListScrollIntentIdentity === preparation.scrollIntent else {
-            preparation.receipt?.traceKeyboardFocus("cold.current.scroll-intent")
-            return false
-        }
-        guard
+            scroll.scrollAxis == .vertical, scroll.scrollSourceEpoch == preparation.scrollEpoch,
+            scroll.lazyListScrollIntentIdentity === preparation.scrollIntent,
             content.nearestScrollTarget()?.container === scroll, isQuietLazyListUIAScroll(scroll),
             pointerSequence == preparation.pointerSequence, displayScaleIdentity === preparation.displayScaleIdentity,
             preparation.target?.isCurrent(in: self) != false, preparation.targetIdentity?.isCurrent != false
-        else {
-            preparation.receipt?.traceKeyboardFocus("cold.current.after-intent")
-            return false
-        }
+        else { return false }
         // The setter alone may install an accepted successor. It supplies no
         // construction authority until settle freezes that one successor below.
         if preparation.phase == .selected { return true }
@@ -27587,19 +27556,36 @@ extension RetainedViewRuntime {
         return .accepted(roots)
     }
 
-    /// Recheck an already accepted destination after authored tag comparisons.
-    /// This neither captures another pass nor borrows a later frame's budget.
-    package func canResumeOrdinaryLazyListKeyboardTarget(
+    /// Transfer an accepted warm destination to its ordinary native demand.
+    /// No query occurs until the caller unwinds its row and tag captures.
+    package func prepareOrdinaryLazyListKeyboardTarget(
         _ item: RetainedLazyListAccessibilityItem, using preparation: RetainedLazyListKeyboardPreparation
-    ) -> Bool {
+    ) -> RetainedLazyListWarmKeyboardHandoff? {
         guard preparation.phase == .eligibility, preparation.isCurrent,
             lazyListResolutionBudget === preparation.budget,
             preparation.originalRequiresRevealBeforeFocus(for: item.token) == false,
             item.content === preparation.original.content, item.adapter === preparation.adapter,
             item.membership === preparation.original.membership, isLazyListAccessibilityItemCurrent(item),
-            let pass = preparation.eligibilityPass
-        else { return false }
-        return lazyListKeyboardEligibilityPassIsCurrent(pass, for: preparation)
+            let pass = preparation.eligibilityPass,
+            let content = item.content, let adapter = item.adapter, let receipt = preparation.receipt,
+            lazyListKeyboardEligibilityPassIsCurrent(pass, for: preparation)
+        else { return nil }
+        endLazyListKeyboardPreparation(preparation)
+        guard receipt.permitsBindingWrite, lazyListResolutionBudget === preparation.budget,
+            pointerSequence == preparation.pointerSequence, isLazyListAccessibilityItemCurrent(item),
+            item.adapter === adapter, content.retainedLazyListAdapter === adapter,
+            let realization = adapter.beginLogicalRealization(of: item.token, owner: item.realizationOwner)
+        else { return nil }
+        item.realization = realization
+        content.markDirty(.layout)
+        invalidate(.layout, from: content)
+        guard receipt.permitsBindingWrite, lazyListResolutionBudget === preparation.budget,
+            pointerSequence == preparation.pointerSequence, isLazyListAccessibilityItemCurrent(item),
+            item.realization === realization, realization.isActive
+        else { return nil }
+        return RetainedLazyListWarmKeyboardHandoff(
+            item: item, receipt: receipt, budget: preparation.budget,
+            realization: realization, pointerSequence: preparation.pointerSequence)
     }
 
     /// Freeze the original actual destination before the only binding write.
@@ -27808,18 +27794,11 @@ extension RetainedViewRuntime {
             // not start another explicit query or acquire another successor.
             preparation.settlement = settlement
         }
-        guard preparation.isCurrent else {
-            receipt.traceKeyboardFocus("cold.settle.post-query-current")
-            return .obsolete
-        }
+        guard preparation.isCurrent else { return .obsolete }
         guard let settlement = preparation.settlement else { return .pending }
-        guard isLayoutSettlementReceiptCurrent(settlement), !hasPendingLazyListUIACallbackWork else {
-            receipt.traceKeyboardFocus("cold.settle.receipt-or-callback")
-            preparation.wasRevoked = true
-            return .obsolete
-        }
-        guard !isListNavigationTargetDeferred(target) else {
-            receipt.traceKeyboardFocus("cold.settle.deferred-target")
+        guard isLayoutSettlementReceiptCurrent(settlement), !hasPendingLazyListUIACallbackWork,
+            !isListNavigationTargetDeferred(target)
+        else {
             preparation.wasRevoked = true
             return .obsolete
         }
@@ -27993,6 +27972,27 @@ extension RetainedViewRuntime {
     /// after-layout replay. It does not enqueue another scheduler or repeat a
     /// binding write; the request owner releases the item on cancellation.
     package func resolveLazyListTarget(_ item: RetainedLazyListAccessibilityItem) -> RetainedLazyListTargetResolution {
+        resolveLazyListTarget(item, warmHandoff: nil)
+    }
+
+    package func resolveOrdinaryLazyListKeyboardTarget(
+        _ item: RetainedLazyListAccessibilityItem, using handoff: RetainedLazyListWarmKeyboardHandoff
+    ) -> RetainedLazyListTargetResolution {
+        resolveLazyListTarget(item, warmHandoff: handoff)
+    }
+
+    private func isWarmKeyboardHandoffCurrent(
+        _ handoff: RetainedLazyListWarmKeyboardHandoff, for item: RetainedLazyListAccessibilityItem
+    ) -> Bool {
+        handoff.item === item && handoff.receipt?.permitsBindingWrite == true
+            && lazyListResolutionBudget === handoff.budget && pointerSequence == handoff.pointerSequence
+            && item.realization === handoff.realization && handoff.realization.isActive
+    }
+
+    private func resolveLazyListTarget(
+        _ item: RetainedLazyListAccessibilityItem, warmHandoff: RetainedLazyListWarmKeyboardHandoff?
+    ) -> RetainedLazyListTargetResolution {
+        if let warmHandoff, !isWarmKeyboardHandoffCurrent(warmHandoff, for: item) { return .obsolete }
         guard item.runtime === self, permitsRetainedActionInvocation else { return .obsolete }
         guard !hasActiveRetainedBuild, !isResolvingLazyListLogicalTarget else { return .pending }
         guard isLazyListAccessibilityItemCurrent(item), let adapter = item.adapter, let content = item.content else {
@@ -28033,7 +28033,12 @@ extension RetainedViewRuntime {
         }
         guard beginLazyListTargetResolution(during: nil, ordinaryItem: item) else { return .pending }
         defer { finishLazyListTargetResolution() }
-        if let roots = materializeLazyListTarget(item, during: nil) { return .ready(roots) }
+        if let roots = materializeLazyListTarget(
+            item, during: nil, warmHandoff: warmHandoff)
+        {
+            return .ready(roots)
+        }
+        if let warmHandoff, !isWarmKeyboardHandoffCurrent(warmHandoff, for: item) { return .obsolete }
         guard isLazyListAccessibilityItemCurrent(item) else { return .obsolete }
         return adapter.knownLeafCount(for: item.token) == 0 ? .empty : .pending
     }
@@ -28054,7 +28059,8 @@ extension RetainedViewRuntime {
     }
 
     private func materializeLazyListTarget(
-        _ item: RetainedLazyListAccessibilityItem, during mutation: RetainedAccessibilityMutation?
+        _ item: RetainedLazyListAccessibilityItem, during mutation: RetainedAccessibilityMutation?,
+        warmHandoff: RetainedLazyListWarmKeyboardHandoff? = nil
     ) -> [ViewNode]? {
         guard isLazyListAccessibilityItemCurrent(item), let content = item.content, let adapter = item.adapter,
             adapter.knownLeafCount(for: item.token) != 0
@@ -28068,13 +28074,24 @@ extension RetainedViewRuntime {
                 && pointerSequence == originalPointer
                 && presentationModalSnapshot.map(ObjectIdentifier.init) == originalModal
                 && (mutation == nil || isAccessibilityMutationCurrent(mutation!))
+                && (warmHandoff.map { isWarmKeyboardHandoffCurrent($0, for: item) } ?? true)
         }
+        if let warmHandoff, !isWarmKeyboardHandoffCurrent(warmHandoff, for: item) { return nil }
         if case .settled = layoutSettlementStatus {
             // The existing settled viewport needs no additional query.
         } else {
             guard resolvedLayoutFrame(of: root) != nil, isCurrent(), case .settled = layoutSettlementStatus else {
                 return nil
             }
+        }
+        // The warm transfer installed its demand before this settlement.
+        // Reuse only current actual roots; no second query is needed merely
+        // to add a demand that this item already holds through its setter.
+        if warmHandoff != nil {
+            guard isCurrent(), let nodes = realizedLazyListAccessibilityNodes(for: item), !nodes.isEmpty else {
+                return nil
+            }
+            return nodes
         }
         if item.realization?.isActive != true {
             guard

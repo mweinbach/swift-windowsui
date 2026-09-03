@@ -16794,3 +16794,40 @@ process tree exited naturally with status 1 and verified cleanup and preserved s
 The same 19 lifetime/failure tests and original cold navigation case must be rerun;
 no test result or anchor-cause conclusion was produced by this compile failure.
 Original requirements, budgets, and completion gates remain unchanged.
+
+### 2026-09-02 — Fix automatic anchoring and warm-demand handoff without larger budgets
+
+The rerun at `e12f756` compiled and completed all 20 selected tests. All eight
+AppFailureReporting tests and all eleven SceneStorageLifetime tests passed. The
+unchanged cold navigation test still failed only its two focus assertions. Its trace
+now confirms the precise cause: an ordinary framework anchor offset write is followed
+by refusal at the original scroll-intent guard, with 115 elements and two rounds still
+available. The owned run exited naturally with status 1, verified empty Job, closed
+resources, restored handlers, unchanged source, and no timeout or cleanup errors
+(`artifacts/cold-and-lifetime-tests-6b3092c29f3c4186b14a0870ac4e292d`). These headless
+passes do not qualify native alert visibility, restart persistence, or the full suite.
+
+Automatic lazy-list anchor application and normalization now exclude the scroll
+container of the active keyboard preparation. Measurement acceptance and convergence
+remain unchanged. This prevents framework anchoring from superseding the original
+keyboard intent; app-authored offset assignments still retire that intent through
+the existing guards. One additional test uses a positive offset and an equal-valued
+authored assignment after the Up selection write, requiring the accepted selection
+to remain while stale focus is refused. It leaves all existing test methods intact.
+
+The separate warm fallback now transfers its exact native realization demand before
+layout settlement. A typed handoff preserves the original item, receipt, budget,
+pointer sequence, and realization across row/tag cleanup. The ordinary resolver can
+reuse actual roots from its existing settlement query instead of spending a second
+query merely to install the same demand. Lost demands cannot be rearmed by this
+path; ordinary non-warm and UIA resolution retain their prior behavior. There is no
+additional retry, later-frame replay, element allowance, or layout round. The original
+immediate-focus assertions remain the acceptance criteria.
+
+Both temporary keyboard trace sets are removed, restoring the pre-trace guards and
+callback ordering while retaining the fixes. Root source review and apply checks
+passed, as did contract checks, strict four-file lint, and whitespace verification.
+The next uninstrumented run covers the original 23 keyboard cases, both separate
+continuation/scroll-intent regressions, and the 19 lifetime/failure cases (44 total).
+Execution of the fixes and the subsequent original 155-test gate remain pending.
+All original goal requirements and nine open completion gates are unchanged.

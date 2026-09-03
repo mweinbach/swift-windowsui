@@ -1006,6 +1006,75 @@ final class LazyListKeyboardReplacementContinuationTests: XCTestCase {
     }
 }
 
+/// Suppressing framework anchors must not turn an equal authored offset
+/// assignment into permission for an already prepared keyboard action.
+@MainActor
+final class LazyListKeyboardScrollIntentTests: XCTestCase {
+    func testAuthoredSameValueScrollAtNonzeroOffsetRevokesTheOriginalKeyboardSettlement() async throws {
+        let fixture = try KeyboardPreparationFixture()
+        defer { fixture.close() }
+        fixture.probe.selected = 899
+        try XCTUnwrap(try fixture.row(0).onKeyDown)(KeyboardEvent(keyCode: KeyboardKey.downArrow.rawValue))
+        let source = try fixture.row(900)
+        XCTAssertEqual(fixture.probe.writes, [900])
+        XCTAssertTrue(fixture.runtime.focusedNode === source)
+        XCTAssertEqual(fixture.focusedOrdinals, [900])
+        let originalOffset = fixture.scroll.scrollOffset
+        XCTAssertGreaterThan(originalOffset, 20_000)
+
+        var authoredOffsets: [Double] = []
+        fixture.runtime.root.onLayout = { [weak fixture] _ in
+            guard let fixture, authoredOffsets.isEmpty, fixture.probe.writes == [900, 899] else { return }
+            XCTAssertNotNil(fixture.adapter.keyboardPreparation)
+            XCTAssertFalse(fixture.runtime.hasActiveRetainedBuild)
+            XCTAssertTrue(fixture.runtime.focusedNode === source)
+            XCTAssertNotNil(fixture.findRow(899))
+            let offset = fixture.scroll.scrollOffset
+            XCTAssertEqual(offset, originalOffset)
+            authoredOffsets.append(offset)
+            // This is a new authored intent despite having the same scalar
+            // value. No focus mutation or physical departure causes refusal.
+            fixture.scroll.scrollOffset = offset
+        }
+
+        fixture.beginTrace()
+        try XCTUnwrap(source.onKeyDown)(KeyboardEvent(keyCode: KeyboardKey.upArrow.rawValue))
+        fixture.endTrace()
+        fixture.runtime.root.onLayout = nil
+
+        XCTAssertEqual(authoredOffsets.count, 1)
+        XCTAssertEqual(try XCTUnwrap(authoredOffsets.first), originalOffset)
+        XCTAssertEqual(fixture.probe.writes, [900, 899])
+        XCTAssertEqual(fixture.probe.selected, 899)
+        XCTAssertTrue(fixture.runtime.focusedNode === source)
+        XCTAssertTrue(source.isFocused)
+        XCTAssertEqual(fixture.focusedOrdinals, [900])
+        let target = try fixture.row(899)
+        XCTAssertTrue(target.parent === fixture.content)
+        XCTAssertTrue(target.isFocusEnabled)
+        XCTAssertFalse(target.isFocused)
+        XCTAssertEqual(fixture.scroll.scrollOffset, originalOffset)
+        XCTAssertNil(fixture.adapter.keyboardPreparation)
+
+        let phases = fixture.phases
+        XCTAssertFalse(phases.isEmpty)
+        XCTAssertLessThan(phases.count, 512)
+        XCTAssertEqual(phases.first?.remainingRounds, 4)
+        XCTAssertEqual(phases.first?.remainingElements, 128)
+        XCTAssertLessThanOrEqual(fixture.runtime.lastLazyListConsumedRounds, 4)
+        XCTAssertLessThanOrEqual(fixture.runtime.lastLazyListConsumedElements, 128)
+        XCTAssertLessThanOrEqual(fixture.tracedFactories.count, 128)
+        XCTAssertEqual(phases.filter { $0.kind == .roundDebit }.count, fixture.runtime.lastLazyListConsumedRounds)
+        for (first, second) in zip(phases, phases.dropFirst()) {
+            XCTAssertGreaterThanOrEqual(first.remainingRounds, second.remainingRounds)
+            XCTAssertGreaterThanOrEqual(first.remainingElements, second.remainingElements)
+            XCTAssertLessThanOrEqual(first.consumedRounds, second.consumedRounds)
+        }
+        XCTAssertEqual(fixture.runtime.lazyListResolutionBudgetConfiguration.elementLimit, 128)
+        XCTAssertEqual(fixture.runtime.lazyListResolutionBudgetConfiguration.roundLimit, 4)
+    }
+}
+
 @MainActor
 private final class KeyboardPreparationFixture {
     let probe: KeyboardPreparationProbe

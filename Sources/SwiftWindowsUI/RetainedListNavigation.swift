@@ -381,25 +381,6 @@ package final class RetainedListNavigationReceipt {
     private var isRevealCancelled = false
     private var phase = Phase.prepared
     private(set) var geometryRevision: UInt64?
-    private var diagnosticOriginalRemaining: (Int, Int)?
-    private var diagnosticOriginalIsActive = false
-
-    package func beginKeyboardFocusDiagnostic() -> Bool {
-        guard RetainedViewRuntime.tracesListKeyboardFocus, diagnosticOriginalRemaining == nil else { return false }
-        diagnosticOriginalIsActive = true
-        traceKeyboardFocus("budget.begin")
-        return true
-    }
-
-    package func endKeyboardFocusDiagnostic() {
-        traceKeyboardFocus("budget.end")
-        diagnosticOriginalIsActive = false
-    }
-
-    package func traceKeyboardFocus(_ stage: StaticString) {
-        runtime?.traceListKeyboardFocus(
-            stage, originalRemaining: &diagnosticOriginalRemaining, originalIsActive: diagnosticOriginalIsActive)
-    }
 
     fileprivate init?(scope: RetainedListNavigationOwner, source: RetainedListNavigationOwner) {
         guard scope.scope == nil, source.scope === scope,
@@ -640,8 +621,6 @@ package final class RetainedListNavigationReceipt {
     /// to repeat the binding write, retry this receipt, or undo a newer action.
     @discardableResult
     package func finishNavigation() -> Bool {
-        var diagnosticExit: StaticString = "finish.phase"
-        defer { traceKeyboardFocus(diagnosticExit) }
         guard phase == .prepared else { return false }
         phase = .preparingLayout
         defer {
@@ -650,15 +629,12 @@ package final class RetainedListNavigationReceipt {
                 releaseKeyboardPreparation()
             }
         }
-        diagnosticExit = "finish.continuation-target"
         guard permitsContinuation, let targetNode = target?.node else { return false }
-        diagnosticExit = "finish.standalone"
         guard hasRuntime else {
             // Preserve already-placed standalone trees after their weak
             // runtime expires; this path does not invent a focus authority.
             return targetNode.scrollIntoView()
         }
-        diagnosticExit = "finish.runtime-revision"
         guard let runtime, let revision = originalFocusRevision else { return false }
         // Ordinary callers query the exact target. Keyboard preparation already
         // holds its one post-setter settlement. Refusal never searches for
@@ -669,13 +645,10 @@ package final class RetainedListNavigationReceipt {
         } else {
             prepared = runtime.prepareListNavigationTarget(targetNode, receipt: self)
         }
-        traceKeyboardFocus(prepared ? "prepare.true" : "prepare.false")
-        diagnosticExit = "finish.preparation-continuation"
         guard prepared, permitsContinuation else { return false }
         let (nextRevision, overflow) = revision.addingReportingOverflow(1)
         // At max the private checked focus authority may already be exhausted
         // without its numeric value changing again. Equality is not proof.
-        diagnosticExit = "finish.focus-overflow"
         guard !overflow, nextRevision != UInt64.max else { return false }
 
         // A logical destination can be physically laid out by the time the
@@ -684,7 +657,6 @@ package final class RetainedListNavigationReceipt {
         let needsRealization = targetRequiresRevealBeforeFocus || runtime.isListNavigationTargetDeferred(targetNode)
         if needsRealization {
             phase = .revealingBeforeFocus
-            diagnosticExit = "finish.reveal-arm"
             guard runtime.revealListNavigationTarget(targetNode, receipt: self),
                 let revealContinuation,
                 runtime.armListNavigationReveal(revealContinuation, target: targetNode, receipt: self)
@@ -696,22 +668,17 @@ package final class RetainedListNavigationReceipt {
             // owns only this receipt while its viewport or authored tween
             // settles; the public binding/controller need not remain alive.
             phase = .awaitingRevealLayout
-            diagnosticExit = "finish.reveal-complete"
             return runtime.completeListNavigationRevealIfReady(revealContinuation, queryingLayout: true)
         }
 
         phase = .focusing
-        diagnosticExit = "finish.focus"
         guard runtime.requestListNavigationFocus(targetNode, receipt: self) else { return false }
         revealFocusRevision = nextRevision
         phase = .focused
-        diagnosticExit = "finish.reveal-permission"
         guard permitsReveal(in: runtime, target: targetNode) else { return false }
         if runtime.revealListNavigationTarget(targetNode, receipt: self) {
-            diagnosticExit = "finish.reveal-post-permission"
             return permitsReveal(in: runtime, target: targetNode)
         }
-        diagnosticExit = "finish.reveal-schedule"
         if permitsReveal(in: runtime, target: targetNode) {
             let key = "list.selection.\(ObjectIdentifier(scope))"
             runtime.scheduleListNavigationReveal(key: key, target: targetNode, receipt: self)

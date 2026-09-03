@@ -19758,3 +19758,48 @@ source bytes. The receipt is
 `artifacts/before-stock-full-visuals-6c84331cdea843d8ae9bd190610d59a3/preservation.json`.
 No original output or baseline was deleted or modified by preservation. The
 nine product completion gates remain open with their original scope intact.
+
+### 2026-09-03: stock Full stops on a Stepper fixture lifetime failure
+
+The stock Full attempt at `a0d951bc35c7b243243a10f56fcf4d73255d20f5`
+exited naturally with code one after 739.391 seconds. Twenty-two outer stages
+passed, including contracts, strict lint of 984 Swift files and the portable
+test stage (84 observed XCTest passes). The CoreLogic stage stopped at shard
+35 of 475: 680 distinct tests had exact starts and terminals, with 679 passes
+and one failure. The remaining 8,401 distinct XCTest methods were unobserved;
+440 shards and nine later stages did not run. No Full pass, later build,
+stock visual refresh or native qualification is claimed. Swift Testing counts
+require separate raw-output reconciliation and are not inferred from the
+XCTest journal.
+
+The failure is
+`ControlChromePolishTests.testStepperJoinedPairButtonsStayIndividuallyPressable`:
+after decrement, the binding remained five instead of four. A fresh isolated
+run of that exact original method at the same unchanged commit reproduced the
+failure, with one start and one failed terminal. Both runs closed their owned
+processes, descendants, resources and signal handlers without timeout,
+termination, uncertainty or cleanup errors; source endpoints were preserved.
+The Full attempt also preserved reference endpoints.
+
+Full evidence remains in
+`artifacts/full-owned-lookup-accessibility-95a1dbc3aa1e4484bf00eb44769ff14f/`;
+raw SHA256 is
+`8ba9b1be2479613c1ed8de50b44a79ee2a2d535f31337666fdb10667a78ecedc`.
+The independent partial reconciliation is
+`artifacts/full-a0d951b-partial-results.json`, SHA256
+`ac861b47b6cf3fe96c6885f90f2c097c874140f0866848f5cbe9921f90eedc36`.
+It matched the complete 475-shard plan and all observed XCTest identifiers
+against the frozen source/generated census and journal. Isolated evidence is
+in `artifacts/controlchromestepperoriginal1-35a015bc8a6949d89114ee459d35f1f1/`,
+with raw SHA256
+`2b9b44d86e3b1a6c498e343c92cf003208866d5ae815af8eb7d0f454ddc1e969`.
+
+Root and an independent reviewer traced the missing fixture premise: its
+helper returns a retained ViewNode but drops the runtime before either action
+is invoked. Published button actions retain only a weak runtime witness and
+correctly refuse after that owner expires. The proposed correction retains
+the runtime through the original actions and assertions and adds a negative
+test requiring an actually deallocated runtime and zero further binding
+writes. Production admission, arithmetic, original assertions and deadlines
+remain unchanged. Correction validation and a fresh Full run from the start
+are still required. All nine original completion gates remain open.

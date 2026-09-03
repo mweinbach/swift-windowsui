@@ -17237,3 +17237,36 @@ methods, and the nine new planning methods: seventy-one methods total.
 Behavioral success is not yet claimed.
 The original combined and full gates remain separate, and all nine completion
 gates remain open with the original goal text preserved.
+
+### 2026-09-02 — Verify the original UIA failure and the surrounding contracts
+
+The fixed-source run at `2eb9882` passed all seventy-one selected methods after
+a 325.08-second build and 41.962 seconds of tests. Every expected method started
+and passed exactly once, with no failures, skips or unexpected cases. Natural
+exit 0, the empty owned Job, descendant/resource/signal cleanup and unchanged
+source were independently checked in
+`artifacts/uia-planning-regressions-2155ba4afc064edebffddc8133681774`.
+The closed raw log has SHA-256
+`1321f227b0878d186d232cba47f2792f49f54852b467a009f9d863868a895731`.
+
+The unchanged public pending-replacement UIA test now passes, as does the
+positive target-correction test. Their assertions require the original four
+rounds, one owned scroll, no factories after that scroll, ordinary logical
+item state, and a current measured settlement. The previously missing required
+coverage is therefore repaired before the final query rather than excused by
+its completeness checks.
+
+All thirty existing construction-hint methods and all thirteen final-prefetch
+methods pass. The nine new raw planning methods pass, including changed buffer
+direction, trailing spacing, cap and cancellation checks. All previous twenty
+cleanup/scope/correction regressions pass, including the independent scroll's
+ordinary-frame continuation, original warm focus-before-reveal behavior,
+one-element/one-round terminal payload release, and existing Button teardown.
+The overlap between these groups is counted once in the total of seventy-one.
+
+These results establish the selected headless regression behavior, not native
+UI Automation/Narrator qualification, live performance, full-suite success or
+completion of the product goal. The next separate run is the unchanged original
+155-method combined gate, using its original selection, 900-second execution
+deadline and ten-second cleanup allowance. All nine original completion gates
+remain open and the original goal text is preserved.

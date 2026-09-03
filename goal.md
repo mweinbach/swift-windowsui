@@ -21388,3 +21388,211 @@ intermediate candidates, exact assertion accounting and independent review
 remain preserved in the private packet. Strict lint and contracts passed;
 compiled/runtime validation remains pending for the integrated correction.
 All nine original completion gates remain open.
+
+
+### 2026-09-03: validate initial chrome eligibility and both mapper privacy contracts
+
+At `6779bafd23002d291a3a01aaa1e14f8485bc1c93`, all 29 focused methods
+passed: the unchanged eighteen chrome selectors, five additive eligibility
+methods, the three original mapper privacy attacks under their reviewed
+scalar fixture, and three additive framed-refusal methods. Both batches had
+exact starts and passing terminals, natural zero exits, complete owned
+process/resource closure, and all 59 source pins unchanged before and after.
+The aggregate is `artifacts/chrome-mapper29-6779baf-results.json`; raw hashes
+are `f823fcd5186e56ea96d7edc432fba833640adf110a24b5165f22f6b618c9b5db`
+and `b7bb7f414fc919600d0411a32be5bbfe650cd5a219d8beebe6a616be8d7482f1`.
+The first batch's build and execution took 283.641 owned seconds. This is
+focused evidence, not a Full, native presentation or performance result.
+
+The prior `b8b08d5` collateral evidence remains unchanged. A complete raw-log
+and owned-closure audit counts 467 observations across seven independent
+cohorts, containing 459 distinct methods: 455 passed and four failed. The
+authored-child failure appears twice in those observations. Its stopped
+wrapper was not resumed or retroactively marked successful. The deduplicated
+record is `artifacts/b8b-collateral-closure-audit.json`.
+
+The complete Frame118 selection subsequently passed on the same revision,
+with all exact original selectors preserved, six natural zero exits,
+complete owned closure, and unchanged source pins. Aggregate
+`artifacts/frame118-6779baf-results.json`, SHA256
+`1d54dc78f7f98db94343d47ce3c627e560d4bbc10b6cdb4019834911af241a87`,
+records that run. The thirteen earlier focused frame methods and the
+29 focused correction methods do not add distinct coverage to their
+respective complete selections.
+
+The complete collateral selection also passed on this same revision. Its
+independently reviewed binding packet preserves all inherited
+selector order and 94 unchanged source pins, explicitly updates the two
+reviewed source/test pins, and adds one new eligibility-test pin. Current
+union: 97 pins. Its manifest SHA256 is
+`f19132c3a3c20e274e1836cba75b0320dd88199abaa5574cb38d8b718466fd22`;
+all 52 payloads were root-verified. The eight additions are separate from
+the 459-method historical collateral union, and Frame118 is disjoint from
+both. All eight collateral groups exited naturally with full owned closure
+and exact starts and passing terminals, retaining their pre/post source
+pins. The aggregate `artifacts/chrome-mapper-collateral-6779baf-results.json`,
+SHA256 `b7e31575a1aa49a775d3eccc824873e2a5208bef813e9355f1b506bc56f8f68a`,
+records 593 executions and 585 distinct passing methods across these groups
+and Frame118. The separate earlier focused29 adds no distinct coverage.
+
+The existing five synthetic staging controls also passed at this head,
+without loading an executable or DLL. Raw SHA256
+`9ba4f2a9e53a824f86f55ec63aa39d833cb7b8138ee6c4a45a9819934de81d29`;
+evidence directory
+`artifacts/gpuworkbench-synthetic-staging-31a7820ef0e847c88fed644f3c29d556`.
+Only the child process's inherited PowerShell module search/cache names were
+removed; no global environment was changed. This normal-process file-only
+check makes no owned descendant-closure or real deployment claim.
+
+The unchanged Release consumer helper is now building a fresh external
+GPUWorkbench copy at this same head. Its environment and version checks
+passed and confirm Swift 6.3 x64 with the explicit 6.3.0 runtime directory.
+All seven Release model tests then passed, including corrupt/oversized data,
+write failure/retry, invalid drafts and restart persistence. The independent
+model checker preserved every seven-case, start/terminal and zero-Swift-Testing
+footer assertion; its sole change is the new evidence-directory literal.
+The raw model log SHA256 is
+`d80c42781e2002b469f6b9869616dbfd8bab731da0ce6edc88d57a66319677ff`.
+Evidence is under
+`artifacts/gpuworkbench-release-e9b54639581b4ae9a15645c0f2ff151e`.
+The separate production executable build is still running. New executable
+import review, real staging and the original ordinary native journey remain
+unqualified. No sample or selector was changed. All original goal gates
+remain open.
+
+That Release run then completed all five steps with zero exits at
+18:57:21 UTC, with source and consumer preservation true. The separate
+product build took 623.84 seconds; its raw SHA256 is
+`f452d0f067dfe70a193338a5aeda4b20bd1e6a22b4676ba7387f33d6b1a4b48a`.
+The result SHA256 is
+`bcd30b064ef77cc9a913b158867bef13ecc4d3c07f45d2597feec1a54dc5f78c`.
+The new executable is 81,582,080 bytes, SHA256
+`e1b071bf7cf24a93b1b5ba35aa5f959b7f680c3bf03c68c28b3f0754555d9eff`.
+
+The unchanged reviewed static collector subsequently completed HEADERS and
+DEPENDENTS, each with a natural zero exit and complete owned closure. Both
+before/after observations matched all eighteen original runtime DLL hashes.
+The collector result SHA256 is
+`0fce30e24161a4e028a3db92fc261c8a58f81b1b181b08bf99179d90b6ea25bd`,
+in `static-import-refresh-79f843bdda5347d490bc501cf503c7b3` under the new
+Release directory. Root reviewed both entire raw logs: x64 PE32+, unchanged
+1 MiB stack reserve, no delay-import directory, and one ordinary dependency
+section containing the same 35 names and order as the historical executable.
+The manual review is `manual-exe-review.json`, SHA256
+`82784c8fabe3e539ba14b643394864bc4ea01702e43ff698f6c5b88d27739042`.
+This establishes static observations only; the subject executable was not
+launched by the collector, and OS imports, native interaction and clean
+machine deployment are not qualified by those observations.
+
+The new composite inspection recomputed reachability from that explicit
+35-import EXE record. It admitted eighteen byte-identical runtime DLL records,
+with 187 external import occurrences and fifty classified external names.
+Historical OS metadata remains explicitly historical; no OS byte identity,
+dynamic-loading, or clean-machine conclusion was added. The inspection SHA256
+is `abb16f8b719a0d91fc9c6c05a8b5bfa3d4d6a493d3604e6faa62a595e4e78eca`;
+its linked review is
+`0eec5e8117e39d4431836f1f0a3d7cd4ea59c9eae586f6eea7397e47e255f156`.
+Both the source-reviewed file-only builder and a separate root linkage/graph
+check passed. All input endpoints, current source cleanliness, exact file
+projections, external classifications and false qualification flags matched.
+
+Real staging then passed with twenty payloads, including the new executable
+and the unchanged 103-byte bundled PNG. The complete package passed its
+headless deployment check. Three copies preserving the exact original
+manifest each refused the intentionally missing bundle, PNG or swiftCore.dll
+before launch. Evidence is
+`staging-77931bf8c6734fc7be505b56d134f642/result.json` under the new Release
+directory. The complete manifest SHA256 is
+`cc202e65c313d0d892230db874418f58cffd562d6ce20111991776ff1e3e5d40`.
+These are manifest rejection controls, not observations of loader failures.
+The existing ordinary interaction journey is being rebound only to these
+actual new paths, hashes and the same source/build revision; its exact
+twenty-file checks, image predicate, actions and time allowances remain intact.
+
+
+The first ordinary current-build journey failed at the original details
+ToggleState=On assertion. Its 62 preserved action events establish that the
+bundled Image predicate passed, local count reached three and survived two
+parent rebuilds, Settings opened, and the writable Display name reported
+Operator. They do not establish that the toggle was Off: the old controller
+required an identifier-bearing Group before looking for its CheckBox, and
+returned no toggle element. The first app closed normally with exit zero;
+the controller exited one. The owned process tree and resources closed in
+13.172 seconds without termination or an outer timeout. The composite
+naturalOwnedClosurePassed flag remains false because the controller failed.
+No keyboard, save or restart assertions were reached. Evidence remains at
+`C:/Users/maxw6/AppData/Local/Temp/gpuworkbench-ordinary-journey-run-6779baf-693e070222584789beb76d812c09f413`,
+raw SHA256 `afcb952b1df54a6d8b2b52a86d490f32ca17c74cc2b86474d60646b2e5ab3908`.
+
+A separate, explicit selector-schema amendment removes that obsolete Group
+prerequisite. Current Toggle forwarding places the authored identifier on
+the semantic CheckBox; existing passing tests cover this exact contract
+across both states, switch styles and zero, one or two layout frames. The
+new locator requires AutomationId=workbench.showSavedDetails AND CheckBox
+AND Name=Show saved profile details, scoped to the same owned HWND/PID.
+It adds no permissive fallback. All original On/Off, focus, keyboard, storage,
+restart, ambiguity, four stage-checkpoint, Image and 180+10-second conditions
+remain unchanged. This is a controller correction, not a production or
+sample change, and is recorded separately from the preceding literal rebind.
+Root and independent review reconstructed all other controller and binding
+bytes exactly and rechecked the seven source pins and eleven failed-evidence
+files. Controller SHA256
+`57dc0e64d6751e88c42ed791a442d206048bcabe4bebce1849b72fc0be9ff2d8`;
+binding SHA256
+`2a754fc51a406d4c2cccc97cfe72f1cc6d8fb55769ab81ed19aad208bc2d88b3`.
+The amended attempt is not yet executed at this record point.
+
+
+The root-only offline scanner then closed with exit zero after 280.005
+seconds. It found exactly 9,261 generated and discovered XCTest identifiers,
+with zero missing, extra or uncovered identifiers. The actual stock plan has
+485 shards and 9,277 planned executions. Sixteen D3D11MaterialContentBlur cases
+remain intentionally reported as overlaps, now in shards 49 and 156; their
+filters were not changed. Static journal count and identifier/filter-length
+bounds fit, while actual serialized sizes and runtime observation completeness
+remain unverified. The source and all 755 sealed input payloads were unchanged.
+Plan SHA256 `f2ad0da690478e838a47e95b051470e5e3d463044258bf2c61fc2ee11d7e8d3a`;
+identifier file SHA256
+`554f68ad8e76a7628b73a2e684612fffb75afab0ff971ad674809b59c32a351b`;
+reconciliation SHA256
+`ba085aa86d4ac7e8572a0f9c5f3235ba20f7a98d087e2689d91f2c2b84125c1c`.
+These outputs are under
+`C:/Users/maxw6/AppData/Local/Temp/stock-scanner-reconcile-6779bafd-20260903-d996a1f2/actual-plan-v1`.
+The preparation manifest remains intact; separate root execution and final
+manifests record the execution. The unchanged historical Swift Testing
+verifier binds 475 headers and is incompatible with this 485-shard plan:
+460 target/filter combinations survive, 15 old combinations disappear and
+25 new combinations appear. Nine Swift Testing filters and all 138 source
+cases remain unchanged, but six dedicated indices move. No verifier was
+silently rebound, and no new Full pass is claimed.
+
+The explicitly amended ordinary journey then ran once against the same
+Release build. It now found the owned CheckBox and passed ToggleState=On.
+The original Image, count, two parent rebuilds, Settings/Dashboard navigation,
+name value and keyboard focus assertions passed. Real Tab inserted two of
+two input events; Ctrl+A inserted four of four and retained name focus.
+Backspace inserted two of two, after which the app exited with 0xc000001d
+before the next focus assertion. Both app output files were empty. This is
+an app failure, not another locator failure or a passing native journey.
+The 102-event raw log SHA256 is
+`7758d10c72f4b5888bad8ce7ae8cc049fee90742016bdca13ae7cdecd05ca3e2`,
+at `C:/Users/maxw6/AppData/Local/Temp/gpuworkbench-ordinary-toggle-selector-run-6779baf-027a0b0b872a412b99f875a9bef726b8`.
+The controller exited one and the owned process tree/resources closed in
+10.953 seconds, without timeout or termination. Source endpoints remained
+unchanged. Both functional and natural-success flags remain false.
+
+Existing Application Error event 8837 matches app PID 50492, the exact
+staged executable, UTC 19:25:28.7248688 and fault RVA 0x3c327c. Read-only
+static symbolization of that exact executable identifies a Swift range
+precondition failure at `PixelText.swift:663`: `caretBoundaries` constructs
+`1...count` when the actual field text is empty. The public caret query
+reaches this path during native IME-position synchronization; previous
+selection tests checked the resulting empty value but not this caret query.
+No new crash capture, debugger attachment, native-acquisition replacement or
+held route was used. Root adds four regression methods before the correction,
+covering empty caret clamping without native-layout calls, unchanged nonempty
+pixel/grapheme boundaries, focused ordinary and secure fields after deletion,
+and initially empty focused fields. Their execution is pending. The proposed
+production change returns the single zero boundary for an empty line; all
+nonempty measurement behavior remains unchanged. All nine original gates
+remain open and unchanged.

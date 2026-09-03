@@ -124,7 +124,8 @@ already-claimed recipe keeps all existing controller, attachment, mutation,
 and strict-refusal checks. Five additive methods exercise plain and framed
 fields, Button companions, later mutations, attachment restoration, and
 claimed-registration reuse. The original eighteen chrome methods remain
-unchanged. Execution of this correction is pending.
+unchanged. At `6779baf`, the correction passed its focused selection and the
+complete collateral selection described below.
 
 At `b8b08d5`, the independent secure/controller cohort completed with 228
 passes and four failures: the same authored-child failure and three copied
@@ -143,7 +144,28 @@ their default root and exact bodies. Three additional framed methods cover
 the same eight mutation variants: the old publication becomes stale, the
 target is omitted while its authored sibling remains, and the next snapshot
 obeys the fresh controller's privacy and write policy. This is a fixture-only
-correction; production projection guards are unchanged. Execution is pending.
+correction; production projection guards are unchanged. At `6779baf`, all
+118 frame methods and all 467 distinct collateral methods passed: 585
+distinct methods in total, with 593 executions because eight chrome cases
+also occur in the secure/controller selection. The separate focused29 adds
+no distinct coverage. All completed batches preserved exact source pins and
+had exact starts, passing terminals, natural zero exits and complete owned
+process/resource closure. Aggregates are
+`artifacts/frame118-6779baf-results.json` and
+`artifacts/chrome-mapper-collateral-6779baf-results.json`.
+
+The same revision built the external GPUWorkbench Release consumer and passed
+its seven model tests and package checks. The ordinary interaction run first
+exposed an obsolete test locator that expected a Group around a Toggle. The
+current public contract forwards the authored identifier to the semantic
+CheckBox. A separately reviewed locator correction requires that exact
+identifier, CheckBox role and label without weakening the On/Off assertions.
+Its next run passed the initial On assertion and keyboard focus traversal,
+then the app crashed after selecting and deleting the name field's contents.
+Existing crash records and static symbolization of the exact Release binary
+identify an empty-line range trap in `RetainedTextMetrics.caretBoundaries`.
+That separate text-metrics defect is not resolved by the passing frame and
+privacy cohorts; native interaction and the full suite remain unqualified.
 
 Precise scrolling after framed Realize still conservatively refuses an
 unchanged, previously admitted frontmost sibling-modal stack. Existing

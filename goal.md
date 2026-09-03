@@ -17091,3 +17091,38 @@ cleanup methods, and seven existing Button teardown methods: twenty methods
 total. This is diagnostic regression coverage before the original 155-method
 combined gate, not a replacement for it or full release validation. All nine
 completion gates remain open, with the original goal text preserved.
+
+### 2026-09-02 — Verify keyboard release and isolate remaining final-settlement failures
+
+The fixed-source twenty-method run at `33c9cb1` completed naturally: seventeen
+methods passed and three failed, with twelve assertions total and no unexpected
+errors. Build time was 327.08 seconds; test time was 35.104 seconds. Every
+selected method started and terminated exactly once. Natural exit 1, empty owned
+Job, completed cleanup and unchanged source were verified in
+`artifacts/remaining-cleanup-regressions-472fc7e4ec514ad88e4bff0e82d53f48`.
+
+The original warm focus-before-reveal method now passes, as does the original
+one-element/one-round close-time binding-payload release method. All three new
+demand-cleanup tests, the new terminal-prepaint test including both render paths,
+and all seven existing Button teardown methods pass. Shared-scroll required
+rows and later ordinary prefetch restoration pass. All three target-correction
+revocation cases pass without entering the remaining provider after invalidation.
+
+The unchanged public UIA replacement still fails final settlement, although its
+single owned scroll now occurs within round three. The new positive correction
+test reports the same final failure; its round-three layout count also includes
+the initial final-query pass that occurs after the scroll and before the fourth
+debit. The correction's own two passes must be distinguished from that later
+query pass. The new independent-scroll prefetch test preserves all its expected
+required/optional rows but does not obtain immediate target focus. These
+remaining findings are not treated as a passing regression set.
+
+A separate cached run of the unchanged public UIA method with the existing
+bounded rejection diagnostic completed naturally in 6.982 seconds at the same
+source. Its target pass is measured in round three; the final pass fails
+`matchesAcceptedMeasurements` after round four with no additional row factories.
+Exact selection, cleanup and source preservation were verified in
+`artifacts/uia-public-replacement-diagnostic-cbcdd690d75747e48a8a3f28b371be16`.
+The precise remaining accepted-measurement and independent-scroll focus causes
+remain under investigation. The original combined gate has not run, full
+validation has not passed, and all nine completion gates remain open.

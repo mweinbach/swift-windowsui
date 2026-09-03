@@ -37,6 +37,7 @@ final class DeferredListKeyboardNavigation {
         var leaf: Int?
         var ordinaryDestinationLeaf: Int?
         var warmHandoff: RetainedLazyListWarmKeyboardHandoff?
+        var originalWarmAdjacentToken: RetainedLazyListRowToken?
         var item: RetainedLazyListAccessibilityItem?
         var keyboardPreparation: RetainedLazyListKeyboardPreparation?
         var attemptedKeyboardPreparation = false
@@ -204,7 +205,8 @@ final class DeferredListKeyboardNavigation {
                     if let item = request.item {
                         request.requiresRevealBeforeFocus =
                             request.keyboardPreparation?.originalRequiresRevealBeforeFocus(for: item.token)
-                            ?? (runtime.realizedLazyListAccessibilityNodes(for: item) == nil)
+                            ?? (request.originalWarmAdjacentToken == item.token
+                                ? false : runtime.realizedLazyListAccessibilityNodes(for: item) == nil)
                     }
                 }
                 guard isCurrent(request) else {
@@ -223,6 +225,13 @@ final class DeferredListKeyboardNavigation {
                     guard isCurrent(request) else {
                         cancel(request)
                         return
+                    }
+                    // The selected row's demand may dirty layout before the
+                    // next row is visited. Preserve this already-warm neighbor's
+                    // policy before the first query; later focus still needs
+                    // the actual target's current ownership and geometry.
+                    if let adjacent, runtime.realizedLazyListAccessibilityNodes(for: adjacent) != nil {
+                        request.originalWarmAdjacentToken = adjacent.token
                     }
                     request.keyboardPreparation = runtime.beginLazyListKeyboardPreparation(
                         from: item, toward: adjacent, receipt: request.receipt)
@@ -343,8 +352,6 @@ final class DeferredListKeyboardNavigation {
                 finishKeyboardPreparation(request)
                 continue
             }
-            request.receipt.traceKeyboardFocus(
-                request.requiresRevealBeforeFocus ? "target.reveal-first" : "target.focus-first")
             guard isCurrent(request),
                 request.receipt.prepareTarget(owner, requiresRevealBeforeFocus: request.requiresRevealBeforeFocus),
                 isCurrent(request)
@@ -378,33 +385,27 @@ final class DeferredListKeyboardNavigation {
 
     private func finishWrittenRequest(_ request: Request) {
         guard isCurrent(request) else {
-            request.receipt.traceKeyboardFocus("written.obsolete")
             cancel(request)
             return
         }
         if let runtime, !runtime.canPrepareLayoutSettlement {
-            request.receipt.traceKeyboardFocus("written.layout-blocked")
             schedule(request, afterLayout: false)
             return
         }
         withTransaction(request.transaction) {
             switch request.receipt.settlePreparedTarget() {
             case .ready:
-                request.receipt.traceKeyboardFocus("settle.ready")
                 guard isCurrent(request) else {
                     cancel(request)
                     return
                 }
                 self.request = nil
-                let finished = request.receipt.finishNavigation()
-                request.receipt.traceKeyboardFocus(finished ? "finish.true" : "finish.false")
+                request.receipt.finishNavigation()
                 finishKeyboardPreparation(request)
                 releaseItem(request)
             case .pending:
-                request.receipt.traceKeyboardFocus("settle.pending")
                 schedule(request)
             case .obsolete:
-                request.receipt.traceKeyboardFocus("settle.obsolete")
                 cancel(request)
             }
         }

@@ -14911,27 +14911,6 @@ public final class RetainedViewRuntime {
         let activePhysicalActivityIDs: [ObjectIdentifier]?
     }
 
-    // Temporary passive diagnostics. No authority or layout query is acquired.
-    private static let tracesListKeyboardFocus =
-        ProcessInfo.processInfo.environment["SWIFT_WINDOWSUI_DIAGNOSTIC_LIST_KEYBOARD_FOCUS"] == "1"
-    private var listKeyboardFocusTraceCount = 0
-
-    func traceListKeyboardFocus(_ stage: StaticString) {
-        guard Self.tracesListKeyboardFocus, listKeyboardFocusTraceCount < 128 else { return }
-        listKeyboardFocusTraceCount += 1
-        let recorded: StaticString
-        switch recordedLayoutSettlement {
-        case .settled: recorded = "settled"
-        case .unsettled: recorded = "unsettled"
-        case .unavailable: recorded = "unavailable"
-        }
-        print(
-            "list-keyboard-focus stage=\(stage)"
-                + " elements=\(lazyListResolutionBudget?.remainingElements ?? -1)"
-                + " rounds=\(lazyListResolutionBudget?.remainingRounds ?? -1) recorded=\(recorded)"
-                + " geometry=\(layoutSettlementGeometryRevision) sequence=\(layoutSettlementResolutionSequence)")
-    }
-
     internal var recordsLazyListUIAPhasesForTesting = false {
         didSet {
             if recordsLazyListUIAPhasesForTesting { lazyListUIAPhasesForTesting.removeAll(keepingCapacity: true) }
@@ -22097,7 +22076,6 @@ public final class RetainedViewRuntime {
                         lazyListKeyboardMeasurementCorrectionIsCurrent(
                             correction, for: keyboardPreparation, chargedTo: chargedBudget)
                     else {
-                        traceListKeyboardFocus("cold.correction.invalidated")
                         keyboardPreparation.wasRevoked = true
                         return
                     }
@@ -27776,22 +27754,17 @@ extension RetainedViewRuntime {
         _ preparation: RetainedLazyListKeyboardPreparation, target: ViewNode, receipt: RetainedListNavigationReceipt
     ) -> RetainedListNavigationReadiness {
         guard preparation.receipt === receipt, preparation.target?.node === target, preparation.isCurrent else {
-            traceListKeyboardFocus("cold.settle.entry-obsolete")
             return .obsolete
         }
         guard canPrepareLayoutSettlement, !hasActiveRetainedBuild,
             !isResolvingLazyListLogicalTarget, !isProbingLazyListScrollTarget, !hasPendingLazyListUIACallbackWork
-        else {
-            traceListKeyboardFocus("cold.settle.layout-blocked")
-            return .pending
-        }
+        else { return .pending }
         if preparation.phase == .selected {
             guard let adapter = preparation.original.content?.retainedLazyListAdapter,
                 let descriptor = adapter.managedLogicalDescriptorBinding, descriptor.isCurrent,
                 let token = preparation.targetToken, adapter.containsAcceptedLogicalToken(token),
                 adapter.containsAcceptedLogicalToken(preparation.original.token)
             else {
-                traceListKeyboardFocus("cold.settle.successor-obsolete")
                 preparation.wasRevoked = true
                 return .obsolete
             }
@@ -27799,10 +27772,7 @@ extension RetainedViewRuntime {
             preparation.descriptor = descriptor
             preparation.phase = .settling
         }
-        guard preparation.phase == .settling, preparation.isCurrent else {
-            traceListKeyboardFocus("cold.settle.phase-obsolete")
-            return .obsolete
-        }
+        guard preparation.phase == .settling, preparation.isCurrent else { return .obsolete }
         if !preparation.queriedSettlement, lazyListResolutionBudget === preparation.budget,
             preparation.budget.remainingRounds > 0
         {
@@ -27818,39 +27788,20 @@ extension RetainedViewRuntime {
             _ = resolvedLayoutFrame(of: target)
             activeLazyListKeyboardPreparation = nil
             finishLazyListTargetResolution()
-            if layoutSettlementResolutionSequence != sequence.partialValue {
-                traceListKeyboardFocus("cold.settle.sequence-changed")
-                preparation.wasRevoked = true
-            }
+            if layoutSettlementResolutionSequence != sequence.partialValue { preparation.wasRevoked = true }
         } else if preparation.settlement == nil, case .settled(let settlement) = layoutSettlementStatus {
             // A pending action can finish after an ordinary render, but it may
             // not start another explicit query or acquire another successor.
             preparation.settlement = settlement
         }
-        guard preparation.isCurrent else {
-            traceListKeyboardFocus("cold.settle.post-query-obsolete")
-            return .obsolete
-        }
-        guard let settlement = preparation.settlement else {
-            traceListKeyboardFocus("cold.settle.no-settlement")
-            return .pending
-        }
-        guard isLayoutSettlementReceiptCurrent(settlement) else {
-            traceListKeyboardFocus("cold.settle.receipt-obsolete")
+        guard preparation.isCurrent else { return .obsolete }
+        guard let settlement = preparation.settlement else { return .pending }
+        guard isLayoutSettlementReceiptCurrent(settlement), !hasPendingLazyListUIACallbackWork,
+            !isListNavigationTargetDeferred(target)
+        else {
             preparation.wasRevoked = true
             return .obsolete
         }
-        guard !hasPendingLazyListUIACallbackWork else {
-            traceListKeyboardFocus("cold.settle.callbacks-pending")
-            preparation.wasRevoked = true
-            return .obsolete
-        }
-        guard !isListNavigationTargetDeferred(target) else {
-            traceListKeyboardFocus("cold.settle.target-deferred")
-            preparation.wasRevoked = true
-            return .obsolete
-        }
-        traceListKeyboardFocus("cold.settle.ready")
         return .ready
     }
 

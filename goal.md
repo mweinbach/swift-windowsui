@@ -16901,3 +16901,33 @@ the three failing original focus methods. The temporary trace must be removed
 before uninstrumented acceptance. No assertion, original method, completion
 requirement, or original 128-element/four-round limit is relaxed. All nine
 original completion gates remain open.
+
+### 2026-09-02 — Preserve the initially warm adjacent row's focus order
+
+The three-method diagnostic run at `96238c0` built successfully and exited
+naturally with five assertion failures in the same original three methods.
+Cleanup and unchanged-source checks passed without timeout or termination
+(`artifacts/three-focus-diagnostics-8b9a05c3a2d5445484c88347109ef9eb`).
+The cold return now reaches valid settlement and prepares its handoff with one
+round remaining; its final reveal builds two more elements and returns without
+terminal geometry. The empty and disabled cases both reach their warm selection
+write with one round, then build six elements and return pending from the first
+post-setter query. Neither failure is the earlier anchor revocation, and neither
+is fixed merely by removing a duplicate finish query.
+
+The warm offscreen case confirms an independent policy error: row 7 starts
+realized, but cleanup of row 6's demand dirties global layout before row 7 is
+visited. Re-reading global readiness then incorrectly labels row 7 cold. The
+request now records that one adjacent native token's already-realized status
+before its first query. A keyboard preparation's existing original policy still
+takes precedence. This preserves focus order only; the actual row must still
+pass current ownership, settlement, eligibility, and deferred-target checks.
+
+The diagnostic changes are removed in full. Runtime and receipt source return
+to the uninstrumented `d2ae070` versions; only ten additions and one replaced
+line in DeferredListNavigation implement the policy fix. Original tests,
+assertions, 128-element/four-round budgets, and all goal requirements remain
+unchanged. Source review, contracts, strict lint, and whitespace checks pass.
+The next uninstrumented run covers the warm offscreen method and seven existing
+eligibility/factory/refusal methods. Cold return and immediate row-0 focus remain
+open, as do the original 155-test combined gate and all nine completion gates.

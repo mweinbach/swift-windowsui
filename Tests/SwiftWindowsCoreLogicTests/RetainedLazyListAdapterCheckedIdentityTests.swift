@@ -401,7 +401,8 @@ private final class AdapterCheckedReleasedIdentityKey: Hashable {
     }
 
     static func == (lhs: AdapterCheckedReleasedIdentityKey, rhs: AdapterCheckedReleasedIdentityKey) -> Bool {
-        MainActor.assumeIsolated { lhs.events.equal("equal:released") }
+        let events = lhs.events
+        MainActor.assumeIsolated { events.equal("equal:released") }
         return true
     }
 

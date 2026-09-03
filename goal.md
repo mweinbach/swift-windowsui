@@ -17420,3 +17420,15 @@ is retained in `artifacts/keyboard-frame-progress-formatted-v2.patch`. The
 next run selects seven new adapter regressions and the pending keyboard case.
 This diagnostic must be removed before uninstrumented acceptance; it cannot
 qualify timing, the combined gate or any of the nine open completion gates.
+
+### 2026-09-03 — Correct the new test helper's actor capture before execution
+
+The eight-method attempt at `fbaac30` stopped during compilation: the new
+release-key equality helper captured its non-Sendable `lhs` object in an
+actor-isolated closure. No tests or diagnostic frames ran. Natural exit 1,
+unchanged source and complete owned cleanup were verified in
+`artifacts/adapter-keyboard-diagnostic-7f21d582d82c4cc2b980304ed61e13e7`.
+The helper now reads the immutable main-actor event recorder before entering
+that closure, so only the recorder crosses the isolation boundary. No unchecked
+Sendable conformance, production change, assertion change or budget change is
+introduced. The same eight methods will run again; all nine gates remain open.

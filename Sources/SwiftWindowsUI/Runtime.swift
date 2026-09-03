@@ -16590,7 +16590,9 @@ public final class RetainedViewRuntime {
                 sceneGeometryDiagnosticRequest = nil
             }
         }
-        prepaintState.deferredDraws = deferredDraws
+        // A paint callback may have completed terminal cleanup. Its old
+        // local deferred draws must not repopulate the released node cache.
+        if permitsRenderLifecycleCallbacks { prepaintState.deferredDraws = deferredDraws }
         if collectsPhaseTimings {
             let paintEndedAt = PlatformClock.now()
             lastLayoutSeconds = layoutEndedAt - phaseStartedAt
@@ -21065,6 +21067,20 @@ public final class RetainedViewRuntime {
         let reentrantNavigationRetirements = retiredPreparedListNavigationRetirements
         retiredPreparedListNavigationRetirements.removeAll()
         schedulePreparedListNavigationRetirements(navigationRetirements + reentrantNavigationRetirements)
+        finishTerminalRenderRetirements()
+    }
+
+    private func finishTerminalRenderRetirements() {
+        guard !permitsRenderLifecycleCallbacks, hasFinishedRenderLifecycleTaskCancellation,
+            renderLifecycleTaskCancellationDepth == 0
+        else { return }
+        if !isRendering {
+            // Prepaint owns dispatch, interaction, and deferred subtree nodes.
+            // Release those captures only after the outer task cohort finishes,
+            // and never while a paint traversal still indexes its draw arrays.
+            presentationPrepaintRevision = nil
+            prepaintState = RuntimePrepaintState()
+        }
         // A payload destructor may call stop() without requesting another task
         // cancellation. That native prepass can repin a later owner in this
         // cohort, so consume every reentrant cohort in this completed phase.
@@ -21231,6 +21247,7 @@ public final class RetainedViewRuntime {
         retainedBuildCoordinatorStorage?.retainedCallbacksDidDrain()
         drainListNavigationReveal(reveal, afterRender: true)
         drainPreparedKeyboardNavigationReplays()
+        finishTerminalRenderRetirements()
     }
 
     /// Number of nested render passes observed since process start. Diagnostic
@@ -21927,7 +21944,7 @@ public final class RetainedViewRuntime {
             sequence: settlementSequence,
             wasNested: wasResolvingLayoutSettlement,
             traversalOverflowCount: traversalOverflowCount)
-        presentationPrepaintRevision = prepaintRevision
+        presentationPrepaintRevision = permitsRenderLifecycleCallbacks ? prepaintRevision : nil
     }
 
     private func drainAfterLayoutActions() -> Bool {
@@ -23296,6 +23313,7 @@ public final class RetainedViewRuntime {
     }
 
     private func updatePrepaintState() {
+        guard permitsRenderLifecycleCallbacks else { return }
         auditUnusedLazyListUIAProviderPhaseBeforeEpilogue()
         let pendingPhase = unusedLazyListUIAProviderPhase
         if let pendingPhase, pendingPhase.state == .pending,
@@ -23322,6 +23340,8 @@ public final class RetainedViewRuntime {
             displayScale: displayScale,
             replayCount: &replayCount
         )
+        // An in-flight prepaint must not undo terminal capture retirement.
+        guard permitsRenderLifecycleCallbacks else { return }
         prepaintState = nextState
         lastPrepaintReplayCount = replayCount
         lastDeferredOverlayReplayCount = replayCount

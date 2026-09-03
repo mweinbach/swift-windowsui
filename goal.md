@@ -17058,3 +17058,36 @@ pass. Behavioral validation is pending, including whether the corrected target
 schedule leaves enough of the original budget for final settlement. No claim
 of a passing combined gate follows from this source change. All original
 requirements and nine completion gates remain unchanged and open.
+
+### 2026-09-02 — Release closed-host prepaint ownership after safe cleanup
+
+The one-round keyboard lifetime failure has a separate surviving owner from
+the navigation request: the runtime's prepaint dispatch and interaction arrays
+retain detached rows, whose handlers retain the selection binding payload.
+Closing the host removes its tree and content factory but previously left that
+prepaint snapshot alive as long as the runtime itself remained alive.
+
+Terminal cleanup now releases prepaint only after the outer task cancellation
+cohort completes. If a render is still active, its end-of-pass boundary performs
+the release; clearing sooner would invalidate deferred-draw array indices still
+used after an authored canvas callback. The existing reentrant Button retirement
+drain remains part of completed cleanup. Closed layout leaves no accessibility
+prepaint revision, and an in-flight prepaint or scene draw cannot publish its
+old node cache again. Live rendering and ordinary task cancellation are unchanged.
+
+One new teardown test retains the runtime, detaches a prepaint-owned row,
+checks that stop alone and nested cancellation cannot release its captures,
+then checks release after the outer cleanup. It also tests later closed renders
+and close from deferred canvas drawing on both frame and scene paths. Three
+additional small demand-release tests cover the warm queued reveal, same-value
+authored scrolling, newer focus, and physical replacement. They check that
+native cleanup performs no layout or factories and cannot refresh stale intent.
+Original test methods and limits remain unchanged.
+
+Root source review, contracts, strict lint and formatting-delta review pass.
+The next fixed-source focused run includes the original three failures, the
+two new prefetch scope methods, four target-correction methods, these four
+cleanup methods, and seven existing Button teardown methods: twenty methods
+total. This is diagnostic regression coverage before the original 155-method
+combined gate, not a replacement for it or full release validation. All nine
+completion gates remain open, with the original goal text preserved.

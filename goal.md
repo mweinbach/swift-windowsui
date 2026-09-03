@@ -17333,3 +17333,29 @@ The next fixed-source run contains these seven methods, the three baseline
 controls and the two original distant-row/empty-disabled keyboard methods:
 twelve methods total. The original 155-method combined gate and all nine
 completion gates remain open; no deadline or completion criterion changes.
+
+### 2026-09-02 — Verify indexed descriptor behavior and isolate pending navigation
+
+All twelve selected methods passed at `77ccbc3` after a 326.54-second build
+and 115.611 seconds of tests. The seven new descriptor methods, three existing
+controls and two unchanged distant-row/empty-disabled keyboard tests each
+started and passed exactly once. Natural exit 0, complete owned cleanup and
+unchanged source were independently verified in
+`artifacts/descriptor-regressions-optimized-d4914185d98a49f89825842e5240b658`.
+The raw log SHA-256 is
+`da25dce2edaab3576c725acaa0cd0514bb922f6c892e63477ba30f70394de0d2`.
+
+The distant-row and empty-disabled methods took 85.85 and 29.59 seconds.
+These observations are close to the earlier 85.320 and 30.225 seconds and
+do not establish a meaningful timing improvement. The new index removes a
+specific repeated lookup cost while retaining the tested behavior; it has
+not been shown to explain or resolve the combined timeout.
+
+The saved-run audit found that ten of the original twenty-three keyboard
+methods still lack a completed normal-script result: eight lack any observed
+terminal, and two have only older direct, debugger-perturbed observations.
+The two pending/intervening-callback methods each allow up to sixty-four
+ordinary frames and will run individually first. Smaller diagnostic groups
+will locate failures or excessive work without changing their assertions,
+frame limits or the original combined selection and deadline. These runs do
+not replace the 155-method gate. All nine original completion gates stay open.

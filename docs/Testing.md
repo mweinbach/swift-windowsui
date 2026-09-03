@@ -217,6 +217,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   fixtures. They do not qualify progress of `.task` or model-owned `Task`
   loaders on the native `App` path, or the proposed dashboard's live
   load/retry/cancel workflow.
+- `RetainedPrepaintTeardownTests` checks that closed-runtime prepaint captures
+  survive the native stop prepass and nested cancellation, then retire after
+  the outer task cohort and any active paint traversal. It covers frame and
+  scene deferred drawing plus later closed-runtime inspection. The raw
+  `ListNavigationDemandReleaseTests` checks queued warm-row reveal after native
+  demand cleanup and rejection after authored scroll, newer focus, or physical
+  replacement. These tests do not qualify native window or display teardown.
   Observed-model changes already published on the UI thread have a native
   invalidation/frame-flush path; this is not MainActor job execution.
   The native-capable App source now places the Win32 owner on a separate

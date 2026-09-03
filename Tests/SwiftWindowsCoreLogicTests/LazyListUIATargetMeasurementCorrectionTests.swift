@@ -25,7 +25,8 @@ final class LazyListUIATargetMeasurementCorrectionTests: XCTestCase {
         XCTAssertEqual(fixture.runtime.lastLazyListWorkCompletion, .complete)
         let trace = fixture.runtime.lazyListUIAPhasesForTesting
         XCTAssertEqual(trace.filter { $0.kind == .roundDebit }.map(\.consumedRounds), [1, 2, 3, 4])
-        let third = trace.filter { $0.consumedRounds == 3 }
+        let ownedIndex = try XCTUnwrap(trace.firstIndex { $0.kind == .ownedScroll })
+        let third = trace[..<ownedIndex].filter { $0.consumedRounds == 3 }
         XCTAssertEqual(third.filter { $0.kind == .measurementPhase }.count, 1)
         XCTAssertEqual(third.filter { $0.kind == .readerPhase }.count, 1)
         XCTAssertEqual(third.filter { $0.kind == .providerPhase }.count, 1)

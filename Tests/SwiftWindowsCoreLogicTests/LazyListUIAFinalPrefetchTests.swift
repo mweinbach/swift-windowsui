@@ -749,29 +749,30 @@ final class ListRevealPrefetchScopeTests: XCTestCase {
         let (receipt, target) = try fixture.prepareNavigation()
         defer { receipt.cancelPreparedNavigation() }
         fixture.arm()
+        let focusRevision = fixture.runtime.presentationFocusRevision
 
-        // Temporary scalar diagnostic; the original assertions remain below.
-        func traceReveal(_ stage: String, finished: Bool? = nil) {
-            let settlement: String
-            switch fixture.runtime.layoutSettlementStatus {
-            case .settled: settlement = "settled"
-            case .unsettled: settlement = "unsettled"
-            case .unavailable: settlement = "unavailable"
-            }
-            print(
-                "[ListRevealPrefetchScopeDiagnostic] stage=\(stage) finished=\(finished.map(String.init) ?? "none") "
-                    + "rounds=\(fixture.runtime.lastLazyListConsumedRounds) "
-                    + "elements=\(fixture.runtime.lastLazyListConsumedElements) "
-                    + "completion=\(fixture.runtime.lastLazyListWorkCompletion) settlement=\(settlement) "
-                    + "continuation=\(receipt.permitsContinuation) "
-                    + "focused=\(fixture.runtime.focusedNode === target) targetFocused=\(target.isFocused) "
-                    + "offset=\(fixture.scroll.scrollOffset) independentOffset=\(independentScroll.scrollOffset)")
+        // The third adapter needs a separate provider round. Its accepted
+        // rows still need measurements when the original four rounds end.
+        XCTAssertFalse(fixture.runtime.withLazyListResolutionBudget { receipt.finishNavigation() })
+
+        XCTAssertTrue(receipt.permitsContinuation)
+        XCTAssertNil(fixture.runtime.focusedNode)
+        XCTAssertFalse(target.isFocused)
+        XCTAssertEqual(fixture.runtime.presentationFocusRevision, focusRevision)
+        XCTAssertEqual(fixture.runtime.lastLazyListConsumedRounds, 4)
+        XCTAssertEqual(fixture.runtime.lastLazyListWorkCompletion, .budgetExhausted)
+        switch fixture.runtime.layoutSettlementStatus {
+        case .unsettled: break
+        default: XCTFail("The accepted reveal must wait for the remaining adapter measurements")
         }
-        let finished = fixture.runtime.withLazyListResolutionBudget { receipt.finishNavigation() }
-        traceReveal("returned", finished: finished)
-        XCTAssertTrue(finished)
-
-        try fixture.assertCompleted(target: target)
+        XCTAssertNotNil(fixture.primaryFinalStart)
+        XCTAssertNotNil(fixture.siblingFinalStart)
+        XCTAssertEqual(fixture.scroll.scrollOffset, 360)
+        XCTAssertFalse(target.isLayoutDeferredByVirtualization)
+        XCTAssertTrue(target.parent === fixture.primary.list)
+        XCTAssertTrue(fixture.runtime.lazyListUIAPhasesForTesting.allSatisfy { $0.kind != .ownedScroll })
+        XCTAssertTrue(fixture.primary.probe.activations.isEmpty)
+        XCTAssertTrue(fixture.sibling.probe.activations.isEmpty)
         XCTAssertEqual(independentScroll.scrollOffset, 360)
         let required = Set(18...20)
         let calls = fixture.finalCalls(in: independent, from: fixture.independentFinalStart)
@@ -784,12 +785,23 @@ final class ListRevealPrefetchScopeTests: XCTestCase {
             Set(fixture.finalCalls(in: fixture.sibling, from: fixture.siblingFinalStart)).isSubset(of: required))
         fixture.assertOriginalBudget()
 
-        // Temporary observation of only the already-accepted native continuation.
-        // No second navigation call or selection write is made.
-        for frame in 1...4 where fixture.runtime.focusedNode !== target {
+        // Only ordinary frames may finish this already-accepted reveal. Do
+        // not call finishNavigation again or lend it another action's receipt.
+        for _ in 0..<4 where fixture.runtime.focusedNode !== target {
+            fixture.runtime.recordsLazyListUIAPhasesForTesting = true
             _ = fixture.runtime.renderFrame()
-            traceReveal("ordinary-frame-\(frame)")
+            fixture.assertOriginalBudget()
+            XCTAssertTrue(target.parent === fixture.primary.list)
+            XCTAssertEqual(fixture.scroll.scrollOffset, 360)
+            XCTAssertEqual(independentScroll.scrollOffset, 360)
         }
+
+        try fixture.assertCompleted(target: target)
+        XCTAssertEqual(independentScroll.scrollOffset, 360)
+        XCTAssertGreaterThan(target.resolvedFrame.maxY, fixture.scroll.resolvedScrollOffset)
+        XCTAssertLessThan(
+            target.resolvedFrame.minY, fixture.scroll.resolvedScrollOffset + fixture.scroll.resolvedFrame.height)
+        XCTAssertEqual(fixture.runtime.presentationFocusRevision, focusRevision + 1)
     }
 }
 

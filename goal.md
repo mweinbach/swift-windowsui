@@ -17153,3 +17153,43 @@ replacement method and the instrumented independent-scroll method. It is not
 acceptance or timing qualification. The positive target-correction test's
 separate pass-count clarification is not yet applied. All nine completion gates
 remain open and the original goal text is preserved.
+
+### 2026-09-02 — Confirm missing viewport coverage and ordinary reveal continuation
+
+The two-method diagnostic at `d3b80d3` completed naturally after a 280.40-second
+build and 6.974 seconds of tests. Both preserved their existing failing
+assertions; all starts, terminals, unchanged source, natural exit 1 and complete
+owned cleanup were verified in
+`artifacts/final-settlement-diagnostic-17f51c31db8242d2b615355e586d5a99`.
+
+UIA's precise final refusal is unresolved required coverage: two required rows
+are absent, while the mounted cache has zero unmeasured records. This rules out
+simply accepting another measurement pass as the fix. The construction window
+must cover the actual target viewport before final settlement, under the same
+original limits and with the existing coverage check unchanged. That planning
+correction remains outstanding.
+
+The independent-scroll trace confirms a valid pending continuation at the
+return point: four rounds, sixteen constructed elements, unchanged offsets of
+360, and no focus. Its first ordinary frame consumes one round and zero elements
+and focuses the original target, with both offsets still 360. The newly added
+test previously overclaimed immediate focus while requiring a third independent
+adapter build. It now explicitly checks that pending/no-focus state and the
+original budget, preserves every return-point prefetch assertion, then requires
+the same target to gain visible focus through at most four ordinary frames.
+Each frame retains the default 128/4 limit; no second navigation is invoked.
+The passing shared-scroll test and all original tests are unchanged.
+
+The new target-correction test now counts its two target passes only before
+the owned scroll. The final query's first layout occurs afterward but before
+the fourth debit, so including it in the same count was a test classification
+error. All phase ordering, final outcome, coverage and budget assertions remain.
+Testing documentation now describes the verified cleanup tests and their
+non-native qualification limit.
+
+All temporary diagnostics are removed. Exact restoration of the four
+instrumented files to their pre-diagnostic source was verified before applying
+the two test clarifications. Contracts, strict five-file lint and whitespace
+checks pass. Behavioral validation of the revised assertions and the remaining
+UIA planning fix is still required. The original combined/full gates have not
+passed, and all nine completion gates remain open without changing the goal.

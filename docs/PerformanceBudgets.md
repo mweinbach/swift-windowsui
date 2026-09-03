@@ -465,3 +465,12 @@ layout, selected physical boundaries, empty plans, source misses, whole-row
 completion, callback revocation and payload retirement. Their focused execution
 and any later controlled performance qualification are recorded separately in
 [goal.md](../goal.md).
+
+The first 255-method run at `c9806f3` recorded 252 passes and three failures.
+All three new candidate-source tests threw their fixture's `candidate` setup
+error before their behavioral assertions. The three layout-operand tests and
+all 249 selected existing controls passed, including the original post-setter
+keyboard handoff (46.37 seconds). This is not a complete pass or a controlled
+performance comparison. The
+[aggregate](../artifacts/lazy-lookup-indices255-c9806f3-results.json) preserves
+the failed run while the fixture setup is investigated.

@@ -19528,3 +19528,33 @@ methods and six additional unchanged controls, including the original keyboard
 handoff already present in the prior cohort. The 255-method execution remains
 pending at this checkpoint; Original155 and full-suite results are unchanged.
 All nine original completion gates remain open.
+
+### 2026-09-03: lookup255 reaches every method and exposes three new fixture failures
+
+The fixed-source run at `c9806f3149aad388e5bd4fad9ff077dadfa3d1d8`
+compiled successfully (initial build 346.72 seconds) and observed all 255
+selected methods exactly once across twelve serial batches. It recorded 252
+passes and three failures. All three failures are the newly added
+RetainedLazyListCandidateSourceLookupTests methods; each threw the fixture's
+`candidate` error during setup before its behavioral assertions. The three new
+layout-operand tests and all 249 existing selected controls passed. The original
+post-setter keyboard handoff passed in 46.37 seconds; this is an individual
+debug test duration, not a controlled speedup, live benchmark or Original155
+qualification.
+
+Batch 11 exited naturally with code 1; every other batch exited naturally with
+code 0. Every batch had exact starts and terminals and complete owned descendant,
+resource and signal closure without timeout, forced termination, acquisition
+uncertainty or cleanup errors. Source endpoints remained unchanged. The final
+runner exited 1 and all-selected success remains false. Aggregate:
+`artifacts/lazy-lookup-indices255-c9806f3-results.json`; raw logs and individual
+receipts: `artifacts/lazylookupindices255-a3a588e2199d42f894015d2e87e7d1b7/`.
+
+Root source inspection found that the new fixture appends only an authored
+`.explicit` identity segment after each row prefix. The existing
+identityMatchesPrefix contract requires a builder-shape segment, such as `.slot`,
+after that prefix; explicit keys alone do not satisfy it. This supplies a
+concrete setup defect before Candidate construction. A narrow fixture amendment
+must retain the authored keys, all behavior assertions and production checks,
+and then rerun the cohort. No amendment has been executed at this checkpoint.
+The failed record stays intact; all nine original product gates remain open.

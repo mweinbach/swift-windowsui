@@ -32,9 +32,22 @@ setter synchronously rebuilds the host and must publish both chrome and frame
 metadata. The first build stopped on test-fixture result-builder and access
 errors before any method ran. A separate correction preserves all expectations,
 uses an existing exact lifecycle alias, and exposes the unchanged effective-scroll
-getter internally. Source review and strict lint passed; fresh compilation and
-focused execution are pending. Earlier passing chrome and controller tests do
-not validate the new combination.
+getter internally. The corrected candidate compiles, but focused execution at
+`87f8735` is failing. Across two disjoint selections, 32 methods passed, four
+failed, one started without a terminal result, and forty never started. The
+missing terminal coincides with a Windows stack-overflow report; its Swift
+caller has not yet been identified. These are incomplete focused results, not
+a full-suite result. Earlier passing chrome and controller tests do not
+validate the new combination.
+
+Source review has identified three independent behavioral gaps: children-only
+frame adoption suspends List ancestor metadata that its own admission still
+needs; default labeled Toggle rows do not explicitly nominate their actual
+switch as semantic content; and direct child attachment attempts publication
+before the parent has appended that child. Corrections are in progress with
+the original failed assertions preserved. The stack overflow is being
+diagnosed separately, without reducing fixture depth or enlarging the stack
+as a claimed behavioral fix.
 
 Precise scrolling after framed Realize still conservatively refuses an
 unchanged, previously admitted frontmost sibling-modal stack. Existing

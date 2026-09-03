@@ -20968,3 +20968,57 @@ and pre-correction collateral roster packet remain preserved. The same 77
 selectors now have a separate 48-pin roster,
 `artifacts/frame77-after-compile-correction.json`, SHA256 `85abf7f449405006f53c42702a736034de6612c8cd20fd12d15321a99315d935`.
 Fresh execution is pending. All original completion criteria remain unchanged.
+
+
+### 2026-09-03: retain Frame77 behavioral failures and the missing crash terminal
+
+The compile-corrected candidate at `87f8735240a57e723d856d14964d7b5eb1ce9ee9`
+compiled successfully in 366.15 seconds. Its first selected batch executed
+exactly 22 methods: twenty passed and two failed four assertions. Framed List
+Realize returned false and left its item a placeholder; the default labeled
+Toggle request returned false and made no binding write. The attempt closed
+naturally with wrapper status one after 379.984 owned seconds, with full owned
+process/resource closure and no timeout or termination. Raw SHA256
+`39f8242fb4725891c22c310677590777f81ddd7accb1894f29beb7730c957838`;
+aggregate: `artifacts/frame77-87f8735-first-results.json`.
+
+A distinct selection of the original unstarted 55 methods retained their
+order and all 48 source pins. Fourteen Forwarding methods completed: twelve
+passed and two failed four assertions while looking up their initial semantic
+subject. The following Metadata method,
+`testDirectAdoptionCopiesAndClearsAllExplicitOverrides`, started at 12:45:22.863
+but emitted no terminal result. The runner correctly stopped on this
+incomplete batch; six methods in that batch and 34 later methods never
+started. A zero-test Swift Testing footer is not evidence for these methods.
+This attempt closed naturally with wrapper status one in 10.156 owned seconds,
+full owned process/resource closure, and no timeout or termination. Raw SHA256
+`85f76076159b6b097e018094221c559ed92e2f940e09063764db5870104c9329`;
+aggregate: `artifacts/frame77-87f8735-remaining55-results.json`.
+
+Across the disjoint original 77 selectors, the observations are 32 passes,
+four assertion failures, one start without a terminal, and forty unstarted
+methods. This is not a completed 77-method run or a full-suite qualification.
+The original 77 methods and expectations remain unchanged.
+
+Root independently verified Application Error record 8708 at
+12:45:23.0595834 EDT and Windows Error Reporting record 8709 at
+12:45:24.3355815 EDT. They identify the matching checkout XCTest executable,
+exception `0xc00000fd` (stack overflow), and fault RVA `0x8814fe7`.
+Archived `Report.wer` SHA256 is
+`fc211c9cd191189cc352e0831ef42f4df350133a217b99dcbdc9b4ab7c629d3d`.
+Independent read-only symbol inspection maps that RVA to `__chkstk + 0x37`,
+but no surviving caller stack establishes whether construction, rendering,
+adoption or cleanup exhausted the stack. Its first fixture has no retirement
+payload. No modifier-count reduction, stack-size increase or fixture bypass
+is accepted as a production correction.
+
+Independent source reviews found three separate behavioral defects: adoption
+suspends untouched List ancestor metadata required by its own original
+admission; default labeled Toggle layout rows omit an explicit declaration
+of their actual switch; and `addChild` tries frame publication before the
+new child is in its parent's children array, without publishing afterward.
+Narrow corrections and additive regressions are being prepared separately
+from crash diagnosis. All original criteria, thresholds and nine open gates
+remain intact. The GPUWorkbench consumer has not been rebuilt or qualified
+against this candidate, and no full, native, visual or performance pass is
+claimed.

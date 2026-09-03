@@ -46,6 +46,44 @@ final class WinSwiftUIGridLayoutTests: XCTestCase {
         try assertFrame("d", Rect(x: 67, y: 30, width: 30, height: 8), in: host)
     }
 
+    func testFixedHeightCellsKeepCenteredOverflowInCompressedRowSlots() async throws {
+        let host = makeHost(size: Size(width: 132, height: 160)) {
+            AnyView(
+                Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 10) {
+                    GridRow {
+                        gridFacadeCell("first-fixed", width: 132, height: 78)
+                    }
+                    .accessibilityIdentifier("first-row")
+                    GridRow {
+                        gridFacadeCell("second-fixed", width: 132, height: 78)
+                    }
+                    .accessibilityIdentifier("second-row")
+                }
+                .accessibilityIdentifier("grid"))
+        }
+        defer { host.close() }
+
+        // Local compression policy, not a native SwiftUI parity recording:
+        // (160 - 10) / 2 gives two 75-point slots. Each fixed cell accepts
+        // 78 points, so centering places it (75 - 78) / 2 = -1.5 points
+        // above its row and 1.5 points below it. The row origins remain
+        // 75 + 10 = 85 points apart; fixed measurement does not add a floor.
+        try assertFrame("grid", Rect(x: 0, y: 0, width: 132, height: 160), in: host)
+        try assertFrame("first-row", Rect(x: 0, y: 0, width: 132, height: 75), in: host)
+        try assertFrame("second-row", Rect(x: 0, y: 85, width: 132, height: 75), in: host)
+        try assertFrame("first-fixed", Rect(x: 0, y: -1.5, width: 132, height: 78), in: host)
+        try assertFrame("second-fixed", Rect(x: 0, y: 83.5, width: 132, height: 78), in: host)
+        for identifier in ["first-fixed", "second-fixed"] {
+            let cell = try node(identifier, in: host)
+            XCTAssertEqual(cell.preferredSize, Size(width: 132, height: 78))
+            XCTAssertEqual(cell.children.count, 1)
+            let content = try XCTUnwrap(cell.children.first)
+            let contentFrame = try XCTUnwrap(host.runtime.resolvedLayoutFrame(of: content))
+            XCTAssertEqual(contentFrame.height, 78, accuracy: 0.0001)
+        }
+        XCTAssertNil(host.coordinator.latestInstallationError)
+    }
+
     func testNilGridRowAlignmentInheritsGridVerticalComponent() async throws {
         let host = makeHost {
             AnyView(

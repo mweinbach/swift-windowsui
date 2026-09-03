@@ -18299,3 +18299,80 @@ The three calendar regression failures remain open. This diagnostic does not
 replace an unchanged normal test run after a production fix. Full validation,
 retained gallery review, original-gate and native qualification remain pending;
 none of the nine original completion requirements has been narrowed or closed.
+
+### Reviewed fixed-frame gallery change and owned-preparation diagnostic (2026-09-03)
+
+- The normal `scripts/gallery-compare.ps1 -WorkDir
+  artifacts/gallery-compare-118f410-validation` run at clean
+  `118f410b1194af505c5c8d616a789d418c621c02` built and rendered all 85 selected
+  baseline fixtures: **84 passed, 1 failed**, exit 1. The sole failure was
+  `grid-layout`, changed 4.1752%, maximum channel delta 224. The original
+  report/current/diff remain in that directory; this is not a passing gallery
+  gate and its failed result is retained even if a reviewed successor passes.
+- Review of baseline, current render, difference image, fixture source and
+  history identifies the intentional fixed-frame correction in `a650b2e`:
+  four authored 132-by-78 cards now keep their 78-point height. The previous
+  baseline, unchanged since `d7451d1`, showed 75-pixel cards. The gallery view
+  remains unchanged: 10-point row spacing, 14-point padding and a 310-by-214
+  outer frame. The existing Grid allocation still compresses row slots to 75;
+  the accepted 78-point cell is centered with a -1.5-point offset. The new
+  test `WinSwiftUIGridLayoutTests.testFixedHeightCellsKeepCenteredOverflowInCompressedRowSlots`
+  directly asserts this combination, row origins 0/85, cell origins -1.5/83.5,
+  and unchanged 78-point Rectangle content. It describes the documented local
+  Grid compression policy, **not independently measured native SwiftUI parity**.
+  No runtime, demo or threshold change is made for this test. The single
+  reviewed grid baseline is eligible for a separately recorded update after
+  focused validation; it has not been changed by this entry.
+- The two other nonzero gallery comparisons were also visually reviewed:
+  `canvas-path-gradient` changed 0.175%, maximum delta 20; `state-toggle-hover`
+  changed 0% above the channel threshold, maximum delta 8. Both pass the
+  unchanged thresholds and their baselines remain unchanged. All other
+  entries reported zero difference.
+- Three existing blend gallery entries were separately rendered with that
+  same built executable, unchanged SHA-256
+  `5575f7ff063738aa886d6c1e476a6c6c0c96b63b05ec075a7e1644dbccac36e8`,
+  exit 0, at the same clean source revision. Images and invocation details are
+  in `artifacts/blend-gallery-118f410-validation`. Reviewed interior RGBA
+  values are multiply `(0,28,48,255)`, screen `(255,153,255,255)`, and
+  plusLighter `(255,59,48,255)`. The first two match the named red/blue palette
+  equations. The third is the preexisting, explicitly tested source-over
+  fallback, not implemented additive blending. These are CPU snapshots of two
+  supported ordinary-quad modes and one unsupported fallback; they contain no
+  overlay example and do not expand Blend49's GPU or native qualification.
+- A second temporary calendar diagnostic combined the prior publication
+  trace with order-preserving records for the existing journal and owned
+  preparation guards. Both patches received independent source review;
+  original queries, short circuiting and publication order were preserved.
+  The unchanged single GraphicalDatePicker candidate diagnostic ran through
+  normal `scripts/test.ps1` under the unchanged owned-Job 900+10 policy at
+  `118f410`: build 102.18 seconds, natural exit 1 after 112.454 seconds, one
+  exact start and failed terminal at 1.767 seconds, four assertion failures
+  including two unexpected unwrap errors. It reproduced the existing missing
+  calendar failure, not a timeout or supervision error.
+- In the 93-event trace, events 62/65 identify the same revoked owner and plan
+  for the two source nodes whose owned insertion preparation then refuses at
+  63/64 and 66/67. Reconciliation still reports completion at 70. Deferred
+  group sealing at 71 has eight required facets and four outputs; source
+  mappings 72/73 correlate those exact nodes to the two missing attachment
+  facets at 76/77. No node-completion facet is missing. This establishes the
+  immediate refusal and lost-record path; it does not by itself prove why
+  the owner retired or qualify a proposed production correction.
+- Raw evidence is retained at
+  `artifacts/calendar-owned-publication-diagnostic-4f960c0f3245410aa4b607af31269b31`:
+  raw log SHA-256
+  `556b4441af30446028ba0e023a335fdd9deba1c2194f05603d9886a0abbec762`,
+  trace SHA-256
+  `a0a36a756c01fbab42395e1e9d1c357bdcb9d97edfd87ab3c0a49b37503d599f`.
+  Root reconciliation is
+  `artifacts/calendar-owned-publication-118f410-reconciled.json`.
+  All tracked source/index/HEAD/proof endpoint comparisons matched; owned
+  process closure and cleanup completed without termination, uncertainty,
+  signals or errors. Both diagnostic source files were restored to their
+  exact saved preimages; restoration receipt is
+  `artifacts/calendar-owned-prepare-source-4eaf8686528344bd96db88ac24bae7c4`.
+  No diagnostic instrumentation is retained in production.
+- Architecture contracts passed before and after temporary instrumentation;
+  contracts and strict lint also passed after adding the one Grid regression.
+  That new test has not yet executed at this entry. The three calendar
+  failures, original 155-case keyboard qualification, full release validation,
+  native smoke evidence and **all nine original completion gates remain open**.

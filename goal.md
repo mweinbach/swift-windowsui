@@ -21114,3 +21114,64 @@ are unchanged. The previous packet and failed attempt remain preserved; a
 separate source-pin binding will precede another execution of the same 54
 selectors. The unresolved Metadata crash and all original goal gates remain
 open. No prior result is retroactively converted to a pass.
+
+
+### 2026-09-03: verify frame forwarding and bound modifier content storage
+
+Focused execution at `a899778f873ff7b2c892c002af64259f42f2e234` passed all
+54 selected methods: the unchanged original 36 Forwarding tests and eighteen
+additive child-scope, Toggle and direct-attachment tests. This includes all
+four prior assertion failures. All 51 source pins were verified before and
+after; each method has exactly one start and passing terminal. Three batches
+closed naturally with status zero and full owned process/resource closure,
+without timeout or termination, in 294.860, 9.125 and 7.907 owned seconds.
+Raw SHA256 values are `73d9c6e017fcb450af39d8482b83d1180bdf52666555ff8af74db9222673486b`,
+`db695defc1e8f13d3a57b0210811d40034354c34bba13be13c6ea2780794879f`
+and `f037ce38e8b00bd67187a10450c3053fea5aaff2a89023d307d243244d9f8db7`.
+Aggregate: `artifacts/frame54-a899778-results.json`. This selection excludes
+the separate Metadata crash and is not the complete original Frame77 group,
+a full suite, native accessibility, visual, GPU or performance qualification.
+
+Read-only analysis of the already captured dump reconstructs 559 frames,
+using 555 PE unwind records and four explicit Foundation prologue bridges.
+The captured return slots advance within the original thread stack, span
+1,032,064 bytes, and end at a terminal null. The chain reaches the original
+Metadata test through exactly 36 finite modifier layers, matching its authored
+construction. Installation frames consume 491,424 bytes, ModifiedView component
+frames 208,864 bytes, and the fixture builder 172,320 bytes. This strongly
+supports finite construction stack pressure; repeated wrapper calls are not
+evidence of infinite recursion. Full analysis SHA256:
+`552a768ed70248ed1d3a8b5ce13cad6fef16311158a095f2957b740ea16d39ca`,
+at `artifacts/frame77-static-unwind-644245323cb5405687845c2995eff0c6/analysis.json`.
+It binds the dump and nine binary inputs, documents four manually inferred
+prologue rules, and records source associations and limitations. Independent
+review verified every captured return slot, transition, bound and aggregate;
+it did not independently reimplement PE unwinding. This work launched no new
+debugger or target and does not reopen the held LLDB live route.
+
+A separately reviewed correction replaces recursively inline ModifiedView
+content with immutable generic storage. The content type and structural
+identity stay intact; metadata erasure timing, independent outer value fields,
+capture lifetime and child-local installation remain unchanged. A sole
+framework field projection maps the storage key path back to the original
+read-only content declaration only after complete physical-field coverage.
+Existing exact DynamicProperty detection, writable/read-only preparation,
+rejection order, owner checks and diagnostic types remain unchanged. No
+installed copy is written into shared storage. All original 77 test bytes,
+fixture depths, stack-size settings and expectations remain unchanged.
+
+Fourteen additive tests froze before the production patch. Root verified all
+20 sealed packet payloads and reviewed both source files and all tests; an
+independent source review included separate installation-case review. Strict
+lint and contracts passed on all four source/test files. The only formatter
+derivative splits twelve semicolon-separated test statements, preserving all
+methods, assertions and tokens. The first integration helper refused before
+any shared mutation because its semicolon count included an unchanged comment;
+the draft is retained and the corrected check accounts for that comment.
+Integration receipt: `artifacts/modified-content-storage-integration.json`.
+Fresh rosters bind the original 77, prior eighteen, and new fourteen separately
+and as 109 distinct selectors. Compilation and behavioral verification are
+pending; the original first Metadata method must pass unchanged before the
+stack correction can be claimed. One new content allocation per modifier is
+an explicit performance cost still to measure. All nine original gates and
+the unrelated sibling-modal continuation requirement remain open.

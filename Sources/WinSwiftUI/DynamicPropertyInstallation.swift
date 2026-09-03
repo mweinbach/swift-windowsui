@@ -26,6 +26,15 @@ protocol MountedDynamicProperty: DynamicProperty {
 @MainActor
 protocol NonOwningDynamicProperty: DynamicProperty {}
 
+/// Framework storage may preserve one original read-only declaration after its
+/// physical fields have passed the complete reflection coverage check. The sole
+/// conformer maps its immutable Content box to the same typed content accessor;
+/// this does not install into the box or inspect content before installation.
+@MainActor
+protocol DynamicPropertyFieldProjection {
+    static func projectedDynamicPropertyField(_ keyPath: AnyKeyPath) -> AnyKeyPath
+}
+
 struct DynamicPropertyInstallationError: Error, Equatable, CustomStringConvertible {
     enum Reason: String, Sendable {
         case ownerUnavailable
@@ -401,6 +410,17 @@ enum DynamicPropertyInstaller {
         guard cursor == keyPaths.count else {
             throw failure(
                 .incompleteFieldCoverage, type: type, at: slot, "Key paths exceeded the stored-field inventory")
+        }
+        if let projection = type as? any DynamicPropertyFieldProjection.Type {
+            fields = try fields.map { field in
+                guard let keyPath = projection.projectedDynamicPropertyField(field.keyPath) as? PartialKeyPath<Root>
+                else {
+                    throw failure(
+                        .incompleteFieldCoverage, type: type, at: slot,
+                        "The framework field projection changed its original root type")
+                }
+                return ReflectedField(keyPath: keyPath)
+            }
         }
         let plan = FieldPlan(fields: fields)
         fieldPlans[ObjectIdentifier(type)] = plan

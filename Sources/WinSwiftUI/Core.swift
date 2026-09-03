@@ -18409,11 +18409,30 @@ func retainedSelectedContentModifierAdmission(context: ViewBuildContext) -> (@Ma
     }
     return { candidateConstruction?.canConstruct != false }
 }
+/// Bound the inline size of a modifier chain without erasing its authored
+/// Content type or storing an installed copy shared by multiple occurrences.
 @MainActor
-struct ModifiedView<Content: View>: View, TaggedViewMetadata {
+private final class ModifiedViewContentStorage<Content: View> {
+    let content: Content
+
+    init(_ content: Content) { self.content = content }
+}
+
+@MainActor
+struct ModifiedView<Content: View>: View, TaggedViewMetadata, DynamicPropertyFieldProjection {
     typealias Body = Never
 
-    let content: Content
+    private let contentStorage: ModifiedViewContentStorage<Content>
+    var content: Content { contentStorage.content }
+
+    init(content: Content, transform: @escaping (AnyView, ViewBuildContext) -> Component) {
+        contentStorage = ModifiedViewContentStorage(content)
+        self.transform = transform
+    }
+
+    static func projectedDynamicPropertyField(_ keyPath: AnyKeyPath) -> AnyKeyPath {
+        keyPath == \Self.contentStorage ? \Self.content : keyPath
+    }
     // Keep the authored Content type in structural identity, but dispatch its
     // local installation only after a modifier has transformed the context.
     let transform: (AnyView, ViewBuildContext) -> Component

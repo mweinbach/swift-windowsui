@@ -33,14 +33,13 @@ metadata. The first build stopped on test-fixture result-builder and access
 errors before any method ran. A separate correction preserves all expectations,
 uses an existing exact lifecycle alias, and exposes the unchanged effective-scroll
 getter internally. The corrected candidate compiles, but focused execution at
-`87f8735` is failing. Across two disjoint selections, 32 methods passed, four
+`87f8735` failed. Across two disjoint selections, 32 methods passed, four
 failed, one started without a terminal result, and forty never started. The
-missing terminal coincides with a Windows stack-overflow report; its Swift
-caller has not yet been identified. These are incomplete focused results, not
+missing terminal coincides with a Windows stack-overflow report. These are incomplete focused results, not
 a full-suite result. Earlier passing chrome and controller tests do not
 validate the new combination.
 
-Three reviewed corrections are now integrated but await focused execution.
+Three reviewed corrections are now integrated and passed focused execution.
 Children-only reconciliation suspends the copied child subtrees and their
 actual forwarding owners, keeping the untouched List container available to
 its original admission. A separate weak parent anchor publishes newly inserted
@@ -60,10 +59,33 @@ endpoint zero and a separate actionable switch endpoint.
 Eighteen additive methods cover these corrections, while all 77 original
 methods remain unchanged. Their first focused build stopped before any test
 ran because the new Toggle fixture omitted its C interop import. That import
-is corrected separately with all assertions intact; fresh execution is pending.
-The metadata stack overflow is diagnosed separately,
-without reducing fixture depth or enlarging the stack as a claimed fix.
-The current crash evidence does not establish its Swift caller.
+is corrected separately with all assertions intact. At `a899778`, all 54 selected
+methods passed: the original 36 Forwarding methods, including the four previous
+failures, and the eighteen additions. Every selected method had one start and
+one passing terminal; all three batches exited naturally with full owned
+process/resource closure. This selection excludes the Metadata crash and does
+not qualify the complete original 77-method group.
+
+Static reconstruction of the captured stack-overflow dump reaches the original
+Metadata test through 559 frames. Four Foundation frames require explicitly
+documented prologue bridges; the other 555 use PE unwind metadata. The captured
+chain spans 1,032,064 bytes and contains exactly 36 finite modifier layers,
+matching the original fixture. This supports construction stack pressure,
+not infinite recursion. The analysis and its caveats are retained under
+`artifacts/frame77-static-unwind-644245323cb5405687845c2995eff0c6/`.
+
+The next correction stores each `ModifiedView` content value in an immutable
+box, bounding inline payload growth while retaining its generic content type.
+Metadata extraction stays at the original erasure point, outer metadata remains
+independent across copies, and child state installs under the original context
+and identity. A framework-only field projection preserves the original
+read-only DynamicProperty declaration after complete physical-field coverage;
+it does not relax installation checks or write installed state into the box.
+Fourteen additive tests cover size, copies, metadata timing, identity, lifetime,
+local state and installation diagnostics. They and the unchanged original
+Metadata regression await execution. The change adds one allocation per modifier;
+it does not remove recursion or establish performance qualification. No fixture
+depth or stack-size setting has changed.
 
 Precise scrolling after framed Realize still conservatively refuses an
 unchanged, previously admitted frontmost sibling-modal stack. Existing

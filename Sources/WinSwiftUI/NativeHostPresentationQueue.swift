@@ -102,8 +102,13 @@ final class NativeHostPresentationQueue {
         notifyDrainedIfNeeded()
     }
 
+    /// Passive only: observing the barrier never advances native work.
+    var isDrained: Bool {
+        executing == nil && pending.isEmpty && !isDeliveringCompletion && !isRejectingPendingRequests
+    }
+
     private func notifyDrainedIfNeeded() {
-        guard executing == nil, pending.isEmpty, !isDeliveringCompletion, !isRejectingPendingRequests else { return }
+        guard isDrained else { return }
         let callbacks = drainCallbacks
         drainCallbacks.removeAll()
         for callback in callbacks { callback() }

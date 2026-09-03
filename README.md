@@ -287,6 +287,9 @@ and remaining native qualification are described in
 Ordinary mounted `@State` ownership, dynamic-property installation, and their
 current toolchain and lifetime limits are in
 [`docs/MountedState.md`](docs/MountedState.md).
+Application callbacks and native alerts for settled presenter/startup failures,
+including the limits around unproven cleanup, are in
+[`docs/AppFailureReporting.md`](docs/AppFailureReporting.md).
 The fixed desktop SDK audit baseline and capture procedure live in
 [`docs/SwiftUIBaseline.md`](docs/SwiftUIBaseline.md). The API audit ledger
 format and its unreviewed evidence limits are in

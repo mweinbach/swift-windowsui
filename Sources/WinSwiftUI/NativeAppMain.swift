@@ -42,7 +42,8 @@ enum WinSwiftUIAppMain {
                 nativePresentationFactory: presentation,
                 liveDiagnostics: liveDiagnostics,
                 nativeDisplayAcquisition: acquisitionSession?.recorder,
-                nativeStartupPhaseProbe: nativeStartupPhaseProbe
+                nativeStartupPhaseProbe: nativeStartupPhaseProbe,
+                appFailureHandler: { failure in await Application.handleFailure(failure) }
             )
             Task { @MainActor in
                 nativeStartupPhaseProbe?.record(.nativeTaskEntered)
@@ -58,11 +59,14 @@ enum WinSwiftUIAppMain {
                     if acquisitionSession != nil { nativeStartupPhaseProbe?.record(.retirementReturned) }
                 } catch {
                     // Some failure paths still own native work. Do not sample,
-                    // serialize, retry shutdown, or write from this catch.
+                    // serialize or retry shutdown here. The callback below is
+                    // refused unless the existing stop path proved a join.
                     acquisitionSession?.retire(successfullyJoined: false)
                     // Failed/quiesced resources are never relabeled closed.
                     // This is a fatal startup/owner error, not graceful exit.
-                    print("Failed to run WinSwiftUI native owner: \(error)")
+                    let failureMessage = String(describing: error)
+                    print("Failed to run WinSwiftUI native owner: \(failureMessage)")
+                    await coordinator.deliverStartupFailureAfterCleanup(failureMessage)
                     exitCode = 1
                 }
                 withExtendedLifetime(application) {}
@@ -80,7 +84,8 @@ enum WinSwiftUIAppMain {
             renderBackendFactory: renderBackendFactory,
             backendResolution: backendResolution,
             platformHostFactory: platformHostFactory,
-            liveDiagnostics: liveDiagnostics
+            liveDiagnostics: liveDiagnostics,
+            appFailureHandler: { failure in await Application.handleFailure(failure) }
         )
         do { _ = try coordinator.run() } catch { print("Failed to start WinSwiftUI app: \(error)") }
         withExtendedLifetime(application) {}

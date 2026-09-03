@@ -16733,3 +16733,31 @@ Root and independent source review, before/after contract checks, strict four-fi
 and whitespace checks passed. Compilation and execution of this storage slice remain
 pending. Compatibility documentation now states the precise lifetime and persistence
 limits. Original goal scope and all nine completion gates remain unchanged and open.
+
+### 2026-09-02 — Application-visible presenter failures with explicit cleanup limits
+
+The normal Windows `App` composition now installs an async main-actor
+`App.handleFailure(_:)` callback. Immutable events contain a failure kind, message,
+and optional copied per-window UUID/scene ID/title; no HWND, runtime, or window action
+crosses the callback boundary. The default uses an ownerless native error dialog on a
+worker, independent of the retained renderer. It does not close unsaved windows or
+change the existing attach-retry limit. Direct internal hosts remain silent unless
+their embedder installs a handler.
+
+Presenter exhaustion is delivered once per host lifetime, on a later actor turn after
+queued presentation work and its completion delivery drain. Closed or recovered hosts
+suppress stale delivery, and suspension in the app callback does not intentionally
+retain the host. Startup delivery is narrower: the existing stop operation must have
+successfully joined the native owner, remaining coordinator ownership must be empty,
+and no fatal ownership result may exist. Failed start/stop/rollback paths with unproven
+cleanup still use the original fatal policy without invoking app code or waiting for
+a dialog. Synchronous custom-platform startup keeps its existing behavior.
+
+Eight new headless tests cover deferred/once-only presenter reporting, closed/recovered
+suppression, host release across suspension, post-stop startup delivery, and rejection
+of unsafe start/stop/rollback reporting. The five production files, eight tests, and
+documentation received root and independent source review. Contract checks, strict
+six-file Swift lint, and whitespace checks passed. Compilation and execution remain
+pending, as do actual native alert visibility and accessibility qualification. README
+and framework notes link the new failure-reporting contract. All original completion
+requirements and nine open gates remain unchanged.

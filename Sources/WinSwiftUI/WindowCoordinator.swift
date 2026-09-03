@@ -264,6 +264,9 @@ final class WinSwiftUIWindowCoordinator {
 
     private var nativeRunStarted = false
     private var nativeOwnerStarted = false
+    private var nativeOwnerJoined = false
+    private var didDeliverStartupFailure = false
+    private let appFailureHandler: (@MainActor (AppFailure) async -> Void)?
     private var nativeWindowPreparation: UUID?
     private var failedNativeUnadmittedHosts: [ObjectIdentifier: WinSwiftUIWindowHost] = [:]
     private var nativeActivationResults: [ObjectIdentifier: Bool] = [:]
@@ -322,7 +325,8 @@ final class WinSwiftUIWindowCoordinator {
         liveDiagnostics: LiveDiagnosticsConfiguration? = nil,
         documentServices: DocumentWindowServices? = nil,
         nativeDisplayAcquisition: NativeDisplayAcquisition.Recorder? = nil,
-        nativeStartupPhaseProbe: NativeStartupPhaseProbe? = nil
+        nativeStartupPhaseProbe: NativeStartupPhaseProbe? = nil,
+        appFailureHandler: (@MainActor (AppFailure) async -> Void)? = nil
     ) {
         self.sceneConfigurations = sceneConfigurations
         self.documentServices = documentServices
@@ -331,6 +335,7 @@ final class WinSwiftUIWindowCoordinator {
         self.nativeHooks = nativeHooks
         self.liveDiagnosticsConfiguration = liveDiagnostics
         self.nativeStartupPhaseProbe = nativeStartupPhaseProbe
+        self.appFailureHandler = appFailureHandler
         self.hostFactory =
             hostFactory
             ?? { configuration, isPrimary in
@@ -1057,6 +1062,7 @@ final class WinSwiftUIWindowCoordinator {
             }
             throw error
         }
+        host.appFailureHandler = appFailureHandler
         host.onWindowClosed = { [weak self] closedHost in self?.windowDidClose(closedHost) }
         host.onNativeFailure = { [weak self] failedHost, failure in
             self?.nativeOwnerFailed(for: failedHost, failure: failure)
@@ -1221,11 +1227,31 @@ final class WinSwiftUIWindowCoordinator {
         else { return }
         isTerminated = true
         releaseClosedHosts()
-        let stop = Task { @MainActor in try await nativeHooks.stopOwner() }
+        let stop = Task { @MainActor in
+            let exitCode = try await nativeHooks.stopOwner()
+            self.nativeOwnerJoined = true
+            return exitCode
+        }
         nativeStopTask = stop
         let waiters = nativeStopWaiters
         nativeStopWaiters.removeAll()
         for waiter in waiters { waiter.resume(returning: stop) }
+    }
+
+    /// Only the successful stop hook proves the owner's actual join. A throw
+    /// from startOwner, an empty window list or actor teardown is insufficient.
+    /// Fatal ownership failures never call arbitrary app code or delay exit.
+    @discardableResult
+    func deliverStartupFailureAfterCleanup(_ message: String) async -> Bool {
+        guard nativeOwnerJoined, nativeFatalResult == nil,
+            windows.isEmpty, nativeWindowStarts.isEmpty, nativeStartupRollbacks.isEmpty,
+            nativePendingCloseRequests.isEmpty, nativeDiagnosticsDrain == nil,
+            nativeWindowPreparation == nil, failedNativeUnadmittedHosts.isEmpty,
+            !didDeliverStartupFailure, let handler = appFailureHandler
+        else { return false }
+        didDeliverStartupFailure = true
+        await handler(AppFailure(kind: .startup, window: nil, message: message))
+        return true
     }
 
     private func waitForNativeOwnerStop() async -> Task<Int32, any Error> {
@@ -1290,6 +1316,7 @@ final class WinSwiftUIWindowCoordinator {
             }
             if let documentRequest { try validate(documentRequest) }
             try host.validateDocumentAdmission(expected: expectedContext)
+            host.appFailureHandler = appFailureHandler
             host.onWindowClosed = { [weak self] closedHost in
                 self?.windowDidClose(closedHost)
             }

@@ -44,6 +44,16 @@ presentations separately. `Win32WindowCloseRequestTests`,
 `WindowDismissBehaviorTests`, and `PlatformHostContractTests` cover the new
 boundary; native tests use owned hidden windows with bounded message delivery.
 
+## Application failure reporting
+
+Windows apps can implement `static func handleFailure(_ failure: AppFailure) async`.
+The default presents a native alert without requiring a working renderer.
+Presenter exhaustion is delivered after queued presentation work settles; startup
+delivery requires a successfully joined native owner and completed coordinator cleanup.
+Unproven ownership failures retain the existing fatal exit policy without running app
+callbacks. See [AppFailureReporting.md](AppFailureReporting.md) for event contents,
+delivery limits, and the remaining native visibility checks.
+
 ## Rendering Contract
 
 `GPUIScene.paintOperations` is the source-of-truth paint stream for typed

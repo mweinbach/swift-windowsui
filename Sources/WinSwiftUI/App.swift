@@ -152,6 +152,12 @@ public protocol App {
     /// incompatible factory fails explicitly instead of pretending that the
     /// rest of the application is already platform-portable.
     static func platformHostFactory() -> any PlatformHostFactory
+
+    /// Receives a settled presenter failure or a startup failure whose native
+    /// owner has joined. Called on the main actor, never inside native teardown.
+    /// The default shows a renderer-independent native alert. See ``AppFailure``
+    /// for the deliberately narrower guarantee on fatal ownership failures.
+    static func handleFailure(_ failure: AppFailure) async
 }
 extension App {
     /// The software presenter, not ``CPURenderBackendFactory``: an app that
@@ -166,6 +172,10 @@ extension App {
     /// override this separately from their graphics backend factory.
     public static func platformHostFactory() -> any PlatformHostFactory {
         Win32PlatformHostFactory()
+    }
+
+    public static func handleFailure(_ failure: AppFailure) async {
+        await failure.presentNativeAlert()
     }
 
     public static func main() {
@@ -2593,6 +2603,9 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
     /// Detail of the most recent attach failure, carried into the selection
     /// reason so the terminal state is actionable rather than silent.
     private var lastPresenterAttachFailureDetail = "No render backend attached."
+    private let failureWindowID = UUID()
+    private var presenterFailureDeliveryPending = false
+    private var didDeliverPresenterFailure = false
 
     /// Recurrence counts per distinct failure signature, used to rate-limit
     /// `report`. Bounded by `maximumTrackedFailureSignatures`.
@@ -3072,6 +3085,9 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
     /// A failed native owner is not a destroyed window. The coordinator uses
     /// this separate route to fail its run without inventing a close receipt.
     var onNativeFailure: ((WinSwiftUIWindowHost, NativeWindowOwnerFailure) -> Void)?
+    /// The coordinator installs the App callback before startup. Direct hosts
+    /// remain silent unless their embedder explicitly supplies a handler.
+    var appFailureHandler: (@MainActor (AppFailure) async -> Void)?
 
     /// The Win32 window this host drives. Exposed for the window
     /// coordinator's platform hooks (start/close) and for tests.
@@ -3531,6 +3547,53 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
                 + lastPresenterAttachFailureDetail
         )
         syncAnimationDriver(for: window)
+        schedulePresenterFailureDelivery()
+    }
+
+    /// Native operation completion and its actor delivery must unwind before
+    /// application code runs. A still-owned unavailable presenter is not a
+    /// native destruction or successful cleanup receipt.
+    private func schedulePresenterFailureDelivery() {
+        guard !hasTornDownWindow, isPresenterUnavailable, appFailureHandler != nil,
+            !didDeliverPresenterFailure, !presenterFailureDeliveryPending
+        else { return }
+        presenterFailureDeliveryPending = true
+        let schedule: @MainActor () -> Void = { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let delivery = self?.takePresenterFailureDelivery() else { return }
+                // The weak host read ends before suspension. Waiting for an
+                // alert or app callback does not keep a closed host alive.
+                await delivery.handler(delivery.failure)
+            }
+        }
+        if let queue = nativePresentationQueue {
+            queue.whenDrained(schedule)
+        } else {
+            schedule()
+        }
+    }
+
+    private func takePresenterFailureDelivery() -> (
+        failure: AppFailure, handler: @MainActor (AppFailure) async -> Void
+    )? {
+        presenterFailureDeliveryPending = false
+        guard !hasTornDownWindow, isPresenterUnavailable,
+            !didDeliverPresenterFailure, let handler = appFailureHandler
+        else { return nil }
+        // Another actor operation can enqueue after a drain callback. Keep
+        // one observer of the next real drain; never retry presentation work.
+        if let queue = nativePresentationQueue, !queue.isDrained {
+            schedulePresenterFailureDelivery()
+            return nil
+        }
+        guard !isNativeFramePending, !isNativePresenterTransitionPending else { return nil }
+        let failure = AppFailure(
+            kind: .presenterUnavailable,
+            window: AppFailure.Window(
+                id: failureWindowID, sceneID: configuration.windowID, title: configuration.title),
+            message: lastPresenterAttachFailureDetail)
+        didDeliverPresenterFailure = true
+        return (failure, handler)
     }
 
     /// Retries the attach when the backoff has elapsed. Returns `true` when a

@@ -103,14 +103,37 @@ preserves the real selected Button at endpoint zero, the unchanged-child
 no-op, and existing checked reconciliation acceptance. Detached and frame-free
 trees avoid the new witness allocation. Nine additive tests cover the boundary,
 including identity changes followed by restoration and an existing frame
-ancestor over a bare selected child. Their execution remains pending; all
-109 earlier selectors and assertions remain unchanged.
+ancestor over a bare selected child. At `b8b08d5`, all 118 frame methods passed,
+including every earlier selector and the nine additions. The focused thirteen
+are contained in that selection, not additional distinct coverage. All six
+batches had exact starts and passing terminals, natural zero exits, complete
+owned closure, and unchanged source pins.
 
 Separately, 67 existing property-installation, state, environment, object and
 binding methods passed at the same commit. All completed batches in these
 focused runs exited naturally with full owned process/resource closure and
 unchanged source pins. The independent state baseline does not turn the
 failed frame selection into a pass or qualify the full suite.
+
+The subsequent unchanged collateral selection exposed an integration defect:
+frame witnesses make field-chrome binding strict, but a field with authored
+children present before capture was incorrectly treated as a failed chrome
+recipe. The correction checks only captured constructor shape. An unclaimed
+non-template tree uses ordinary reconciliation; an initially eligible or
+already-claimed recipe keeps all existing controller, attachment, mutation,
+and strict-refusal checks. Five additive methods exercise plain and framed
+fields, Button companions, later mutations, attachment restoration, and
+claimed-registration reuse. The original eighteen chrome methods remain
+unchanged. Execution of this correction is pending.
+
+At `b8b08d5`, the independent secure/controller cohort completed with 228
+passes and four failures: the same authored-child failure and three copied
+snapshot mapper fixtures. Changing a framed field's controller invalidates
+its copied publication; those three fixtures require separate scalar and
+framed privacy expectations. No disclosure or passing privacy result is
+inferred from their failed snapshot unwraps. Button125, paint20, caret3,
+CPU2, and state67 passed independently at that commit. Their overlap does
+not provide extra distinct coverage or qualify the failed collateral gate.
 
 Precise scrolling after framed Realize still conservatively refuses an
 unchanged, previously admitted frontmost sibling-modal stack. Existing

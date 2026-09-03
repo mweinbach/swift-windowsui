@@ -186,6 +186,13 @@ fileprivate final class ChromeAdoptionAttempt {
             let labelNode = registration.label, let label = sourceCensus[ObjectIdentifier(labelNode)],
             let ancestors = chromeAncestors(of: node)
         else { return nil }
+        // Optional native chrome applies only to the captured constructor shape.
+        // Authored children already present at entry use ordinary reconciliation.
+        // Keep claimed registrations enrolled so nested reuse still reaches the
+        // existing refusal checks instead of borrowing an outer attempt.
+        let hasCapturedConstructorShape =
+            source.children.count == 1 && source.children.first == label.identifier && label.children.isEmpty
+        guard registration.wasClaimed || hasCapturedConstructorShape else { return nil }
         self.registration = registration
         self.source = source
         self.label = label

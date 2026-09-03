@@ -21258,3 +21258,98 @@ earlier failed result remains unchanged. Behavioral validation is pending.
 The original goal text and all nine open completion gates remain unchanged.
 These focused results do not establish native UIA/Narrator, GPU presentation,
 visual parity, performance or full-suite qualification.
+
+
+### 2026-09-03: accept final-child frame publication and retain collateral failures
+
+At `b8b08d5eb7602c02af7fbdaf6d76741c0a9be17b`, all thirteen focused
+selected-root/publication methods passed, including both earlier failing
+original methods and nine additions. That build-and-test attempt exited
+naturally in 318.891 owned seconds with complete process/resource closure.
+Raw SHA256 `7020834607a4089b73cd6f85d67e4b6ff36d4bb05daa36ece7e6aa95a9446061`;
+aggregate `artifacts/frame13-b8b08d5-results.json`.
+
+The subsequent complete Frame118 selection passed all 118 methods: original
+Frame77, eighteen earlier corrections, fourteen modifier-storage additions,
+and nine final-child-publication additions. Every selector had exactly one
+start and passing terminal across six naturally closed batches, with no
+timeout or termination and all 58 source pins unchanged. Aggregate
+`artifacts/frame118-b8b08d5-results.json`, SHA256
+`c46597281ad33de8f9b460917ed9000b43b51e255299783209af989b93cc8266`.
+The focused thirteen are contained in these 118 and are not extra distinct
+coverage. Earlier failures remain recorded; this is not Full qualification.
+
+The first unchanged collateral group then completed with 17 passes and one
+failure. UIAFieldChromeAdoptionTests' unexpected-source-child method failed
+during the Value-triggered rebuild, before its authored-child lifetime checks
+could complete. The attempt had exact starts/terminals, a natural nonzero
+exit, complete owned closure and unchanged source pins. Raw SHA256
+`3f24d838ec59a7376f1cc66d01c16981efe106ee327b0bfe3d7bbd6c7bf0cd4c`;
+aggregate `artifacts/fieldchrome18-b8b08d5-results.json`. The serial collateral
+wrapper stopped there, as designed.
+
+Independent diagnostic cohorts were then selected from the same frozen v3
+rosters while all shared source and index bytes remained unchanged. This did
+not resume the stopped wrapper or qualify the failed group. Secure232
+completed with 228 passes and four failures. One repeats the authored-child
+failure; three mapper privacy methods fail when their required copied
+snapshot is absent, before their privacy assertions complete. No passing
+privacy result or disclosure finding is inferred from those failed unwraps.
+The complete record is `artifacts/secure232-b8b08d5-results.json`. Button125
+passed all selected methods, recorded in
+`artifacts/button125-b8b08d5-results.json`. These cohorts overlap; repeated
+methods and earlier-head baselines must not be counted as new coverage.
+
+Four more independent baselines passed at the same unchanged head: paint20,
+caret3, CPU2, and state67. Each had exact starts and passing terminals,
+natural zero exits, complete owned process/resource closure, and unchanged
+pre/post source pins. Their aggregates are respectively
+`artifacts/paint20-b8b08d5-results.json`,
+`artifacts/caret3-b8b08d5-results.json`,
+`artifacts/cpu2-b8b08d5-results.json`, and
+`artifacts/state67-b8b08d5-results.json`.
+
+Source review identifies two separate issues. Frame adoption requires an
+ownerless Button witness scope, which makes chrome binding strict. Optional
+native field chrome incorrectly treats an initially authored child shape as
+a failed strict adoption instead of leaving that tree to ordinary
+reconciliation. Capture-time shape classification must not relax subsequent
+mutation checks, controller checks, or already-claimed registration refusal.
+
+The mapper cases do not assume window endpoint zero. They find the field by
+automation identifier, then replace its controller and authored value during
+bounds mapping. Declared-frame publication correctly becomes stale, so the
+copied framed element is omitted. Scalar copied-snapshot redaction and stale
+framed-snapshot refusal require separate fixtures: original privacy attacks
+and assertions must remain intact for actual unframed controls, with explicit
+additional coverage for framed refusal and fresh-snapshot privacy. Production
+frame guards must not be weakened to manufacture an old copied snapshot.
+
+Both corrections require separately reviewed source/fixture changes and fresh
+execution. All nine original goal gates remain open. The fresh GPUWorkbench
+release, staging, ordinary journey, retained visual checks and Full validation
+remain unqualified by these focused results.
+
+The first correction is now integrated as seven production additions in
+`RetainedTextInputChromeAdoption.swift`, without modifying any original chrome
+test. Only the original captured constructor child shape determines whether
+an unclaimed registration receives optional chrome. Already-claimed
+registrations remain enrolled, and every existing live/strict check remains.
+Five additive methods cover sixteen positive combinations, four later-mutation
+cases, two registered-text mismatches, and two claimed-registration cases.
+The latter prove enrollment and strict refusal, not traversal of a later
+reuse branch. Existing normal-removal cleanup assertions remain essential.
+
+Both independent source reviews cleared the candidate. Its manifest SHA256
+is `15c6c9ae0e79364dd81d819f3f3387aa68806207fe18b1bd24e84dd3a1420822`;
+all 22 payloads were verified. Source SHA256 is
+`50f92043aa05c9542719bac1f169f8280f6837a0f6fff7a53543f3ef34ccca2f`.
+An explicit pre-execution fixture correction preserves its first frozen
+version: the plain field can report its original setter accepted the value
+despite failed adoption, whereas the framed field requires valid publication.
+Failed-adoption, original-controller, single-write and zero-Button-effect
+assertions remain intact. Root then applied only reviewed whitespace wrapping
+to the new test, producing SHA256
+`d211c5b7cba4442a3966ad45ca2b8333e4505eed361de93c8faa99bb54523424`.
+Strict three-file lint and contracts passed after that formatting correction;
+no compiled or runtime result is yet claimed for this integrated change.

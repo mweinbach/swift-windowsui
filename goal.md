@@ -17270,3 +17270,29 @@ completion of the product goal. The next separate run is the unchanged original
 155-method combined gate, using its original selection, 900-second execution
 deadline and ten-second cleanup allowance. All nine original completion gates
 remain open and the original goal text is preserved.
+
+### 2026-09-02 — Preserve the combined gate after its execution timeout
+
+The unchanged original 155-method run at `afe2729` reached its 900-second
+execution deadline. Its build completed in 2.24 seconds, but no individual
+XCTest start, terminal or final suite record reached the saved output. This
+does not establish how many methods actually executed or which method consumed
+the time. No individual pass or assertion failure is inferred from this run.
+
+The owned Job was terminated successfully, reported exit 124 and became empty;
+descendant, resource and signal cleanup completed within the existing cleanup
+allowance. No operator cleanup is required before another serial run. The
+independent checker confirmed unchanged source and index endpoints and correctly
+refused the combined gate. Evidence is in
+`artifacts/cohort155-normal-afe2729-cdbda49b227c422c86800bd48e0324b2` and
+`artifacts/cohort155-check-afe2729-first.json`. The 38,201-byte raw log has SHA-256
+`26b43ac698bc935af3626f482cc6d79576618eaffcdd1209338aaa24345975b3`.
+
+The separate seventy-one-method pass remains valid; it does not replace this
+incomplete gate. Next work checks smaller diagnostic controls and the prepared
+descriptor lookup optimization before another combined attempt. Repeated
+linear lookup is a concrete source cost, but has not been established as the
+cause of this timeout. Its weak identity checks, ownership rules, removal
+ordering and Task behavior must remain intact. Neither a speedup nor a passing
+combined/full run is claimed. The original selection and deadline stay fixed,
+and all nine completion gates remain open without changing the goal.

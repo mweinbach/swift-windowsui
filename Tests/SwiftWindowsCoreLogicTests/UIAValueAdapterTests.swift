@@ -98,6 +98,60 @@ private struct UIAAdapterRoot: View {
     }
 }
 
+// The original mapper privacy attacks need a copied scalar projection that
+// remains publishable after a controller replacement. Keep their real
+// bindings and controls, without a declared layout-frame publication.
+// Separate framed tests below require stale-publication refusal.
+@MainActor
+private struct UIAAdapterUnframedMapperRoot: View {
+    let state: UIAAdapterState
+
+    var body: some View {
+        state.builds += 1
+        let model = state.model
+        let version = state.version
+        let text = Binding<String>(
+            get: {
+                model.readVersions.append(version)
+                model.beforeRead?(version)
+                return model.text
+            },
+            set: { value in
+                model.attemptedValues.append(value)
+                model.writeVersions.append(version)
+                if let setter = model.setter { setter(value) } else { model.text = value }
+                model.afterWrite?()
+            })
+        let selection = Binding<TextSelection?>(
+            get: { model.selection },
+            set: {
+                model.selectionWrites += 1
+                model.selection = $0
+            })
+        let input: AnyView
+        switch state.control {
+        case .field:
+            input = AnyView(TextField("Adapter text", text: text, selection: selection))
+        case .editor:
+            input = AnyView(TextEditor(text: text, selection: selection))
+        case .secure:
+            input = AnyView(SecureField("Protected field", text: text))
+        }
+        let authored = state.control == .secure ? "Protected content" : "Authored text: \(model.text)"
+        return VStack(alignment: .leading, spacing: 4) {
+            if state.showsEditor {
+                input
+                    .disabled(!state.isEnabled)
+                    .accessibilityIdentifier("uia-adapter-editor")
+                    .id(state.identity)
+            }
+            Text(authored)
+                .accessibilityIdentifier("uia-adapter-authored")
+        }
+        .environment(\.undoManager, state.manager)
+    }
+}
+
 @MainActor
 private struct UIAAdapterMountedRoot: View {
     @State private var text = "abcd"
@@ -169,13 +223,22 @@ private final class UIAAdapterFixture {
 
     var runtime: RetainedViewRuntime { host.hostedRuntime }
 
-    init(control: UIAAdapterControl, mountedState: Bool, usesUndoManager: Bool) throws {
+    init(
+        control: UIAAdapterControl, mountedState: Bool, usesUndoManager: Bool,
+        unframedMapperInput: Bool = false
+    ) throws {
         let state = UIAAdapterState(control: control)
         if !usesUndoManager { state.manager = nil }
         self.state = state
         let surface = SurfaceDescriptor(offscreenPixelSize: IntSize(width: 360, height: 280), scaleFactor: 1)
-        let content =
-            mountedState ? AnyView(UIAAdapterMountedRoot(state: state)) : AnyView(UIAAdapterRoot(state: state))
+        let content: AnyView
+        if unframedMapperInput {
+            precondition(!mountedState)
+            content = AnyView(UIAAdapterUnframedMapperRoot(state: state))
+        } else {
+            content =
+                mountedState ? AnyView(UIAAdapterMountedRoot(state: state)) : AnyView(UIAAdapterRoot(state: state))
+        }
         window = Win32Window(title: "Accessibility value adapter fixture", clientSize: surface.pixelSize)
         host = WinSwiftUIWindowHost(
             configuration: WindowGroupConfiguration(
@@ -238,6 +301,7 @@ private final class UIAAdapterFixture {
 final class UIAValueAdapterTests: XCTestCase {
     private func withFixture(
         control: UIAAdapterControl = .editor, mountedState: Bool = false, usesUndoManager: Bool = true,
+        unframedMapperInput: Bool = false,
         _ body: @MainActor (UIAAdapterFixture) throws -> Void
     ) throws {
         NativeTextRenderer.testingOverrides.layout = { text, style, _, _ in
@@ -254,7 +318,8 @@ final class UIAValueAdapterTests: XCTestCase {
         }
         defer { NativeTextRenderer.resetTestingOverrides() }
         let fixture = try UIAAdapterFixture(
-            control: control, mountedState: mountedState, usesUndoManager: usesUndoManager)
+            control: control, mountedState: mountedState, usesUndoManager: usesUndoManager,
+            unframedMapperInput: unframedMapperInput)
         defer { fixture.close() }
         XCTAssertNil(fixture.window.nativeHandle)
         try body(fixture)
@@ -950,13 +1015,15 @@ extension UIAValueAdapterTests {
     func testMapperCannotDiscloseCopiedSecureValueAfterClearingOrReplacingController() async throws {
         for installsCustom in [false, true] {
             for mutatesRootMapper in [false, true] {
-                try withFixture(control: .secure) { fixture in
+                try withFixture(control: .secure, unframedMapperInput: true) { fixture in
                     let node = try fixture.editor()
+                    XCTAssertNil(node.currentAccessibilitySemanticRequest)
                     let original = try XCTUnwrap(node.textInputController)
                     node.accessibilityTraits.remove(.isSecureTextInput)
                     node.accessibilityValue = "Private value copied before mapping"
                     let projection = try XCTUnwrap(AccessibilityProjection.project(runtime: fixture.runtime))
                     let index = try XCTUnwrap(projection.flattened().firstIndex { $0.sourceNode === node })
+                    XCTAssertNil(projection.flattened()[index].semanticRequest)
                     let mutationCall = mutatesRootMapper ? 1 : index + 2
                     var mapperCalls = 0
                     var mutations = 0
@@ -997,8 +1064,9 @@ extension UIAValueAdapterTests {
 
     func testMapperCannotMakeCopiedPasswordSnapshotWritableWithAPlainController() async throws {
         for mutatesRootMapper in [false, true] {
-            try withFixture(control: .secure) { fixture in
+            try withFixture(control: .secure, unframedMapperInput: true) { fixture in
                 let node = try fixture.editor()
+                XCTAssertNil(node.currentAccessibilitySemanticRequest)
                 node.accessibilityTraits.remove(.isSecureTextInput)
                 node.accessibilityValue = "Private value copied before mapping"
                 let context = ViewBuildContext(
@@ -1008,6 +1076,7 @@ extension UIAValueAdapterTests {
                 let replacement = try XCTUnwrap(replacementNode.textInputController)
                 let projection = try XCTUnwrap(AccessibilityProjection.project(runtime: fixture.runtime))
                 let index = try XCTUnwrap(projection.flattened().firstIndex { $0.sourceNode === node })
+                XCTAssertNil(projection.flattened()[index].semanticRequest)
                 let mutationCall = mutatesRootMapper ? 1 : index + 2
                 var mapperCalls = 0
                 var mutations = 0
@@ -1047,8 +1116,9 @@ extension UIAValueAdapterTests {
 
     func testMapperInstallingSecureControllerAlsoSuppressesEarlierPublicProjectionValue() async throws {
         for mutatesRootMapper in [false, true] {
-            try withFixture(control: .field) { fixture in
+            try withFixture(control: .field, unframedMapperInput: true) { fixture in
                 let node = try fixture.editor()
+                XCTAssertNil(node.currentAccessibilitySemanticRequest)
                 node.accessibilityValue = "Public value copied before mapping"
                 let context = ViewBuildContext(
                     canvasSizeProvider: { Size(width: 360, height: 280) }, invalidateHandler: {})
@@ -1057,6 +1127,7 @@ extension UIAValueAdapterTests {
                 let replacement = try XCTUnwrap(replacementNode.textInputController)
                 let projection = try XCTUnwrap(AccessibilityProjection.project(runtime: fixture.runtime))
                 let index = try XCTUnwrap(projection.flattened().firstIndex { $0.sourceNode === node })
+                XCTAssertNil(projection.flattened()[index].semanticRequest)
                 let mutationCall = mutatesRootMapper ? 1 : index + 2
                 var mapperCalls = 0
                 var mutations = 0
@@ -1094,4 +1165,168 @@ extension UIAValueAdapterTests {
             }
         }
     }
+
+    func testFramedMapperRejectsCopiedSecureSnapshotAfterClearingOrReplacingController() async throws {
+        for installsCustom in [false, true] {
+            for mutatesRootMapper in [false, true] {
+                try withFixture(control: .secure) { fixture in
+                    let node = try fixture.editor()
+                    let original = try XCTUnwrap(node.textInputController)
+                    node.accessibilityTraits.remove(.isSecureTextInput)
+                    node.accessibilityValue = "Private value copied before mapping"
+                    let stalePublication = try XCTUnwrap(node.currentAccessibilitySemanticRequest)
+                    XCTAssertTrue(stalePublication.isCurrent(in: fixture.runtime))
+                    XCTAssertTrue(stalePublication.semanticNode === node)
+                    let projection = try XCTUnwrap(AccessibilityProjection.project(runtime: fixture.runtime))
+                    let index = try XCTUnwrap(projection.flattened().firstIndex { $0.sourceNode === node })
+                    XCTAssertEqual(projection.flattened()[index].value, "Private value copied before mapping")
+                    let mutationCall = mutatesRootMapper ? 1 : index + 2
+                    var mapperCalls = 0
+                    var mutations = 0
+                    let source = RuntimeUIAElementTreeSource(
+                        runtime: fixture.runtime,
+                        screenBoundsMapper: { bounds in
+                            mapperCalls += 1
+                            if mapperCalls == mutationCall {
+                                mutations += 1
+                                node.textInputController = installsCustom ? UIAAdapterUnsupportedController() : nil
+                                node.accessibilityValue = "New authored read-only value"
+                            }
+                            return bounds
+                        })
+                    let reads = fixture.state.primary.readVersions.count
+                    let refused = source.uiaElementSnapshots()
+
+                    XCTAssertEqual(mutations, 1)
+                    XCTAssertGreaterThanOrEqual(mapperCalls, mutationCall)
+                    XCTAssertFalse(node.textInputController === original)
+                    XCTAssertFalse(node.accessibilityTraits.contains(.isSecureTextInput))
+                    XCTAssertFalse(stalePublication.isCurrent(in: fixture.runtime))
+                    XCTAssertFalse(refused.contains { $0.automationID == "uia-adapter-editor" })
+                    XCTAssertTrue(refused.contains { $0.automationID == "uia-adapter-authored" })
+                    XCTAssertFalse(refused.contains { $0.value == "Private value copied before mapping" })
+                    XCTAssertNotNil(node.currentAccessibilitySemanticRequest)
+                    let fresh = try fixture.snapshot(using: source)
+                    XCTAssertFalse(fresh.isPassword)
+                    XCTAssertTrue(fresh.supportsValue)
+                    XCTAssertTrue(fresh.isReadOnly)
+                    XCTAssertEqual(fresh.value, "New authored read-only value")
+                    XCTAssertEqual(fixture.state.primary.readVersions.count, reads)
+                    XCTAssertTrue(fixture.state.primary.attemptedValues.isEmpty)
+                    XCTAssertEqual(fixture.state.primary.selectionWrites, 0)
+                }
+            }
+        }
+    }
+
+    func testFramedMapperRejectsCopiedPasswordSnapshotWithAPlainController() async throws {
+        for mutatesRootMapper in [false, true] {
+            try withFixture(control: .secure) { fixture in
+                let node = try fixture.editor()
+                node.accessibilityTraits.remove(.isSecureTextInput)
+                node.accessibilityValue = "Private value copied before mapping"
+                let context = ViewBuildContext(
+                    canvasSizeProvider: { Size(width: 360, height: 280) }, invalidateHandler: {})
+                let replacementNode = TextField("Public replacement", text: .constant("Public text"))
+                    .makeComponent(context: context).makeNode(runtime: fixture.runtime)
+                let replacement = try XCTUnwrap(replacementNode.textInputController)
+                let stalePublication = try XCTUnwrap(node.currentAccessibilitySemanticRequest)
+                XCTAssertTrue(stalePublication.isCurrent(in: fixture.runtime))
+                XCTAssertTrue(stalePublication.semanticNode === node)
+                let projection = try XCTUnwrap(AccessibilityProjection.project(runtime: fixture.runtime))
+                let index = try XCTUnwrap(projection.flattened().firstIndex { $0.sourceNode === node })
+                XCTAssertEqual(projection.flattened()[index].value, "Private value copied before mapping")
+                let mutationCall = mutatesRootMapper ? 1 : index + 2
+                var mapperCalls = 0
+                var mutations = 0
+                let source = RuntimeUIAElementTreeSource(
+                    runtime: fixture.runtime,
+                    screenBoundsMapper: { bounds in
+                        mapperCalls += 1
+                        if mapperCalls == mutationCall {
+                            mutations += 1
+                            node.textInputController = replacement
+                            node.accessibilityValue = "New authored writable value"
+                        }
+                        return bounds
+                    })
+                let reads = fixture.state.primary.readVersions.count
+                let refused = source.uiaElementSnapshots()
+
+                XCTAssertEqual(mutations, 1)
+                XCTAssertGreaterThanOrEqual(mapperCalls, mutationCall)
+                XCTAssertTrue(node.textInputController === replacement)
+                XCTAssertFalse(stalePublication.isCurrent(in: fixture.runtime))
+                XCTAssertFalse(refused.contains { $0.automationID == "uia-adapter-editor" })
+                XCTAssertTrue(refused.contains { $0.automationID == "uia-adapter-authored" })
+                XCTAssertFalse(refused.contains { $0.value == "Private value copied before mapping" })
+                XCTAssertNotNil(node.currentAccessibilitySemanticRequest)
+                let fresh = try fixture.snapshot(using: source)
+                XCTAssertFalse(fresh.isPassword)
+                XCTAssertTrue(fresh.supportsValue)
+                XCTAssertFalse(fresh.isReadOnly)
+                XCTAssertEqual(fresh.value, "New authored writable value")
+                XCTAssertEqual(fixture.state.primary.readVersions.count, reads)
+                XCTAssertTrue(fixture.state.primary.attemptedValues.isEmpty)
+                XCTAssertEqual(fixture.state.primary.selectionWrites, 0)
+                withExtendedLifetime(replacementNode) {}
+            }
+        }
+    }
+
+    func testFramedMapperRejectsCopiedPublicSnapshotAfterInstallingSecureController() async throws {
+        for mutatesRootMapper in [false, true] {
+            try withFixture(control: .field) { fixture in
+                let node = try fixture.editor()
+                node.accessibilityValue = "Public value copied before mapping"
+                let context = ViewBuildContext(
+                    canvasSizeProvider: { Size(width: 360, height: 280) }, invalidateHandler: {})
+                let replacementNode = SecureField("Protected replacement", text: .constant("Private replacement"))
+                    .makeComponent(context: context).makeNode(runtime: fixture.runtime)
+                let replacement = try XCTUnwrap(replacementNode.textInputController)
+                let stalePublication = try XCTUnwrap(node.currentAccessibilitySemanticRequest)
+                XCTAssertTrue(stalePublication.isCurrent(in: fixture.runtime))
+                XCTAssertTrue(stalePublication.semanticNode === node)
+                let projection = try XCTUnwrap(AccessibilityProjection.project(runtime: fixture.runtime))
+                let index = try XCTUnwrap(projection.flattened().firstIndex { $0.sourceNode === node })
+                XCTAssertEqual(projection.flattened()[index].value, "Public value copied before mapping")
+                let mutationCall = mutatesRootMapper ? 1 : index + 2
+                var mapperCalls = 0
+                var mutations = 0
+                let source = RuntimeUIAElementTreeSource(
+                    runtime: fixture.runtime,
+                    screenBoundsMapper: { bounds in
+                        mapperCalls += 1
+                        if mapperCalls == mutationCall {
+                            mutations += 1
+                            node.textInputController = replacement
+                            node.accessibilityValue = "Protected authored replacement value"
+                        }
+                        return bounds
+                    })
+                let reads = fixture.state.primary.readVersions.count
+                let refused = source.uiaElementSnapshots()
+
+                XCTAssertEqual(mutations, 1)
+                XCTAssertGreaterThanOrEqual(mapperCalls, mutationCall)
+                XCTAssertTrue(node.textInputController === replacement)
+                XCTAssertFalse(node.accessibilityTraits.contains(.isSecureTextInput))
+                XCTAssertFalse(stalePublication.isCurrent(in: fixture.runtime))
+                XCTAssertFalse(refused.contains { $0.automationID == "uia-adapter-editor" })
+                XCTAssertTrue(refused.contains { $0.automationID == "uia-adapter-authored" })
+                XCTAssertFalse(refused.contains { $0.value == "Public value copied before mapping" })
+                XCTAssertNotNil(node.currentAccessibilitySemanticRequest)
+                let fresh = try fixture.snapshot(using: source)
+                XCTAssertTrue(fresh.isPassword)
+                XCTAssertFalse(fresh.supportsValue)
+                XCTAssertTrue(fresh.isReadOnly)
+                XCTAssertNil(fresh.value)
+                XCTAssertEqual(fixture.state.primary.readVersions.count, reads)
+                XCTAssertTrue(fixture.state.primary.attemptedValues.isEmpty)
+                XCTAssertEqual(fixture.state.primary.selectionWrites, 0)
+                withExtendedLifetime(replacementNode) {}
+            }
+        }
+    }
+
 }

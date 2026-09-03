@@ -21353,3 +21353,38 @@ to the new test, producing SHA256
 `d211c5b7cba4442a3966ad45ca2b8333e4505eed361de93c8faa99bb54523424`.
 Strict three-file lint and contracts passed after that formatting correction;
 no compiled or runtime result is yet claimed for this integrated change.
+
+
+### 2026-09-03: distinguish scalar mapper redaction from stale framed publication
+
+The three mapper privacy failures at `b8b08d5` are retained as failures, not
+reclassified as passes. Their snapshot unwraps assumed a copied field remains
+present after its controller is replaced. That is the scalar snapshot contract;
+an explicit frame additionally requires its original publication to remain
+current, and the mapper mutation correctly invalidates it.
+
+An independently reviewed fixture-only correction adds a separate root that
+differs from the original solely by its type name and omitted layout frame.
+Only the three affected methods opt in. All 44 original XCTest assertions,
+mutation code, mapping ordinals, read/write/selection counts and fresh-policy
+outcomes are preserved. Added assertions require both the actual node and
+copied projection to have no semantic frame request. The original default
+root and the other 23 test bodies remain unchanged.
+
+Three additive framed methods exercise the same eight attack variants.
+They require a real current framed publication before mapping, verify it
+becomes stale, require the target's omission and the authored sibling's
+continued presence, prohibit the copied private/public value, and check the
+fresh controller's password, Value, read-only and authored-value outcomes.
+No production code, stale-frame guard or privacy policy changes in this step.
+
+Candidate manifest SHA256
+`f04e614cc2227d0114d02818d7ecca9452940b9946c3bf48be0b7001898724f8`
+binds nineteen verified payloads. Test-file SHA256 changes from
+`881c0c68401aadc403e6dd6fb2d12d75d02aad4f933898e66068de31c0df74ec`
+to `bf878d0e30ee19ff3a230997f817185e35200ca0612e04f92034aa631c7308a2`.
+Root formatting produced no byte changes to this candidate. Original and
+intermediate candidates, exact assertion accounting and independent review
+remain preserved in the private packet. Strict lint and contracts passed;
+compiled/runtime validation remains pending for the integrated correction.
+All nine original completion gates remain open.

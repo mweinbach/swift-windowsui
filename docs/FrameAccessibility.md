@@ -135,6 +135,16 @@ inferred from their failed snapshot unwraps. Button125, paint20, caret3,
 CPU2, and state67 passed independently at that commit. Their overlap does
 not provide extra distinct coverage or qualify the failed collateral gate.
 
+The three mapper fixtures now opt into an otherwise identical root without
+a declared layout frame. They preserve all 44 original assertions, attack
+mutations and mapping ordinals, while explicitly requiring no semantic frame
+request on the field or its copied projection. The other 23 methods keep
+their default root and exact bodies. Three additional framed methods cover
+the same eight mutation variants: the old publication becomes stale, the
+target is omitted while its authored sibling remains, and the next snapshot
+obeys the fresh controller's privacy and write policy. This is a fixture-only
+correction; production projection guards are unchanged. Execution is pending.
+
 Precise scrolling after framed Realize still conservatively refuses an
 unchanged, previously admitted frontmost sibling-modal stack. Existing
 dirty-layout refusal also remains. Supported modal-stack continuation is

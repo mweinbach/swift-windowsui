@@ -1,6 +1,6 @@
 import SwiftWindowsCore
 
-/// Values copied before crossing from a native provider call to the UI actor.
+/// Copied values or opaque actor-isolated text handles sent to the UI actor.
 /// Native buffers, HWNDs, providers, and callback pointers never enter this value.
 package enum UIAProviderRequest: Equatable, Sendable {
     case navigate(element: UInt64, direction: Int32)
@@ -9,6 +9,9 @@ package enum UIAProviderRequest: Equatable, Sendable {
     case stringProperty(element: UInt64, property: Int32)
     /// Internal source wiring only; no C callback or native TextPattern route.
     case textContent(element: UInt64)
+    /// Internal held-document wiring; neither case has a native callback yet.
+    case textDocument(element: UInt64)
+    case textRangeContent(range: UIATextRange, maximumUTF16Length: Int)
     case controlType(element: UInt64)
     case boolProperty(element: UInt64, property: Int32)
     case hasInvokeAction(element: UInt64)
@@ -37,6 +40,7 @@ package enum UIAProviderReply: Equatable, Sendable {
     case runtimeID([Int32])
     case bounds(Rect)
     case string(String?)
+    case textDocument(UIATextDocument?)
     case integer(Int32)
     case selection([UInt64]?)
     case itemLookup(UIAItemContainerResult)

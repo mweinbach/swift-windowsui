@@ -4996,6 +4996,7 @@ final class RetainedSelectedContentPaintOperand {
 public final class ViewNode {
     private var interactionHandlers: ViewNodeInteractionHandlers?
     fileprivate var storedAccessibilityAttachmentIdentity: RetainedAccessibilityIdentity?
+    private var storedAccessibilityTextContentIdentity: RetainedAccessibilityIdentity?
     private var dropHandlers: ViewNodeDropHandlers?
     private var lifecycleHandlers: ViewNodeLifecycleHandlers?
     private var chartMetadata: ViewNodeChartMetadata?
@@ -5432,7 +5433,36 @@ public final class ViewNode {
     }
 
     public var text: String? {
-        didSet { invalidateRuntime(.layout) }
+        didSet {
+            // Only an acquired document pays for exact content comparison.
+            // Retiring this token cannot wrap or resurrect an A-to-B-to-A read.
+            if storedAccessibilityTextContentIdentity != nil,
+                !Self.sameStoredTextCodeUnits(text, oldValue)
+            {
+                storedAccessibilityTextContentIdentity = nil
+            }
+            invalidateRuntime(.layout)
+        }
+    }
+
+    private static func sameStoredTextCodeUnits(_ lhs: String?, _ rhs: String?) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil): true
+        case (.some(let lhs), .some(let rhs)): lhs.utf16.elementsEqual(rhs.utf16)
+        default: false
+        }
+    }
+
+    /// Content identity only; physical attachment and projection stay separate.
+    package func captureAccessibilityTextContentIdentity() -> RetainedAccessibilityIdentity {
+        if let identity = storedAccessibilityTextContentIdentity { return identity }
+        let identity = RetainedAccessibilityIdentity()
+        storedAccessibilityTextContentIdentity = identity
+        return identity
+    }
+
+    package func hasAccessibilityTextContentIdentity(_ identity: RetainedAccessibilityIdentity) -> Bool {
+        storedAccessibilityTextContentIdentity === identity
     }
 
     public var textStyle: PixelTextStyle {

@@ -104,6 +104,24 @@ checks, separate from the earlier value-only results above. No native
 TextPattern is advertised, and no COM, Narrator, editor, or IME qualification
 follows from the internal copy.
 
+An additional internal `UIATextDocument`/`UIATextRange` contract now retains a
+copied snapshot together with weak original attachment, selected-path, source
+and provider-owner observations. Each read, clone and endpoint comparison
+checks that original authority; an observed refusal permanently invalidates the
+document. Exact UTF16 text changes retire a separate content token, so changing
+A to B and back to A cannot revive an old range. Assigning identical code units
+keeps it valid. Ranges are immutable, and comparisons currently require the same
+document object. Sixteen added tests cover these local rules but are not yet
+compiled or executed on the integrated source.
+
+Owner checks here describe actor-side ownership, not native readiness. Native
+attachment quiescence can revoke its session before the actor callback context
+is cleared, so a direct package range read may remain available during that
+interval. Existing native request publication separately requires its session
+and complete-call lease. The new internal request cases have no native callback
+or COM registration and do not advertise TextPattern. Native held-range teardown
+and complete provider behavior remain open qualification work.
+
 All work required for real TextPattern remains open: retained TextEditor and
 TextField selection and composition integration; text and geometry revisions;
 password and disabled/read-only enforcement on every live and held-range call;

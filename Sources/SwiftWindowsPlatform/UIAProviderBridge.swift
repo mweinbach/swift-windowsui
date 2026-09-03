@@ -430,6 +430,14 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
         return nativeContext.map { SWU_UIAProviderContextIsAvailable($0) != 0 } ?? false
     }
 
+    /// Local ownership only, not native readiness. Existing terminal revocation
+    /// clears the actor callback's weak bridge; it is never rebound afterward.
+    /// Native requests still require their session and complete-call admission.
+    package var permitsHeldTextReads: Bool {
+        if let nativeCallbackContext { return nativeCallbackContext.bridge === self }
+        return callbackContext.bridge === self
+    }
+
     internal var callbackContextObjectForTesting: AnyObject { callbackContext }
 
     // MARK: - WM_GETOBJECT
@@ -821,6 +829,17 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
             let snapshot = textSource.uiaTextSnapshot(elementID: element)
             guard isAvailable() else { return .string(nil) }
             return .string(snapshot?.text)
+        case .textDocument(let element):
+            guard isAvailable(), permitsHeldTextReads, let textSource = source as? any UIATextDocumentSource,
+                let document = textSource.uiaTextDocument(elementID: element), document.bind(to: self),
+                isAvailable(), document.isCurrent
+            else { return .textDocument(nil) }
+            return .textDocument(document)
+        case .textRangeContent(let range, let maximumUTF16Length):
+            guard isAvailable(), permitsHeldTextReads, range.isOwned(by: self) else { return .string(nil) }
+            let text = try range.getText(maximumUTF16Length: maximumUTF16Length)
+            guard isAvailable(), range.isCurrent else { return .string(nil) }
+            return .string(text)
         case .controlType(let element):
             return .integer(try nativeQuerySnapshot(geometry).controlType(element))
         case .boolProperty(let element, let property):

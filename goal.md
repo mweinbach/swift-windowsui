@@ -18139,3 +18139,32 @@ the broader descriptor/state controls still need runtime validation; this
 source correction is not a pass or native lifetime qualification. The separate
 graphical outer-reader missing-contribution failure remains under investigation.
 All original goal requirements remain in force.
+
+### 2026-09-03 — Add held plain-text documents with original source authority
+
+The internal plain-text copy path now has immutable held documents and ranges.
+They retain the original weak physical target, selected-content path, source
+mapping and exact UTF16 content identity. Every use checks those original
+observations again after temporary projection references are released; a later
+node with the same ID or text cannot lend its authority. An observed refusal
+is permanent, including refusal during nested validation. Equal UTF16 writes
+preserve a document, while different encodings, nil/empty transitions and
+A-to-B-to-A writes invalidate its content token without a wrapping counter.
+
+Provider ownership is bound once and remains weak. This is a local actor
+ownership check, not native readiness: independent native session quiescence
+can precede clearing the actor callback context, so direct package reads are
+not yet a native disconnect guarantee. Existing native request publication
+still checks its session and complete-call lease. Neither new request case has
+a C callback or COM registration, and TextPattern is not advertised. Editor,
+secure, private, redacted, hidden, modal-excluded and lazy content remain
+excluded; there is no synthesized caret, selection or geometry.
+
+Sixteen new methods cover exact text, stale attachments and selection paths,
+weak ownership, one-way binding, privacy exclusions, request admission and
+reentrant refusal. Existing tests are unchanged. Root and independent source
+reviews found no concrete defect within this stated internal scope; architecture
+checks and strict lint passed. Compilation and runtime execution of these new
+methods are still pending. The 19 previously passing snapshot methods are
+separate evidence, not a pass for held ranges or native UIA behavior. All
+original accessibility and completion requirements remain open as documented.

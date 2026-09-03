@@ -1016,3 +1016,81 @@ extension RuntimeUIAElementTreeSource: UIATextSnapshotSource {
         return TextSnapshotCompletion(runtime: runtime, target: target, snapshot: snapshot)
     }
 }
+
+extension RuntimeUIAElementTreeSource: UIATextDocumentSource {
+    /// All retained runtime/node references are weak, including both original
+    /// paths. The separate content token is never reconstructed during a read.
+    private final class TextDocumentAuthority: UIATextDocumentAuthority {
+        weak var source: RuntimeUIAElementTreeSource?
+        weak var runtime: RetainedViewRuntime?
+        let elementID: UInt64
+        let target: RetainedAccessibilityTarget
+        let selectedPath: RetainedSelectedContentPath
+        let contentIdentity: RetainedAccessibilityIdentity
+
+        init(
+            source: RuntimeUIAElementTreeSource, runtime: RetainedViewRuntime,
+            elementID: UInt64, target: RetainedAccessibilityTarget,
+            selectedPath: RetainedSelectedContentPath, contentIdentity: RetainedAccessibilityIdentity
+        ) {
+            self.source = source
+            self.runtime = runtime
+            self.elementID = elementID
+            self.target = target
+            self.selectedPath = selectedPath
+            self.contentIdentity = contentIdentity
+        }
+
+        func isCurrent() -> Bool {
+            // The projection's temporary strong captures are gone before the
+            // final check of the same original physical/selection/content proof.
+            guard projectionIsCurrent() else { return false }
+            return originalWitnessesAreCurrent()
+        }
+
+        private func originalWitnessesAreCurrent() -> Bool {
+            guard let source, let runtime, source.runtime === runtime,
+                source.logicalIdentitiesByID[elementID] == nil,
+                runtime.isAccessibilityTextReadTargetCurrent(target), let node = target.node,
+                selectedPath.physicalRoot === node, selectedPath.selectedNode === node,
+                selectedPath.isInstalled(in: runtime), node.hasAccessibilityTextContentIdentity(contentIdentity)
+            else { return false }
+            if elementID == UIAProviderBridge.rootElementID { return node === runtime.root }
+            return elementID < RuntimeUIAElementTreeSource.logicalIDBoundary
+                && source.nodesByID[elementID]?.node === node
+        }
+
+        @inline(never)
+        private func projectionIsCurrent() -> Bool {
+            guard originalWitnessesAreCurrent(), let runtime, let node = target.node,
+                let element = AccessibilityProjection.project(runtime: runtime)?.flattened().first(where: {
+                    $0.sourceNode === node
+                }), element.controlType == .text, !element.isVirtualizedPlaceholder, element.permitsModalActions
+            else { return false }
+            return true
+        }
+    }
+
+    func uiaTextDocument(elementID: UInt64) -> UIATextDocument? {
+        guard let document = captureTextDocument(elementID: elementID), document.isCurrent else { return nil }
+        return document
+    }
+
+    @inline(never)
+    private func captureTextDocument(elementID: UInt64) -> UIATextDocument? {
+        guard elementID < Self.logicalIDBoundary, logicalIdentitiesByID[elementID] == nil,
+            let runtime,
+            let node = elementID == UIAProviderBridge.rootElementID ? runtime.root : nodesByID[elementID]?.node,
+            let target = runtime.accessibilityTarget(for: node),
+            runtime.isAccessibilityTextReadTargetCurrent(target),
+            let selectedPath = node.captureSelectedContentPath(in: runtime),
+            selectedPath.physicalRoot === node, selectedPath.selectedNode === node,
+            selectedPath.isInstalled(in: runtime),
+            let text = node.text, let snapshot = TextRangeSnapshot(text)
+        else { return nil }
+        let authority = TextDocumentAuthority(
+            source: self, runtime: runtime, elementID: elementID, target: target,
+            selectedPath: selectedPath, contentIdentity: node.captureAccessibilityTextContentIdentity())
+        return UIATextDocument(snapshot: snapshot, authority: authority)
+    }
+}

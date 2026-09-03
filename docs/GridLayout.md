@@ -38,6 +38,14 @@ anchors. Physical child order does not change for right-to-left layout.
 `gridCellColumns` stores span metadata and does not alter an authored layout
 priority. This replaces the old growth-priority surrogate.
 
+A finite fixed frame keeps its accepted size when a Grid track is compressed
+below that size. Alignment positions the cell within the smaller track; it does
+not shrink the fixed content. For example, two 78-point cells in 75-point rows
+with 10-point spacing have row origins 85 points apart and centered cell origins
+of -1.5 and 83.5. Fixed dimensions do not introduce a new track minimum. This is
+the local compression policy covered by `WinSwiftUIGridLayoutTests`, not a
+recording of native SwiftUI behavior under the same proposal.
+
 ## Explicit policies and remaining limits
 
 The pinned native declarations and Apple documentation establish the shared

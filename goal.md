@@ -18376,3 +18376,45 @@ none of the nine original completion requirements has been narrowed or closed.
   That new test has not yet executed at this entry. The three calendar
   failures, original 155-case keyboard qualification, full release validation,
   native smoke evidence and **all nine original completion gates remain open**.
+
+### Fixed-frame/Grid 74-test pass and reviewed single-baseline refresh (2026-09-03)
+
+- At clean `e9c68f509656a54effa6b782dd379dfdc8eb02af`, all **74** selected
+  fixed-frame and Grid tests passed: 23 `WinSwiftUIFixedFrameOverflowTests`,
+  14 `AbsoluteLayoutSizingTests`, 22 `RetainedGridLayoutTests`, and 15
+  `WinSwiftUIGridLayoutTests`. This includes the new compressed-row/fixed-cell
+  regression, which passed in 0.018 seconds. The successor roster preserves
+  all previous 73 selectors in order and appends only that new method;
+  roster SHA-256 is
+  `cf1f2b8c6200c0d3ec867b0c26e9ff2f6e76cb8bf83479079a82c928eb7540c1`.
+- The three serial batches contain 23/26/25 methods with exact starts and
+  passing terminals, natural exit 0, complete owned process closure, and no
+  timeout, skip, signal, uncertainty or cleanup error. Results are retained in
+  `artifacts/fixedframegrid74-43b63d12401a40deac199fc62069f863`; root's aggregate
+  is `artifacts/fixed-frame-grid74-e9c68f5-results.json`. Raw batch SHA-256 values:
+  `a33d199edad625754d5e3d9b929456fd91d771e4a24feeec00cf7d176a9bc34e`,
+  `b25a6531df124549f48fc1173c1fc9aa6cd2f41d5c97f53a36cb6f070b7a5a4e`,
+  `c8a23911ae4e70c4c39ddec9031d6d77b179dfa0538d0c9251969e8e698fe6ac`.
+- After this pass, `scripts/gallery-compare.ps1 -Entries grid-layout
+  -UpdateBaselines -WorkDir artifacts/grid-baseline-reviewed-e9c68f5` built
+  normally (98.57 seconds), rendered only the reviewed grid fixture and updated
+  only `Tests/fixtures/gallery-baselines/grid-layout.png`, exit 0. The fresh
+  retained render is byte-identical to the already reviewed `118f410` current
+  image: SHA-256
+  `682bdc762e56996f490a9985e7a7287ef97c623d709f0af8c15d8351b510b0c0`.
+  The newly encoded baseline was opened and reviewed after replacement.
+- The original 5,854-byte baseline is preserved separately as
+  `artifacts/grid-baseline-reviewed-e9c68f5/baseline-before-grid-layout.png`,
+  SHA-256 `ab2554fee1909fed85abc0e9593d61a27e6bd5c9fc3eb057f97a2c093a54f853`.
+  The reviewed replacement is 5,943 bytes, SHA-256
+  `c8e1d7b3dd545b6baa42eaf3ed99fb424308ba3387722c8f1dd75c95675ae1cd`.
+  The earlier 84-pass/1-fail report and its difference image remain unchanged.
+  `docs/GridLayout.md` now explains fixed-cell overflow under the existing
+  local compression policy. No source, demo fixture, other baseline, or pixel
+  threshold changes accompany this baseline refresh.
+- Contracts pass after the documentation/baseline update. An update command
+  is not an independent passing gallery comparison: the full fresh 85-entry
+  comparison will run on the committed successor. The 74 focused passes do
+  not qualify the original keyboard cohort, full suite, native presentation,
+  or any of the nine original completion gates. Calendar retirement diagnosis
+  remains open; the proposed ordinary insertion fallback is not integrated.

@@ -17470,3 +17470,53 @@ physical ownership checks and the unchanged 64-frame test bound. It must not
 make stale carried row records eligible or relax the query-only correction.
 The original combined deadline and all nine completion gates remain unchanged
 and open.
+
+### 2026-09-03 — Separate ordinary reader lifetime from keyboard settlement
+
+Three unchanged original methods ran without the temporary diagnostic at
+`2435e5e`, after a 285.54-second build. Pending settlement after the single
+write passed in 49.730 seconds with its original 128-element/one-round budget
+and eight-frame limit. Raw reader publication passed in 18.344 seconds.
+Managed reader publication failed in 8.998 seconds only because its weak
+`StateMountEpoch` reference remained alive. Its actual content publication,
+payload release during construction, committed epoch result and stopped
+keyboard request assertions passed. This existing lifetime failure is separate
+from the one-element pending settlement and predates the proposed correction.
+
+All three methods started and terminated exactly once. Natural exit 1,
+unchanged source and complete owned cleanup were verified in
+`artifacts/keyboard-ordinary-controls-974d9d2de0104ff0ace4b8d751227c85`;
+raw SHA-256 `e3dd022b5e64e79e44972f6e1d710440b187431dca96236112f50a5477ff5ed9`.
+The next lifetime investigation must release the completed epoch without
+weakening publication or changing the original assertion. These observations
+do not replace the combined gate.
+
+### 2026-09-03 — Integrate the separate GPU Workbench consumer for qualification
+
+The previously reviewed GPU Workbench candidate is now integrated: a separate
+Swift package using only public WinSwiftUI, graphics and D3D11 products, with
+the renderer selected by its executable composition root. The toolkit exports
+the existing D3D11 target as a product without adding a backend dependency to
+WinSwiftUI. The consumer has bound dashboard/settings tabs, a private local
+state counter across parent rebuilds, an observed model, a bundled PNG, and
+explicit save/reload actions for per-user settings. Validation or read/write
+failure preserves the draft and existing file; six model tests cover these
+behaviors, including recovery after repair or a failed write.
+
+Its scripts copy an explicit reviewed DLL closure and the complete resource
+directory to a new destination, hash the copied bytes, and provide a separate
+deployment check with a restricted child PATH and unrelated working directory.
+Synthetic staging tests do not load executable or DLL bytes. The executable's
+deployment receipt checks bundle location and the PNG signature only; it does
+not claim image decoding, GPU presentation or clean-machine qualification.
+Native state/reflection, keyboard, restart and actual-backend journeys remain
+documented acceptance work. The sample inherits the integrated App failure
+callback; real native alert delivery remains unqualified.
+
+The exact integration matched the independently reviewed 13-path tree
+`3c76d27568fbf4c93635c77c9b9ecad0ca5bca46` before this ledger append. No existing
+App-failure documentation was lost. Release build/model tests, the real DLL
+closure, staged execution and native behavior still require execution. This
+sample does not satisfy the full shared-source template catalog, macOS parity,
+license selection or clean-machine delivery gates. All nine original completion
+gates remain open, with their original scope and deadlines unchanged.

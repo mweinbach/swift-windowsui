@@ -78,6 +78,14 @@ dashboard, gallery, command palette, and inspector. Pass `-FrameDebug` to the
 same script to exercise fallback presentation instead of the default D3D11
 scene renderer.
 
+## Independent GPU Consumer
+
+[`Examples/GPUWorkbench`](Examples/GPUWorkbench/README.md) is a separate Windows
+package that consumes public products and owns its dashboard/settings code. Its
+release-build, persistence, resource staging, and native smoke procedure is a
+qualification checkpoint; the initial candidate has not yet been compiled or
+run. It does not replace the original completion criteria in `goal.md`.
+
 ## Package Layout
 
 Products:
@@ -86,6 +94,7 @@ Products:
   `SwiftWindowsScene`: independently consumable cross-platform foundations
 - `SwiftWindowsUI`: retained runtime and controls
 - `WinSwiftUI`: SwiftUI-shaped compatibility layer over the retained runtime
+- `SwiftWindowsRendererD3D11`: public Windows renderer product for executable composition roots
 - `SwiftWindowsApp`: app shell and D3D11 wiring
 - `swift-windowsui`: demo executable
 

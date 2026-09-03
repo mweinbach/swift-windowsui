@@ -41,6 +41,7 @@ var targets: [Target] = [
     products += [
         .library(name: "SwiftWindowsUI", targets: ["SwiftWindowsUI"]),
         .library(name: "WinSwiftUI", targets: ["WinSwiftUI"]),
+        .library(name: "SwiftWindowsRendererD3D11", targets: ["SwiftWindowsRendererD3D11"]),
         .library(name: "SwiftWindowsDemo", targets: ["SwiftWindowsDemo"]),
         .library(name: "SwiftWindowsApp", targets: ["SwiftWindowsApp"]),
         .executable(name: "swift-windowsui", targets: ["swift-windowsui"]),
@@ -110,7 +111,7 @@ var targets: [Target] = [
             dependencies: ["WinSwiftUI"],
             resources: [.process("Resources")]
         ),
-        // The Windows composition root is the only target that pairs the
+        // This Windows executable composition root pairs the
         // renderer-neutral WinSwiftUI facade with the D3D11 GPU backend.
         .executableTarget(
             name: "swift-windowsui",

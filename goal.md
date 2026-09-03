@@ -17923,3 +17923,29 @@ post-query and handler checks unchanged. Contract checks and strict lint passed;
 runtime revalidation follows separately.
 The catalog, container, deferred namespace and historical picker failures remain
 open, as do all nine original completion gates.
+
+### 2026-09-03 — Preserve fresh catalog capture without reviving rejected work
+
+Two focused candidate-catalog corrections are now integrated. A fresh catalog
+capture checks the current physical reader publication, contribution, field
+incarnation and selected segment without requiring an older continuation's
+entire body snapshot to remain current. An earlier child omission may stale
+that old continuation while leaving the physical publication valid for a new
+capture. The correction does not renew the old anchor, snapshot or attempt.
+It addresses the source cause of the reentrant catalog test's missing accepted
+physical witness.
+
+Catalog preparation also excludes a child reader whose exact native descriptor
+component was already rejected during candidate measurement. That reader has
+no selected normal declaration and must not veto the accepted sibling's
+catalog. Admitted readers still require complete source and normal-plan facts;
+a merely missing or stale reader is not silently accepted or skipped.
+This addresses the missing fallback during deferred candidate construction;
+the separate recursive catalog-successor issue is still under investigation.
+
+Both changes are confined to `RetainedLazyListActivity.swift`. Existing tests,
+ownership revocation and native/display routes are unchanged. Architecture
+checks before and after, plus strict lint, passed. Runtime validation of these
+corrections has not yet run; the previously observed 11 failures remain open
+until their unchanged tests pass. The original goal and all nine completion
+gates are unchanged.

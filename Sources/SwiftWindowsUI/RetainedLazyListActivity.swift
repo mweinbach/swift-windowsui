@@ -9133,10 +9133,19 @@ fileprivate final class RetainedOwnedCandidateCatalogNode {
         guard let dependencies = RetainedOwnedCandidateCatalogDependencies(snapshot.references) else { return nil }
         self.dependencies = dependencies
         let original = reader.publication.actual
+        // A new catalog capture uses the live reader publication and the fresh
+        // segment snapshot above. An earlier omission may stale the installed
+        // continuation without retiring that publication. Do not renew the
+        // installed anchor or any earlier attempt.
         if original.isAttached, reader.publication.contribution.isActive,
             let installed = original.node?.retainedLazyListActivityStorage?.ownedCandidateDeferredAnchor,
             installed.readerRecord === reader, installed.readerPublication === reader.publication,
-            installed.isCurrent
+            installed.actual === original, installed.contribution === reader.publication.contribution,
+            installed.reader === reader.publication.reader,
+            installed.owner.hasDeclaredComponent, installed.reader.hasDeclaredComponent,
+            installed.owner.componentPresence === owner.owner,
+            installed.field.field === owner, installed.field.incarnation === owner.incarnation,
+            installed.segment == segment.key, installed.field.selectedSegment == segment.key
         {
             actual = original
         } else {
@@ -10813,7 +10822,16 @@ extension RetainedOwnedComponentConstructionLedger {
             frozen[key] = result
             return result
         }
-        for token in candidateSegments.values where token.segmentConstruction != nil {
+        for token in candidateSegments.values {
+            guard let construction = token.segmentConstruction else { continue }
+            // A measured candidate can be rejected before preparation. Its
+            // reader has no selected normal declaration and must not veto the
+            // accepted sibling's catalog; the native rejection stays final.
+            if case .descriptor(let component) = construction.registration.origin,
+                token.qualification.scope?.ordinaryLedger.isRejected(component) == true
+            {
+                continue
+            }
             guard freeze(token) != nil else { return false }
         }
         for source in frozen.values {

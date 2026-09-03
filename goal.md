@@ -19370,3 +19370,73 @@ All nine original product completion gates remain open. Native app interaction,
 hardware presentation, Narrator, full-suite and release qualification remain
 separate unfinished work. The policy-denied native acquisition harness remains
 HELD and is not retried by this work.
+
+### 2026-09-03: ordinary text source coordinates reach final layout results
+
+The reviewed provenance prerequisite is integrated into ordinary text layout,
+not the native TextPattern surface. Final layout results retain the exact text
+already submitted to layout and one immutable UTF16 buffer. Copied, replaced
+and generated output segments retain their distinct meanings; the complete
+projection records original source intervals absent from final display mappings.
+Empty output retains an anchor only when its original coordinate is unambiguous
+and ordered with surrounding source positions. Anchors constrain order but do
+not consume source coverage. Neither these raw coordinates nor the complement
+describe Character navigation, caret stops, rendered visibility or hit geometry.
+
+Missing or malformed line metadata, an exact UTF16 line/fragment mismatch,
+overlap or reversed source order clears the entire optional projection without
+changing drawable text, glyphs or metrics. Assembly publishes only after every
+line validates, so an incomplete projection cannot claim a complete complement.
+Layout cache equality now compares exact source UTF16 instead of canonical
+String equality; canonically equivalent inputs cannot borrow one another's
+source coordinates. Existing unstyled width probes still use synthetic keys,
+and fragment equality/hash ignores the new empty-anchor field. No new native
+layout or classification is added inside the width-probe loop. Ordinary layout
+used for measurement still receives final-result provenance.
+
+This reads no node, binding, editor controller or raw secure-field value. Secure
+display input remains masked before layout, and source metadata follows the
+existing layout/cache ownership. It supplies no provider authority, attachment
+renewal, session/lease exception, native range geometry, selection operation or
+TextPattern advertisement. Character/Document semantic units and the remaining
+native text accessibility contract are still unfinished.
+
+Sixteen additive tests were frozen before source integration, with separately
+reviewed additive amendments for exact line-code-unit assertions and ordered
+empty anchors. All existing tests remain unchanged. Root reproduced the saved
+amendments, verified the private packet pins and integrated its five source/test
+files; current `docs/TextRangeValues.md` was appended without replacing the
+earlier native80 evidence. Receipt:
+`artifacts/text-source-provenance-integration.json`. Toolchain formatting changed
+line wrapping, import spacing and one trailing collection comma only. Strict
+lint and architecture contracts pass. The selected 146-method cohort consists
+of these sixteen tests plus 130 unchanged text range, cache, editing-layout,
+shaping and measurement/paint controls; compilation and execution are next,
+not a result already obtained. Original155 and full-suite status are unchanged.
+
+Two separate ordinary staged-app attempts are also retained. They use the
+historical `4330e9865e094e2d0eae77ced0b34e0d514a9ebb` GPUWorkbench build,
+isolated app settings/cwd, fixed manifest/EXE hashes and a 180+10-second owned
+process allowance. The first controller exited1 before app launch because
+Windows PowerShell could not resolve Get-FileHash. The second applied the
+existing staging tool's child-only removal of inherited PowerShell module-path
+variables and reached a real app process/window. It stopped before keyboard or
+Invoke actions because the UIA root Name did not equal the expected native
+window title. The actual mismatched name was not logged, so its value remains
+unknown. The app accepted normal failure-cleanup close and exited0; the
+controller exited1. Both attempts verified source/stage endpoints and complete
+owned process/resource/signal closure without timeout or forced termination.
+Neither journey passed, and neither qualifies the current toolkit or pixels.
+
+Those attempts remain under the private Temp directories
+`gpuworkbench-ordinary-journey-run-487029ad538a4215b6eb4128b706887c` and
+`gpuworkbench-ordinary-journey-run-v4-5a96838bebef4fb6a34e5884852424b9`.
+Pinned provider/host source shows that the unlabelled semantic root and native
+caption are separate: the former predicts an empty UIA Name, while the latter
+receives the authored GPU Workbench title. This does not establish the actual
+mismatched value or a caption bug. A separately reviewed correction will record
+both observations and check the intended native title through the owned native
+window; accessible root naming remains unqualified. No corrected controller has
+yet run. The separately policy-denied native
+acquisition harness remains HELD and was not invoked. All nine original product
+completion gates remain open.

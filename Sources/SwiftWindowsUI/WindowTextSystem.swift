@@ -108,6 +108,20 @@ final class WindowTextSystem {
             self.maxWidth = maxWidth
             self.spans = (style.spans ?? []).map { LayoutSpanKey(span: $0, in: text) }
         }
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.text.utf16.elementsEqual(rhs.text.utf16)
+                && lhs.style == rhs.style && lhs.maxWidth == rhs.maxWidth && lhs.spans == rhs.spans
+        }
+
+        func hash(into hasher: inout Hasher) {
+            // Keep the existing fields/order. Exact text equality distinguishes
+            // canonical collisions without changing the other cache inputs.
+            hasher.combine(text)
+            hasher.combine(style)
+            hasher.combine(maxWidth)
+            hasher.combine(spans)
+        }
     }
 
     private struct CachedLayout {

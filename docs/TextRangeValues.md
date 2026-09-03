@@ -236,3 +236,59 @@ events remain open. Character and Document units are required by the
 fallback to Document alone is insufficient. No-selection plain text may report
 SupportedTextSelection_None, but that does not excuse missing nonselection
 methods. The native/display harness remains outside this candidate's scope.
+
+
+### Ordinary layout source positions
+
+The ordinary-label mapping loss described at the native-range80 checkpoint
+is addressed by this later prerequisite. Its validation remains separate.
+
+Ordinary text layout now retains internal provenance for the exact String already
+submitted to layout. The source value records its UTF16 length and units; final
+lines distinguish copied, replaced and generated output segments. Empty line
+anchors are retained only when their original coordinate is unique and remains
+ordered with surrounding source ranges. Anchors never consume source coverage.
+Unrepresented
+source ranges include hard breaks, collapsed whitespace and truncation gaps;
+they are not a visibility or offscreen result. Raw scalar/UTF16 coordinates do not
+become Character units, caret stops or native cluster boundaries.
+
+The layout cache compares source text by exact UTF16, so even equal-length
+canonically equivalent strings cannot borrow each other's source coordinates.
+Identical code units still reuse the cache. Fragment width-probe equality and
+hashing continue to ignore new empty-anchor metadata. Final projection assembly
+shares one immutable source-unit buffer and scans only final output fragments.
+No classification or source snapshot is added to the inner wrapping/width-probe
+loops, and no extra native layout is requested. A caller using ordinary
+NativeTextRenderer.layout for measurement still receives final-result provenance.
+
+Provenance is optional. Missing/invalid line metadata, conflicting source order,
+or an exact fragment/line mismatch clears the whole projection while preserving
+the drawable text, glyphs and metrics. A partial result cannot produce a global
+source complement. Existing synthetic layout overrides remain unqualified unless
+explicitly passed through the same production assembly helper.
+
+This records values within the existing text-layout/cache ownership. It reads no
+node, binding, editor controller or raw secure value. Secure-field display input
+remains masked before it reaches layout; metadata preserves only that submitted
+input. It adds no UIA read authority, session/lease bypass, native callback or
+TextPattern advertisement. The previously recorded native-range 80-test result
+is unchanged and does not qualify this later change.
+
+Sixteen new TextLayoutSourceProvenanceTests are frozen, including exact canonical
+variants, generated and replaced segments, hard-break anchors, control-only source
+extents, scalar precision, independent invalid mappings and unchanged drawing/
+probe behavior. The original freeze is preserved alongside its approved additive
+assertion amendment. These tests and the source change have not yet been compiled
+or executed in this private preparation; toolchain formatting and parent serial
+validation remain pending.
+
+Character/Document semantic units and source-mapped geometry remain separate work.
+A nonempty control-only source can have zero navigable Character units, which the
+existing interval partition alone cannot express. A future semantic map must
+separate source extent from explicit navigable spans and distinguish unavailable
+from a known empty list. Real geometry still needs the actual selected native
+layout's hit metrics, retained placement/clipping and current ownership; existing
+editor wrapping or glyph-start approximations are not replacements. Full native
+TextPattern methods, events, editor/selection/IME integration and qualification
+remain open.

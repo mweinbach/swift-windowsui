@@ -774,8 +774,10 @@ private final class DirectWriteSystem {
                     width: style.insets.leading + style.insets.trailing, height: style.insets.top + style.insets.bottom),
                 scaleFactor: scaleFactor
             )
-            return NativeTextLayoutResult(
-                lines: [], lineSpacing: interLineSpacing, contentSize: .zero, measuredSize: emptySize)
+            return TextLayoutSourceProvenance.attaching(
+                to: NativeTextLayoutResult(
+                    lines: [], lineSpacing: interLineSpacing, contentSize: .zero, measuredSize: emptySize),
+                source: text, fragments: [])
         }
 
         guard let measurementFormat = createTextFormat(style: style, wrapping: dwriteWordWrappingNoWrap) else {
@@ -787,7 +789,7 @@ private final class DirectWriteSystem {
         }
 
         let maxContentWidth = contentWidthLimit(for: maxWidth, style: style)
-        let source = textFragment(for: text, style: style)
+        let source = TextLayoutSourceProvenance.sourceFragment(for: text)
         let measureFragment = makeLineMeasurer(style: style, sourceText: text, format: measurementFormat)
         if resolvesMinimumScaleFactor {
             let effectiveStyle = style.scaledForMinimumScaleFactor(
@@ -852,11 +854,14 @@ private final class DirectWriteSystem {
             scaleFactor: scaleFactor
         )
 
-        return NativeTextLayoutResult(
-            lines: lines,
-            lineSpacing: interLineSpacing,
-            contentSize: Size(width: contentWidth, height: contentHeight),
-            measuredSize: measuredSize
+        return TextLayoutSourceProvenance.attaching(
+            to: NativeTextLayoutResult(
+                lines: lines,
+                lineSpacing: interLineSpacing,
+                contentSize: Size(width: contentWidth, height: contentHeight),
+                measuredSize: measuredSize
+            ),
+            source: text, fragments: resolvedLayout.fragments
         )
     }
 

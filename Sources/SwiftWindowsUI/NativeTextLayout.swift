@@ -14,10 +14,13 @@ struct TextLayoutFragment: Hashable, Sendable {
 
     let text: String
     private(set) var mappings: [Mapping]
+    /// A unique raw source position for empty output, never a navigation stop.
+    let emptySourceUTF16Anchor: Int?
 
     init(source: String) {
         self.text = source
         let length = source.utf16.count
+        self.emptySourceUTF16Anchor = length == 0 ? 0 : nil
         self.mappings =
             length > 0
             ? [Mapping(outputUTF16Range: 0..<length, sourceUTF16Range: 0..<length)]
@@ -27,11 +30,24 @@ struct TextLayoutFragment: Hashable, Sendable {
     init(synthetic: String) {
         self.text = synthetic
         self.mappings = []
+        self.emptySourceUTF16Anchor = nil
     }
 
-    private init(text: String, mappings: [Mapping]) {
+    private init(text: String, mappings: [Mapping], emptySourceUTF16Anchor: Int? = nil) {
         self.text = text
         self.mappings = mappings
+        self.emptySourceUTF16Anchor = emptySourceUTF16Anchor
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        // Preserve the existing width-memo policy. Empty source anchors carry
+        // provenance but cannot change equality of previously equal probes.
+        lhs.text == rhs.text && lhs.mappings == rhs.mappings
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(text)
+        hasher.combine(mappings)
     }
 
     func slice(_ range: Range<String.Index>) -> Self {
@@ -41,11 +57,12 @@ struct TextLayoutFragment: Hashable, Sendable {
         // Scalar slicing also preserves Foundation's whitespace-trimming
         // behavior when a whitespace scalar shares a grapheme with a mark.
         let slicedText = String(text.unicodeScalars[range])
-        guard !mappings.isEmpty, !slicedText.isEmpty else {
-            return Self(synthetic: slicedText)
+        guard !mappings.isEmpty else { return Self(synthetic: slicedText) }
+        let lower = range.lowerBound.utf16Offset(in: text)
+        guard !slicedText.isEmpty else {
+            return Self(text: "", mappings: [], emptySourceUTF16Anchor: sourceAnchor(at: lower))
         }
 
-        let lower = range.lowerBound.utf16Offset(in: text)
         let upper = range.upperBound.utf16Offset(in: text)
         let clipped = mappings.compactMap { mapping -> Mapping? in
             let start = max(lower, mapping.outputUTF16Range.lowerBound)
@@ -57,6 +74,23 @@ struct TextLayoutFragment: Hashable, Sendable {
                 sourceUTF16Range: sourceStart..<(sourceStart + end - start))
         }
         return Self(text: slicedText, mappings: clipped)
+    }
+
+    private func sourceAnchor(at outputOffset: Int) -> Int? {
+        guard outputOffset >= 0 else { return nil }
+        if text.isEmpty { return emptySourceUTF16Anchor }
+        var anchor: Int?
+        for mapping in mappings
+        where mapping.outputUTF16Range.lowerBound <= outputOffset
+            && outputOffset <= mapping.outputUTF16Range.upperBound
+        {
+            let candidate =
+                mapping.sourceUTF16Range.lowerBound
+                + (outputOffset - mapping.outputUTF16Range.lowerBound)
+            if let anchor, anchor != candidate { return nil }
+            anchor = candidate
+        }
+        return anchor
     }
 
     func prefix(_ count: Int) -> Self {
@@ -118,6 +152,9 @@ struct TextLayoutFragment: Hashable, Sendable {
     }
 
     func appending(_ other: Self) -> Self {
+        if text.isEmpty, other.text.isEmpty {
+            return Self.joined([self, other], separator: Self(synthetic: ""))
+        }
         if text.isEmpty { return other }
         if other.text.isEmpty { return self }
         return Self.joined([self, other], separator: Self(synthetic: ""))
@@ -158,7 +195,21 @@ struct TextLayoutFragment: Hashable, Sendable {
             if index != parts.startIndex { append(separator) }
             append(parts[index])
         }
-        return Self(text: combinedText, mappings: combinedMappings)
+        return Self(
+            text: combinedText, mappings: combinedMappings,
+            emptySourceUTF16Anchor: combinedText.isEmpty ? Self.emptyAnchor(in: parts, separator: separator) : nil)
+    }
+
+    private static func emptyAnchor(in parts: [Self], separator: Self) -> Int? {
+        guard let anchor = parts.first?.emptySourceUTF16Anchor,
+            parts.allSatisfy({ $0.emptySourceUTF16Anchor == anchor })
+        else { return nil }
+        if parts.count > 1, let separatorAnchor = separator.emptySourceUTF16Anchor,
+            separatorAnchor != anchor
+        {
+            return nil
+        }
+        return anchor
     }
 
     /// Called only for adjacent words from one normalized source line. Their
@@ -402,12 +453,14 @@ struct NativeTextLineLayout: Equatable, Sendable {
     var ascent: Double = 0
     var descent: Double = 0
     var glyphs: [NativeTextGlyphLayout]
+    var sourceProvenance: TextLayoutLineSource? = nil
 }
 struct NativeTextLayoutResult: Equatable, Sendable {
     var lines: [NativeTextLineLayout]
     var lineSpacing: Double = 0
     var contentSize: Size
     var measuredSize: Size
+    var sourceProvenance: TextLayoutSourceProjection? = nil
 }
 
 /// Editor-only geometry, copied out while the native layout is alive. These

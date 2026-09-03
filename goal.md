@@ -19647,3 +19647,47 @@ the existing projection can derive its Name from the symbol glyph. The tests
 cover semantic snapshots, not native UIA delivery, enabled/offscreen bounds,
 image decoding, pixels, hardware rendering or Narrator. All nine original product
 completion gates remain open with no scope reduction.
+
+### 2026-09-03: preserve the first combined360 discovery failure
+
+The combined selection at `f56d1b3e414f0a55bb9204580214b843acd76c92`
+contains the entire previous 255-method roster, the window-root naming controls
+and the public Image controls, with one shared projection method counted once:
+360 distinct methods, including 39 new tests and 321 existing controls. Its
+immutable roster SHA256 is
+`aebd1bebd3a3b6e9c922b4ca9fd8d5f394d7e6a2b0dbdc3019063bb5c14f6bc0`.
+
+Compilation and linking completed in 290.35 seconds, but SwiftPM's subsequent
+`--dump-tests-json` process failed with abnormal exit 1033 while casting a
+synchronous MainActor Image test method to a nonisolated XCTest function. No
+selected test start or terminal was observed. The first batch's 22 methods have
+no execution result; the remaining fifteen batches were not launched. This is
+a discovery failure, not 360 assertion failures or any focused qualification.
+The script exited naturally with code 1 after 299.5 seconds. Its owned process
+tree closed completely, resources and signal handlers were restored, and there
+was no timeout, forced termination, acquisition uncertainty or cleanup error.
+Source endpoints remained unchanged.
+
+The raw log and ownership receipts remain in
+`artifacts/lookupwindowimage360-8b604903e8674defa145a46f0a660580/`;
+raw SHA256 is
+`ce4e810708eeb5883e6b48e356853cd78e3fe66c2288ed29acb6511afba626e6`.
+The independent aggregate is
+`artifacts/lookup-window-image360-f56d1b3-discovery-failure.json`, SHA256
+`a3ca7ce8988a24990074686189249f70ea978ed87926b25c7ff82051e084d8c0`.
+A signature-only async correction is being reviewed against established test
+conventions; no Image behavior assertion or production code may be relaxed to
+address this discovery problem. The original record remains intact.
+
+Separately, all twelve pure Python fixtures for the reviewed stock Full owned
+launcher passed in 0.003 seconds. These validate command binding, the complete
+32-stage output grammar, strict closure acceptance and child-only removal of
+the two PowerShell module-path environment variables. They launch neither
+SwiftPM nor native workload processes and do not qualify product behavior or
+native process ownership. Their log is
+`artifacts/stock-full-owned-adapter12-fixtures.log`, SHA256
+`fa14aa82b7542022d75038c7f3c61a01358d6e8e6fbe163b5fa41ed4ffeb2888`.
+The reviewed launcher SHA256 is
+`aea2bfa3841b951210836bacfb02f09dd6bed1ed987ae93fad6af03e22c9d886`.
+The stock Full run itself has not started. All nine original completion gates
+remain open and unchanged.

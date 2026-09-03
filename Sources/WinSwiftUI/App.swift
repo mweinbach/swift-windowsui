@@ -3264,7 +3264,9 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority, Win32Capt
         // UI Automation wiring: the bridge re-projects the retained tree on
         // every UIA query; focus events ride the runtime's focus hook.
         if nativePresentationFactory == nil {
-            let uiaTreeSource = RuntimeUIAElementTreeSource(runtime: runtime) { [weak window] bounds in
+            let uiaTreeSource = RuntimeUIAElementTreeSource(
+                runtime: runtime, windowName: window.title
+            ) { [weak window] bounds in
                 window?.clientRectToScreen(bounds) ?? bounds
             }
             let uiaBridge = UIAProviderBridge(source: uiaTreeSource)
@@ -6367,7 +6369,7 @@ extension WinSwiftUIWindowHost {
         bindNativeDialogSession(NativeDialogSession(windowKey: created.key, commandSink: sink))
         guard !hasTornDownWindow else { throw WindowCoordinatorError.windowClosedDuringStartup }
 
-        let source = RuntimeUIAElementTreeSource(runtime: runtime)
+        let source = RuntimeUIAElementTreeSource(runtime: runtime, windowName: window.title)
         let bridge = UIAProviderBridge(
             source: source, nativeWindowKey: created.key, nativeSnapshotSource: snapshots, nativeCommandSink: sink,
             beforeRequest: { [weak self] key, generation, geometry in

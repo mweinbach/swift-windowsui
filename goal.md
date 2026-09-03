@@ -19558,3 +19558,34 @@ concrete setup defect before Candidate construction. A narrow fixture amendment
 must retain the authored keys, all behavior assertions and production checks,
 and then rerun the cohort. No amendment has been executed at this checkpoint.
 The failed record stays intact; all nine original product gates remain open.
+
+### 2026-09-03: window-caption fallback remains separate from retained text
+
+The host now passes the created window's immutable title into its legacy and
+native UIA projection sources. Only an otherwise unnamed ordinary physical root
+can use it. Explicit label/text (including empty strings), explicit child policy,
+selected roots and nonempty projected names exclude fallback. The optional name
+is copied before logical-item refresh and legacy bounds-mapper callbacks; only
+that copied value can change the root snapshot's Name. No node label/text,
+geometry, IDs, actions, control types or provider/session guards are changed.
+Default nil preserves raw-source behavior. Hidden/released roots still produce
+no snapshots, and naming a window supplies no Text content, held document or
+new pattern authority.
+
+This addresses the source cause corresponding to the later historical staged
+4330 observation of an empty root Name with a real GPU Workbench native caption.
+It does not rewrite the earlier attempt's unknown name or qualify native delivery
+from the current toolkit. The eleven frozen new tests cover real headless host
+wiring, explicit and selected naming, every other snapshot field, pre-mapper
+capture, weak ownership, hidden roots and absence of new Text/pattern authority.
+Twenty-two unchanged related controls are also selected. Their execution is
+pending; strict lint and architecture checks pass after formatting only new-test
+whitespace. No original test assertion was modified.
+
+The reviewed four-file patch SHA256 is
+`78085b2d6b4974045588834b5dfca0b7226d06683640460876ed40bf6b885a65`;
+integration hashes are recorded in
+`artifacts/window-root-name-integrated-hashes.json`. Contract details are in
+`docs/UIAWindowRootNames.md`. Native COM delivery, Narrator and the unrelated
+generic framed-image lookup remain unqualified. All original product gates stay
+open, with their original scope unchanged.

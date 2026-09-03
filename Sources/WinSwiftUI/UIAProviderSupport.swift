@@ -90,6 +90,8 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
     // The host owns its runtime. An accessibility bridge may outlive that
     // owner, so keep the projection source without keeping the view tree alive.
     private weak var runtime: RetainedViewRuntime?
+    /// Copied host metadata, never retained-node label or text authority.
+    private let windowName: String?
     /// Legacy/headless mapping. Production native requests supply their copied
     /// geometry explicitly and never call this potentially effectful closure.
     private let screenBoundsMapper: (Rect) -> Rect
@@ -107,8 +109,12 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
     var logicalItemReceiptCount: Int { logicalItemsByID.count }
     var logicalItemIdentityCount: Int { logicalIdentitiesByID.count }
 
-    init(runtime: RetainedViewRuntime, screenBoundsMapper: @escaping (Rect) -> Rect = { $0 }) {
+    init(
+        runtime: RetainedViewRuntime, windowName: String? = nil,
+        screenBoundsMapper: @escaping (Rect) -> Rect = { $0 }
+    ) {
         self.runtime = runtime
+        self.windowName = windowName
         self.screenBoundsMapper = screenBoundsMapper
     }
 
@@ -152,6 +158,8 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
         if let rootRequest {
             guard rootRequest.isCurrent(in: runtime), root.sourceNode === rootRequest.node else { return [] }
         }
+        // Decide from this projection before either effectful bounds-mapper call.
+        let rootName = fallbackWindowRootName(for: root, in: runtime)
         refreshLogicalItems(using: root, in: runtime)
         guard rootRequest?.isCurrent(in: runtime) != false else { return [] }
         var snapshots: [UIAElementSnapshot] = []
@@ -159,7 +167,7 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
         guard rootRequest?.isCurrent(in: runtime) != false else { return [] }
         try appendSnapshots(
             for: root, parentID: nil, rootBounds: rootBounds, into: &snapshots,
-            runtime: runtime, rootRequest: rootRequest, screenBoundsMapper: screenBoundsMapper)
+            runtime: runtime, rootRequest: rootRequest, rootName: rootName, screenBoundsMapper: screenBoundsMapper)
         guard rootRequest?.isCurrent(in: runtime) != false else { return [] }
         // Transparent retained containers are flattened by the accessibility
         // projection, so the nearest projected parent is the honest UIA
@@ -173,6 +181,17 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
             snapshots[index].supportsSelection = true
         }
         return snapshots
+    }
+
+    private func fallbackWindowRootName(
+        for element: AccessibilityElementProjection, in runtime: RetainedViewRuntime
+    ) -> String? {
+        guard let windowName, element.name.isEmpty,
+            let node = element.sourceNode, node === runtime.root,
+            node.selectedContentRole == nil, node.accessibilityLabel == nil,
+            node.text == nil, node.accessibilityChildBehavior == nil
+        else { return nil }
+        return windowName
     }
 
     // MARK: - Logical data items
@@ -849,6 +868,7 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
         into list: inout [UIAElementSnapshot],
         runtime: RetainedViewRuntime,
         rootRequest: RetainedNodeRequest?,
+        rootName: String? = nil,
         screenBoundsMapper: (Rect) throws -> Rect
     ) rethrows {
         guard rootRequest?.isCurrent(in: runtime) != false else { return }
@@ -880,7 +900,7 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
             UIAElementSnapshot(
                 id: id,
                 parentID: parentID,
-                name: element.name,
+                name: parentID == nil ? (rootName ?? element.name) : element.name,
                 value: element.value,
                 helpText: element.hint,
                 automationID: element.identifier,

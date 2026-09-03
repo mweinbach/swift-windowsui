@@ -14858,13 +14858,14 @@ public final class RetainedViewRuntime {
     }
 
     // Sample the opt-in once. Recording sites never read the environment.
-    private static let printsLazyListUIARejectionsForTesting =
+    static let printsLazyListUIARejectionsForTesting =
         ProcessInfo.processInfo.environment["SWIFT_WINDOWSUI_DIAGNOSTIC_UIA_REJECTIONS"] == "1"
     internal var lazyListUIARejectionsForTesting = RetainedLazyListUIARejectionDiagnostics()
 
     private func recordLazyListUIARejection(
         _ site: RetainedLazyListUIARejectionDiagnostics.Site,
-        phase: RetainedLazyListUIARequest.Phase? = nil
+        phase: RetainedLazyListUIARequest.Phase? = nil,
+        measurement: RetainedLazyListRuntimeAdapter.MeasurementMatchDiagnostic? = nil
     ) {
         guard lazyListUIARejectionsForTesting.isEnabled, lazyListUIARequest != nil else { return }
         let recordedPhase: RetainedLazyListUIARejectionDiagnostics.Phase
@@ -14878,7 +14879,7 @@ public final class RetainedViewRuntime {
         case .finished?: recordedPhase = .finished
         case nil: recordedPhase = .none
         }
-        let entry = RetainedLazyListUIARejectionDiagnostics.Entry(
+        var entry = RetainedLazyListUIARejectionDiagnostics.Entry(
             site: site, phase: recordedPhase, pass: layoutPassID,
             sequence: layoutSettlementResolutionSequence, geometry: layoutSettlementGeometryRevision,
             unmutatedGeometry: lastUnmutatedLayoutPassRevision,
@@ -14886,6 +14887,7 @@ public final class RetainedViewRuntime {
             rounds: lazyListRoundLimit - (lazyListResolutionBudget?.remainingRounds ?? lazyListRoundLimit),
             remainingRounds: lazyListResolutionBudget?.remainingRounds ?? 0,
             remainingElements: lazyListResolutionBudget?.remainingElements ?? 0)
+        entry.measurement = measurement
         if lazyListUIARejectionsForTesting.record(entry), Self.printsLazyListUIARejectionsForTesting {
             // Only fixed vocabulary and native scalars reach stdout. Printing
             // has no result that can alter the original request outcome.
@@ -26909,8 +26911,11 @@ extension RetainedViewRuntime {
                     return false
                 }
             } else {
-                guard adapter.matchesAcceptedMeasurements(measurements, viewport: viewport) else {
-                    recordLazyListUIARejection(.captureMeasurements)
+                var diagnostic: RetainedLazyListRuntimeAdapter.MeasurementMatchDiagnostic? =
+                    lazyListUIARejectionsForTesting.isEnabled ? .init() : nil
+                guard adapter.matchesAcceptedMeasurements(measurements, viewport: viewport, diagnostic: &diagnostic)
+                else {
+                    recordLazyListUIARejection(.captureMeasurements, measurement: diagnostic)
                     return false
                 }
             }

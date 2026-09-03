@@ -25,11 +25,18 @@ internal struct RetainedLazyListUIARejectionDiagnostics: Equatable {
         let rounds: Int
         let remainingRounds: Int
         let remainingElements: Int
+        var measurement: RetainedLazyListRuntimeAdapter.MeasurementMatchDiagnostic? = nil
 
         var line: String {
             "UIA_REJECTION site=\(site.rawValue) phase=\(phase.rawValue) pass=\(pass) sequence=\(sequence)"
                 + " geometry=\(geometry) unmutated=\(String(describing: unmutatedGeometry)) mutation=\(mutation)"
                 + " rounds=\(rounds) remainingRounds=\(remainingRounds) remainingElements=\(remainingElements)"
+                + (measurement.map {
+                    " measurementGate=\($0.gate.rawValue) resolutionGate=\($0.resolution?.rawValue ?? "none")"
+                        + " resolutionSource=\($0.resolutionSourceIndex.map(String.init) ?? "none")"
+                        + " missingRequired=\($0.missingRequiredCount) unmeasuredRecords=\($0.unmeasuredRecordCount)"
+                        + " measurementSource=\($0.sourceIndex.map(String.init) ?? "none")"
+                } ?? "")
         }
     }
 

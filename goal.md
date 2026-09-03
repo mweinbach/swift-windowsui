@@ -17126,3 +17126,30 @@ Exact selection, cleanup and source preservation were verified in
 The precise remaining accepted-measurement and independent-scroll focus causes
 remain under investigation. The original combined gate has not run, full
 validation has not passed, and all nine completion gates remain open.
+
+### 2026-09-02 — Localize the final accepted-measurement refusal without relaxing it
+
+The final UIA rejection currently identifies only the compound accepted-
+measurement predicate. A temporary bounded diagnostic labels its first failing
+gate and reports native cached counts. The adapter records the failure of its
+already-executed resolution check, without evaluating a new selection or
+repeating provider, admission or currentness checks. The existing UIA diagnostic
+switch and capped entry path control the output. Original Boolean operands,
+short-circuit order, budgets, measurement acceptance and control flow remain
+unchanged. These additions will be removed after the cause is identified.
+
+The independent-scroll fixture has a source-level explanation for delayed
+focus: preflight plus three adapter builds uses all four rounds, and the last
+adapter still needs measured geometry. Writes to the independent scroll do not
+directly revoke the target scroll's intent. The native reveal should remain
+pending for ordinary layout. A temporary scalar trace preserves every current
+assertion, records the returned state, and observes at most four ordinary frames
+without a second navigation call, selection write or budget change. Execution
+is still needed to verify that predicted continuation.
+
+Root source review, contracts, strict four-file lint and formatting-delta review
+pass. The next fixed-source diagnostic selects only the unchanged public UIA
+replacement method and the instrumented independent-scroll method. It is not
+acceptance or timing qualification. The positive target-correction test's
+separate pass-count clarification is not yet applied. All nine completion gates
+remain open and the original goal text is preserved.

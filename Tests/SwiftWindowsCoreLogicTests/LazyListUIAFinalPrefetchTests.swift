@@ -750,7 +750,26 @@ final class ListRevealPrefetchScopeTests: XCTestCase {
         defer { receipt.cancelPreparedNavigation() }
         fixture.arm()
 
-        XCTAssertTrue(fixture.runtime.withLazyListResolutionBudget { receipt.finishNavigation() })
+        // Temporary scalar diagnostic; the original assertions remain below.
+        func traceReveal(_ stage: String, finished: Bool? = nil) {
+            let settlement: String
+            switch fixture.runtime.layoutSettlementStatus {
+            case .settled: settlement = "settled"
+            case .unsettled: settlement = "unsettled"
+            case .unavailable: settlement = "unavailable"
+            }
+            print(
+                "[ListRevealPrefetchScopeDiagnostic] stage=\(stage) finished=\(finished.map(String.init) ?? "none") "
+                    + "rounds=\(fixture.runtime.lastLazyListConsumedRounds) "
+                    + "elements=\(fixture.runtime.lastLazyListConsumedElements) "
+                    + "completion=\(fixture.runtime.lastLazyListWorkCompletion) settlement=\(settlement) "
+                    + "continuation=\(receipt.permitsContinuation) "
+                    + "focused=\(fixture.runtime.focusedNode === target) targetFocused=\(target.isFocused) "
+                    + "offset=\(fixture.scroll.scrollOffset) independentOffset=\(independentScroll.scrollOffset)")
+        }
+        let finished = fixture.runtime.withLazyListResolutionBudget { receipt.finishNavigation() }
+        traceReveal("returned", finished: finished)
+        XCTAssertTrue(finished)
 
         try fixture.assertCompleted(target: target)
         XCTAssertEqual(independentScroll.scrollOffset, 360)
@@ -764,6 +783,13 @@ final class ListRevealPrefetchScopeTests: XCTestCase {
         XCTAssertTrue(
             Set(fixture.finalCalls(in: fixture.sibling, from: fixture.siblingFinalStart)).isSubset(of: required))
         fixture.assertOriginalBudget()
+
+        // Temporary observation of only the already-accepted native continuation.
+        // No second navigation call or selection write is made.
+        for frame in 1...4 where fixture.runtime.focusedNode !== target {
+            _ = fixture.runtime.renderFrame()
+            traceReveal("ordinary-frame-\(frame)")
+        }
     }
 }
 

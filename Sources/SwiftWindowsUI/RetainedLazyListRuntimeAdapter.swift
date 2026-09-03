@@ -2836,17 +2836,67 @@ package final class RetainedLazyListRuntimeAdapter {
     /// It cannot accept first measurements, update selection/gap/chrome caches,
     /// or call a provider. Runtime separately proves every physical attachment,
     /// the exact pass and viewport, and the absence of pending callback work.
+    // TEMPORARY: native diagnostic vocabulary only, removed after failure localization.
+    enum MeasurementMatchGate: String {
+        case none, snapshot, viewport, unresolved, preparation, logicalDemand, measurementRecord
+        case duplicateMeasurement, acceptedRecord, emptyRecord, measuredValues, ordinal, gap, chrome, selection
+    }
+    enum ResolutionGate: String {
+        case incomplete, hint, missingRequired, outsideAllowed, staleRecord, unmeasuredRecord, leadingGap
+    }
+    struct MeasurementMatchDiagnostic: Equatable {
+        var gate = MeasurementMatchGate.none
+        var resolution: ResolutionGate?
+        var resolutionSourceIndex: Int?
+        var missingRequiredCount = 0
+        var unmeasuredRecordCount = 0
+        var sourceIndex: Int?
+    }
+    private var lastResolutionGateForTesting: ResolutionGate?
+    private var lastResolutionSourceIndexForTesting: Int?
+    private var lastMissingRequiredCountForTesting = 0
+
     func matchesAcceptedMeasurements(_ measurements: [Measurement], viewport: Viewport) -> Bool {
-        guard hasCurrentLogicalSnapshot, snapshotIsCurrent(for: viewport), !unresolvedWork,
-            !pendingCandidate, !preparationIncomplete, stagedPredecessor == nil, inheritedExtentSpacing == nil,
+        var diagnostic: MeasurementMatchDiagnostic? = nil
+        return matchesAcceptedMeasurements(measurements, viewport: viewport, diagnostic: &diagnostic)
+    }
+
+    func matchesAcceptedMeasurements(
+        _ measurements: [Measurement], viewport: Viewport, diagnostic: inout MeasurementMatchDiagnostic?
+    ) -> Bool {
+        if diagnostic != nil {
+            diagnostic?.resolution = lastResolutionGateForTesting
+            diagnostic?.resolutionSourceIndex = lastResolutionSourceIndexForTesting
+            diagnostic?.missingRequiredCount = lastMissingRequiredCountForTesting
+            diagnostic?.unmeasuredRecordCount = mounted.values.reduce(0) { $0 + ($1.extents == nil ? 1 : 0) }
+        }
+        guard hasCurrentLogicalSnapshot else {
+            diagnostic?.gate = .snapshot
+            return false
+        }
+        guard snapshotIsCurrent(for: viewport) else {
+            diagnostic?.gate = .viewport
+            return false
+        }
+        guard !unresolvedWork else {
+            diagnostic?.gate = .unresolved
+            return false
+        }
+        guard !pendingCandidate, !preparationIncomplete, stagedPredecessor == nil, inheritedExtentSpacing == nil,
             transitionRequiredTokens.isEmpty, transitionAwaitingMeasurements.isEmpty,
             transitionCapacityDeferred.isEmpty,
             managedLogicalDescriptor.map({ generation == $0.sourceGeneration }) != false,
             measurements.count <= maximumMountedLeaves, measurements.count == mountedLeafCount,
             mounted.count <= maximumMountedRecords, gapBoundaryIndex != nil
-        else { return false }
+        else {
+            diagnostic?.gate = .preparation
+            return false
+        }
         if let logicalRealization {
-            guard logicalRealization.isActive, positions[logicalRealization.token] != nil else { return false }
+            guard logicalRealization.isActive, positions[logicalRealization.token] != nil else {
+                diagnostic?.gate = .logicalDemand
+                return false
+            }
         }
 
         var measured: [RetainedLazyListRowToken: [Double?]] = [:]
@@ -2855,11 +2905,17 @@ package final class RetainedLazyListRuntimeAdapter {
                 let record = mounted[measurement.token], recordIsCurrent(record),
                 record.nodes.indices.contains(measurement.leafIndex),
                 record.nodes[measurement.leafIndex] === measurement.node
-            else { return false }
+            else {
+                diagnostic?.gate = .measurementRecord
+                return false
+            }
             if measured[measurement.token] == nil {
                 measured[measurement.token] = Array(repeating: nil, count: record.nodes.count)
             }
-            guard measured[measurement.token]?[measurement.leafIndex] == nil else { return false }
+            guard measured[measurement.token]?[measurement.leafIndex] == nil else {
+                diagnostic?.gate = .duplicateMeasurement
+                return false
+            }
             measured[measurement.token]?[measurement.leafIndex] = measurement.extent
         }
 
@@ -2872,20 +2928,34 @@ package final class RetainedLazyListRuntimeAdapter {
                 let summary = gapSummary(of: record.nodes), gapBoundaryIndex?.matches(summary, at: position) == true,
                 let extent = RetainedLazyListExtent.measured(extents.map { $0 + interLeafSpacing }),
                 extentIndex?.extent(for: token) == extent
-            else { return false }
+            else {
+                diagnostic?.gate = .acceptedRecord
+                diagnostic?.sourceIndex = record.request.sourceIndex
+                return false
+            }
             if record.nodes.isEmpty {
-                guard measured[token] == nil else { return false }
+                guard measured[token] == nil else {
+                    diagnostic?.gate = .emptyRecord
+                    return false
+                }
             } else {
                 guard let actual = measured[token], actual.count == extents.count,
                     zip(actual, extents).allSatisfy({ $0.0 == $0.1 })
-                else { return false }
+                else {
+                    diagnostic?.gate = .measuredValues
+                    diagnostic?.sourceIndex = record.request.sourceIndex
+                    return false
+                }
             }
         }
 
         for (token, record) in mounted {
             guard let position = positions[token], let extents = record.extents,
                 let ordinal = gapBoundaryIndex?.ordinalBefore(position)
-            else { return false }
+            else {
+                diagnostic?.gate = .ordinal
+                return false
+            }
             var predecessor = gapPredecessor(before: position)
             var declaredNext: GapRowBoundary?
             var isOdd = ordinal.parity
@@ -2893,13 +2963,21 @@ package final class RetainedLazyListRuntimeAdapter {
                 if let gap = node.retainedLazyListGap {
                     guard let height = gapExtent(gap, after: predecessor),
                         extents[index] == (node.isHidden ? 0 : height)
-                    else { return false }
+                    else {
+                        diagnostic?.gate = .gap
+                        diagnostic?.sourceIndex = record.request.sourceIndex
+                        return false
+                    }
                     declaredNext = GapRowBoundary(gap)
                 } else {
                     guard
                         node.hasCurrentRetainedLazyListRowChrome(
                             isOdd: isOdd, hasUnknownPrefix: ordinal.hasUnknownPrefix)
-                    else { return false }
+                    else {
+                        diagnostic?.gate = .chrome
+                        diagnostic?.sourceIndex = record.request.sourceIndex
+                        return false
+                    }
                     isOdd.toggle()
                     predecessor = .row(declaredNext ?? .ordinary)
                     declaredNext = nil
@@ -2909,7 +2987,10 @@ package final class RetainedLazyListRuntimeAdapter {
 
         guard let selection = windowSelection(viewport, protecting: protectedTokens),
             !needsResolution(selection: selection), lastRequiredTokens == selection.requiredTokens
-        else { return false }
+        else {
+            diagnostic?.gate = .selection
+            return false
+        }
         return true
     }
 
@@ -4005,20 +4086,63 @@ package final class RetainedLazyListRuntimeAdapter {
     }
 
     private func needsResolution(selection: WindowSelection) -> Bool {
+        let recordsDiagnostic = RetainedViewRuntime.printsLazyListUIARejectionsForTesting
+        if recordsDiagnostic {
+            lastResolutionGateForTesting = nil
+            lastResolutionSourceIndexForTesting = nil
+            lastMissingRequiredCountForTesting = 0
+        }
         if preparationIncomplete || pendingCandidate || !acceptedSnapshot || selection.exceedsRecordLimit
             || !transitionAwaitingMeasurements.isEmpty
         {
+            if recordsDiagnostic { lastResolutionGateForTesting = .incomplete }
             return true
         }
         // A construction plan cannot turn an intermediate target pass into
         // ordinary global settlement or accessibility readiness.
-        if uiaConstructionHint != nil { return true }
+        if uiaConstructionHint != nil {
+            if recordsDiagnostic { lastResolutionGateForTesting = .hint }
+            return true
+        }
         let allowed = Set(selection.tokens).union(selection.requiredTokens)
-        guard selection.requiredTokens.isSubset(of: Set(mounted.keys)) else { return true }
+        guard selection.requiredTokens.isSubset(of: Set(mounted.keys)) else {
+            if recordsDiagnostic {
+                lastResolutionGateForTesting = .missingRequired
+                lastMissingRequiredCountForTesting = selection.requiredTokens.reduce(0) {
+                    $0 + (mounted[$1] == nil ? 1 : 0)
+                }
+            }
+            return true
+        }
         for (token, record) in mounted {
-            guard allowed.contains(token), recordIsCurrent(record), record.extents != nil,
-                !hasUnresolvedLeadingGap(record)
-            else { return true }
+            guard allowed.contains(token) else {
+                if recordsDiagnostic {
+                    lastResolutionGateForTesting = .outsideAllowed
+                    lastResolutionSourceIndexForTesting = record.request.sourceIndex
+                }
+                return true
+            }
+            guard recordIsCurrent(record) else {
+                if recordsDiagnostic {
+                    lastResolutionGateForTesting = .staleRecord
+                    lastResolutionSourceIndexForTesting = record.request.sourceIndex
+                }
+                return true
+            }
+            guard record.extents != nil else {
+                if recordsDiagnostic {
+                    lastResolutionGateForTesting = .unmeasuredRecord
+                    lastResolutionSourceIndexForTesting = record.request.sourceIndex
+                }
+                return true
+            }
+            guard !hasUnresolvedLeadingGap(record) else {
+                if recordsDiagnostic {
+                    lastResolutionGateForTesting = .leadingGap
+                    lastResolutionSourceIndexForTesting = record.request.sourceIndex
+                }
+                return true
+            }
         }
         // Missing optional prefetch cannot block otherwise current visible
         // geometry. Every actually mounted leaf still needs current layout.

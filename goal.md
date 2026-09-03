@@ -18050,3 +18050,30 @@ new expectation line. This removes a concrete repeated scan, but no measured
 speedup or cause of the original keyboard timeout is claimed. The new test and
 the previously unobserved keyboard methods still need runtime validation.
 All original completion requirements remain unchanged.
+
+### 2026-09-03 — Make the measurement fixtures state their intended row heights
+
+The two measurement-correction failures at `5a8e828` came from fixtures that
+authored 24-point rows but depended on their former inflation to the List's
+30-point minimum. The intentional fixed-frame correction in `a650b2e` keeps
+finite authored dimensions, including dimensions below a minimum. That
+production behavior and the fixed-frame regression remain unchanged.
+
+The warm fixture needs six required rows to cover the subsequent 173-point
+prefetch endpoint. Six actual 24-point rows plus five gaps end at 149, so a
+seventh row is visible and the setup's original assertions fail. Explicit
+30-point rows end at 185 and establish the intended six-row precondition.
+The optional-expansion fixture likewise intends its first optional measurement
+to preserve the 31-point estimate: a 30-point row plus its gap does so, while
+a 24-point row plus gap measures 25 and correctly requires another layout.
+That real geometry change explains the observed third reader/provider phases
+and absence of a saved provider phase; no production admission rule is changed.
+
+Only those two original setup calls now request 30-point rows. The fixture
+default remains 24; every original assertion, selector and budget is retained.
+A new 24-point-row regression requires the actual third-round layout, no saved
+phase, three newly measured 25-point records, no target-demand construction
+and a current settlement receipt. Strict lint and contracts passed. These
+fixture corrections and the new counterexample are not yet runtime-verified;
+the preserved 69-pass/two-fail record remains the executed evidence. No goal
+requirement or completion gate is narrowed.

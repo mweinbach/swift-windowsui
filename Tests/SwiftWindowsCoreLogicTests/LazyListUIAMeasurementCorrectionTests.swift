@@ -253,7 +253,7 @@ final class LazyListUIAMeasurementCorrectionTests: XCTestCase {
     }
 
     func testUnchangedProviderFallbackStillPaysItsNecessarySecondActualPass() async throws {
-        let fixture = try MeasurementCorrectionFixture(warmViewportHeight: 160)
+        let fixture = try MeasurementCorrectionFixture(warmViewportHeight: 160, rowHeight: 30)
         defer { fixture.close() }
         let lease = MeasurementCorrectionRecordingLease(
             base: try XCTUnwrap(fixture.list.retainedSubtreeBuildLease), fixture: fixture)
@@ -282,7 +282,7 @@ final class LazyListUIAMeasurementCorrectionTests: XCTestCase {
     }
 
     func testOptionalProviderExpansionRequiresTheNextPaidMeasurement() async throws {
-        let fixture = try MeasurementCorrectionFixture()
+        let fixture = try MeasurementCorrectionFixture(rowHeight: 30)
         defer { fixture.close() }
         let lease = MeasurementCorrectionRecordingLease(
             base: try XCTUnwrap(fixture.list.retainedSubtreeBuildLease), fixture: fixture)
@@ -321,6 +321,73 @@ final class LazyListUIAMeasurementCorrectionTests: XCTestCase {
             try assertSettled(fixture.runtime)
         }
         XCTAssertEqual(fixture.runtime.lastLazyListConsumedRounds, 3)
+    }
+
+    /// Fixed 24-point rows differ from DeferredList's 31-point record estimate.
+    /// Their first optional measurements owe actual layout, unlike the explicit
+    /// 30-point rows in the estimate-preserving provider-phase regression.
+    func testOptionalFixedRowsBelowTheirEstimateRequireLayoutBeforeSettlement() async throws {
+        let fixture = try MeasurementCorrectionFixture(rowHeight: 24)
+        defer { fixture.close() }
+        let lease = MeasurementCorrectionRecordingLease(
+            base: try XCTUnwrap(fixture.list.retainedSubtreeBuildLease), fixture: fixture)
+        fixture.list.retainedSubtreeBuildLease = lease
+        let fallback = installProtectedRootPerturbation(in: fixture)
+
+        try fixture.withPreparation { request in
+            XCTAssertNotNil(request)
+            _ = try assertObservedCorrection(fixture)
+            let trace = fixture.trace
+            for kind in [Phase.Kind.roundDebit, .measurementPhase, .readerPhase, .providerPhase] {
+                XCTAssertEqual(trace.filter { $0.kind == kind }.map(\.consumedRounds), [1, 2, 3])
+            }
+            let secondPasses = trace.filter { $0.kind == .layoutPass && $0.consumedRounds == 2 }
+            XCTAssertEqual(secondPasses.count, 2)
+            let secondTail = try XCTUnwrap(secondPasses.last)
+            let thirdDebit = try XCTUnwrap(trace.first { $0.kind == .roundDebit && $0.consumedRounds == 3 })
+            let thirdMeasurement = try XCTUnwrap(trace.first { $0.kind == .measurementPhase && $0.consumedRounds == 3 })
+            XCTAssertEqual(thirdDebit.layoutPassID, secondTail.layoutPassID)
+            XCTAssertEqual(thirdMeasurement.layoutPassID, secondTail.layoutPassID)
+            let thirdPasses = trace.filter { $0.kind == .layoutPass && $0.consumedRounds == 3 }
+            XCTAssertEqual(thirdPasses.count, 1)
+            let thirdPass = try XCTUnwrap(thirdPasses.first)
+            XCTAssertEqual(thirdPass.layoutPassID, secondTail.layoutPassID + 1)
+            XCTAssertGreaterThan(thirdPass.geometryRevision, thirdMeasurement.geometryRevision)
+            XCTAssertEqual(thirdPass.resolutionSequence, thirdMeasurement.resolutionSequence)
+            let thirdReader = try XCTUnwrap(trace.first { $0.kind == .readerPhase && $0.consumedRounds == 3 })
+            let thirdProvider = try XCTUnwrap(trace.first { $0.kind == .providerPhase && $0.consumedRounds == 3 })
+            XCTAssertEqual(thirdReader.layoutPassID, thirdMeasurement.layoutPassID)
+            XCTAssertEqual(thirdProvider.layoutPassID, thirdMeasurement.layoutPassID)
+            XCTAssertFalse(trace.contains { $0.kind == .savedProviderPhase || $0.kind == .resumedProviderPhase })
+            XCTAssertEqual(fallback.calls, 1)
+            XCTAssertEqual(lease.beginRounds, [1, 2], "The third round measures; it does not rebuild accepted rows")
+            XCTAssertEqual(fixture.probe.factories.count, try XCTUnwrap(fallback.factoryCount) + 3)
+            let originalChildren = try XCTUnwrap(fallback.childIDs)
+            let currentChildren = fixture.list.children.map(ObjectIdentifier.init)
+            XCTAssertEqual(currentChildren.count, originalChildren.count + 6)
+            XCTAssertTrue(Set(originalChildren).isSubset(of: Set(currentChildren)))
+            let addedRows = fixture.list.children.filter {
+                !originalChildren.contains(ObjectIdentifier($0)) && $0.retainedLazyListGap == nil
+            }
+            XCTAssertEqual(addedRows.count, 3)
+            let adapter = try XCTUnwrap(fixture.list.retainedLazyListAdapter)
+            XCTAssertNil(adapter.mountedNodes(for: fixture.witness.token))
+            XCTAssertEqual(try XCTUnwrap(adapter.logicalBounds(for: fixture.witness.token)).extent, 31)
+            for row in addedRows {
+                XCTAssertTrue(row.parent === fixture.list && row.retainedLazyListRuntime === fixture.runtime)
+                XCTAssertEqual(row.resolvedFrame.height, 24)
+                XCTAssertEqual(row.lastLayoutVisitPassID, thirdPass.layoutPassID)
+                let token = try XCTUnwrap(adapter.mountedToken(containing: row))
+                XCTAssertEqual(adapter.knownLeafCount(for: token), 2)
+                XCTAssertEqual(try XCTUnwrap(adapter.logicalBounds(for: token)).extent, 25)
+            }
+            XCTAssertFalse(fixture.probe.factories.contains(MeasurementCorrectionFixture.targetIndex))
+            XCTAssertFalse(fixture.runtime.hasActiveRetainedBuild)
+            XCTAssertTrue(fixture.probe.activations.isEmpty)
+            try assertSettled(fixture.runtime)
+        }
+        XCTAssertEqual(fixture.runtime.lastLazyListConsumedRounds, 3)
+        XCTAssertLessThanOrEqual(fixture.runtime.lastLazyListConsumedElements, 128)
     }
 
     func testDeclinedProviderFallbackContinuesAtTheNextPaidMeasurementWithoutAnotherPass() async throws {
@@ -560,8 +627,8 @@ private final class MeasurementCorrectionFixture {
             && !trace.contains { $0.consumedRounds == 2 && ($0.kind == .readerPhase || $0.kind == .providerPhase) }
     }
 
-    init(hasSecondList: Bool = false, warmViewportHeight: Double = 80) throws {
-        let probe = MeasurementCorrectionProbe()
+    init(hasSecondList: Bool = false, warmViewportHeight: Double = 80, rowHeight: Double = 24) throws {
+        let probe = MeasurementCorrectionProbe(rowHeight: rowHeight)
         self.probe = probe
         let host: MountedLazyListTestHost
         if hasSecondList {
@@ -699,6 +766,7 @@ private enum MeasurementCorrectionFixtureError: Error { case missingItem }
 @MainActor
 private final class MeasurementCorrectionProbe {
     let rows = Array(0..<100)
+    let rowHeight: Double
     weak var runtime: RetainedViewRuntime?
     var factories: [Int] = []
     var targetFactoryRounds: [Int] = []
@@ -706,12 +774,14 @@ private final class MeasurementCorrectionProbe {
     var correctionCalls = 0
     var correctionTrace: [RetainedViewRuntime.LazyListUIAPhaseTrace]?
 
+    init(rowHeight: Double) { self.rowHeight = rowHeight }
+
     func makeRows(_ id: Int) -> [AnyView] {
         factories.append(id)
         if id == MeasurementCorrectionFixture.targetIndex {
             targetFactoryRounds.append(runtime?.lazyListUIAPhasesForTesting.last?.consumedRounds ?? 0)
         }
-        return [AnyView(Button("Row \(id)") { [weak self] in self?.activations.append(id) }.frame(height: 24))]
+        return [AnyView(Button("Row \(id)") { [weak self] in self?.activations.append(id) }.frame(height: rowHeight))]
     }
 }
 

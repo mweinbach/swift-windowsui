@@ -18987,3 +18987,63 @@ runner hash is
 The original normal runner and historical File14 reader are untouched. This
 diagnostic is not the original155 gate, full-suite or native qualification.
 All original completion gates remain open.
+
+### 2026-09-03: counter controls pass and the original handoff yields measured intervals
+
+At clean `e3b2a89713da956b65f24e8adfcd7b28694101cc`, all twenty selected Swift
+counter/writer methods passed: nine new controls and eleven unchanged writer
+tests. Build completion took 405.51 seconds. Root reconciled every start and
+passing terminal; the owned run exited naturally with code 0 and complete
+descendant/resource closure, no skips, timeouts, errors, pending signals or
+uncertainty. Source stayed fixed. Its aggregate is
+`artifacts/keyboard-counter20-e3b2a89-results.json`; raw output is under
+`artifacts/keyboardcounter20-87e8de7bda03487c89c1cd5bdfb92ad7/`, with hash
+`01f792dc50fae2c08e944501c87d2bccac5d116f1bdca56e619625f1497df92c`.
+
+The following instrumented run selected only the unchanged original
+`testAnInvalidatedPostSetterHandoffCannotPerformAnotherQuery`. It passed in
+49.56 seconds, with 58.359 seconds for the owned command including its 2.51
+second incremental build and other harness work. The same cleanup, exact
+outcome and fixed-source checks passed. The original 900+10 limits, test source,
+normal runner and supervisor were unchanged. The aggregate is
+`artifacts/keyboard-handoff-counts-e3b2a89-results.json`; the attempt is
+`artifacts/keyboardhandoffvalidationcounts-8e11b9dd096f4281a7cd8e0f7b365d65/`.
+The raw-log hash is
+`fffcfb371246c7da5732c1ea873ee2960c5308a21e70a2afdb2c3daa7bb98529`.
+
+The completed trace is 29,550 bytes, SHA-256
+`afe7df93d048aff5b33ad29f97b94c19d0b4f24e2b7d64dab07b20e1648aaff0`.
+It contains one runtime birth and 64 enriched phase observations. All five
+required keyboard phase families have ordered measured pairs; release occurs
+twice. No partial/cap markers, overflow, schema errors or unmatched ordinary
+spans were observed. `requiredKeyboardPhasePairsObserved` is true and
+`wholeTraceCompletenessProven` remains false. No XCTest observer/footer was
+invented to strengthen that limited trace claim.
+
+Eligibility's inclusive measured interval is 8.2158931 seconds, with 128,655
+admission/forest checks, 46,441 completion validations, 142,573 forest-node
+visits and 4,889,802 modal-node visits. Settlement's interval is 39.3403232
+seconds, with 246,755 admission/forest checks, 488,785 completion validations,
+1,469,009 forest-node visits and 9,378,368 modal-node visits. The final observed
+snapshot, starting from zero counters, contains 461,438 admission/forest checks,
+536,716 completion validations, 1,618,652 forest-node visits, and 14,268,860
+modal-node visits across 375,496 scans. No forest failure was counted.
+
+The independent completed-output reader checks current seven-file source pins,
+saved result and log hashes, exact trace bytes and strict schema. It reconstructs
+the same keyboard intervals and pairs ordinary spans only with exact family,
+runtime, birth, span, host and node identities. Four additional in-memory
+controls passed for valid keyboard pairs, valid ordinary pairs, mismatched
+hosts and missing measurements. Its accepted analysis is
+`artifacts/keyboard-handoff-counts-e3b2a89-analysis.json` (24,833 bytes, SHA-256
+`b33f6b971057aedaf5e1b55d65d8838b0c41768c29974e5485e70954c510ee47`).
+
+These are inclusive instrumented intervals, with nesting and overlapping
+counter deltas. They cannot be summed across phases as exclusive costs. The
+counts locate repeated work but do not establish the cause of either historical
+original155 timeout or qualify hardware pacing. Three bounded source reviews
+now examine admission validation cost, modal lookup and the previously reviewed
+physical-membership hint. Any optimization must preserve fresh authority,
+callback ordering, reentry, retirement and all original assertions, followed by
+new uninstrumented tests. The full original155 gate, broader validation and
+all nine original completion gates remain open.

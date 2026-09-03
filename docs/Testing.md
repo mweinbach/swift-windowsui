@@ -1779,8 +1779,9 @@ exclusive costs or hardware performance qualification.
 
 `RetainedConstructionValidationCounterTests` adds nine controls, paired with the
 eleven existing `RetainedConstructionDiagnosticsTests` in the focused20 roster.
-Compilation and execution are pending at source integration. A separate parser
-check has passed ten Python test methods covering 23 synthetic traces; that is
+All twenty passed at `e3b2a89`, with exact starts and passing terminals, natural
+exit and complete owned process cleanup. A separate parser check passed ten
+Python test methods covering 23 synthetic traces; that is
 not Swift execution. The reviewed diagnostic runner requires the original single
 keyboard handoff method, exact source pins, a clean commit, an exclusively created
 empty trace and the unchanged owned 900+10 process limits. Its reader validates
@@ -1789,3 +1790,20 @@ pairs. A partial, malformed, unmeasured or unmatched capture cannot satisfy
 `requiredKeyboardPhasePairsObserved`. `wholeTraceCompletenessProven` remains
 false, and XCTest success is independently required. Neither this diagnostic
 nor the focused20 roster substitutes for the original155 gate.
+
+The instrumented original handoff singleton also passed at `e3b2a89` in 49.56
+seconds. Its 64 phase observations contain all five required keyboard phase
+families, no partial markers, overflow, schema errors or unmatched ordinary
+spans. Eligibility measured 8.2159 seconds and settlement 39.3403 seconds.
+The final observed snapshot contains 461,438 admission/forest checks, 536,716
+completion validations, 1,618,652 forest-node visits and 14,268,860 modal-node
+visits across 375,496 modal scans. These counters identify repeated work at
+their instrumented call sites; they do not attribute exclusive time or explain
+the earlier full-cohort timeouts. Nested interval sums must not be added as
+independent costs. The full-trace completeness flag remains false.
+
+See `artifacts/keyboard-counter20-e3b2a89-results.json`,
+`artifacts/keyboard-handoff-counts-e3b2a89-results.json` and
+`artifacts/keyboard-handoff-counts-e3b2a89-analysis.json`. The next optimization
+must preserve the original authority, reentry and lifecycle checks and receive
+fresh uninstrumented validation; these results do not qualify performance.

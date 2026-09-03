@@ -18759,3 +18759,22 @@ install UIA, open an HWND, advertise TextPattern, or exercise Narrator. Full
 text-provider methods, editor integration, geometry, selection, scrolling,
 attributes/children, events, native text units and installed accessibility
 qualification remain open. No original completion gate is checked off.
+
+### 2026-09-03: native held-text build refusal and static callback correction
+
+The first 68-method run at `e74e2bd` stopped during compilation before any
+method started. Swift 6.3 rejected the unqualified `acquire` call inside a C
+callback closure as a context capture, then emitted a compiler assertion in
+PartitionUtils.h. This is build failure evidence, not a test assertion result;
+all 68 method outcomes remain unknown. The owned child exited with code 1,
+descendant and resource cleanup completed, and no timeout or uncertainty was
+recorded. No later batch was started and source remained fixed throughout.
+
+The aggregate is `artifacts/native-held-text68-e74e2bd-results.json`; raw output
+is under `artifacts/native-held-text68-06635852766f427bbc3da04bf80f5540/`, with
+log SHA-256 `4e99ee5134a8a8e7a3a1bd70a6479ed39b0f42f9aa1bc3bc6fca166f910df5a6`.
+Root corrected both callback closures to name their static helper's concrete
+enum type explicitly. No C ABI, callback arguments, lifetime/admission rule,
+test method or assertion changes. This source correction still requires a
+fresh build and the original 68-method execution; it does not itself establish
+that compilation or tests now pass. The original completion gates stay open.

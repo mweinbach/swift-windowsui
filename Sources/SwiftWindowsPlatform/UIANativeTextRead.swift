@@ -97,8 +97,8 @@ enum UIANativeTextReadBuffer {
 enum UIANativeTextReadCallbacks {
     static func make() -> SWUUIATextReadCallbacks {
         var callbacks = SWUUIATextReadCallbacks()
-        callbacks.acquire = { call, element, ticket in acquire(call, element, ticket) }
-        callbacks.copyText = { call, ticket, maximum in copyText(call, ticket, maximum) }
+        callbacks.acquire = { call, element, ticket in UIANativeTextReadCallbacks.acquire(call, element, ticket) }
+        callbacks.copyText = { call, ticket, maximum in UIANativeTextReadCallbacks.copyText(call, ticket, maximum) }
         callbacks.retire = { raw, ticket in
             guard let raw else { return }
             Unmanaged<UIANativeCallbackContext>.fromOpaque(raw).takeUnretainedValue().retireTextRead(ticket)

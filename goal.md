@@ -16761,3 +16761,23 @@ six-file Swift lint, and whitespace checks passed. Compilation and execution rem
 pending, as do actual native alert visibility and accessibility qualification. README
 and framework notes link the new failure-reporting contract. All original completion
 requirements and nine open gates remain unchanged.
+
+### 2026-09-02 — Narrow confirmation of the cold keyboard invalidation path
+
+The return-to-row-899 failure still has remaining element and round budget, so no
+budget change is justified. Source inspection identifies a specific hypothesis:
+positive-offset scroll anchoring can write an ordinary offset during the keyboard
+query, which clears the scroll-intent identity that the original preparation must
+preserve. This differs from the confirmed warm-path exhaustion and is not yet an
+observed cause.
+
+The temporary trace now labels actual ordinary anchor writes, the single existing
+scroll-intent guard, surrounding existing currentness guards, measurement-correction
+revocation, and post-query settlement refusals. It preserves guard order, short-circuit
+evaluation count, return/revocation behavior, and the same opt-in 128-line limit.
+Root and independent source review, apply checks, contract checks, strict Runtime lint,
+and whitespace checks passed. The next normal-script run selects the cold return test
+and all 19 new SceneStorage/AppFailure tests. The trace adds no query, callback, retry,
+or authority and must be removed before final uninstrumented validation. The original
+focus assertions, 128-element/four-round budgets, goal scope, and nine open gates remain
+unchanged; compilation and results for this combined source are pending.

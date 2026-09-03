@@ -22092,6 +22092,7 @@ public final class RetainedViewRuntime {
                         lazyListKeyboardMeasurementCorrectionIsCurrent(
                             correction, for: keyboardPreparation, chargedTo: chargedBudget)
                     else {
+                        keyboardPreparation.receipt?.traceKeyboardFocus("cold.correction.invalidated")
                         keyboardPreparation.wasRevoked = true
                         return
                     }
@@ -27354,6 +27355,9 @@ extension RetainedViewRuntime {
         _ offset: Double, in scroll: ViewNode, for content: ViewNode, adapter: RetainedLazyListRuntimeAdapter
     ) -> Bool {
         guard let preparation = lazyListAccessibilityPreparation, preparation.scroll === scroll else {
+            if let keyboard = activeLazyListKeyboardPreparation, keyboard.scroll === scroll {
+                keyboard.receipt?.traceKeyboardFocus("cold.anchor.ordinary-write")
+            }
             scroll.scrollOffset = offset
             return true
         }
@@ -27512,12 +27516,23 @@ extension RetainedViewRuntime {
             let content = preparation.original.content, let current = content.retainedLazyListAdapter,
             current.containsKeyboardCohort(preparation), current.hasKeyboardRealization(preparation.realization),
             let scroll = preparation.scroll, preparation.scrollAttachment.isCurrent(in: self),
-            scroll.scrollAxis == .vertical, scroll.scrollSourceEpoch == preparation.scrollEpoch,
-            scroll.lazyListScrollIntentIdentity === preparation.scrollIntent,
+            scroll.scrollAxis == .vertical, scroll.scrollSourceEpoch == preparation.scrollEpoch
+        else {
+            preparation.receipt?.traceKeyboardFocus("cold.current.before-intent")
+            return false
+        }
+        guard scroll.lazyListScrollIntentIdentity === preparation.scrollIntent else {
+            preparation.receipt?.traceKeyboardFocus("cold.current.scroll-intent")
+            return false
+        }
+        guard
             content.nearestScrollTarget()?.container === scroll, isQuietLazyListUIAScroll(scroll),
             pointerSequence == preparation.pointerSequence, displayScaleIdentity === preparation.displayScaleIdentity,
             preparation.target?.isCurrent(in: self) != false, preparation.targetIdentity?.isCurrent != false
-        else { return false }
+        else {
+            preparation.receipt?.traceKeyboardFocus("cold.current.after-intent")
+            return false
+        }
         // The setter alone may install an accepted successor. It supplies no
         // construction authority until settle freezes that one successor below.
         if preparation.phase == .selected { return true }
@@ -27793,11 +27808,18 @@ extension RetainedViewRuntime {
             // not start another explicit query or acquire another successor.
             preparation.settlement = settlement
         }
-        guard preparation.isCurrent else { return .obsolete }
+        guard preparation.isCurrent else {
+            receipt.traceKeyboardFocus("cold.settle.post-query-current")
+            return .obsolete
+        }
         guard let settlement = preparation.settlement else { return .pending }
-        guard isLayoutSettlementReceiptCurrent(settlement), !hasPendingLazyListUIACallbackWork,
-            !isListNavigationTargetDeferred(target)
-        else {
+        guard isLayoutSettlementReceiptCurrent(settlement), !hasPendingLazyListUIACallbackWork else {
+            receipt.traceKeyboardFocus("cold.settle.receipt-or-callback")
+            preparation.wasRevoked = true
+            return .obsolete
+        }
+        guard !isListNavigationTargetDeferred(target) else {
+            receipt.traceKeyboardFocus("cold.settle.deferred-target")
             preparation.wasRevoked = true
             return .obsolete
         }

@@ -13353,6 +13353,8 @@ package final class RetainedAccessibilityTarget {
     fileprivate struct Link {
         weak var node: ViewNode?
         let identity: RetainedAccessibilityIdentity
+        // A position hint only; attachment identity remains authoritative.
+        let siblingIndexHint: Int?
     }
 
     package private(set) weak var node: ViewNode?
@@ -13370,9 +13372,14 @@ package final class RetainedAccessibilityTarget {
                 current.storedAccessibilityAttachmentIdentity === link.identity
             else { return false }
             if index + 1 < path.count {
-                guard let parent = path[index + 1].node, current.parent === parent,
-                    parent.children.contains(where: { $0 === current })
-                else { return false }
+                guard let parent = path[index + 1].node, current.parent === parent else { return false }
+                if let siblingIndex = link.siblingIndexHint, parent.children.indices.contains(siblingIndex),
+                    parent.children[siblingIndex] === current
+                {
+                    continue
+                }
+                // Reordering surviving children does not change their attachment.
+                guard parent.children.contains(where: { $0 === current }) else { return false }
             }
         }
         return true
@@ -20867,9 +20874,15 @@ public final class RetainedViewRuntime {
         var candidate: ViewNode? = node
         while let current = candidate, path.count < ViewNode.maximumTraversalDepth {
             guard current.runtime === self else { return nil }
-            path.append(.init(node: current, identity: current.accessibilityAttachmentIdentity))
-            if current === root { return RetainedAccessibilityTarget(node: node, path: path) }
-            guard let parent = current.parent, parent.children.contains(where: { $0 === current }) else { return nil }
+            let identity = current.accessibilityAttachmentIdentity
+            if current === root {
+                path.append(.init(node: current, identity: identity, siblingIndexHint: nil))
+                return RetainedAccessibilityTarget(node: node, path: path)
+            }
+            guard let parent = current.parent,
+                let siblingIndex = parent.children.firstIndex(where: { $0 === current })
+            else { return nil }
+            path.append(.init(node: current, identity: identity, siblingIndexHint: siblingIndex))
             candidate = parent
         }
         return nil

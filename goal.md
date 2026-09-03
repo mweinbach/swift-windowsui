@@ -16640,3 +16640,29 @@ The next usability checkpoint is an independent dashboard/settings consumer of
 public products with real GPU presentation and a relocatable release package.
 SceneStorage lifetime, visible failure reporting and consumer setup candidates
 are being prepared within the original goal, not as substitutes for its scope.
+
+### 2026-09-02 — Identity regression validation and attachment membership shortcut
+
+The original completion requirements remain unchanged and all nine original gates remain open.
+At `39c4499`, the normal `scripts/test.ps1` run completed all 38 tests in the four
+identity regression classes with zero failures. The owned process tree exited naturally,
+its Job became empty, resources and signal handlers were restored, and source remained
+unchanged (`artifacts/identity-regressions-fb6d4ab0dab84234ac0d854a7806a18a`).
+The unchanged keyboard eligibility test also passed through the normal test script in
+12.601 seconds (`artifacts/keyboard-eligibility-benchmark-10108095e32e4135904068270259bb02`),
+versus 20.178 seconds in the earlier direct diagnostic. The earlier measurement preceded
+debugger attachment, but these are single observations with different invocation paths,
+not a controlled performance qualification or evidence that the whole keyboard suite passes.
+
+The next independent optimization stores a sibling index hint in each captured physical
+accessibility path link. Currentness still checks runtime, attachment identity, parent,
+and every ancestor. An identical child at the saved in-bounds position avoids a sibling
+scan; any mismatch falls back to the original identity-based scan, preserving accepted
+reordering. The hint is not an identity, generation cache, or permission to reuse a detached
+target. Ten added tests cover wide unchanged trees, reordered/shrunken siblings, removal,
+replacement, attachment ABA, reparenting, runtime transfer, and weak lifetimes. Existing
+tests, public APIs, logical identities, and the 128-element/four-round budgets are unchanged.
+Root and independent source review, contract checks, strict lint of both changed Swift
+files, and whitespace checks passed. Compilation, these ten tests, and the same keyboard
+timing case are the next validation step; no speedup is claimed for this second change yet.
+The observed keyboard focus failures and full 155-test rerun remain unresolved.

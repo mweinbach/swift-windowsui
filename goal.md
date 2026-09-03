@@ -18867,3 +18867,58 @@ methods and all three OrdinaryPreparedInsertionIsolation methods. The normal
 owned runner will bind the roster to the clean integration commit, preserving
 its 900+10 bounds and all original test assertions. This is distinct from both
 CalendarText155 and the original155 gate. All nine completion gates stay open.
+
+### 2026-09-03: calendar replacement and the complete CalendarText155 selection pass
+
+At clean `db417e57d6ba79574fd477b5585d62dbc59ff890`, CalendarReader24 passed all
+24 methods in two serial batches of 22 and 2. The original three graphical and
+multi-date-picker failures now pass with their original assertions unchanged.
+All three new reader-member cases and all eighteen insertion/handoff collateral
+methods also passed. Compilation completed in 359.68 seconds. The aggregate is
+`artifacts/calendar-reader24-db417e5-results.json`; raw output is under
+`artifacts/calendarreader24-bf2dd5900824412bbc933e73f51e3042/`, with batch hashes
+`558285e2ec08ab1ee32410a0831fbf9e247c5ce1b618b377faa8c71e9ce86572` and
+`fda8df27c99deb2862f0008b976ea978adec4dbdbe441859fccf5929c8ee3c58`.
+
+The following run at the same fixed commit passed all 155 methods in the
+original CalendarText155 roster. It used eight serial batches containing
+21, 19, 20, 20, 19, 23, 22 and 11 methods. All eight graphical mounted tests,
+the graphical diagnostic, all eleven multi-date mounted tests and all nineteen
+internal text snapshot tests passed. This reruns the selection that previously
+reported 152 passes and the three calendar failures; it does not erase those
+earlier results. CalendarReader24 and CalendarText155 overlap and are not
+reported as 179 distinct tests.
+
+Root independently reconciled each selected start and passing terminal against
+the pinned roster and raw-log hashes. All ten batches across both runs exited
+naturally with code 0, complete owned descendant/resource closure, restored
+signal handlers, no skips, timeouts, errors, pending signals or acquisition
+uncertainty. Tracked source and the index remained fixed throughout each run.
+The broader aggregate is `artifacts/calendar-text155-db417e5-results.json`;
+its raw output is under
+`artifacts/calendartext155-bbe557821e184e28a67af77c71fbe3db/`.
+The eight raw hashes in batch order are:
+
+- `e7e66a94876e147ec539fab294004610a29dfe435684fb15247eff0118c5e507`
+- `3c6a594bb4dfc62a5c15297dbfb918c8aa27c216a50e15f2651af26aee59b496`
+- `f88594b652ef26186fa3725aaec0ec224fbcb1ab40206b4b52c56529040e7222`
+- `dc193fa35969bc4be9336ca71572a9c08bdf7fe1d95cd885cbef2280106db6ef`
+- `d666ae6b67d38dcdc6423c259084b96275648b79efbb4719eb12696fba7931b7`
+- `455ebfc8a6b1c13a9296ca77b3b2731d82d02f7c254c31dee914f4d2c0eb8664`
+- `f263af69ce571496fb4c5993f994c0383e16161568358b70569fd79052e68486`
+- `d703a30e8ed0203cbc4b2fa67d80bfc28131768f335cbf2de03da85cd373cc49`
+
+The ownership correction preserves a still-declared calendar's browsing State
+through a cold candidate without making escaped callbacks valid again. Actual
+omission still retires State. The positive alias control and source review do
+not become proof of every adversarial post-capture trace. The calendar and
+compatibility documentation now records these fresh results; separately stale
+additive execution clauses are updated to the already verified Additive117
+result at `2903c93`, preserving all composition and native limitations.
+
+CalendarText155 is distinct from the original155 keyboard gate, whose two
+timeouts remain unresolved. No new native-reference, installed accessibility,
+hardware performance, full-suite or release qualification is claimed. The
+keyboard counter diagnostic and subsequent broader checks remain pending.
+All nine original completion gates stay open; the goal's prior bytes remain
+unchanged and no push has occurred.

@@ -1,14 +1,13 @@
 # MultiDatePicker
 
 The existing unbounded `MultiDatePicker` initializers now use retained month
-browsing and day buttons. At `85ddfe8`, the fresh `CalendarText155` selection
-completed all 155 cases: 152 passed and three failed. Ten of eleven
-MultiDatePicker mounted tests passed; the rejected-candidate surface case still
-fails. The two public accessibility-action cases that failed at `63fd6dd` both
-passed in a separate two-method run at `85ddfe8`. This remains an unqualified
-partial Windows implementation. The policies below describe the intended
-behavior; the validation section preserves the earlier attempts and distinguishes
-the two fresh selections.
+browsing and day buttons. At `db417e5`, the fresh `CalendarText155` selection
+passed all 155 cases, including all eleven MultiDatePicker mounted tests and
+the formerly failing rejected-candidate case. The two public accessibility
+action cases that failed at `63fd6dd` both passed in a separate two-method run
+at `85ddfe8`; that control coverage is separate. This remains an unqualified
+partial Windows implementation. The validation section preserves earlier
+attempts and distinguishes the focused selections.
 Its presence in WinSwiftUI does not establish availability in the pinned macOS
 SwiftUI API or qualify a shared-source example on that platform.
 
@@ -178,6 +177,26 @@ The two-method recovery is recorded separately in
 `artifacts/calendar-public-actions2-85ddfe8-results.json`. Its raw log is
 `artifacts/calendarpublicactions2-41083a8bde0d4f1aba8e30cb4c33ae38/batch-01.log`
 (SHA-256 `6d9b9636b3eb49b8e34cc3ba97aea697ceecc2cdf90d8e8f1156844b068540c0`).
+
+At `db417e57d6ba79574fd477b5585d62dbc59ff890`, the same CalendarText155 roster
+passed all 155 methods in eight naturally completed batches, with no skips or
+timeouts. All eight graphical mounted methods, the graphical diagnostic, all
+eleven MultiDatePicker mounted methods and all nineteen internal text snapshot
+methods passed. The original three failed calendar methods and their assertions
+were unchanged. `artifacts/calendar-text155-db417e5-results.json` records the
+exact starts, outcomes, raw-log hashes and owned process cleanup.
+
+The separate CalendarReader24 selection also passed all 24 methods, including
+three new reader-member regressions and eighteen insertion/handoff collateral
+methods. The runtime now preserves plain members of the same accepted candidate
+field through an exact reader replacement after its own retirement cleanup and
+replacement facts have completed. A still-declared cold candidate keeps State;
+its old callbacks do not regain permission. Actual omission retires the member.
+This does not grant general reader, Task or new-field publication authority.
+See [MountedState.md](MountedState.md) for the ownership boundary.
+
+These are retained-runtime results, not full-suite, original155 keyboard-gate,
+native accessibility, visual or reference-platform qualification.
 
 Range overloads, unrestricted alias normalization, native calendar focus and
 style behavior, complete action localization, platform API availability,

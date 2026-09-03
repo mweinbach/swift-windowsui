@@ -200,6 +200,20 @@ pass their focused regressions. These results do not qualify broader Task
 and lifecycle behavior, paint-cache replay, installed-source handling, or
 native SwiftUI lifetime parity.
 
+The follow-up reader-member correction at `db417e5` passes CalendarReader24
+and the full CalendarText155 selection. All three original calendar failures
+now pass without changing their assertions. Ordinary unscoped reader replacement
+can preserve a plain member of its original accepted candidate field only after
+the exact own property retirement is drained and separate normal/group facts
+complete. A private snapshot advances only for that accepted member batch.
+General reader qualification remains revoked: Task, SELF, child-reader and
+new-field publication do not gain this exception. Shared SELF/child/deferred
+source aliases are excluded while legacy dispatch remains available. The new
+tests cover cold declaration retention, exact omission, foreign-first refusal
+and a positive shared-source legacy control; they do not separately reproduce
+every post-capture ABA or reentry. This preserves State, not stale callbacks.
+The results do not qualify the broader lifecycle and native limits above.
+
 OutlineGroup uses
 typed hierarchical row identities and parent-local duplicate ordinals, but
 retains its existing eager construction and expansion behavior.

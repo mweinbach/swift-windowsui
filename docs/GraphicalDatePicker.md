@@ -169,6 +169,24 @@ This selection does not rerun the complete original 175-case roster or all 35
 calendar cases. Broader validation, retained screenshots, and native comparison
 remain outstanding.
 
+The follow-up at `db417e57d6ba79574fd477b5585d62dbc59ff890` passed all 155 methods
+in the same CalendarText155 selection, including all eight graphical mounted
+methods and the candidate diagnostic. The three formerly failing calendar
+methods retained their original assertions. Eight serial batches each exited
+naturally with exact starts and passing terminals, complete owned process
+cleanup, and no skips or timeouts. The separate CalendarReader24 selection
+passed all 24 methods, including three new reader-member ownership tests.
+Results are recorded in `artifacts/calendar-text155-db417e5-results.json` and
+`artifacts/calendar-reader24-db417e5-results.json`.
+
+The correction preserves a still-declared candidate's logical member through
+an exact ordinary reader replacement. It requires the original accepted field,
+drained own retirement and actual replacement completion. It does not revive
+the old reader qualification or old button callbacks. Cold selection keeps the
+same declared State; exact omission retires it. These headless tests do not
+qualify full SwiftUI proposal probing, native calendar behavior or pixels,
+performance, the full suite or the separate original155 keyboard gate.
+
 The reference capture is `swiftui-macos-26.5-xcode-26.6`, exported from Xcode
 26.6 (17F113), macOS SDK 26.5 (25F70), using Apple Swift 6.3.3. It declares
 graphical style as an interactive calendar or clock but records no native

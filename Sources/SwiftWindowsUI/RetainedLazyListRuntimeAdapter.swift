@@ -311,6 +311,48 @@ package final class RetainedLazyListRuntimeAdapter {
         }
     }
 
+    /// Physical inputs to an ordinary corrective layout, not accepted row
+    /// authority. A successor may still carry stale rows awaiting its bounded
+    /// refresh. This witness never makes those rows current or inspectable.
+    @MainActor
+    final class RenderMeasurementProof {
+        fileprivate weak var adapter: RetainedLazyListRuntimeAdapter?
+        fileprivate let attempt: RetainedLazyListAdapterIdentity
+        fileprivate let configuration: RetainedLazyListAdapterIdentity
+        fileprivate let generation: RetainedLazyListGeneration
+        fileprivate let descriptor: RetainedLazyListManagedLogicalDescriptorBinding?
+        fileprivate let membership: RetainedLazyListMembershipIdentity
+        fileprivate let context: RetainedLazyListMeasurementContext
+        fileprivate let records: [UIAActualRecordWitness]
+        fileprivate let incomplete: Bool
+        fileprivate let totalExtent: Double
+        fileprivate let extents: [[Double]?]
+        fileprivate let indexedExtents: [RetainedLazyListExtent]
+        fileprivate let prefixes: [Double]
+
+        fileprivate init(
+            adapter: RetainedLazyListRuntimeAdapter, generation: RetainedLazyListGeneration,
+            context: RetainedLazyListMeasurementContext, records: [UIAActualRecordWitness],
+            totalExtent: Double, extents: [[Double]?], indexedExtents: [RetainedLazyListExtent], prefixes: [Double]
+        ) {
+            self.adapter = adapter
+            attempt = adapter.attempt
+            configuration = adapter.configuration
+            self.generation = generation
+            descriptor = adapter.managedLogicalDescriptor
+            membership = adapter.logicalMembershipIdentity
+            self.context = context
+            self.records = records
+            incomplete = adapter.preparationIncomplete
+            self.totalExtent = totalExtent
+            self.extents = extents
+            self.indexedExtents = indexedExtents
+            self.prefixes = prefixes
+        }
+
+        var isCurrent: Bool { adapter?.isRenderMeasurementProofCurrent(self) == true }
+    }
+
     package struct Placement {
         package let token: RetainedLazyListRowToken
         package let leafIndex: Int
@@ -1767,6 +1809,64 @@ package final class RetainedLazyListRuntimeAdapter {
                 // A missing managed activity is never reinterpreted as a raw
                 // record after its weak original lifetime has ended.
                 guard !original.hadActivity, original.activity == nil, record.activity == nil else { return false }
+            }
+        }
+        return true
+    }
+
+    func captureRenderMeasurementProof() -> RenderMeasurementProof? {
+        guard hasCurrentLogicalSnapshot, !pendingCandidate,
+            let generation, generation.isCurrent, let context = extentIndex?.context,
+            let total = extentIndex?.totalExtent, total.isFinite,
+            mounted.count <= maximumMountedRecords, mountedLeafCount <= maximumMountedLeaves
+        else { return nil }
+        var records: [UIAActualRecordWitness] = []
+        var extents: [[Double]?] = []
+        var indexed: [RetainedLazyListExtent] = []
+        var prefixes: [Double] = []
+        for record in mounted.values {
+            guard let position = positions[record.request.token],
+                let extent = extentIndex?.extent(for: record.request.token),
+                let prefix = extentIndex?.prefixOffset(before: position), prefix.isFinite
+            else { return nil }
+            records.append(UIAActualRecordWitness(record))
+            extents.append(record.extents)
+            indexed.append(extent)
+            prefixes.append(prefix)
+        }
+        let proof = RenderMeasurementProof(
+            adapter: self, generation: generation, context: context, records: records, totalExtent: total,
+            extents: extents, indexedExtents: indexed, prefixes: prefixes)
+        return proof.isCurrent ? proof : nil
+    }
+
+    fileprivate func isRenderMeasurementProofCurrent(_ proof: RenderMeasurementProof) -> Bool {
+        guard proof.adapter === self, hasCurrentLogicalSnapshot, !pendingCandidate,
+            attempt === proof.attempt, preparationIncomplete == proof.incomplete,
+            configuration === proof.configuration, generation == proof.generation, proof.generation.isCurrent,
+            managedLogicalDescriptor === proof.descriptor, managedLogicalDescriptor?.isCurrent != false,
+            logicalMembershipIdentity === proof.membership, extentIndex?.context == proof.context,
+            extentIndex?.totalExtent == proof.totalExtent, mounted.count == proof.records.count
+        else { return false }
+        for (index, original) in proof.records.enumerated() {
+            guard let record = mounted[original.request.token], record.request == original.request,
+                record.configuration === original.configuration, record.extents == proof.extents[index],
+                record.nodes.count == original.roots.count,
+                record.identityProofs.count == original.acceptedIdentities.count,
+                zip(record.identityProofs, original.acceptedIdentities).allSatisfy({ pair in
+                    pair.0.hasSameCapture(as: pair.1)
+                }),
+                let position = positions[original.request.token],
+                extentIndex?.extent(for: original.request.token) == proof.indexedExtents[index],
+                extentIndex?.prefixOffset(before: position) == proof.prefixes[index]
+            else { return false }
+            for (node, root) in zip(record.nodes, original.roots) {
+                guard root.node === node, root.identity.isCurrent else { return false }
+            }
+            if original.hadActivity {
+                guard let activity = original.activity, record.activity === activity else { return false }
+            } else if record.activity != nil {
+                return false
             }
         }
         return true

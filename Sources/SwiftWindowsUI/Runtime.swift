@@ -1,8 +1,9 @@
 import Foundation
-
 import SwiftWindowsCore
-
 import SwiftWindowsGraphics
+/// Snapshot of property values used by the animation system to track previous
+/// state so it can interpolate between old and new values.
+import SwiftWindowsLayout
 
 // Gap/Fix: Granular dirty tracking — OptionSet replaces single isDirty boolean.
 
@@ -13,10 +14,6 @@ import SwiftWindowsGraphics
 /// Tracks the interpolation state for a single animated property change.
 
 /// Color-based animation state for interpolating between two colors over time.
-
-/// Snapshot of property values used by the animation system to track previous
-/// state so it can interpolate between old and new values.
-import SwiftWindowsLayout
 
 /// Exhaustion permanently disables optional selection replay rather than
 /// allowing an old scope stamp to match a later runtime state.
@@ -13853,6 +13850,9 @@ package final class RetainedLazyListKeyboardPreparation {
     fileprivate var queriedSettlement = false
     fileprivate var querySequence: UInt64?
     fileprivate var attemptedMeasurementCorrection = false
+    // A distinct ordinary frame may finish its own paid phases. This neither
+    // replaces the action budget nor reopens its one query correction.
+    fileprivate weak var ordinaryMeasurementCorrectionBudget: RetainedLazyListWorkBudget?
     fileprivate var target: RetainedAccessibilityTarget?
     fileprivate var targetIdentity: RetainedLazyListViewIdentityProof?
     fileprivate var targetToken: RetainedLazyListRowToken?
@@ -15167,6 +15167,38 @@ public final class RetainedViewRuntime {
         let remainingRounds: Int
         let order: [ObjectIdentifier]
         let lists: [LazyListUIAMeasurementCorrection.ListInput]
+        let readers: [WeakViewNodeRef]
+        let inputs: [LazyListUIAMeasurementCorrection.NodeInput]
+        let tree: RetainedLazyListAdoptionCompletion
+    }
+
+    private struct OrdinaryKeyboardMeasurementOwner {
+        weak var preparation: RetainedLazyListKeyboardPreparation?
+        weak var budget: RetainedLazyListWorkBudget?
+        let pass: UInt64
+        let sequence: UInt64
+        let remainingElements: Int
+        let remainingRounds: Int
+    }
+
+    private struct OrdinaryKeyboardMeasurementCorrection {
+        struct ListInput {
+            weak var node: ViewNode?
+            weak var adapter: RetainedLazyListRuntimeAdapter?
+            weak var scroll: ViewNode?
+            let records: RetainedLazyListRuntimeAdapter.RenderMeasurementProof
+            let scrollEpoch: RetainedScrollSourceEpoch?
+            let scrollIntent: RetainedLazyListAttachmentIdentity
+        }
+        let owner: OrdinaryKeyboardMeasurementOwner
+        let expectedPass: UInt64
+        let geometry: UInt64
+        let mutation: UInt64
+        let prepaint: PrepaintSnapshotIdentity
+        let overflowCount: Int
+        let scrollWorkDepth: Int
+        let order: [ObjectIdentifier]
+        let lists: [ListInput]
         let readers: [WeakViewNodeRef]
         let inputs: [LazyListUIAMeasurementCorrection.NodeInput]
         let tree: RetainedLazyListAdoptionCompletion
@@ -22082,7 +22114,10 @@ public final class RetainedViewRuntime {
             }
             var changed = lazyListAnchorNeedsLayout
             var measurementCorrectionPassID: UInt64?
+            var ordinaryCorrection: OrdinaryKeyboardMeasurementCorrection?
             if !changed {
+                let ordinaryOwner = captureOrdinaryKeyboardMeasurementOwner(
+                    chargedTo: chargedBudget, during: resolutionSequence)
                 recordLazyListUIAPhase(.measurementPhase)
                 changed = recordResolvedLazyListMeasurements()
                 if changed, let chargedBudget, let preparation = uiaPreparation {
@@ -22112,11 +22147,23 @@ public final class RetainedViewRuntime {
                     }
                     measurementCorrectionPassID = layoutPassID
                     changed = false
+                } else if changed, let ordinaryOwner,
+                    let correction = captureOrdinaryKeyboardMeasurementCorrection(ordinaryOwner)
+                {
+                    ordinaryOwner.preparation?.ordinaryMeasurementCorrectionBudget = chargedBudget
+                    runLayoutPass()
+                    guard ordinaryKeyboardMeasurementCorrectionIsCurrent(correction) else {
+                        return
+                    }
+                    ordinaryCorrection = correction
+                    measurementCorrectionPassID = layoutPassID
+                    changed = false
                 } else if !changed, let chargedBudget, saveUnusedLazyListUIAProviderPhase(chargedTo: chargedBudget) {
                     return
                 }
                 recordLazyListUIAPhase(.readerPhase)
                 if resolveGeometryReaderSlots() { changed = true }
+                if let ordinaryCorrection, ordinaryCorrection.owner.preparation?.isCurrent != true { return }
                 // A current actual target pass needs no further provider build.
                 // An unchanged build would still retire this pass's settlement
                 // revision merely because the construction hint remains active.
@@ -22152,6 +22199,7 @@ public final class RetainedViewRuntime {
                     resolutionSequence == layoutSettlementResolutionSequence,
                     uiaPreparation.map(isLazyListUIAConstructionCurrent) == true
                         || keyboardPreparation?.isCurrent == true
+                        || ordinaryCorrection?.owner.preparation?.isCurrent == true
                 else {
                     uiaPreparation?.isActive = false
                     keyboardPreparation?.wasRevoked = true
@@ -27851,6 +27899,148 @@ extension RetainedViewRuntime {
         for (key, list) in zip(correction.order, correction.lists) {
             guard let node = list.node, let adapter = list.adapter, let scroll = list.scroll,
                 list.layout.isCurrent, list.records.isCurrent, adapter.permitsStandaloneBuild,
+                node.retainedLazyListAdapter === adapter, adapter.ownsAttachment(node),
+                lazyListRegistrations[key]?.node === node, lazyListRegistrations[key]?.adapter === adapter,
+                let visit = pendingLazyListVisits[key], lazyListVisitIsCurrent(visit),
+                visit.node === node, visit.adapter === adapter, visit.scrollContainer === scroll,
+                scroll.scrollSourceEpoch == list.scrollEpoch, scroll.lazyListScrollIntentIdentity === list.scrollIntent
+            else { return false }
+        }
+        return true
+    }
+
+    /// Ordinary rendering already enters reader/provider phases before its
+    /// queued after-layout actions. Preserve that order without borrowing a
+    /// queue entry's authority or exposing readiness before the normal epilogue.
+    private var permitsOrdinaryKeyboardMeasurementCorrection: Bool {
+        permitsRetainedActionInvocation && isRendering && isUpdatingResolvedLayout && isResolvingLayoutSettlement
+            && !isResolvingLayoutFrame && !isResolvingLazyListLogicalTarget && !isLayoutInProgress
+            && lazyListResolutionDepth == 1 && !layoutSettlementGenerationsExhausted
+            && activeLazyListKeyboardPreparation == nil && activeAccessibilityMutation == nil
+            && lazyListAccessibilityPreparation == nil && lazyListUIARequest == nil
+            && !lazyListUnsupportedThisPass && pendingLazyListAnchorClamps.isEmpty && !lazyListAnchorNeedsLayout
+            && !lazyListScrollSearchNeedsMoreWork && !isProbingLazyListScrollTarget
+            && retainedBuildCoordinatorStorage?.hasPendingNativeWork != true
+            && longPressReconciliationDepth == 0 && !isDrainingReconciliationCallbacks
+            && pendingLongPressCallbacks.isEmpty && pendingRetainedBuildCompletions.isEmpty
+            && !isDeliveringRenderLifecycleCallbacks && renderLifecycleTaskCancellationDepth == 0
+            && retiredPreparedListNavigationRetirements.isEmpty && !isDrainingAfterLayoutActions
+            && pendingPreciseScrollAlignments.isEmpty
+            && !isDrainingPresentationFocusRequests && pendingPresentationFocusRequests.isEmpty
+            && scrollObserverRegistry?.isDelivering != true
+            && !isDrainingListNavigationReveal && pendingListNavigationReveal == nil
+            && consumingListNavigationReveal == nil
+    }
+
+    @inline(never)
+    private func captureOrdinaryKeyboardMeasurementOwner(
+        chargedTo budget: RetainedLazyListWorkBudget?, during sequence: UInt64
+    ) -> OrdinaryKeyboardMeasurementOwner? {
+        guard permitsOrdinaryKeyboardMeasurementCorrection, let budget, lazyListResolutionBudget === budget,
+            layoutSettlementResolutionSequence == sequence
+        else { return nil }
+        var original: RetainedLazyListKeyboardPreparation?
+        for key in pendingLazyListOrder {
+            guard let visit = pendingLazyListVisits[key], lazyListVisitIsCurrent(visit) else { return nil }
+            if let preparation = visit.adapter?.keyboardPreparation {
+                guard preparation.phase == .settling, preparation.isCurrent, preparation.budget !== budget,
+                    preparation.ordinaryMeasurementCorrectionBudget !== budget,
+                    original == nil || original === preparation
+                else { return nil }
+                original = preparation
+            }
+        }
+        guard let original else { return nil }
+        return OrdinaryKeyboardMeasurementOwner(
+            preparation: original, budget: budget, pass: layoutPassID, sequence: sequence,
+            remainingElements: budget.remainingElements, remainingRounds: budget.remainingRounds)
+    }
+
+    @inline(never)
+    private func captureOrdinaryKeyboardMeasurementCorrection(
+        _ owner: OrdinaryKeyboardMeasurementOwner
+    ) -> OrdinaryKeyboardMeasurementCorrection? {
+        let nextPass = layoutPassID.addingReportingOverflow(1)
+        guard permitsOrdinaryKeyboardMeasurementCorrection, let preparation = owner.preparation,
+            preparation.phase == .settling, preparation.isCurrent, let budget = owner.budget,
+            lazyListResolutionBudget === budget, preparation.budget !== budget,
+            preparation.ordinaryMeasurementCorrectionBudget !== budget,
+            budget.remainingElements == owner.remainingElements, budget.remainingRounds == owner.remainingRounds,
+            layoutPassID == owner.pass, layoutSettlementResolutionSequence == owner.sequence, !nextPass.overflow,
+            !pendingLazyListOrder.isEmpty, pendingLazyListOrder.count == pendingLazyListVisits.count,
+            Set(pendingLazyListOrder).count == pendingLazyListOrder.count,
+            pendingLazyListVisits.count == lazyListRegistrations.count,
+            pendingLazyListMeasurements.keys.allSatisfy({ pendingLazyListVisits[$0] != nil })
+        else { return nil }
+        var lists: [OrdinaryKeyboardMeasurementCorrection.ListInput] = []
+        for key in pendingLazyListOrder {
+            guard let visit = pendingLazyListVisits[key], visit.passID == layoutPassID,
+                visit.attachment.isCurrent, visit.scrollAttachment?.isCurrent == true,
+                let node = visit.node, let adapter = visit.adapter, let scroll = visit.scrollContainer,
+                node.runtime === self, scroll.runtime === self, node.retainedLazyListAdapter === adapter,
+                node.lastLayoutVisitPassID == layoutPassID, scroll.lastLayoutVisitPassID == layoutPassID,
+                node.retainedSubtreeBuildLease != nil, adapter.permitsStandaloneBuild, adapter.ownsAttachment(node),
+                lazyListRegistrations[key]?.node === node, lazyListRegistrations[key]?.adapter === adapter,
+                let records = adapter.captureRenderMeasurementProof()
+            else { return nil }
+            lists.append(
+                .init(
+                    node: node, adapter: adapter, scroll: scroll, records: records,
+                    scrollEpoch: scroll.scrollSourceEpoch, scrollIntent: scroll.captureLazyListScrollIntentIdentity()))
+        }
+        guard lists.contains(where: { $0.node === preparation.original.content && $0.adapter === preparation.adapter }),
+            let tree = RetainedLazyListAdoptionCompletion(of: root)
+        else { return nil }
+        var pending = [(node: root, depth: 0)]
+        var visited: Set<ObjectIdentifier> = []
+        var inputs: [LazyListUIAMeasurementCorrection.NodeInput] = []
+        while let entry = pending.popLast() {
+            guard entry.depth < ViewNode.maximumTraversalDepth, entry.node.runtime === self,
+                !entry.node.isRetiringLazyListAttachment, visited.insert(ObjectIdentifier(entry.node)).inserted
+            else { return nil }
+            inputs.append(.init(entry.node))
+            for child in entry.node.children {
+                guard child.parent === entry.node else { return nil }
+                pending.append((node: child, depth: entry.depth + 1))
+            }
+        }
+        guard tree.isCurrent, inputs.allSatisfy({ $0.isCurrent }),
+            pendingGeometryReaderNodes.allSatisfy({
+                guard let node = $0.node else { return false }
+                return visited.contains(ObjectIdentifier(node)) && node.geometryReaderBuild != nil
+            })
+        else { return nil }
+        return OrdinaryKeyboardMeasurementCorrection(
+            owner: owner, expectedPass: nextPass.partialValue, geometry: layoutSettlementGeometryRevision,
+            mutation: presentationMutationRevision, prepaint: prepaintState.generation,
+            overflowCount: ViewNode.traversalDepthOverflowCount, scrollWorkDepth: lazyListScrollWorkDepth,
+            order: pendingLazyListOrder, lists: lists, readers: pendingGeometryReaderNodes, inputs: inputs, tree: tree)
+    }
+
+    private func ordinaryKeyboardMeasurementCorrectionIsCurrent(_ correction: OrdinaryKeyboardMeasurementCorrection)
+        -> Bool
+    {
+        let owner = correction.owner
+        guard permitsOrdinaryKeyboardMeasurementCorrection, let preparation = owner.preparation,
+            preparation.phase == .settling, preparation.isCurrent, let budget = owner.budget,
+            lazyListResolutionBudget === budget, preparation.budget !== budget,
+            preparation.ordinaryMeasurementCorrectionBudget === budget,
+            budget.remainingElements == owner.remainingElements, budget.remainingRounds == owner.remainingRounds,
+            layoutPassID == correction.expectedPass, layoutSettlementResolutionSequence == owner.sequence,
+            layoutSettlementGeometryRevision == correction.geometry,
+            lastUnmutatedLayoutPassRevision == correction.geometry,
+            presentationMutationRevision == correction.mutation, prepaintState.generation === correction.prepaint,
+            ViewNode.traversalDepthOverflowCount == correction.overflowCount,
+            lazyListScrollWorkDepth == correction.scrollWorkDepth,
+            pendingLazyListOrder == correction.order, pendingLazyListVisits.count == correction.lists.count,
+            lazyListRegistrations.count == correction.lists.count,
+            pendingGeometryReaderNodes.count == correction.readers.count,
+            zip(pendingGeometryReaderNodes, correction.readers).allSatisfy({ pair in pair.0.node === pair.1.node }),
+            correction.tree.isCurrent, correction.inputs.allSatisfy({ $0.isCurrent })
+        else { return false }
+        for (key, list) in zip(correction.order, correction.lists) {
+            guard let node = list.node, let adapter = list.adapter, let scroll = list.scroll,
+                list.records.isCurrent, adapter.permitsStandaloneBuild,
                 node.retainedLazyListAdapter === adapter, adapter.ownsAttachment(node),
                 lazyListRegistrations[key]?.node === node, lazyListRegistrations[key]?.adapter === adapter,
                 let visit = pendingLazyListVisits[key], lazyListVisitIsCurrent(visit),

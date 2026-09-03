@@ -17520,3 +17520,45 @@ closure, staged execution and native behavior still require execution. This
 sample does not satisfy the full shared-source template catalog, macOS parity,
 license selection or clean-machine delivery gates. All nine original completion
 gates remain open, with their original scope and deadlines unchanged.
+
+### 2026-09-03 — Preserve the paid ordinary round after measurement changes
+
+At `e90f27c`, the unchanged temporary-predecessor cleanup and same-key
+deletion/reinsertion methods passed in 47.991 and 10.772 seconds, respectively,
+after a 2.30-second cached build. Exact case records, natural exit 0, unchanged
+source and complete owned cleanup were verified in
+`artifacts/keyboard-predecessor-deletion-db401326c1b64228a2c479f9c14bec96`;
+raw SHA-256 `aaecd5ef9c030baecbc61e79df41143d527902d115acda599bd9f6024083dd40`.
+The integrated consumer's seven-file strict lint/contracts and five synthetic
+staging cases also passed; these do not qualify its executable or real DLLs.
+
+The ordinary-render correction now captures the original settling preparation
+from the actual current visit before measurement, tied to the loop's already
+charged budget and resolution sequence. After changed measurements, it can run
+one corrective layout and then enter the reader/provider phases already owed
+in that same round. A weak per-preparation budget stamp limits this correction
+to once per ordinary frame. The original action budget, query flags, explicit
+query correction, element debits and round debits remain unchanged.
+
+The new physical-table witness compares the native attempt, configuration,
+generation, membership, requests, weak roots/activities, identity captures and
+extent inputs. It permits unchanged stale predecessor records as physical
+layout input only; it does not certify row eligibility, readiness or settlement.
+The existing strict accepted-record proof remains unchanged. Tree, local layout
+inputs, reader roster, scroll intent, pass/revision and budget checks fence the
+actual corrective pass. Any failed correction stops convergence while keeping
+normal epilogues. It does not revoke a still-valid action merely because the
+optimization could not proceed.
+
+Queued callbacks remain at their existing after-layout point, without retaining,
+removing or borrowing authority from their closures. Ordinary reader/provider
+admission is unchanged. No helper writes selection, reveals, focuses, issues a
+query or publishes a settlement receipt. Three new methods cover partial stale
+row progress within one paid round, focus/layout-input invalidation, and both
+benign and source-replacing queued callbacks. Each attempt retains the 1/1
+budget and total 64-frame bound. Every original test remains unchanged.
+
+Source review and strict lint/contracts pass. The next execution must establish
+the new controls and the original pending-eligibility outcome without the
+removed diagnostic. No combined, full-suite, native or performance pass is
+claimed; all nine original completion gates remain open.

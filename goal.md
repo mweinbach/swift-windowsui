@@ -18528,3 +18528,39 @@ none of the nine original completion requirements has been narrowed or closed.
   revocation and subsequent fresh State-cell seeding as a candidate mechanism;
   exact browsing-cell/owner correlation and repair remain pending. Revoked
   write authority must not be revived to preserve a value.
+
+### Three original keyboard methods obtain normal terminals (2026-09-03)
+
+- At clean `1405fe8614c57b69bd8546a37c4459d41e9b00fa`, three separate normal
+  test runs selected the exact unchanged original methods that previously
+  lacked normal terminals. All passed with natural exit 0, exact one-method
+  starts/terminals, clean source and complete owned process cleanup. Each run
+  retained the same 900-second execution and 10-second cleanup limits, with
+  no timeout, termination, skipped test or uncertainty. In original
+  `LazyListKeyboardPreparationTests`:
+  - `testAnInvalidatedPostSetterHandoffCannotPerformAnotherQuery` passed in
+    50.018 seconds; build 0.47 seconds, whole run 56.312 seconds. Raw SHA-256:
+    `61780f7fa4c0d383727305ec69efd6761c9f40d0b4837e10a5daab2e5e14066b`.
+  - `testAnimatedAdoptionCannotRestoreTheOriginalTargetsRevokedRowRole`
+    passed in 39.117 seconds; build 0.48 seconds, whole run 45.031 seconds.
+    Raw SHA-256:
+    `1d8e874f4afea7c78db60ff97d6ef0a9952446acf95bbbc2f06d7de53dd54cfc`.
+  - `testSetterPhysicalDepartureReparentingAndRoleABARejectTheOriginalTarget`
+    passed in 39.422 seconds, retaining all four original fixture scenarios;
+    build 0.39 seconds, whole run 45.406 seconds. Raw SHA-256:
+    `2f07ef9dbf9fc71851f9d7a571e8c1efb782d334d2e8e474d21eb2fb4e531af9`.
+- Aggregates are `artifacts/original-keyboard-handoff1-1405fe8-results.json`,
+  `artifacts/original-keyboard-animated1-1405fe8-results.json`, and
+  `artifacts/original-keyboard-physical1-1405fe8-results.json`. They preserve
+  their separate raw run directories and supervision details. These focused
+  passes do not qualify the original 155-method cohort or replace its earlier
+  900-second timeout. That historical unknown result remains unchanged.
+- A parallel read-only audit identified repeated full completed-subtree checks
+  during property reconciliation, nested keyboard admission validation and
+  modal snapshot scans as possible cost amplification. It found no unbounded
+  loop in the inspected paths. Property and helper retirement can invoke user
+  cleanup, so the audit does not justify removing freshness checks. Neither
+  these source observations nor the singleton timings attribute the historical
+  timeout to a measured cause. No performance optimization or time-limit
+  extension was made here. A fresh exact original-cohort run is still needed;
+  full-suite and native qualification, and all nine original gates, remain open.

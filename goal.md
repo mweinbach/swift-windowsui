@@ -19253,3 +19253,57 @@ execution policy are unchanged; results are pending at this entry. This is
 additional regression evidence, not a replacement for the original whole155
 gate or its 900-second allowance. All nine original completion gates, full
 suite, live performance and native/display qualification remain open.
+
+### 2026-09-03: initial estimates pass 243 regressions; indexed handoff measured
+
+At `fadefab533b53d01e2e305ced42ed453d051b659`, all **243 selected methods
+passed** across eleven serial batches. This includes the two unchanged original
+20-point assertions, all five new initial-estimate controls, all seven existing
+scalar-stage controls and every method from the earlier 231-method selection.
+Every batch had exactly its expected starts/passing terminals, a natural zero
+exit and complete owned closure. No timeout, termination, uncertainty, pending
+signal, interruption, supervision error or tracked-source change occurred.
+The first build took 262.10 seconds. Raw evidence is under
+`artifacts/initialscalarestimates243-68e4686b741f4670b765365e4bd84033/`;
+the independently checked aggregate is
+`artifacts/initial-scalar-estimates243-fadefab-results.json`.
+
+The same commit then passed the unchanged original handoff in the opt-in
+validation-counter diagnostic: **one pass in 47.175 seconds** (build 2.47;
+owned invocation 55.875). The rebound runner changed only Runtime's source
+hash from the previous reviewed runner; its instrumentation, parser, workload,
+deadline and assertions are unchanged. All 20 diagnostic controls had already
+passed in the 243-method run. Natural exit zero, complete owned closure and
+source preservation were verified independently of trace analysis.
+
+There are 64 enriched phase records, all five required keyboard phase families
+and both release pairs, with no partial marker, overflow, schema error or
+unpaired ordinary span. The trace still lacks a case footer, so whole-trace
+completeness is not claimed. The final observed counters are unchanged for
+admission/forest checks (461,438 each), completion checks (536,716), forest
+visits (1,618,652), failures (zero), maximum forest visits (133), and modal
+lookup requests/scans (375,496 each). Modal node visits fell from 14,268,860 to
+1,295; the latter includes complete index builds plus live candidate checks,
+not unique nodes or skipped authority checks. Its maximum remains 41.
+
+Observed inclusive eligibility time was 7.5376502 seconds versus 8.2158931 in
+the earlier `e3b2a89` diagnostic; settlement was 37.626236 versus 39.3403232.
+The corresponding case times were 47.175 and 49.56 seconds. These are separate
+single observations across source changes, not a controlled causal benchmark,
+exclusive-cost attribution or proof of meeting a live-performance target.
+Nested spans must not be summed. The measurements do not establish the cause
+or execution phase of the earlier whole155 timeouts.
+
+Raw log SHA-256 is
+`3912ef75d7cd4eea296f676dcdee19c25a9e2b1752155a2d9000dca57d5fece1`;
+the 29,449-byte trace is
+`3e924315e21b1f1ad4e85fb4b40e7664940d70ad9c750888287b6c15eafb621d`.
+Both are retained under
+`artifacts/keyboardhandoffvalidationcounts-df3e5eac2da84180a2d73a61da1ddfcf/`.
+The independent result and completed-trace analysis are
+`artifacts/keyboard-handoff-indexed-fadefab-results.json` and
+`artifacts/keyboard-handoff-indexed-fadefab-analysis.json`.
+
+The original whole155 workload and 900-second allowance remain unchanged and
+unqualified by these focused results. Full-suite, native/display, staged-app
+journey and all nine original product completion gates remain open.

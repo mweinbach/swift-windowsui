@@ -2347,8 +2347,10 @@ material-dependent content-blur input is a separate contract below.
 overlay for ordinary `QuadPrimitive` and legacy `FillRectCommand` drawing
 across CPU and both D3D11 paths. The additive/plusLighter source implementation
 extends that same ordinary-quad and legacy-fill lane with exact selector 4;
-normal remains source-over. The additive implementation and its new regressions
-are uncompiled and unrun in this private candidate.
+normal remains source-over. Focused `Additive117` validation at `2903c93`
+passed all 117 selected methods across CPU, offscreen batch WARP and actual
+legacy WARP. This is not hardware, native-window or full-suite qualification;
+see [Testing.md](Testing.md) for the exact evidence and remaining limits.
 
 For straight source colour `Cs`, source alpha `as`, premultiplied destination
 `D` with alpha `ad`, and its straight colour `Cd`, the adjusted source is

@@ -1171,9 +1171,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   unused additive declarations, safe bitmap overrides and representable
   additive effects. Separate review regressions cover rebound emissive CPU
   output, actual premultiplied payloads, padding, unused filtered declarations,
-  malformed premultiplied effect sources and payload-scan limits. They and seven
-  intentional changes to historical expectations are
-  **uncompiled and unrun** in this private source candidate.
+  malformed premultiplied effect sources and payload-scan limits. Focused
+  `Additive117` validation at `2903c93` passed all 117 selected methods: 62 new
+  methods and 55 existing methods, including seven intentional additive
+  expectation changes. Six serial batches of 23, 23, 22, 23, 24 and two had exact
+  starts and passing terminals, natural exit 0 and complete owned descendant
+  cleanup, with no skips, timeouts or source changes. The aggregate is
+  `artifacts/additive117-2903c93-results.json`; raw output is under
+  `artifacts/additive117-6c0df5ad0fa94bb7a9428b787fcad080/`.
+  Three mixed-mode regressions check separable blends over imported emissive
+  backdrops in CPU, batch WARP and legacy WARP, each with nine literal cases.
+  The 85-entry gallery gate also passed without baseline updates. Its current
+  PNGs match the earlier reviewed `12cac40` renders byte-for-byte. Separately
+  reviewed multiply and screen gallery PNGs are unchanged; plus-lighter now
+  produces saturated addition instead of its old source-over fallback.
   CPU emission checks read tagged premultiplied bytes rather than `pixelColor`
   or lossy PNG/BMP straight-alpha conversion. Exact GPU untouched-pixel checks
   use independently bounded clear controls; blended pixels allow the stated

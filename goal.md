@@ -18646,3 +18646,51 @@ not be reused unchanged. New WARP setup failures throw rather than skip.
 Compilation, exact test results, retained-runtime visual review, hardware and
 native-window qualification, full-suite validation, and the unchanged nine
 original completion gates remain open. No push or completion claim is made.
+
+### 2026-09-03: additive117 passes and retained gallery review completes
+
+At clean `2903c93514dbb46e7aec26a37293d91d7cea1e58`, all 117 selected additive
+and blend regression methods passed. The six serial batches contained 23, 23,
+22, 23, 24 and two methods, with exactly one start and passing terminal per
+selected identifier. Every batch exited naturally with code 0 and complete
+owned descendant/resource/signal cleanup. There were no skips, timeouts,
+termination attempts, acquisition uncertainty or source changes. The first
+build took 378.82 seconds; later incremental builds took 0.37–0.41 seconds.
+Root independently summarized and checked the raw results in
+`artifacts/additive117-2903c93-results.json`; the original output is under
+`artifacts/additive117-6c0df5ad0fa94bb7a9428b787fcad080/`.
+
+This selection contains 62 new methods and 55 existing methods, including the
+seven explicit additive expectation changes and the unchanged separable,
+normal, material and structural-budget controls. The three mixed-mode tests
+passed their nine literal cases each. Evidence covers CPU reference behavior,
+offscreen D3D11 batch WARP and the actual legacy WARP path, not a hardware GPU,
+an HWND/Present path, native reference parity, complete public modifier
+semantics, or a full-suite result. Strict formatter review also confirmed the
+22-file formatting pass preserved numeric oracles, assertions/tolerances,
+method order, strict WARP guards and all renderer/HLSL bytes.
+
+The ordinary 85-entry gallery gate passed at the same commit with no baseline
+updates or skipped build/render. All 85 current PNGs are byte-identical to the
+previously reviewed `12cac40` renders. Existing within-threshold differences from
+checked-in baselines remain unchanged: canvas-path-gradient 0.175%/max 20 and
+state-toggle-hover 0%/max 8. These are not zero-difference claims. The report is
+`artifacts/gallery-compare-2903c93-validation/report.json`, SHA-256
+`37b61f167516c7de5a3e80c7a244cdeb0a608c8101fac9e680cf92669df33e09`.
+
+Root separately viewed all three retained-runtime PNGs in
+`artifacts/blend-gallery-2903c93-validation/`. Multiply and screen remain
+byte-identical to `118f410`. Plus-lighter changes from the old red source-over
+fallback to saturated addition: the interior sample at 40,40 is RGBA
+`(255,255,137,255)`, versus the earlier `(255,59,48,255)` fallback. Its PNG hash
+is `1c856329fa0c0028f98fc426da079a0605dc9b731528f8fbc6b4ff065c8cfa87`.
+Those three examples are separate from the 85 baselines; no new baseline was
+silently added. `artifacts/gallery-2903c93-review.json` records comparison and
+inspection details. Architecture contracts passed again after validation.
+
+The original 155-test timeout remains unqualified and all nine original completion
+gates remain open. Native accessibility and calendar candidates have not been
+integrated by this entry. A proposed keyboard counter diagnostic remains
+private while a review finding is corrected: it must not change existing
+FILE14-only event schemas or discard original phase events at its counter cap.
+No historical diagnostic reader is relaxed, and no push has occurred.

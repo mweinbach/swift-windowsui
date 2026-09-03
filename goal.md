@@ -17609,3 +17609,47 @@ The next runs use the existing compiled outputs and smaller exact selections
 to identify which original failure or new control needs more work. They do not
 replace or extend the original 155-method gate. All nine original completion
 gates remain open and unchanged.
+
+### 2026-09-03 — Verify completed epoch release against the original reader failure
+
+At `a250dc7`, the new GeometryReaderEpochLifetimeTests method passed in
+0.052 seconds. It verifies callback-time commit, subsequent epoch release
+despite retained reader/context references, surviving State, and rejection of
+the stale context during a later build. Exact case records, natural exit 0,
+fixed source and complete owned cleanup were verified in
+`artifacts/ordinary-keyboard-epoch-lifetime-6775933c296b44b89be8d21cfb3aeb32`;
+raw SHA-256 `077266aebcc878cfbd0a7ce23f8ea8181db18b4899a06a35289ec6996d2af6cd`.
+
+The unchanged original managed-reader method now passed in 9.074 seconds,
+including its previously failing assertion that the completed StateMountEpoch
+has released. The raw-reader control passed in 17.688 seconds. Their cached
+build took 0.37 seconds and tests took 26.762 seconds. Both methods started and
+terminated exactly once with natural exit 0 and verified source/owned cleanup in
+`artifacts/keyboard-reader-publication-12076280989b46baa1c02fa06dceedce`;
+raw SHA-256 `6010499d7c5717bec1810a8bd24e1ec07bfa2dc8c0b19643042119acbbdab4ba`.
+
+These focused results verify the identified reader lifetime fix without changing
+publication rules or original assertions. They do not turn the timed-out
+sixteen-method run into a pass or establish the separate keyboard correction,
+full-suite compatibility, native behavior or any original completion gate.
+
+### 2026-09-03 — Verify the unchanged one-element navigation completion
+
+The original uninstrumented pending-eligibility method passed at `a250dc7`
+in 234.606 seconds after a 0.47-second cached build. Its unchanged one-element,
+one-round budget and maximum 64 ordinary frames now finish the same original
+request: selection writes row 900 exactly once, the row is not deferred,
+scrolling and focus reach it, and the preparation is released. No replacement
+action, extra query, changed assertion or increased frame limit was introduced.
+
+The exact single start/terminal, natural exit 0, fixed source and complete owned
+cleanup were verified in
+`artifacts/keyboard-corrected-pending-bbbd85644a5f47aea5483f9e2e701827`;
+raw SHA-256 `74130a6cd291566a05344056d5829b0fc34b35621d711d351194c1455fa0d654`.
+This resolves the original behavioral failure; the elapsed time does not
+qualify a hardware performance target or isolate the cost of any one change.
+
+The three new ordinary-correction methods still need reported outcomes after
+the combined timeout. They will run with the seven checked-identity tests
+against the cached build before the original 155-method gate. The timeout
+remains recorded, and all nine original completion gates remain open.

@@ -37,7 +37,8 @@ final class ViewThatFitsTabTransparencyTests: XCTestCase {
         let originalPage = try tabTransparencyPage(in: host, index: 0, text: "FIRST PAGE")
 
         let secondButtons = tabTransparencyDescendants(host.runtime.root).filter { node in
-            node.isButton && tabTransparencyDescendants(node).contains { $0.text == "SECOND TAB" }
+            node.accessibilityTraits.contains(.isButton)
+                && tabTransparencyDescendants(node).contains { $0.text == "SECOND TAB" }
         }
         XCTAssertEqual(secondButtons.count, 1)
         let secondButton = try XCTUnwrap(secondButtons.first)

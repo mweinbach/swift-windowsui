@@ -250,7 +250,7 @@ private final class SelectedContentUIAProbe {
 
     func makeNode(_ id: Int, context: ViewBuildContext) -> ViewNode {
         factories.append(id)
-        let selected = ViewNode(preferredSize: Size(width: 120, height: 20), backgroundColor: .blue)
+        let selected = ViewNode(backgroundColor: .blue, preferredSize: Size(width: 120, height: 20))
         selected.accessibilityIdentifier = "uia.selected.leaf.\(id)"
         let inner = ViewNode.selectedContentBoundary(role: .viewThatFits, child: selected)
         let physical = ViewNode.selectedContentBoundary(role: .viewThatFits, child: inner)

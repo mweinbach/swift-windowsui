@@ -17864,3 +17864,26 @@ The current intrinsic-size/context-canvas choice is still not full SwiftUI
 proposal probing. Broader lifecycle, paint-cache replay, installed-source,
 native parity and full-suite qualification remain open. No original product
 completion requirement or test expectation was reduced.
+
+### 2026-09-03 — Correct two new Calendar test fixture compile errors
+
+The first `CalendarText155` batch at `2a885f18` compiled the production targets
+but stopped during test compilation. Two newly added fixtures used the wrong
+source spelling: the tab test referenced nonexistent `ViewNode.isButton`
+instead of `accessibilityTraits.contains(.isButton)`, and the lazy UIA fixture
+placed `backgroundColor` after `preferredSize` in an initializer. The generic
+inference errors in the tab fixture were consequences of the missing member.
+Only those two fixture expressions were corrected; every assertion, method
+selector and production behavior remains unchanged. Strict lint and contracts
+passed after the corrections.
+
+No selected test began, so all 155 outcomes from this attempt are unrun, not
+passes. The first batch exited naturally with code 1 after 199.515 seconds;
+the remaining seven batches were not launched. The owned process tree closed
+fully without a timeout, termination attempt, cleanup error or source change.
+Evidence is in
+`artifacts/calendar-text-selected-c25ac5dffdce4854a45843902674635c`;
+the first log SHA-256 is
+`e152c39f9507eb7213edcbfae416411214aef0eb4be168f1fe7eba455f4566dc`.
+The same full selection will now rerun from the corrected commit. Original
+completion requirements and the separate original 155-method gate are unchanged.

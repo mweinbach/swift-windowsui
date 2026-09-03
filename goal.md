@@ -20562,3 +20562,61 @@ combined Adoption source SHA256
 It remains private and uncompiled, with all 72 tests unchanged; the upcoming
 chrome changes require a separate explicit rebase. No full-suite, hardware,
 native accessibility or completion-gate claim follows from these checks.
+
+
+### 2026-09-03: integrate immutable ancestry bookkeeping with live checks intact
+
+All twelve existing paint-ancestry collateral methods passed before the change
+at `5d227ec532accbcb2ff5566babb1316b42f4c2f4`, including selected-content
+identity/cardinality ABA, late Canvas mutation, sizing, root UIA, managed List
+UIA and the compact Data snapshot. Each started and ended once; execution ended
+naturally with full owned-process closure and all nine source pins unchanged.
+The attempt is `artifacts/paintancestryexistingbaseline12-31072d42d3db471c91f6df60e471a4ad/`,
+raw SHA256 `891a15c09f96fe860937d72c3aeaee1b38a8c05c273d578b667b3804f40e799a`;
+aggregate SHA256 `d72a1e4fcdb5aebbc0346be7106a2b62a613815c8fd574923102d3bc156d615c`.
+
+The independently reviewed production change adds immutable native-ID data to
+captured selected-content paths. Each live ancestry walk still reads the same
+nodes, roles and parents, with the same duplicate and currentness checks. A
+fresh tracker represents its visited set by an index while the IDs match the
+unique captured prefix. On divergence or exhaustion it reconstructs exactly
+the IDs already visited and permanently uses the original Set semantics.
+Absent metadata also uses Set. The data never certifies a live path, refreshes
+a witness, retains a node/runtime/callback, or changes a callback boundary.
+
+Root verified all ten sealed payloads and exact current beforeimages, and read
+the full source patch and eight frozen tests. Runtime and ScenePainter receive
+only those reviewed changes; the new private RetainedPaintAncestry helper has
+75 lines. The seal SHA256 is
+`1563c087308a29c1d67af93f055d2ae81083c714131acfe5afad380f19a79c69`.
+Initial strict lint passed architecture contracts but found one wrapping issue
+in the frozen test fixture. A separate toolchain-formatted derivative changes
+only that line break, preserving all non-whitespace bytes and all eight methods,
+SHA256 `0760dc34e99ea586ff9c20c951600df297807470569f94e1802e6395fbda5175`. The original packet is intact.
+
+The after roster `artifacts/paint-ancestry-after20.json`, SHA256
+`af68118aed30560affc33ea18ac33d07df2a2870b59f6e6a6edb570d6bf4f65e`, requires all eight new tests and the same twelve
+existing methods. The new tests refer to the new private types, so they cannot
+compile against the old implementation; their pre-integration freeze remains
+separate from the actually executed twelve-method baseline. After-change tests
+and the unchanged compact diagnostic are pending. The added array, buffer,
+uniqueness validation and index search affect non-paint path capture too; no
+net speedup or allocation improvement is claimed without measurement.
+
+Separate field-chrome rendering baselines also passed: all three existing
+caret pixel/blink methods (aggregate SHA256 `8fea3d6a3312da82be0ab90c2916cca10918612fdbf0e43e57b9a316b6f7259f`),
+and both 200-by-200 focused-field gallery images. The ordinary stock gallery
+run built successfully in 103.78 seconds and exited zero. Each image matched
+its checked-in baseline with zero changed pixels and zero maximum channel
+delta. Root inspected both raw retained PNGs at
+`artifacts/field-chrome-gallery-baseline-5d227ec/current/`; no baseline changed.
+The report SHA256 is `afb5f4c42e8e10a1ee041858cd9dcfa9040246c8a12e4729d8e1bf88918c36ac`.
+This script exit and retained-image evidence does not claim the focused Job
+wrapper's descendant-closure audit for that distinct gallery command. Font
+provenance remains unqualified; these are ordinary Ada focus images, not
+Unicode selection/adoption, GPU, Narrator or full-gallery qualification.
+
+The field-chrome correction is still a separate private candidate. Its explicit
+rebase must preserve this Runtime change; exact old whole-file images may not
+overwrite it. The failed fifteen-method baseline, all prior failed gates and
+all nine original completion criteria remain open.

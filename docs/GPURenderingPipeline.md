@@ -3767,3 +3767,22 @@ hook to get wrong; and the 64 MiB bound is a process bound, which
 per-runtime instances would multiply by the window count. The reasoning is
 restated at the declaration, and `installForTesting` is the seam a test
 substitutes through. Bounds and enforcing tests: `docs/PerformanceBudgets.md`.
+
+### Selected-content ancestry bookkeeping
+
+ScenePainter must notice a selected-content boundary introduced by an earlier
+callback, including when the original node was ordinary. Its ancestry checks
+still walk the current parent links and read every current role. Captured
+selected-content paths now also carry an immutable array of native object IDs.
+Each walk uses a fresh `RetainedPaintAncestryVisitSet`: matching the unique
+prefix advances an index; divergence reconstructs exactly the visited IDs and
+uses ordinary Set insertion for the rest of that walk. Missing metadata uses
+Set from the first insertion.
+
+The IDs optimize bookkeeping only. They retain no nodes, runtimes or callbacks,
+cannot validate an attachment, and never replace an original currentness check.
+The live loop, role and parent reads, duplicate rejection and callback boundaries
+are unchanged. `RetainedPaintAncestryPrefixTests` defines equivalence and lifetime
+oracles alongside existing selected-content, Canvas and lazy-list UIA tests.
+Path capture incurs an additional array, buffer and uniqueness check, including
+outside painting; any net performance benefit needs separate measurement.

@@ -4681,6 +4681,8 @@ package final class RetainedSelectedContentPath {
     fileprivate let domain: Domain
     fileprivate let links: [Link]
     private let selection: [Link]
+    private let paintAncestryBuffer: RetainedPaintAncestryBuffer?
+    fileprivate let paintAncestryPrefix: RetainedPaintAncestryPrefix?
     private let visualQualification: (@MainActor () -> Bool)?
     private var didCaptureConstructionSelection = false
     fileprivate var didCapturePanelAssembly = false
@@ -4688,6 +4690,7 @@ package final class RetainedSelectedContentPath {
     fileprivate init(
         physicalRoot: ViewNode, selectedNode: ViewNode, containingRoot: ViewNode,
         runtime: RetainedViewRuntime?, domain: Domain, links: [Link], selection: [Link],
+        ancestryIdentifiers: [ObjectIdentifier],
         visualQualification: (@MainActor () -> Bool)? = nil
     ) {
         self.physicalRoot = physicalRoot
@@ -4698,6 +4701,9 @@ package final class RetainedSelectedContentPath {
         self.links = links
         self.selection = selection
         self.visualQualification = visualQualification
+        let ancestryBuffer = RetainedPaintAncestryBuffer(identifiers: ancestryIdentifiers)
+        paintAncestryBuffer = ancestryBuffer
+        paintAncestryPrefix = ancestryBuffer?.prefix(startingAt: ObjectIdentifier(physicalRoot))
     }
 
     package var isCurrent: Bool {
@@ -4974,6 +4980,7 @@ final class RetainedSelectedContentPaintOperand {
     let nextPhysicalChild: ViewNode?
     let boundaryNodes: [ViewNode]
     let hasSelectedContentBoundary: Bool
+    let ancestryPrefix: RetainedPaintAncestryPrefix?
     fileprivate let path: RetainedSelectedContentPath
     private let domain: RetainedSelectedContentPaintDomain
 
@@ -4988,6 +4995,7 @@ final class RetainedSelectedContentPaintOperand {
         self.path = path
         self.domain = domain
         hasSelectedContentBoundary = path.hasSelectedContentBoundary
+        ancestryPrefix = path.paintAncestryPrefix
     }
 
     var isCurrent: Bool {
@@ -5104,10 +5112,12 @@ public final class ViewNode {
             selected = child
         }
         var links: [RetainedSelectedContentPath.Link] = []
+        var ancestryIdentifiers: [ObjectIdentifier] = []
         var current: ViewNode? = selected
         seen.removeAll(keepingCapacity: true)
         while let node = current, links.count < Self.maximumTraversalDepth {
             guard seen.insert(ObjectIdentifier(node)).inserted else { return nil }
+            ancestryIdentifiers.append(ObjectIdentifier(node))
             switch domain {
             case .installed:
                 guard let expectedRuntime, node.runtime === expectedRuntime,
@@ -5142,6 +5152,7 @@ public final class ViewNode {
                 let path = RetainedSelectedContentPath(
                     physicalRoot: self, selectedNode: selected, containingRoot: node,
                     runtime: expectedRuntime, domain: domain, links: links, selection: selection,
+                    ancestryIdentifiers: ancestryIdentifiers,
                     visualQualification: visualQualification)
                 return path.isCurrent ? path : nil
             }

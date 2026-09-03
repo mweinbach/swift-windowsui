@@ -492,7 +492,8 @@ public enum ScenePainter {
                 let requiresCheck =
                     original.hadSelectedContentBoundary
                     || original.operand?.hasSelectedContentBoundary == true
-                    || SelectedContentPaintReadSet.hasCurrentSelectedContentAncestor(original.node)
+                    || SelectedContentPaintReadSet.hasCurrentSelectedContentAncestor(
+                        original.node, prefix: original.operand?.ancestryPrefix)
                 guard requiresCheck else { continue }
                 guard wasCurrentAtEntry, let operand = original.operand,
                     domain.isCurrent, operand.isCurrent
@@ -564,7 +565,7 @@ public enum ScenePainter {
             let requiresCheck =
                 capture.hadSelectedContentBoundary
                 || operand?.hasSelectedContentBoundary == true || !qualifiers.isEmpty
-                || Self.hasCurrentSelectedContentAncestor(node)
+                || Self.hasCurrentSelectedContentAncestor(node, prefix: capture.operand?.ancestryPrefix)
             guard requiresCheck else { return true }
             guard source.wasCurrentAtEntry, let operand, source.domain.isCurrent, operand.isCurrent,
                 qualifiers.allSatisfy({ $0.isCurrent })
@@ -580,7 +581,7 @@ public enum ScenePainter {
             var nextQualifiers = qualifiers
             if let operand,
                 capture.hadSelectedContentBoundary || operand.hasSelectedContentBoundary
-                    || Self.hasCurrentSelectedContentAncestor(self.node),
+                    || Self.hasCurrentSelectedContentAncestor(self.node, prefix: operand.ancestryPrefix),
                 !nextQualifiers.contains(where: { $0.physicalNode === operand.physicalNode })
             {
                 nextQualifiers.append(operand)
@@ -589,9 +590,11 @@ public enum ScenePainter {
                 source: source, capture: source.capture(node), qualifiers: nextQualifiers)
         }
 
-        static func hasCurrentSelectedContentAncestor(_ node: ViewNode) -> Bool {
+        static func hasCurrentSelectedContentAncestor(
+            _ node: ViewNode, prefix: RetainedPaintAncestryPrefix? = nil
+        ) -> Bool {
             var current: ViewNode? = node
-            var seen = Set<ObjectIdentifier>()
+            var seen = RetainedPaintAncestryVisitSet(prefix: prefix)
             while let candidate = current {
                 // This only discovers a role; Runtime's captured operand
                 // remains the bounded authority. Do not impose its path limit

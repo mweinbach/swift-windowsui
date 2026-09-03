@@ -142,12 +142,14 @@ final class SeparableBlendModeRasterizationTests: XCTestCase {
         }
     }
 
-    func testNormalAndAdditiveRemainIdenticalBeforeTheirOwnImplementation() async {
+    func testAdditiveUsesTheIndependentSaturatedSumInsteadOfSourceOver() async {
         var normal = GPUIScene(clearColor: backdrop)
         normal.addQuad(quad(source))
         var additive = GPUIScene(clearColor: backdrop)
         additive.addQuad(quad(source, mode: .additive))
-        XCTAssertEqual(raster(normal).pixels, raster(additive).pixels)
+        let added = raster(additive)
+        assertPixel(added, x: 16, y: 16, premultiplied: [0.55, 0.4, 0.25, 1])
+        XCTAssertNotEqual(raster(normal).pixels, added.pixels)
         for mode in modes {
             var scene = GPUIScene(clearColor: backdrop)
             scene.addQuad(quad(source, mode: mode))

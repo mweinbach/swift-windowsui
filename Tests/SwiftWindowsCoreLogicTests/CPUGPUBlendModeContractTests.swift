@@ -6,8 +6,8 @@ import XCTest
 @testable import SwiftWindowsRendererD3D11
 
 /// The renderer-neutral contract implements multiply, screen and overlay for
-/// ordinary quads on both the CPU and D3D11 paths. Additive remains source-over;
-/// material quads, other primitive families and full View/group blend semantics
+/// ordinary quads on both the CPU and D3D11 paths; additive saturates their
+/// premultiplied RGBA sum. Material quads, other primitive families and full View/group blend semantics
 /// are separate open work. Carrier checks remain, and fixed pixel oracles plus
 /// actual batch/legacy regressions replace the former blanket no-op decision.
 @MainActor
@@ -35,10 +35,11 @@ final class CPUGPUBlendModeContractTests: XCTestCase {
         return scene
     }
 
-    func testSeparableModesHaveReferencePixelsAndAdditiveRemainsSourceOver() async {
+    func testSeparableAndAdditiveModesHaveIndependentReferencePixels() async {
         let normal = GPUIRawSceneRasterizer.rasterize(Self.overlayScene(mode: .normal), size: Self.surface)
         let additive = GPUIRawSceneRasterizer.rasterize(Self.overlayScene(mode: .additive), size: Self.surface)
-        XCTAssertEqual(additive.pixels, normal.pixels)
+        XCTAssertNotEqual(additive.pixels, normal.pixels)
+        Self.assertCenter(additive, equals: Color(red: 1, green: 0.725, blue: 1, alpha: 1))
         for (mode, expected) in Self.separableExpectedPixels {
             let rendered = GPUIRawSceneRasterizer.rasterize(Self.overlayScene(mode: mode), size: Self.surface)
             XCTAssertNotEqual(rendered.pixels, normal.pixels)
@@ -57,7 +58,7 @@ final class CPUGPUBlendModeContractTests: XCTestCase {
             "dropping the field at the contract boundary would make the decision irreversible")
     }
 
-    /// Every implemented non-normal mode must agree with the shipping batch path.
+    /// Every implemented separable mode must agree with the shipping batch path.
     /// The new strict WARP regressions additionally reject setup skips/fallbacks.
     func testCrossBackendAgreementForANonNormalMode() async throws {
         for (mode, expected) in Self.separableExpectedPixels {
@@ -96,10 +97,11 @@ final class CPUGPUBlendModeContractTests: XCTestCase {
 
     /// This is the CPU frame-to-scene bridge. Actual legacy D3D11 frame pixels
     /// are covered separately; this method must not stand in for that evidence.
-    func testFrameBridgeUsesSeparablePixelsAndKeepsAdditiveSourceOver() async {
+    func testFrameBridgeUsesSeparableAndSaturatedAdditivePixels() async {
         let normal = GPUIRawSceneRasterizer.rasterize(Self.overlayFrame(mode: .normal), size: Self.surface)
         let additive = GPUIRawSceneRasterizer.rasterize(Self.overlayFrame(mode: .additive), size: Self.surface)
-        XCTAssertEqual(additive.pixels, normal.pixels)
+        XCTAssertNotEqual(additive.pixels, normal.pixels)
+        Self.assertCenter(additive, equals: Color(red: 1, green: 0.725, blue: 1, alpha: 1))
         for (mode, expected) in Self.separableExpectedPixels {
             let rendered = GPUIRawSceneRasterizer.rasterize(Self.overlayFrame(mode: mode), size: Self.surface)
             XCTAssertNotEqual(rendered.pixels, normal.pixels)

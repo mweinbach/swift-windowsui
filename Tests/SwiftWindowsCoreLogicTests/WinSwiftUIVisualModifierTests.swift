@@ -465,7 +465,7 @@ final class WinSwiftUIVisualModifierTests: XCTestCase {
         }
     }
 
-    func testBlendModePlusLighterCompositesSourceOver() async {
+    func testBlendModePlusLighterSaturatesThePremultipliedSum() async {
         await MainActor.run {
             let bitmap = render(
                 ZStack {
@@ -480,10 +480,10 @@ final class WinSwiftUIVisualModifierTests: XCTestCase {
                 size: IntSize(width: 60, height: 60)
             )
             let center = colorAt(bitmap, x: 20, y: 20)
-            XCTAssertEqual(center?.red ?? -1, Color.red.red, accuracy: 0.01)
-            XCTAssertEqual(
-                center?.green ?? -1, Color.red.green, accuracy: 0.01,
-                "additive would have added the backdrop's green on top")
+            XCTAssertEqual(center?.red ?? -1, min(1, Color.red.red + Color.green.red), accuracy: 0.01)
+            XCTAssertEqual(center?.green ?? -1, min(1, Color.red.green + Color.green.green), accuracy: 0.01)
+            XCTAssertEqual(center?.blue ?? -1, min(1, Color.red.blue + Color.green.blue), accuracy: 0.01)
+            XCTAssertEqual(center?.alpha ?? -1, 1, accuracy: 0.01)
         }
     }
 

@@ -157,10 +157,38 @@ struct D3D11SeparableBlendUniforms {
     }
 }
 
-/// The returned value is an adjusted premultiplied source, not an already
-/// composited pixel. Ordinary ONE / INV_SRC_ALPHA blending finishes the draw.
-/// Keeping its alpha equal to source coverage also preserves isolated F/K
-/// accumulation when the sampled destination is the virtual F + (1-K)B.
+/// Additive draws write a destination-aware increment with ONE / ONE. The
+/// caller owns the returned state and must release it with its device resources.
+func makeD3D11AdditiveBlendState(
+    device: UnsafeMutablePointer<ID3D11Device>
+) throws -> UnsafeMutablePointer<ID3D11BlendState> {
+    var descriptor = D3D11_BLEND_DESC()
+    descriptor.AlphaToCoverageEnable = false
+    descriptor.IndependentBlendEnable = false
+    descriptor.RenderTarget.0.BlendEnable = true
+    descriptor.RenderTarget.0.SrcBlend = D3D11_BLEND_ONE
+    descriptor.RenderTarget.0.DestBlend = D3D11_BLEND_ONE
+    descriptor.RenderTarget.0.BlendOp = D3D11_BLEND_OP_ADD
+    descriptor.RenderTarget.0.SrcBlendAlpha = D3D11_BLEND_ONE
+    descriptor.RenderTarget.0.DestBlendAlpha = D3D11_BLEND_ONE
+    descriptor.RenderTarget.0.BlendOpAlpha = D3D11_BLEND_OP_ADD
+    descriptor.RenderTarget.0.RenderTargetWriteMask = UINT8(D3D11_COLOR_WRITE_ENABLE_ALL.rawValue)
+    var state: UnsafeMutablePointer<ID3D11BlendState>?
+    var transfersState = false
+    defer { if !transfersState { releaseCOM(&state) } }
+    let result = device.pointee.lpVtbl.pointee.CreateBlendState(device, &descriptor, &state)
+    guard result >= 0, let state else {
+        throw BatchRendererError(
+            operation: "Create additive blend state",
+            hresult: result < 0 ? result : HRESULT(bitPattern: 0x80004005))
+    }
+    transfersState = true
+    return state
+}
+
+/// Modes 1...3 return adjusted source Q for ONE / INV_SRC_ALPHA. Mode 4
+/// returns only the clamped additive increment for ONE / ONE, with no isolated
+/// coverage update. Both sample the visible destination, including F + (1-K)B.
 let separableBlendShaderSource = #"""
 Texture2D blendDestination : register(t1);
 cbuffer SeparableBlendUniforms : register(b2)
@@ -183,8 +211,19 @@ float4 applySeparableBlend(float4 source, float2 pixelPosition)
         discard;
     }
     float4 destination = blendDestination.Load(int3(pixel, 0));
+    if (blendMode == 4.0)
+    {
+        // Equivalent to saturate(source + destination) - destination for
+        // normalized channels, without cancellation of a small source value.
+        // Source already includes geometry/clip coverage. In an isolated
+        // target add this delta to F and leave K unchanged; it may carry RGB
+        // with zero alpha when the visible destination is already opaque.
+        return min(source, saturate(1.0 - destination));
+    }
     float3 sourceColor = source.rgb / source.a;
-    float3 destinationColor = destination.a > 0.0 ? destination.rgb / destination.a : float3(0.0, 0.0, 0.0);
+    // Match the CPU's normalized straight-color blend domain. The original
+    // premultiplied destination still contributes through source-over.
+    float3 destinationColor = destination.a > 0.0 ? saturate(destination.rgb / destination.a) : float3(0.0, 0.0, 0.0);
     float3 blended;
     if (blendMode == 1.0)
     {

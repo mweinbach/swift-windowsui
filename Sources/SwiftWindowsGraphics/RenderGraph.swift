@@ -699,7 +699,7 @@ public struct FillRectCommand: Equatable, Sendable {
 /// The channel order and alpha convention of a `BitmapSurface`'s bytes.
 ///
 /// Before this type existed the convention was folklore, and the producers
-/// disagreed: the CPU rasterizer stores straight alpha while the
+/// disagreed: ordinary CPU rasterization stores straight alpha while the
 /// DirectWrite/GDI text path stores premultiplied alpha. Every consumer
 /// picked one and was therefore wrong about half its inputs. Carrying the
 /// format in the surface makes each consumer convert instead of assume.
@@ -718,6 +718,8 @@ public struct BitmapPixelFormat: Hashable, Sendable, CustomStringConvertible {
         /// Colour channels are independent of alpha (`rgb`, `a`).
         case straight
         /// Colour channels are already scaled by alpha (`rgb * a`, `a`).
+        /// Composited additive foregrounds can also carry emitted RGB greater
+        /// than alpha; retain those raw premultiplied bytes during transport.
         /// This is what a `ONE`/`INV_SRC_ALPHA` blend state and Direct2D
         /// bitmaps require, and the only convention that survives bilinear
         /// filtering without bleeding transparent texels into edges.
@@ -732,8 +734,9 @@ public struct BitmapPixelFormat: Hashable, Sendable, CustomStringConvertible {
         self.alphaMode = alphaMode
     }
 
-    /// The default: what `GPUIRawSceneRasterizer`, WIC image loading and
-    /// `BitmapSurface.writePNG` all produce and expect.
+    /// The default for ordinary CPU rasterization and WIC image loading, and
+    /// the interchange convention of `BitmapSurface.writePNG`. Additive scene
+    /// emission can require the existing premultiplied format instead.
     public static let bgra8Straight = BitmapPixelFormat(channelOrder: .bgra, alphaMode: .straight)
     /// What the DirectWrite/GDI text path produces (`GDIRasterTextRenderer.tint`
     /// scales the colour channels by coverage) and what every GPU/Direct2D
@@ -812,8 +815,8 @@ public struct BitmapSurface: Equatable, Sendable {
         didSet { contentToken = RenderContentVersion.next() }
     }
     /// Channel order and alpha convention of `pixels`. Defaults to the
-    /// straight-alpha BGRA the CPU rasterizer produces; producers that
-    /// store premultiplied bytes must say so.
+    /// straight-alpha BGRA ordinary CPU scenes produce; every producer that
+    /// stores premultiplied bytes, including additive emission, must say so.
     public var format: BitmapPixelFormat
 
     /// Process-unique identity of this buffer's bytes, minted when the
@@ -888,9 +891,10 @@ public struct BitmapSurface: Equatable, Sendable {
         converted(to: .premultiplied)
     }
 
-    /// The same image with straight (non-premultiplied) colour channels —
-    /// what `pixelColor`, `writePNG` and the CPU rasterizer's compositing
-    /// expect. Returns `self` untouched when already straight or opaque.
+    /// Convert to straight (non-premultiplied) colour channels for interchange.
+    /// Returns `self` untouched when already straight or opaque. This bounded
+    /// representation cannot preserve additive emission with RGB greater than
+    /// alpha: zero-alpha RGB is cleared and larger straight channels clamp.
     public func straightAlpha() -> BitmapSurface {
         converted(to: .straight)
     }

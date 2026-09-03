@@ -18564,3 +18564,85 @@ none of the nine original completion requirements has been narrowed or closed.
   timeout to a measured cause. No performance optimization or time-limit
   extension was made here. A fresh exact original-cohort run is still needed;
   full-suite and native qualification, and all nine original gates, remain open.
+
+### 2026-09-03: original155 timeout preserved; additive blend implementation admitted to focused validation
+
+The original fixed155 execution at `795811662fdcea4d199372f3ec0ce07f7cd36bcc`
+did not qualify. The normal owned-Job runner retained its original 900-second
+execution deadline and 10-second cleanup allowance. It timed out after
+900.032 seconds overall, recorded child exit124 and runner exit1, and observed
+no test starts or terminals. All155 method results remain UNKNOWN, not failed
+assertions or passes. Build completion was observed at10.97 seconds; a later
+process sample showed the current XCTest process consuming CPU, but neither
+observation establishes which phase or method consumed the execution time.
+The existing earlier timeout remains unchanged and has no new causal diagnosis.
+
+The strict checker was run with the actual observed runner exit1 before any
+source or index mutation. It independently compared the source/index endpoints,
+confirmed descendant closure, and rejected the gate. Supervision recorded a
+successful owned-Job termination, empty Job, closed resources, restored signal
+handlers, no pending signals or acquisition uncertainty, and no operator cleanup
+requirement. The result is in
+`artifacts/cohort155-normal-7958116-6646ab330dc34dbca38a8c94b0a46156/` and
+`artifacts/cohort155-check-7958116.json`; the raw log is38202 bytes, SHA-256
+`88ed18e090469842000648d084bca0dfbbe989a0fa3f72c0f93705dd6c843bd5`.
+Successful cleanup does not convert deadline termination into natural completion.
+
+The source comparison in `artifacts/cohort155-source-audit-7958116/` preserves
+all155 frozen identifiers and declaration headers. Thirteen of14 files and
+151 of155 method bodies are byte-identical to the frozen post-lint65656d8 source.
+The other four methods have already documented changes:62ce61f checks the List
+scope's navigation owner instead of the old row's owner in the root-replacement
+fixture;990d101 moves three budget configurations to the guarded configuration
+API while retaining their original1/1 or128/1 limits and behavioral assertions.
+The shared fixture tail is unchanged. Added replacement/scroll-intent classes
+remain outside the fixed155 selection. This is not a claim that all original
+test source is byte-identical, nor does the source audit qualify execution.
+
+The next implementation slice replaces the source-over fallback for ordinary
+quad additive blending, legacy `FillRect.additive`, and their existing public
+`plusLighter` mapping. The bounded rule is premultiplied channel addition with
+unit clamping for RGB and alpha. Isolated layers preserve the existing
+foreground/transmittance representation: additive contributions change the
+foreground without consuming transmittance. D3D11 uses the current destination
+snapshot, additive blend factors, and restored pipeline state; it does not
+reuse a stale enclosing backdrop.
+
+CPU bitmap transport now retains representable escaped emission (RGB greater
+than alpha, including nonzero RGB at zero alpha) through the supported blur,
+crop, nested-image, current-target replacement, and later normal-draw paths.
+Independent nonempty color-effect passes refuse unsupported escaped emission
+from used isolated additive blur or used premultiplied bitmap payloads. The
+dependency analysis follows used bindings and explicit overrides, rejects used
+malformed payloads, and has a64MiB active-pixel scan budget per query. This may
+conservatively reject safe oversized effect inputs and is not a performance
+qualification. Ordinary bitmap blend dispatch and material blend semantics
+are unchanged. Straight-alpha PNG/BMP export still loses emission that cannot
+be represented in that format; that export gap remains open.
+
+A reviewed mixed-mode counterexample also required one shader normalization
+change: separable multiply/screen/overlay clamp the imported unpremultiplied
+backdrop color just as the CPU already does, while preserving the raw
+premultiplied destination contribution. Three added CPU/batch-WARP/legacy-WARP
+methods each contain nine literal cases covering positive-alpha emission,
+zero-alpha emission, and ordinary controls. This bounded policy is not native
+SwiftUI, HDR, or color-space parity evidence.
+
+Seven reviewed patches contributed26 paths:11 production files, six new test
+files, five existing test files with seven explicit additive expectation
+updates, and four compatibility/rendering/testing documents. The old normal,
+material, and separable controls remain. Root applied the original patches plus
+the mixed-mode addendum, then formatted exactly22 Swift files after the initial
+strict lint failure. The subsequent strict lint and architecture contracts pass
+(`artifacts/additive117-lint-first-format.log`). No compilation or test execution
+of this additive candidate has completed at this ledger entry.
+
+The focused selection is `artifacts/additive117-selection.json`,117 unique
+identifiers,14983 bytes, SHA-256
+`095c25a5b096fe147d786229f1ca2178702f687245bbae3d1a6f7d6dfd154595`.
+It preserves the reviewed114-case union and appends the three mixed-mode
+regressions. The old Blend49 roster contains five superseded names and must
+not be reused unchanged. New WARP setup failures throw rather than skip.
+Compilation, exact test results, retained-runtime visual review, hardware and
+native-window qualification, full-suite validation, and the unchanged nine
+original completion gates remain open. No push or completion claim is made.

@@ -187,6 +187,25 @@ public struct GPUISceneImageRenderPass: Equatable, Sendable {
             && Int64(size.width) * Int64(size.height) <= Int64(GPUISceneLimits.maxImageRenderPassPixels)
     }
 
+    /// Straight-color post-filters cannot preserve RGB above alpha. Ordinary
+    /// additive composition remains representable, but reachable isolated
+    /// content blur can expose its separate foreground delta outside alpha.
+    /// Used premultiplied bitmaps can retain that emission after CPU caching.
+    /// Refuse either source explicitly instead of silently clamping it away.
+    public var additiveEmissionColorEffectDefect: String? {
+        guard input == .independent, !colorEffects.isEmpty else { return nil }
+        let analysis = SceneAdditiveEmissionAnalysis.inspect(scene)
+        if let defect = analysis.invalidBitmapDefect { return defect }
+        if analysis.exceedsLimit {
+            return "post-filter source exceeds the additive-emission dependency analysis limit"
+        }
+        if analysis.escapedEmission {
+            return
+                "post-filter chains do not support escaped additive emission from isolated content blur or premultiplied bitmap payloads"
+        }
+        return nil
+    }
+
     /// The same admission runs before CPU allocation and GPU copy. A crop is
     /// relative to its consuming image and immediate target, never a cached
     /// enclosing-frame rectangle. No clamping, resampling or padded reads are

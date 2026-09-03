@@ -401,7 +401,7 @@ final class D3D11SeparableBlendTests: XCTestCase {
         XCTAssertFalse(renderer.isAttached)
     }
 
-    func testNormalAdditiveAndMaterialBlendModesKeepTheirExistingBehavior() async throws {
+    func testAdditiveSaturatesWhileNormalAndMaterialModesKeepTheirBehavior() async throws {
         let size = IntSize(width: 24, height: 24)
         let renderer = try makeRenderer(size: size)
         defer { renderer.detach() }
@@ -412,7 +412,9 @@ final class D3D11SeparableBlendTests: XCTestCase {
         let baseline = try render(normal, using: renderer, size: size)
         var additive = GPUIScene(clearColor: destination)
         additive.addQuad(quad(source, mode: .additive, x: 2, y: 2, width: 20, height: 20))
-        XCTAssertEqual(try render(additive, using: renderer, size: size).pixels, baseline.pixels)
+        let added = try render(additive, using: renderer, size: size)
+        assertPixel(added, x: 12, y: 12, equals: [0.485, 0.54, 0.53, 1], tolerance: 2)
+        XCTAssertNotEqual(added.pixels, baseline.pixels)
         assertPixel(
             baseline, x: 12, y: 12,
             equals: oracle(source, over: quantized(premultiplied(destination)), mode: .normal), tolerance: 2)

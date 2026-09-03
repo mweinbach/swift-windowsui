@@ -282,9 +282,9 @@ public enum GPUISceneSanitizer {
         result.gradientSegmentStart = GPUISceneValue.clamped(quad.gradientSegmentStart, lower: 0, upper: 1)
         result.gradientSegmentEnd = GPUISceneValue.clamped(quad.gradientSegmentEnd, lower: 0, upper: 1)
         result.gradientSegmentMode = GPUISceneValue.clamped(quad.gradientSegmentMode, lower: 0, upper: 2)
-        // Both backends switch on the truncated value; an out-of-range
-        // selector falls back to "none"/"normal" rather than indexing
-        // past the end of the effect or blend table.
+        // Admission clamps both selector ranges. Effects keep their encoded
+        // dispatch; ordinary blend dispatch requires exact values 1...4, so
+        // fractional blend encodings retain normal source-over behavior.
         result.effectType = GPUISceneValue.clamped(quad.effectType, lower: 0, upper: 8)
         result.blendMode = GPUISceneValue.clamped(quad.blendMode, lower: 0, upper: 4)
         result.effectIntensity = GPUISceneValue.clamped(quad.effectIntensity, to: coordinateLimit)
@@ -771,20 +771,23 @@ extension GlyphAtlasSnapshot {
 extension GPUIScene {
     /// Structural defects a backend would otherwise trap on.
     ///
-    /// Cheap by construction — O(layers + paint operations + images), no
-    /// allocation until something is actually wrong — so backends call it
-    /// on every frame rather than only in debug builds. A trap cannot be
-    /// downgraded by the host's fallback policy; a thrown
-    /// `sceneContent` failure can.
+    /// Ordinary structural checks walk bounded scene declarations and paint
+    /// operations. Used color-effect passes also analyze reachable emission,
+    /// scanning at most 64 MiB of premultiplied bitmap texels per query and
+    /// caching payload results within that query. Unused declarations retain
+    /// their structural checks without this payload analysis. Backends call
+    /// this on every frame: a trap cannot be downgraded by the host's fallback
+    /// policy; a thrown `sceneContent` failure can.
     public func validate() -> [SceneDefect] {
         var imageRenderPassBudget = GPUISceneImageRenderPassBudget()
         return validate(
-            imageRenderPassDepth: 0, imageRenderPassBudget: &imageRenderPassBudget, inBackdropIsolation: false)
+            imageRenderPassDepth: 0, imageRenderPassBudget: &imageRenderPassBudget, inBackdropIsolation: false,
+            isUsedForRendering: true)
     }
 
     private func validate(
         imageRenderPassDepth: Int, imageRenderPassBudget: inout GPUISceneImageRenderPassBudget,
-        inBackdropIsolation: Bool
+        inBackdropIsolation: Bool, isUsedForRendering: Bool
     ) -> [SceneDefect] {
         var defects: [SceneDefect] = []
 
@@ -865,9 +868,21 @@ extension GPUIScene {
             defects.append(defect)
         }
 
-        var imageIDs = Set(imageResources.map(\.textureID))
+        let bitmapIDs = Set(imageResources.map(\.textureID))
+        var imageIDs = bitmapIDs
+        var usedImageIDs: Set<Int32> = []
+        if isUsedForRendering, !imageRenderPasses.isEmpty {
+            for run in presentationOrder() where run.kind == .image {
+                let layer = layers[run.layerIndex]
+                for index in run.range {
+                    let id = layer.images[index].textureID
+                    if !bitmapIDs.contains(id) { usedImageIDs.insert(id) }
+                }
+            }
+        }
         var dependentBackdropSources: [Int32: GPUISceneImageRenderPass] = [:]
         for pass in imageRenderPasses {
+            let childIsUsedForRendering = isUsedForRendering && usedImageIDs.contains(pass.textureID)
             // Charge each declared namespace independently, even when its
             // value arrays share storage with another branch. Stop rejected
             // extents as well as exhausted budgets so invalid declarations
@@ -900,6 +915,13 @@ extension GPUIScene {
                 defects.append(SceneDefect(kind: .invalidImageRenderPass(textureID: pass.textureID, reason: reason)))
                 if !admitted { break }
             } else {
+                // Emission admission follows actual image use through every
+                // ancestor. Keep declaration validation and its budget walk
+                // intact even when this new effect restriction is diagnosed.
+                if childIsUsedForRendering, let effectDefect = pass.additiveEmissionColorEffectDefect {
+                    defects.append(
+                        SceneDefect(kind: .invalidImageRenderPass(textureID: pass.textureID, reason: effectDefect)))
+                }
                 let childIsInBackdropIsolation: Bool
                 switch pass.input {
                 case .independent:
@@ -915,7 +937,8 @@ extension GPUIScene {
                     contentsOf: pass.scene.validate(
                         imageRenderPassDepth: imageRenderPassDepth + 1,
                         imageRenderPassBudget: &imageRenderPassBudget,
-                        inBackdropIsolation: childIsInBackdropIsolation))
+                        inBackdropIsolation: childIsInBackdropIsolation,
+                        isUsedForRendering: childIsUsedForRendering))
             }
         }
 

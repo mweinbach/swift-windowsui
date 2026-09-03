@@ -275,6 +275,7 @@ final class D3D11BatchKernel {
     private var separableBlendQuadPS: UnsafeMutablePointer<ID3D11PixelShader>?
     private var separableBlendUniformBuffer: UnsafeMutablePointer<ID3D11Buffer>?
     private var separableBlendDestinationSnapshot: D3D11BlendDestinationSnapshot?
+    private var additiveBlendState: UnsafeMutablePointer<ID3D11BlendState>?
     internal var failSeparableBlendAfterDestinationBindingForTesting = false
     private var imageVS: UnsafeMutablePointer<ID3D11VertexShader>?
     private var imagePS: UnsafeMutablePointer<ID3D11PixelShader>?
@@ -711,6 +712,7 @@ final class D3D11BatchKernel {
         tally(quadPS.map(UnsafeMutableRawPointer.init))
         tally(separableBlendQuadPS.map(UnsafeMutableRawPointer.init))
         tally(separableBlendUniformBuffer.map(UnsafeMutableRawPointer.init))
+        tally(additiveBlendState.map(UnsafeMutableRawPointer.init))
         if let snapshot = separableBlendDestinationSnapshot {
             tally(snapshot.texture.map(UnsafeMutableRawPointer.init))
             tally(snapshot.srv.map(UnsafeMutableRawPointer.init))
@@ -1329,6 +1331,7 @@ final class D3D11BatchKernel {
         releaseCOM(&samplerState)
         releaseCOM(&rasterizerState)
         releaseCOM(&blendState)
+        releaseCOM(&additiveBlendState)
         releaseCOM(&imageReplacementBlendState)
         releaseCOM(&isolatedCoverageBlendState)
         releaseCOM(&frameUniformBuffer)
@@ -1764,6 +1767,11 @@ final class D3D11BatchKernel {
                 operation: "Validate image render pass", hresult: batchHresultInvalidArgument,
                 details: "The image pass exceeds the shared extent, nesting or effect-count limit.",
                 failureKind: .sceneContent)
+        }
+        if let defect = pass.additiveEmissionColorEffectDefect {
+            throw BatchRendererError(
+                operation: "Validate image render pass", hresult: batchHresultInvalidArgument,
+                details: defect, failureKind: .sceneContent)
         }
 
         var parentBackdrop: UnsafeMutablePointer<ID3D11Texture2D>?
@@ -2375,18 +2383,28 @@ final class D3D11BatchKernel {
         deviceContext.pointee.lpVtbl.pointee.PSSetConstantBuffers(deviceContext, 2, 1, &constants)
         var destination: UnsafeMutablePointer<ID3D11ShaderResourceView>? = destinationSRV
         deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 1, 1, &destination)
+        if mode == .additive {
+            if additiveBlendState == nil {
+                additiveBlendState = try makeD3D11AdditiveBlendState(device: device)
+            }
+            let factors: [FLOAT] = [0, 0, 0, 0]
+            factors.withUnsafeBufferPointer { values in
+                deviceContext.pointee.lpVtbl.pointee.OMSetBlendState(
+                    deviceContext, additiveBlendState, values.baseAddress, UINT.max)
+            }
+        }
         if failSeparableBlendAfterDestinationBindingForTesting {
             throw BatchRendererError(
                 operation: "Draw separable blend quad", hresult: batchHresultOutOfMemory,
                 details: "Injected failure after the destination and uniforms were bound.")
         }
-        // The shader emits adjusted source Q, whose alpha is still source
-        // coverage. Normal ONE/INV_SRC_ALPHA and the existing alpha-only
-        // isolated coverage draw therefore remain the correct blend states.
+        // Separable Q retains source alpha, so it also updates isolated K.
+        // Additive emits only O-D: add it to F with ONE/ONE, never to K.
+        // The enclosing defer restores source-over even if upload/draw fails.
         try renderBatch(
             quads, range: index..<(index + 1), capacity: &quadInstanceCapacity,
             buffer: &quadInstanceBuffer, srv: &quadInstanceSRV, vs: quadVS, ps: separableBlendQuadPS,
-            label: "quad", deviceContext: deviceContext)
+            label: "quad", deviceContext: deviceContext, mirrorsIsolationCoverage: mode != .additive)
     }
 
     /// The result already contains its parent backdrop. Retain destination
@@ -2682,8 +2700,9 @@ final class D3D11BatchKernel {
     }
 
     /// Repeat only the prepared GPU draw, not source resolution or path
-    /// rasterization. Every ordinary family's alpha is its coverage, so the
-    /// exact same PS, sampler and resources produce C with alpha-only writes.
+    /// rasterization. Source-over alpha is also its coverage, so the same PS,
+    /// sampler and resources produce C with alpha-only writes. Additive delta
+    /// draws opt out because they retain all prior backdrop coverage.
     private func drawPreparedInstances(
         instanceCount: Int,
         deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
@@ -4034,13 +4053,14 @@ final class D3D11BatchKernel {
         case Float(BlendMode.multiply.rawValue): return .multiply
         case Float(BlendMode.screen.rawValue): return .screen
         case Float(BlendMode.overlay.rawValue): return .overlay
+        case Float(BlendMode.additive.rawValue): return .additive
         default: return nil
         }
     }
 
     /// Materials have already been separated by the caller. Every supported
     /// ordinary blend observes all earlier draws, including earlier instances
-    /// in this run. Normal, additive and unrecognized modes retain batching.
+    /// in this run. Normal and unrecognized modes retain batching.
     private func renderOrdinaryQuadRange(
         _ quads: [QuadPrimitive], range: Range<Int>,
         deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>, surfaceSize: IntSize
@@ -4170,7 +4190,8 @@ final class D3D11BatchKernel {
         ps: UnsafeMutablePointer<ID3D11PixelShader>?,
         label: String,
         deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
-        bindSampler: Bool = false
+        bindSampler: Bool = false,
+        mirrorsIsolationCoverage: Bool = true
     ) throws {
         let instanceCount = range.count
         guard instanceCount > 0 else {
@@ -4202,7 +4223,8 @@ final class D3D11BatchKernel {
         }
 
         try drawPreparedInstances(
-            instanceCount: instanceCount, deviceContext: deviceContext)
+            instanceCount: instanceCount, deviceContext: deviceContext,
+            mirrorsIsolationCoverage: mirrorsIsolationCoverage)
 
         var nullSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = nil
         deviceContext.pointee.lpVtbl.pointee.VSSetShaderResources(deviceContext, 0, 1, &nullSRV)

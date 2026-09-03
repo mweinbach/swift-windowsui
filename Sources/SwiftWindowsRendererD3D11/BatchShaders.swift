@@ -398,8 +398,8 @@ float4 psMain(VSOutput input) : SV_Target
 """#
 
 // The ordinary color/coverage calculation is shared verbatim. Only this
-// separately selected shader reads the destination; normal and additive
-// continue through the unchanged source-over entry point above.
+// separately selected shader reads the destination. Normal continues through
+// the unchanged source-over entry point; additive emits a ONE/ONE delta.
 let batchSeparableBlendQuadShaderSource =
     batchQuadShaderSharedSource + "\n" + batchQuadPixelShaderSource + "\n" + separableBlendShaderSource + "\n" + #"""
 float4 psMain(VSOutput input) : SV_Target

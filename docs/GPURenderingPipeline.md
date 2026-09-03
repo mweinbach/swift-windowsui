@@ -1430,7 +1430,7 @@ disagree:
 
 | Producer | Alpha mode |
 |---|---|
-| `GPUIRawSceneRasterizer` (`RasterTarget.blend` divides by output alpha) | straight |
+| `GPUIRawSceneRasterizer` | straight for ordinary scenes; existing premultiplied tag when additive emission requires it |
 | `ImageLoader` (WIC `GUID_WICPixelFormat32bppBGRA`) | straight |
 | `PixelFontAtlas` (binary coverage) | straight |
 | DirectWrite / GDI text (`GDIRasterTextRenderer.tint` scales RGB by coverage) | **premultiplied** |
@@ -1448,14 +1448,19 @@ The rules that follow from that:
    target's clear color is premultiplied too: `ClearRenderTargetView` bypasses
    blending, so writing straight RGB into a translucent target otherwise
    contaminates every later source-over draw.
-2. **Straight is the CPU convention.** `RasterTarget.blend` composites in
-   straight alpha, so `drawImage` divides premultiplied sources out per
-   texel — the exact mirror of rule 1, which is what keeps the two backends
-   pixel-identical on image and path scenes.
+2. **Ordinary CPU scenes keep straight storage.** Additive emission can carry
+   RGB greater than alpha, including at alpha zero, so a target that needs
+   this contribution promotes its storage in place and keeps the existing
+   premultiplied bitmap tag. Crop/replacement, material reads and image sampling
+   preserve that representation. No additional pixel plane is allocated, and
+   bitmap blend-mode dispatch remains source-over.
 3. **Straight is the interchange convention.** `pixelColor`, `writePNG` and
    `writeBMP` all report/emit straight alpha regardless of how the bytes are
    stored, because PNG colour type 6 is straight and BMP viewers drop the
-   channel.
+   channel. This bounded interchange cannot faithfully represent additive
+   RGB greater than alpha: conversion clears zero-alpha RGB and clamps values
+   that would need straight channels above one. Runtime premultiplied transport
+   and faithful transparent PNG/BMP export are separate qualifications.
 4. **Every upload validates first.** `BitmapSurface.validate()` rejects
    non-positive dimensions, a stride below `width * 4`, and a buffer shorter
    than `bytesPerRow * height`, throwing `BitmapSurfaceError` instead of
@@ -2118,7 +2123,9 @@ Two things make it a transcription rather than a lookalike:
 - **Images filter premultiplied texels**, because every upload is
   normalized to premultiplied before it reaches the sampler
   (§ 4a). Straight-alpha sources are premultiplied per texel, mixed, and
-  un-premultiplied once at the end — `blend` composites in straight alpha.
+  un-premultiplied once at the end for ordinary straight storage. Samples
+  carrying additive emission stay premultiplied through source-over composition
+  rather than dividing their RGB by insufficient alpha.
   Interpolating straight-alpha colour instead drags a transparent texel's
   hue into its opaque neighbour, which is a halo the GPU never draws.
 
@@ -2338,13 +2345,18 @@ material-dependent content-blur input is a separate contract below.
 
 **Blend modes.** The implementation interprets multiply, screen and
 overlay for ordinary `QuadPrimitive` and legacy `FillRectCommand` drawing
-across CPU and both D3D11 paths. Ordinary quads recognize exactly selectors
-1, 2 and 3; normal and additive retain their existing source-over behavior.
-Additive/plusLighter correctness is not implemented by this change.
+across CPU and both D3D11 paths. The additive/plusLighter source implementation
+extends that same ordinary-quad and legacy-fill lane with exact selector 4;
+normal remains source-over. The additive implementation and its new regressions
+are uncompiled and unrun in this private candidate.
 
 For straight source colour `Cs`, source alpha `as`, premultiplied destination
 `D` with alpha `ad`, and its straight colour `Cd`, the adjusted source is
 `q.rgb = as * ((1 - ad) * Cs + ad * B(Cs, Cd))`, `q.a = as`.
+For an emissive destination whose RGB exceeds alpha, both backends clamp
+reconstructed `Cd` to `[0,1]` inside the separable blend function, matching
+the existing CPU normalization. The retained premultiplied `D` is unchanged.
+This policy does not establish native SwiftUI emission or color-space parity.
 Existing source-over composition then adds `(1 - as) * D`. This retains
 source alpha and coverage; isolated drawing reads the existing virtual
 foreground-plus-backdrop destination without replacing the coverage plane.
@@ -2354,12 +2366,45 @@ the latest actual target before each draw. The legacy renderer uses D3D11
 for frames containing supported `FillRectCommand` modes, with a premultiplied
 clear for those frames. It captures the active scissor so Float geometry
 cannot outgrow a narrower Double copy window, and subsequent eligible frames
-can return to Direct2D. Normal/additive-only legacy clear behavior is unchanged.
-The larger scissor copy is not a performance qualification.
+can return to Direct2D. Additive frames use that same premultiplied-clear
+route; normal-only legacy clear behavior is unchanged. The larger scissor copy
+is not a performance qualification.
+
+For additive, source coverage is applied before saturation:
+`O.rgb = min(1, Cs * as + D.rgb)`, `O.a = min(1, as + D.a)`.
+This is the saturated sum in [Apple's plusLighter definition](https://developer.apple.com/documentation/coregraphics/cgblendmode/pluslighter)
+and the explicit color/alpha rule in the [W3C Compositing Level 2 editor's draft, section 9.1.15](https://drafts.csswg.org/compositing-2/#plus-lighter).
+An isolated target reads `D = F + (1-K)B`, adds only the nonnegative increment
+`min(S, max(0, 1-D))` to foreground `F`, and leaves replacement coverage `K`
+unchanged. Both D3D11 paths use ONE/ONE for RGB and alpha; the batch path omits
+its source-over coverage mirror for this draw. Output group opacity scales the
+completed contribution after saturation. CPU storage retains premultiplied
+emission through nested images and later draws, even when its local alpha is zero.
+
+Existing straight-color effect chains cannot preserve all such emission.
+A used independent pass with nonempty color effects is explicitly refused when
+reachable backdrop-dependent additive content blur can supply emitted RGB,
+or a used premultiplied bitmap contains color bytes greater than alpha.
+The bounded analysis follows used image occurrences and their local bindings;
+an explicit bitmap binding takes precedence. Safe bitmap overrides, unused
+passes/resources and ordinary representable additive-plus-effect scenes are
+not classified as emitted content. Scanning examines active BGRA pixels only,
+ignores row padding and straight-alpha inputs, and caches by mutation-safe
+`BitmapContentKey` within the query. It has a 16,777,216-pixel (64 MiB active
+payload) budget per query; exhaustion refuses even an otherwise representable
+imported-image effect chain rather than assuming it safe. A used premultiplied
+bitmap with malformed storage is refused as invalid before inspection; ordinary
+unfiltered malformed-image behavior is unchanged. No payload scanning runs for
+ordinary scenes without a used effect pass. Admission and rendering
+may query again; this source candidate has no performance qualification.
+CPU uses its visible unsupported tile and D3D11 reports a scene-content error.
+This conservative refusal remains a compatibility gap, not complete effect
+composition support.
 
 `CPUGPUBlendModeContractTests` remains: its assertions now distinguish these
-three modes while preserving mode transport and normal/additive behavior.
-Focused Blend49 validation at `8b54e8e` passed all 49 selected regressions,
+three separable modes and the additive sum while preserving mode transport
+and normal behavior. Historical Blend49 validation at `8b54e8e`, before this
+additive change, passed all 49 then-selected regressions,
 covering CPU reference behavior, offscreen D3D11 batch WARP and the actual
 legacy WARP kernel, together with mode transport and retained-modifier checks.
 The legacy composition-swapchain seam draws without an HWND or Present.

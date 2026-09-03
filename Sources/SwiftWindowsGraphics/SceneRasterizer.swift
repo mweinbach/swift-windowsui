@@ -176,6 +176,7 @@ public enum GPUIRawSceneRasterizer {
                         if pass.hasValidExtent,
                             pass.colorEffects.count <= GPUISceneLimits.maxColorEffects,
                             pass.contentBlurRadiusDefect == nil,
+                            pass.additiveEmissionColorEffectDefect == nil,
                             imageRenderPassDepth < GPUISceneLimits.maxImageRenderPassDepth,
                             imageRenderPassBudget.consume(pass)
                         {
@@ -436,6 +437,7 @@ private struct RasterIsolatedImage {
     var height: Int
     var premultipliedPixels: [UInt8]
     var coverage: [UInt8]
+    var requiresPremultipliedForeground: Bool
 }
 
 private struct RasterTarget {
@@ -445,6 +447,7 @@ private struct RasterTarget {
     private var backdropPixels: [UInt8] = []
     private var replacementCoverage: [UInt8] = []
     private var validBackdropRegion: SubTextureRegion?
+    private var storesPremultipliedPixels = false
 
     var isBackdropIsolated: Bool { !replacementCoverage.isEmpty }
 
@@ -466,6 +469,7 @@ private struct RasterTarget {
     init(cropping parent: RasterTarget, to region: SubTextureRegion) {
         width = region.width
         height = region.height
+        storesPremultipliedPixels = parent.storesPremultipliedPixels
         pixels = Array(repeating: 0, count: width * height * 4)
         let rowBytes = width * 4
         for row in 0..<height {
@@ -509,13 +513,16 @@ private struct RasterTarget {
         backdropPixels = []
         validBackdropRegion = nil
 
-        // D is no longer needed. Convert F in place, then use exactly the same
-        // byte-quantized Gaussian plan for color and replacement coverage.
-        for offset in stride(from: 0, to: pixels.count, by: 4) {
-            let alpha = Float(pixels[offset + 3]) / 255
-            pixels[offset] = byte(Float(pixels[offset]) / 255 * alpha)
-            pixels[offset + 1] = byte(Float(pixels[offset + 1]) / 255 * alpha)
-            pixels[offset + 2] = byte(Float(pixels[offset + 2]) / 255 * alpha)
+        // Additive foreground already uses premultiplied contributions, whose
+        // RGB can be nonzero at alpha zero. Other scenes retain the original
+        // conversion and byte-quantized Gaussian plan for foreground and K.
+        if !storesPremultipliedPixels {
+            for offset in stride(from: 0, to: pixels.count, by: 4) {
+                let alpha = Float(pixels[offset + 3]) / 255
+                pixels[offset] = byte(Float(pixels[offset]) / 255 * alpha)
+                pixels[offset + 1] = byte(Float(pixels[offset + 1]) / 255 * alpha)
+                pixels[offset + 2] = byte(Float(pixels[offset + 2]) / 255 * alpha)
+            }
         }
         if radius > 0 {
             PremultipliedImageBlur.blur(&pixels, width: width, height: height, radius: radius)
@@ -525,7 +532,23 @@ private struct RasterTarget {
             for index in coverage.indices { coverage[index] = expandedCoverage[index * 4 + 3] }
         }
         return RasterIsolatedImage(
-            width: width, height: height, premultipliedPixels: pixels, coverage: coverage)
+            width: width, height: height, premultipliedPixels: pixels, coverage: coverage,
+            requiresPremultipliedForeground: storesPremultipliedPixels)
+    }
+
+    /// One in-place conversion when additive emission cannot be represented in
+    /// straight storage. No extra plane is allocated. Ordinary targets can need
+    /// this after a dependent content blur spreads emission onto transparency;
+    /// scenes without emission keep their original storage path.
+    private mutating func promotePremultipliedStorage() {
+        guard !storesPremultipliedPixels else { return }
+        for offset in stride(from: 0, to: pixels.count, by: 4) {
+            let alpha = Float(pixels[offset + 3]) / 255
+            pixels[offset] = byte(Float(pixels[offset]) / 255 * alpha)
+            pixels[offset + 1] = byte(Float(pixels[offset + 1]) / 255 * alpha)
+            pixels[offset + 2] = byte(Float(pixels[offset + 2]) / 255 * alpha)
+        }
+        storesPremultipliedPixels = true
     }
 
     /// F + (1 - C)D is the virtual immediate-parent surface. Clamp only D:
@@ -534,10 +557,11 @@ private struct RasterTarget {
     private func premultipliedColor(x: Int, y: Int) -> RasterColor {
         let offset = pixelOffset(x: x, y: y)
         let alpha = Float(pixels[offset + 3]) / 255
+        let colorScale = storesPremultipliedPixels ? 1 : alpha
         var color = RasterColor(
-            red: Float(pixels[offset + 2]) / 255 * alpha,
-            green: Float(pixels[offset + 1]) / 255 * alpha,
-            blue: Float(pixels[offset]) / 255 * alpha,
+            red: Float(pixels[offset + 2]) / 255 * colorScale,
+            green: Float(pixels[offset + 1]) / 255 * colorScale,
+            blue: Float(pixels[offset]) / 255 * colorScale,
             alpha: alpha)
         guard isBackdropIsolated, let region = validBackdropRegion, !region.isEmpty else { return color }
         let backdropX = clamp(x, lower: region.originX, upper: region.maxX - 1)
@@ -615,9 +639,11 @@ private struct RasterTarget {
             return
         }
 
-        // Only the three exact authored selectors are implemented. A material
-        // already returned through its distinct replacement path above.
+        // A material already returned through its distinct replacement path.
+        // Exact additive has its own premultiplied operator; the three separable
+        // modes retain their adjusted-source/source-over path.
         let separableBlendMode = SceneSeparableBlendCompositing.mode(for: quad.blendMode)
+        let isAdditive = quad.blendMode == Float(BlendMode.additive.rawValue)
 
         // The plain quad shader widens its edge falloff by `blurRadius * 2`
         // instead of blurring. Only sub-pixel radii ever reach it — anything
@@ -641,9 +667,12 @@ private struct RasterTarget {
                     let color = shadedQuadColor(
                         quad, start: start, end: end, localX: localX, localY: localY, rect: rect)
                 else { continue }
-                blend(
-                    color.withAlphaMultiplier(Float(coverage * clipAlpha)), x: x, y: y,
-                    separableMode: separableBlendMode)
+                let coveredColor = color.withAlphaMultiplier(Float(coverage * clipAlpha))
+                if isAdditive {
+                    blendAdditive(coveredColor, x: x, y: y)
+                } else {
+                    blend(coveredColor, x: x, y: y, separableMode: separableBlendMode)
+                }
             }
         }
     }
@@ -729,14 +758,25 @@ private struct RasterTarget {
                 let destinationOffset = pixelOffset(x: x, y: y)
                 let retainedAlpha = Float(pixels[destinationOffset + 3]) / 255 * (1 - mask)
                 let outputAlpha = materialAlpha * mask + retainedAlpha
-                let unpremultiply: Float = outputAlpha > 0 ? 1 / outputAlpha : 0
-                pixels[destinationOffset] = byte(
-                    (compositedBlue * mask + Float(pixels[destinationOffset]) / 255 * retainedAlpha) * unpremultiply)
-                pixels[destinationOffset + 1] = byte(
-                    (compositedGreen * mask + Float(pixels[destinationOffset + 1]) / 255 * retainedAlpha)
-                        * unpremultiply)
-                pixels[destinationOffset + 2] = byte(
-                    (compositedRed * mask + Float(pixels[destinationOffset + 2]) / 255 * retainedAlpha) * unpremultiply)
+                if storesPremultipliedPixels {
+                    pixels[destinationOffset] = byte(
+                        compositedBlue * mask + Float(pixels[destinationOffset]) / 255 * (1 - mask))
+                    pixels[destinationOffset + 1] = byte(
+                        compositedGreen * mask + Float(pixels[destinationOffset + 1]) / 255 * (1 - mask))
+                    pixels[destinationOffset + 2] = byte(
+                        compositedRed * mask + Float(pixels[destinationOffset + 2]) / 255 * (1 - mask))
+                } else {
+                    let unpremultiply: Float = outputAlpha > 0 ? 1 / outputAlpha : 0
+                    pixels[destinationOffset] = byte(
+                        (compositedBlue * mask + Float(pixels[destinationOffset]) / 255 * retainedAlpha) * unpremultiply
+                    )
+                    pixels[destinationOffset + 1] = byte(
+                        (compositedGreen * mask + Float(pixels[destinationOffset + 1]) / 255 * retainedAlpha)
+                            * unpremultiply)
+                    pixels[destinationOffset + 2] = byte(
+                        (compositedRed * mask + Float(pixels[destinationOffset + 2]) / 255 * retainedAlpha)
+                            * unpremultiply)
+                }
                 pixels[destinationOffset + 3] = byte(outputAlpha)
                 accumulateReplacementCoverage(mask, x: x, y: y)
             }
@@ -832,7 +872,7 @@ private struct RasterTarget {
         let regionWidth = bounds.width
         let regionHeight = bounds.height
         var region = [UInt8](repeating: 0, count: regionWidth * regionHeight * 4)
-        if isBackdropIsolated {
+        if isBackdropIsolated || storesPremultipliedPixels {
             for y in bounds.y0..<bounds.y1 {
                 for x in bounds.x0..<bounds.x1 {
                     let color = premultipliedColor(x: x, y: y)
@@ -1113,25 +1153,46 @@ private struct RasterTarget {
                 let x = region.originX + column
                 let sourceIndex = sourceY * result.width + mapping.childOffsetX + column
                 let weight = opacity * Float(clip.alpha(atPixelX: x, y: y))
+                guard weight > 0 else { continue }
                 let coverage = weight * Float(result.coverage[sourceIndex]) / 255
-                // Preserve empty content byte for byte, including hidden RGB
-                // in a transparent destination. The parent copy is only input.
-                guard coverage > 0 else { continue }
                 let source = sourceIndex * 4
+                let hasAdditiveContribution =
+                    result.requiresPremultipliedForeground
+                    && (result.premultipliedPixels[source] != 0
+                        || result.premultipliedPixels[source + 1] != 0
+                        || result.premultipliedPixels[source + 2] != 0
+                        || result.premultipliedPixels[source + 3] != 0)
+                // Preserve empty content byte for byte, including hidden RGB
+                // in a transparent destination. Additive foreground can carry
+                // color while both its alpha and replacement coverage are zero.
+                guard coverage > 0 || hasAdditiveContribution else { continue }
                 let destination = pixelOffset(x: x, y: y)
                 let sourceAlpha = Float(result.premultipliedPixels[source + 3]) / 255
                 let retainedAlpha = Float(pixels[destination + 3]) / 255 * (1 - coverage)
                 let outputAlpha = sourceAlpha * weight + retainedAlpha
-                let unpremultiply: Float = outputAlpha > 0 ? 1 / outputAlpha : 0
-                pixels[destination] = byte(
-                    (Float(result.premultipliedPixels[source]) / 255 * weight
-                        + Float(pixels[destination]) / 255 * retainedAlpha) * unpremultiply)
-                pixels[destination + 1] = byte(
-                    (Float(result.premultipliedPixels[source + 1]) / 255 * weight
-                        + Float(pixels[destination + 1]) / 255 * retainedAlpha) * unpremultiply)
-                pixels[destination + 2] = byte(
-                    (Float(result.premultipliedPixels[source + 2]) / 255 * weight
-                        + Float(pixels[destination + 2]) / 255 * retainedAlpha) * unpremultiply)
+                if storesPremultipliedPixels || result.requiresPremultipliedForeground {
+                    let retainedColor = storesPremultipliedPixels ? 1 - coverage : retainedAlpha
+                    writePremultiplied(
+                        RasterColor(
+                            red: Float(result.premultipliedPixels[source + 2]) / 255 * weight
+                                + Float(pixels[destination + 2]) / 255 * retainedColor,
+                            green: Float(result.premultipliedPixels[source + 1]) / 255 * weight
+                                + Float(pixels[destination + 1]) / 255 * retainedColor,
+                            blue: Float(result.premultipliedPixels[source]) / 255 * weight
+                                + Float(pixels[destination]) / 255 * retainedColor,
+                            alpha: outputAlpha), x: x, y: y)
+                } else {
+                    let unpremultiply: Float = outputAlpha > 0 ? 1 / outputAlpha : 0
+                    pixels[destination] = byte(
+                        (Float(result.premultipliedPixels[source]) / 255 * weight
+                            + Float(pixels[destination]) / 255 * retainedAlpha) * unpremultiply)
+                    pixels[destination + 1] = byte(
+                        (Float(result.premultipliedPixels[source + 1]) / 255 * weight
+                            + Float(pixels[destination + 1]) / 255 * retainedAlpha) * unpremultiply)
+                    pixels[destination + 2] = byte(
+                        (Float(result.premultipliedPixels[source + 2]) / 255 * weight
+                            + Float(pixels[destination + 2]) / 255 * retainedAlpha) * unpremultiply)
+                }
                 pixels[destination + 3] = byte(outputAlpha)
                 accumulateReplacementCoverage(coverage, x: x, y: y)
             }
@@ -1168,7 +1229,8 @@ private struct RasterTarget {
                 let input = (row * source.width + column) * 4
                 // Preserve untouched bytes exactly, including transparent hidden
                 // RGB. All other colors are combined in premultiplied space.
-                if pixels[destination] == source.pixels[input],
+                if storesPremultipliedPixels == source.storesPremultipliedPixels,
+                    pixels[destination] == source.pixels[input],
                     pixels[destination + 1] == source.pixels[input + 1],
                     pixels[destination + 2] == source.pixels[input + 2],
                     pixels[destination + 3] == source.pixels[input + 3]
@@ -1180,6 +1242,20 @@ private struct RasterTarget {
                 let weightedSourceAlpha = sourceAlpha * coverage
                 let retainedAlpha = destinationAlpha * (1 - coverage)
                 let outputAlpha = weightedSourceAlpha + retainedAlpha
+                if storesPremultipliedPixels || source.storesPremultipliedPixels {
+                    let sourceScale = source.storesPremultipliedPixels ? coverage : weightedSourceAlpha
+                    let destinationScale = storesPremultipliedPixels ? 1 - coverage : retainedAlpha
+                    writePremultiplied(
+                        RasterColor(
+                            red: Float(source.pixels[input + 2]) / 255 * sourceScale
+                                + Float(pixels[destination + 2]) / 255 * destinationScale,
+                            green: Float(source.pixels[input + 1]) / 255 * sourceScale
+                                + Float(pixels[destination + 1]) / 255 * destinationScale,
+                            blue: Float(source.pixels[input]) / 255 * sourceScale
+                                + Float(pixels[destination]) / 255 * destinationScale,
+                            alpha: outputAlpha), x: x, y: y)
+                    continue
+                }
                 let unpremultiply: Float = outputAlpha > 0 ? 1 / outputAlpha : 0
                 pixels[destination] = byte(
                     (Float(source.pixels[input]) / 255 * weightedSourceAlpha
@@ -1319,6 +1395,19 @@ private struct RasterTarget {
                 let sampledBlue = bilinearMix(
                     topLeft.blue, topRight.blue, bottomLeft.blue, bottomRight.blue,
                     fractionX: tapX.fraction, fractionY: tapY.fraction)
+                if sampledRed > sampledAlpha || sampledGreen > sampledAlpha || sampledBlue > sampledAlpha {
+                    // A dependent additive blur can emit RGB at alpha zero.
+                    // Preserve its premultiplied value through image transport;
+                    // bitmap blend-mode dispatch remains ordinary source-over.
+                    let weight = clamp(image.opacity, lower: 0, upper: 1) * Float(clipAlpha)
+                    blendPremultipliedEmission(
+                        RasterColor(
+                            red: Float(sampledRed) * weight,
+                            green: Float(sampledGreen) * weight,
+                            blue: Float(sampledBlue) * weight,
+                            alpha: Float(sampledAlpha) * weight), x: x, y: y)
+                    continue
+                }
                 blend(
                     RasterColor(
                         red: Float(sampledRed / divisor),
@@ -1403,14 +1492,15 @@ private struct RasterTarget {
     }
 
     func bitmapSurface() -> BitmapSurface {
-        // `blend` un-premultiplies before storing (it divides by
-        // `outputAlpha`), so the rasterizer's output is straight alpha.
+        // Ordinary scenes retain straight output. Additive emission may have
+        // RGB > alpha, including at alpha zero, and must retain the existing
+        // premultiplied tag across image passes instead of losing that color.
         BitmapSurface(
             width: Int32(width),
             height: Int32(height),
             bytesPerRow: Int32(width * 4),
             pixels: Data(pixels),
-            format: .bgra8Straight
+            format: storesPremultipliedPixels ? .bgra8Premultiplied : .bgra8Straight
         )
     }
 
@@ -1457,14 +1547,92 @@ private struct RasterTarget {
             return
         }
 
-        pixels[offset] = byte(
-            (source.blue * sourceAlpha + destinationBlue * destinationAlpha * (1 - sourceAlpha)) / outputAlpha)
-        pixels[offset + 1] = byte(
-            (source.green * sourceAlpha + destinationGreen * destinationAlpha * (1 - sourceAlpha)) / outputAlpha)
-        pixels[offset + 2] = byte(
-            (source.red * sourceAlpha + destinationRed * destinationAlpha * (1 - sourceAlpha)) / outputAlpha)
+        if storesPremultipliedPixels {
+            pixels[offset] = byte(source.blue * sourceAlpha + destinationBlue * (1 - sourceAlpha))
+            pixels[offset + 1] = byte(source.green * sourceAlpha + destinationGreen * (1 - sourceAlpha))
+            pixels[offset + 2] = byte(source.red * sourceAlpha + destinationRed * (1 - sourceAlpha))
+        } else {
+            pixels[offset] = byte(
+                (source.blue * sourceAlpha + destinationBlue * destinationAlpha * (1 - sourceAlpha)) / outputAlpha)
+            pixels[offset + 1] = byte(
+                (source.green * sourceAlpha + destinationGreen * destinationAlpha * (1 - sourceAlpha)) / outputAlpha)
+            pixels[offset + 2] = byte(
+                (source.red * sourceAlpha + destinationRed * destinationAlpha * (1 - sourceAlpha)) / outputAlpha)
+        }
         pixels[offset + 3] = byte(outputAlpha)
         accumulateReplacementCoverage(sourceAlpha, x: x, y: y)
+    }
+
+    /// Saturate the visible premultiplied sum, adding only its nonnegative
+    /// increment to local foreground. Replacement coverage remains unchanged:
+    /// F' + (1-K)B = F + (saturate(S+D)-D) + (1-K)B = saturate(S+D).
+    private mutating func blendAdditive(_ color: RasterColor, x: Int, y: Int) {
+        let sourceAlpha = clamp(color.alpha, lower: 0, upper: 1)
+        guard sourceAlpha > 0 else { return }
+        let source = Color(red: color.red, green: color.green, blue: color.blue, alpha: sourceAlpha)
+        func increment(over backdrop: RasterColor) -> Color {
+            SceneAdditiveBlendCompositing.premultipliedIncrement(
+                source: source,
+                premultipliedBackdrop: Color(
+                    red: backdrop.red, green: backdrop.green, blue: backdrop.blue, alpha: backdrop.alpha))
+        }
+        var backdrop = premultipliedColor(x: x, y: y)
+        var delta = increment(over: backdrop)
+        guard delta.red > 0 || delta.green > 0 || delta.blue > 0 || delta.alpha > 0 else { return }
+
+        let offset = pixelOffset(x: x, y: y)
+        if isBackdropIsolated || storesPremultipliedPixels {
+            if !storesPremultipliedPixels {
+                promotePremultipliedStorage()
+                // Promotion introduces the same byte boundary as the GPU's F
+                // texture. Re-evaluate against that stored virtual destination.
+                backdrop = premultipliedColor(x: x, y: y)
+                delta = increment(over: backdrop)
+            }
+            pixels[offset] = byte(Float(pixels[offset]) / 255 + delta.blue)
+            pixels[offset + 1] = byte(Float(pixels[offset + 1]) / 255 + delta.green)
+            pixels[offset + 2] = byte(Float(pixels[offset + 2]) / 255 + delta.red)
+            pixels[offset + 3] = byte(Float(pixels[offset + 3]) / 255 + delta.alpha)
+        } else {
+            let outputAlpha = backdrop.alpha + delta.alpha
+            guard outputAlpha > 0 else { return }
+            pixels[offset] = byte((backdrop.blue + delta.blue) / outputAlpha)
+            pixels[offset + 1] = byte((backdrop.green + delta.green) / outputAlpha)
+            pixels[offset + 2] = byte((backdrop.red + delta.red) / outputAlpha)
+            pixels[offset + 3] = byte(outputAlpha)
+        }
+    }
+
+    /// Write a premultiplied result without forcing emissive RGB through alpha.
+    /// Promotion is conditional, so ordinary representable images keep the
+    /// previous straight storage and do not pay another conversion boundary.
+    private mutating func writePremultiplied(_ color: RasterColor, x: Int, y: Int) {
+        if color.red > color.alpha || color.green > color.alpha || color.blue > color.alpha {
+            promotePremultipliedStorage()
+        }
+        let offset = pixelOffset(x: x, y: y)
+        let colorScale: Float = storesPremultipliedPixels ? 1 : (color.alpha > 0 ? 1 / color.alpha : 0)
+        pixels[offset] = byte(color.blue * colorScale)
+        pixels[offset + 1] = byte(color.green * colorScale)
+        pixels[offset + 2] = byte(color.red * colorScale)
+        pixels[offset + 3] = byte(color.alpha)
+    }
+
+    /// Source-over still uses source alpha for attenuation and isolated K.
+    /// Only the source representation differs from `blend`: emitted RGB must
+    /// not be divided or clamped through an insufficient (possibly zero) alpha.
+    private mutating func blendPremultipliedEmission(_ color: RasterColor, x: Int, y: Int) {
+        guard color.red > 0 || color.green > 0 || color.blue > 0 || color.alpha > 0 else { return }
+        let offset = pixelOffset(x: x, y: y)
+        let destinationAlpha = Float(pixels[offset + 3]) / 255
+        let retainedColor = (storesPremultipliedPixels ? 1 : destinationAlpha) * (1 - color.alpha)
+        writePremultiplied(
+            RasterColor(
+                red: color.red + Float(pixels[offset + 2]) / 255 * retainedColor,
+                green: color.green + Float(pixels[offset + 1]) / 255 * retainedColor,
+                blue: color.blue + Float(pixels[offset]) / 255 * retainedColor,
+                alpha: color.alpha + destinationAlpha * (1 - color.alpha)), x: x, y: y)
+        accumulateReplacementCoverage(color.alpha, x: x, y: y)
     }
 
     /// Ordinary drawing supplies source alpha; material drawing supplies its

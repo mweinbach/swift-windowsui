@@ -40,11 +40,11 @@ extension GPUIScene {
     /// Unsupported style features degrade to explicit fallbacks:
     /// - Ellipse clips: Fallback to bounding rect of the ellipse
     /// - Path clips: Fallback to full surface (no-op)
-    /// - Per-command blend modes: Carried onto `QuadPrimitive.blendMode` and
-    ///   never interpreted. The scene contract composites source-over on every
-    ///   backend (`CPUGPUBlendModeContractTests`); the field survives the
-    ///   conversion only so the decision stays reversible, which is also why
-    ///   the frame path must not drop what the scene path keeps.
+    /// - Fill-rectangle blend modes: Carried onto `QuadPrimitive.blendMode`;
+    ///   ordinary quads interpret multiply, screen, overlay and additive on
+    ///   both backends (`CPUGPUBlendModeContractTests`). Bitmap blend modes
+    ///   remain source-over metadata; material combinations and other families
+    ///   do not gain ordinary-quad blend semantics through this conversion.
     ///
     /// - Parameters:
     ///   - frame: The backend-neutral render frame to convert.

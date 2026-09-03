@@ -172,9 +172,9 @@ final class D3D11FrameKernel {
     private var bitmapPixelShader: UnsafeMutablePointer<ID3D11PixelShader>?
     private var bitmapConstantBuffer: UnsafeMutablePointer<ID3D11Buffer>?
     private var bitmapSamplerState: UnsafeMutablePointer<ID3D11SamplerState>?
-    /// The one blend state this presenter owns: `ONE / INV_SRC_ALPHA`.
-    /// See ``createPipelineIfNeeded()`` for why there is exactly one.
+    /// Default source-over state, restored after every additive FillRect.
     private var blendState: UnsafeMutablePointer<ID3D11BlendState>?
+    private var additiveBlendState: UnsafeMutablePointer<ID3D11BlendState>?
     private var rasterizerState: UnsafeMutablePointer<ID3D11RasterizerState>?
     private var direct2DFactory: UnsafeMutableRawPointer?
     private var direct2DDevice: UnsafeMutableRawPointer?
@@ -425,6 +425,7 @@ final class D3D11FrameKernel {
 
         releaseCOM(&rasterizerState)
         releaseCOM(&blendState)
+        releaseCOM(&additiveBlendState)
 
         releaseCOM(&bitmapSamplerState)
         releaseCOM(&bitmapConstantBuffer)
@@ -1030,7 +1031,8 @@ final class D3D11FrameKernel {
 
         // Ordinary source-over also completes the adjusted premultiplied
         // source emitted by the separable FillRect pixel shader.
-        // Additive and other primitive families retain their prior fallback.
+        // Additive fills select a separate ONE/ONE state for their delta;
+        // other primitive families keep this default source-over state.
         var blendDescriptor = D3D11_BLEND_DESC()
         blendDescriptor.AlphaToCoverageEnable = false
         blendDescriptor.IndependentBlendEnable = false
@@ -1520,6 +1522,26 @@ final class D3D11FrameKernel {
                 deviceContext.pointee.lpVtbl.pointee.PSSetConstantBuffers(deviceContext, 2, 1, &noBuffer)
                 // Keep the allocation; the next supported fill recopies
                 // its current destination bytes before drawing.
+            }
+            if command.blendMode == .additive {
+                let factors: [FLOAT] = [0, 0, 0, 0]
+                factors.withUnsafeBufferPointer { values in
+                    deviceContext.pointee.lpVtbl.pointee.OMSetBlendState(
+                        deviceContext, blendState, values.baseAddress, UINT.max)
+                }
+            }
+        }
+        if command.blendMode == .additive {
+            if additiveBlendState == nil {
+                guard let device else {
+                    throw D3D11RendererError(operation: "Resolve additive blend device", hresult: hresultHandle)
+                }
+                additiveBlendState = try makeD3D11AdditiveBlendState(device: device)
+            }
+            let factors: [FLOAT] = [0, 0, 0, 0]
+            factors.withUnsafeBufferPointer { values in
+                deviceContext.pointee.lpVtbl.pointee.OMSetBlendState(
+                    deviceContext, additiveBlendState, values.baseAddress, UINT.max)
             }
         }
 
@@ -2259,8 +2281,8 @@ func frameSupportsDirect2DImageSampling(_ frame: RenderFrame) -> Bool {
 
 private func supportsFrameSeparableBlend(_ mode: BlendMode) -> Bool {
     switch mode {
-    case .multiply, .screen, .overlay: return true
-    case .normal, .additive: return false
+    case .multiply, .screen, .overlay, .additive: return true
+    case .normal: return false
     }
 }
 

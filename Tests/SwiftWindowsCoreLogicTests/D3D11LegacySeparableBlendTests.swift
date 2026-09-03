@@ -201,8 +201,8 @@ final class D3D11LegacySeparableBlendTests: XCTestCase {
                 Self.assertPixel(image, x: 24, y: 6, equals: [144, 198, 55, 255], tolerance: 3)
                 Self.assertPixel(image, x: 16, y: 16, equals: [128, 110, 65, 255], tolerance: 3)
                 Self.assertPixel(image, x: 6, y: 24, equals: [230, 204, 26, 255])
-                // Additive remains the legacy source-over fallback in this slice.
-                Self.assertPixel(image, x: 24, y: 24, equals: [102, 26, 230, 255])
+                // The final additive draw saturates the current premultiplied destination.
+                Self.assertPixel(image, x: 24, y: 24, equals: [230, 135, 255, 255])
             }
         }
     }
@@ -225,12 +225,17 @@ final class D3D11LegacySeparableBlendTests: XCTestCase {
                     XCTAssertTrue(renderer.isDirect2DEnabled)
                 }
 
-                for mode in [BlendMode.normal, .additive] {
+                for mode in [BlendMode.normal, .additive, .normal] {
                     let after = try Self.draw(
                         renderer, clear: Self.backdrop, commands: [Self.fill(Self.foreground, mode: mode)])
-                    XCTAssertEqual(renderer.lastFrameDrawingPathForTesting, .direct2D)
+                    if mode == .additive {
+                        XCTAssertEqual(renderer.lastFrameDrawingPathForTesting, .direct3D11)
+                        Self.assertPixel(after, x: 16, y: 16, equals: [255, 255, 242, 255])
+                    } else {
+                        XCTAssertEqual(renderer.lastFrameDrawingPathForTesting, .direct2D)
+                        Self.assertPixel(after, x: 16, y: 16, equals: [64, 102, 191, 255])
+                    }
                     XCTAssertTrue(renderer.isDirect2DEnabled)
-                    Self.assertPixel(after, x: 16, y: 16, equals: [64, 102, 191, 255])
                 }
                 // No internal offscreen call has presented a native frame.
                 XCTAssertNotEqual(renderer.lastFrameSubmission?.outcome, .submitted)

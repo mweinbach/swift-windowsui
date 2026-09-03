@@ -17193,3 +17193,47 @@ the two test clarifications. Contracts, strict five-file lint and whitespace
 checks pass. Behavioral validation of the revised assertions and the remaining
 UIA planning fix is still required. The original combined/full gates have not
 passed, and all nine completion gates remain open without changing the goal.
+
+### 2026-09-02 — Keep the UIA construction window tied to its original target
+
+The missing required rows came from an absolute future viewport estimate that
+survived accepted height changes. The original logical target moves in content
+coordinates as nearby rows and earlier records are measured. Planning around
+the old offset can therefore construct rows beyond that target while leaving
+rows needed by its actual reveal absent.
+
+The adapter now derives the prospective viewport from the current cached bounds
+of the original target token. The hint's generation, configuration, membership,
+source index and original viewport remain unchanged. Planning neither invokes
+authored code nor authorizes scrolling, focus or accessibility publication.
+The target end preserves the existing logical-bounds arithmetic that excludes
+trailing inter-leaf spacing. Buffer direction follows the newly calculated
+offset, including when accepted measurements move the original target across
+the unchanged viewport before construction.
+
+Only the first candidate may use the existing prefetch extent as a bounded
+measurement buffer on the far side of the reveal. Current required rows and
+the actual prospective viewport retain priority; the buffer uses only spare
+record capacity and leaves a slot for the existing boundary probe. Running out
+of buffer capacity alone does not classify the main window as oversized. The
+cursor remains bounded by the record cap and uses the existing indexed jumps.
+
+After the first accepted candidate, the same plan excludes that extra buffer.
+Unchanged readiness checks require exact plan agreement and actual probe
+retirement, so the existing paid provider phase trims surplus output before
+the owned scroll. No final-query measurement exception, new request, extra
+phase, additional round or element allowance is introduced. The final query
+still rejects any absent required row or incomplete accepted measurement.
+
+Nine new raw planning methods cover both directions, measured shrink, exact
+probe and surplus retirement, record and leaf caps, two-element priority,
+zero prefetch, trailing spacing, changed direction and cancellation. They do
+not claim physical Runtime settlement or an end-to-end four-round result.
+All original tests remain unchanged.
+Root source review, contracts, strict lint and formatting review pass. The next
+fixed-source run combines the previous twenty cleanup regressions, thirty
+existing construction-hint methods, twelve additional existing final-prefetch
+methods, and the nine new planning methods: seventy-one methods total.
+Behavioral success is not yet claimed.
+The original combined and full gates remain separate, and all nine completion
+gates remain open with the original goal text preserved.

@@ -3583,8 +3583,25 @@ package final class RetainedLazyListRuntimeAdapter {
         for hint: UIAConstructionHint, required: Set<RetainedLazyListRowToken>
     ) -> UIAPlannedWindow? {
         guard hint.isCurrent, required.count <= maximumMountedRecords,
-            let window = extentIndex?.window(
-                offset: hint.estimatedViewport.offset, viewportExtent: hint.estimatedViewport.extent)
+            let target = coordinateRecord(at: hint.sourceIndex),
+            let total = extentIndex?.totalExtent, total.isFinite
+        else { return nil }
+        // Keep the original token, viewport, and request. Accepted measurements
+        // may move that token, so an absolute estimate cannot describe the
+        // viewport that Runtime will eventually reveal around its actual row.
+        let targetEnd = target.start + max(0, target.end - target.start - interLeafSpacing)
+        guard targetEnd.isFinite else { return nil }
+        let requested: Double
+        if target.start < hint.viewport.offset {
+            requested = target.start
+        } else if targetEnd > hint.viewport.offset + hint.viewport.extent {
+            requested = targetEnd - hint.viewport.extent
+        } else {
+            requested = hint.viewport.offset
+        }
+        let offset = min(max(0, requested), max(0, total - hint.viewport.extent))
+        guard requested.isFinite,
+            let window = extentIndex?.window(offset: offset, viewportExtent: hint.viewport.extent)
         else { return nil }
         guard !window.isEmpty else { return UIAPlannedWindow(tokens: [], exceedsRecordLimit: false) }
         guard let end = extentIndex?.prefixOffset(before: window.upperBound) else { return nil }
@@ -3606,6 +3623,34 @@ package final class RetainedLazyListRuntimeAdapter {
             }
             position = next.position
         }
+        // Only the first candidate may use the existing prefetch allowance as
+        // measurement slack. The actual future window above has priority under
+        // both the record cap and the shared element budget. Keep one spare
+        // record for the ordinary boundary probe; slack alone cannot make a
+        // sufficient main window exceed its cap.
+        if hint.acceptedPlan == nil, prefetchExtent > 0, selected.count < maximumMountedRecords - 1 {
+            let leads = offset > hint.viewport.offset
+            let trails = offset < hint.viewport.offset
+            guard let start = extentIndex?.prefixOffset(before: window.lowerBound) else { return nil }
+            let lower = max(0, start - prefetchExtent)
+            let upper = end + min(prefetchExtent, max(0, total - end))
+            var next =
+                leads
+                ? precedingRecord(before: start, after: lower)
+                : (trails ? followingRecord(from: end, through: upper) : nil)
+            var remainingAdvances = maximumMountedRecords
+            while let record = next, selected.count < maximumMountedRecords - 1, remainingAdvances > 0 {
+                remainingAdvances -= 1
+                if selected.insert(record.token).inserted { planned.append(record.token) }
+                next =
+                    leads
+                    ? precedingRecord(before: record.start, after: lower)
+                    : followingRecord(from: record.end, through: upper)
+            }
+        }
+        // After acceptance the same pure plan omits first-candidate slack.
+        // Readiness still requires exact plan equality and probe retirement,
+        // so surplus rows leave in the existing paid provider/cleanup phase.
         return UIAPlannedWindow(tokens: planned, exceedsRecordLimit: false)
     }
 

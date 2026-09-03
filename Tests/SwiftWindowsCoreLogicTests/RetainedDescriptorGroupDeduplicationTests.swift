@@ -344,3 +344,70 @@ private struct DescriptorDeduplicationKey: Hashable {
         hasher.combine(0)
     }
 }
+
+@MainActor
+final class RetainedDescriptorOutputMembershipTests: XCTestCase {
+    func testPropertyCopyMembershipTracksSurvivorsAfterFirstMiddleAndLastRemoval() async throws {
+        for rejectedIndex in [0, 2, 4] {
+            let fixture = DescriptorDeduplicationFixture()
+            defer { fixture.finish() }
+            let component = try XCTUnwrap(fixture.scope.registerOrdinaryComponent())
+            let group = try XCTUnwrap(component.registerGroup(kind: .scopedTask))
+            let declaration = RetainedTaskDeclarationID()
+            XCTAssertTrue(component.registerTaskDeclaration(declaration, group: group))
+            let child = try XCTUnwrap(component.registerChildComponent())
+            let childGroup = try XCTUnwrap(child.registerGroup(kind: .structure))
+            let calls = DescriptorDeduplicationIdentityCalls()
+            let original = (0..<5).map { _ -> ViewNode in
+                let source = ViewNode()
+                source.retainedViewIdentity = RetainedViewIdentity(segments: [
+                    .explicit(.init(DescriptorDeduplicationKey(calls)))
+                ])
+                return source
+            }
+            var payloads: [ObjectIdentifier: RetainedLazyListSourcePayloadID] = [:]
+            for index in original.indices {
+                let source = original[index]
+                if index == rejectedIndex {
+                    XCTAssertTrue(child.recordSourceOutput(source, group: childGroup))
+                } else {
+                    payloads[ObjectIdentifier(source)] = try XCTUnwrap(
+                        component.recordTaskSourceOutput(source, group: group))
+                }
+            }
+            child.rejectComponent()
+            XCTAssertTrue(try XCTUnwrap(child.closeGroup(childGroup)).requiredFacets.isEmpty)
+            XCTAssertNil(component.recordTaskSourceOutput(original[rejectedIndex], group: group))
+            var survivors = original.enumerated().filter { $0.offset != rejectedIndex }.map(\.element)
+            let later = ViewNode()
+            later.retainedViewIdentity = RetainedViewIdentity(segments: [
+                .explicit(.init(DescriptorDeduplicationKey(calls)))
+            ])
+            payloads[ObjectIdentifier(later)] = try XCTUnwrap(component.recordTaskSourceOutput(later, group: group))
+            survivors.append(later)
+            let proposal = try XCTUnwrap(component.closeGroup(group))
+            XCTAssertEqual(proposal.requiredFacets.count, survivors.count * 4)
+            calls.equalities = 0
+            calls.hashes = 0
+
+            // This helper prepares and accepts both callback properties for
+            // every survivor, in reverse order. It exercises ownedOutputs
+            // after shifted indices and the subsequent append, not merely
+            // source registration's deduplication lookup.
+            let adopted = try fixture.adopt(survivors, group: group, declarations: [declaration])
+            let taskGroup = try XCTUnwrap(fixture.journal.takeAcceptedDescriptorTaskGroups().first)
+
+            XCTAssertEqual(calls.equalities, 0)
+            XCTAssertEqual(calls.hashes, 0)
+            XCTAssertTrue(adopted.group.receipt.isActive)
+            XCTAssertEqual(
+                taskGroup.members.map { ObjectIdentifier($0.sourcePayload) },
+                try survivors.map { ObjectIdentifier(try XCTUnwrap(payloads[ObjectIdentifier($0)])) })
+            assertDescriptorDeduplicationFacetOrder(
+                proposal, in: adopted.group, targets: adopted.targets, declarations: [declaration],
+                expected: survivors.indices.flatMap {
+                    ["\($0):attachment", "\($0):appear", "\($0):disappear", "\($0):task0"]
+                })
+        }
+    }
+}

@@ -5005,12 +5005,12 @@ final class RetainedDescriptorConstructionLedger {
         let outputs =
             source.retainedLazyListActivityStorage?.descriptorOutputs.filter { output in
                 output.node === source
-                    && groups[ObjectIdentifier(output.group)]?.outputs.contains(where: { $0 === output }) == true
+                    && groups[ObjectIdentifier(output.group)]?.output(for: source) === output
             } ?? []
         guard
             outputs.allSatisfy({ output in
                 output.node === source && !rejectedComponentIDs.contains(ObjectIdentifier(output.component))
-                    && groups[ObjectIdentifier(output.group)]?.outputs.contains(where: { $0 === output }) == true
+                    && groups[ObjectIdentifier(output.group)]?.output(for: source) === output
             })
         else { return nil }
         return outputs

@@ -18031,3 +18031,22 @@ failure: preserved Swift Windows process-relay source can buffer test output
 until EOF. No installed-binary equivalence or cause of that duration is claimed.
 None of these focused results qualifies the full suite, live native behavior,
 or any of the nine original completion gates.
+
+### 2026-09-03 — Reuse the checked descriptor output index during property adoption
+
+Descriptor property-copy preparation and acceptance no longer scan an entire
+group twice to establish each source output's membership. Both validation
+passes now use the existing per-node index, which checks array bounds and the
+original weak node identity before returning an output. Appending or removing
+outputs already updates that index. The surrounding rejection and ownership
+checks, output order and selected-task routing remain unchanged.
+
+A new regression prepares and accepts both callback properties for every
+surviving source after first, middle and last output removal, followed by an
+append. It checks payload and facet order and verifies that no authored identity
+equality or hash calls occur. Existing assertions and test bodies are unchanged.
+Contract checks passed before and after; strict lint passed after wrapping one
+new expectation line. This removes a concrete repeated scan, but no measured
+speedup or cause of the original keyboard timeout is claimed. The new test and
+the previously unobserved keyboard methods still need runtime validation.
+All original completion requirements remain unchanged.

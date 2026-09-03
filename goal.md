@@ -21090,3 +21090,27 @@ caller attribution or claim that these three fixes solve the crash is made.
 All nine original goal gates and the separate sibling-modal continuation
 requirement remain open. No Full, native, GPU, visual, performance or
 GPUWorkbench checkpoint qualification follows from this integration.
+
+
+### 2026-09-03: preserve the correction build failure and add its missing import
+
+The first focused correction attempt at `64eaf2216e57eb3f37e7e19a213192889e4dda40`
+selected the original 36 Forwarding methods and eighteen additive methods.
+Compilation failed before any of the 54 methods started. Six unique diagnostics
+in the new Toggle fixture concern five uses of missing C UIA control constants
+and a dependent generic inference failure. The fixture omitted
+`import CUIAInterop`, which the original frame tests and new attachment fixture
+already import explicitly. Root's earlier source review missed this dependency.
+
+The attempt closed naturally with wrapper status one in 178.750 owned seconds,
+with full owned process/resource closure, no timeout and no termination.
+Raw SHA256 `8db2e3a02d8da78503339e4c55e742adb14c997c9a4b82af8d01e8590f27470a`;
+aggregate `artifacts/frame-forwarding54-64eaf22-compile-results.json`.
+Zero starts and zero terminal results mean no behavioral qualification.
+
+The separate correction adds only the missing import. All eight new methods,
+their assertions, every original Frame77 fixture and all production sources
+are unchanged. The previous packet and failed attempt remain preserved; a
+separate source-pin binding will precede another execution of the same 54
+selectors. The unresolved Metadata crash and all original goal gates remain
+open. No prior result is retroactively converted to a pass.

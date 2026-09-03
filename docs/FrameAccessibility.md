@@ -58,7 +58,10 @@ A declared row used as the actual runtime root retains the neutral window
 endpoint zero and a separate actionable switch endpoint.
 
 Eighteen additive methods cover these corrections, while all 77 original
-methods remain unchanged. The metadata stack overflow is diagnosed separately,
+methods remain unchanged. Their first focused build stopped before any test
+ran because the new Toggle fixture omitted its C interop import. That import
+is corrected separately with all assertions intact; fresh execution is pending.
+The metadata stack overflow is diagnosed separately,
 without reducing fixture depth or enlarging the stack as a claimed fix.
 The current crash evidence does not establish its Swift caller.
 

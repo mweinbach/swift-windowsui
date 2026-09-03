@@ -1,3 +1,4 @@
+import CUIAInterop
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 @preconcurrency import XCTest

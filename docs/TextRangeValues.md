@@ -154,12 +154,18 @@ output-pointer store, nor for arbitrary UI mutations after the actor snapshot.
 The complete call remains retained through output cleanup/publication; merely
 holding a read handle retains no permanent call and does not block quiescence.
 
-Twelve new `UIANativeTextReadTests` methods are authored for this private
-candidate and remain uncompiled/unrun. They target local headless C helpers,
-the real retained source, actor dispatch, and call ownership, not installed UIA,
-COM TextPattern or Narrator. The preceding sixteen actor-test results remain
-unchanged evidence with their narrower scope. Native held-range teardown and
-complete provider behavior still require qualification.
+All twelve `UIANativeTextReadTests` methods compiled and passed on 2026-09-03
+at `ffd035d`, alongside 56 unchanged held-document, call-lease, native-request
+and actor-dispatch tests. The three serial batches had exactly 68 starts and
+passing terminals, with natural exit 0, complete owned cleanup, and no skips
+or timeouts. The [aggregate result](../artifacts/native-held-text68-ffd035d-results.json)
+and [raw output](../artifacts/native-held-text68-75b1e98e200046a681d32f69f9006270/)
+record this local headless C-helper, retained-source and actor-dispatch evidence.
+The earlier `e74e2bd` build failure remains preserved: static helper names in
+C callback closures required explicit type qualification; no test assertions
+changed. Neither run establishes installed UIA, COM TextPattern, Narrator,
+full-suite or native-window qualification. The preceding sixteen actor-test
+results retain their narrower historical scope.
 
 All work required for real TextPattern remains open: retained TextEditor and
 TextField selection and composition integration; text and geometry revisions;

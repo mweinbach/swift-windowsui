@@ -18778,3 +18778,40 @@ enum type explicitly. No C ABI, callback arguments, lifetime/admission rule,
 test method or assertion changes. This source correction still requires a
 fresh build and the original 68-method execution; it does not itself establish
 that compilation or tests now pass. The original completion gates stay open.
+
+### 2026-09-03: all 68 native held-text and collateral methods pass
+
+The fresh run at clean `ffd035d7a8933f5d2eeed36104726749335680db` passed all
+68 selected methods: twelve new native held-text tests plus 56 unchanged
+held-document, full-call lease, native-request and actor-dispatch tests. The
+three serial batches contained 25, 26 and 17 methods. Root verified exactly
+one start and passing terminal per selected method, natural exit 0, complete
+owned descendant/resource closure, no pending signals, and no skips, timeouts,
+acquisition uncertainty or source changes. The first build took 404.12 seconds.
+
+The aggregate is `artifacts/native-held-text68-ffd035d-results.json`; raw output
+is under `artifacts/native-held-text68-75b1e98e200046a681d32f69f9006270/`. Batch
+log SHA-256 values are respectively
+`7e325ad506e65665948867515de184d1795fdedbb3328e22099fa23fb2c5930e`,
+`e6dba3fda7b1ddc05cd37ca0f130602f3b91b03cc524424fab94ebb112471f47`,
+and `47b8e45ecd49b69372e3aa81b8c9165ba6c5027e62ea34ba6b9ff9d0caca7b52`.
+The earlier build refusal and compiler assertion at `e74e2bd` remain separate
+preserved evidence; the concrete static-helper qualification fixed compilation
+without changing any test assertion or C callback behavior.
+
+Passing cases cover UTF16 and embedded NUL, eligible empty text, invalid maximum
+policy, content/attachment ABA, privacy/editor/lazy exclusions without binding
+or realization callbacks, native quiescence before actor entry, terminal
+disconnect failure, suppressed replies, worker dispatch and nested admission,
+worker final release and actual scheduled retirement, weak UI ownership,
+failed-acquisition rollback, ticket exhaustion and legacy interface behavior.
+The source-format review separately confirmed all 68 selectors, twelve new
+headers and 191 assertion/unwrap calls remain unchanged, and that the worker
+admission and scheduled-retirement methods were byte-identical after formatting.
+
+These are headless C-helper and retained-runtime contract results. No TextPattern
+or ITextRangeProvider is advertised. The final output-status-load race limit,
+installed UIA/Narrator work, complete text-provider behavior, hardware/native
+presentation, full-suite and release qualification remain as documented. The
+calendar candidate and keyboard diagnostic still require their own integration
+and tests. All nine original completion gates remain open; no push has occurred.

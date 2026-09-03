@@ -20484,3 +20484,35 @@ or execution-limit byte changed during sealing. The independent source review
 is clear; the original baseline remains historical evidence at its own commit.
 The four original field-chrome failures, broader suite validation, and all nine
 original completion gates remain open. No baseline or acceptance threshold changed.
+
+
+### 2026-09-03: freeze executable field-chrome transport regressions before correction
+
+Seven additive tests now exercise direct and nested built-in field adoption,
+Button action admission, rejection of arbitrary custom-controller children,
+successful checked reconciliation, earlier source-child mutation, and later
+caret attachment ABA or complete chrome-row removal. Their fourteen scenarios
+require exact visible Unicode text, visible selection/caret, correct parentage,
+unchanged selection writes, no binding reads during adoption, no added layout,
+and preserved final completion where that path supplies one. Rejected native
+preparation must not hide the only remaining visible field text.
+
+The independent source review is clear. Root read the complete frozen tests and
+review, then ran strict lint. That first lint failed on wrapping and indentation
+only. A separate toolchain-formatted derivative preserves all non-whitespace
+bytes and all seven method names; root inspected its complete diff. The private
+original remains intact at SHA256 `9c02e25787a13cc53609346fe742e4e0975b8ec8d3698c1cb13b1682707208e6`.
+The tracked derivative in
+`Tests/SwiftWindowsCoreLogicTests/UIAFieldChromeTransportTests.swift`
+has SHA256 `6fcd18a0db2e64ff6478b67050456c1e3ad9b4ec7b2aed1e56b57c837714bb63`.
+The original eight tests remain byte-identical at SHA256
+`1e9d5d5b651380e38bce930bc61052e2b43a065aa8d0cef73f2f4c7c494281fb`. No assertion was weakened.
+
+The pre-correction roster `artifacts/field-chrome-transport-baseline15.json`
+preserves all eight original selectors and adds the seven frozen selectors,
+SHA256 `efe4d719e3bd0086f78779ab103ef3591a8d183652759e059be5876f4dc349dc`, with 29 explicitly verified source pins.
+Execution is pending at this checkpoint; the new positives are requirements,
+not passing evidence. The production correction remains under private review.
+The ordinary earlier-sibling ABA and layout-only-query rejection gaps identified
+in review require separate additive coverage, without rewriting this freeze.
+All original failures and all nine completion gates remain open.

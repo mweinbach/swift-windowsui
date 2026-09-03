@@ -35,3 +35,9 @@ tests; a passing headless snapshot test alone does not qualify COM or Narrator.
 explicit and selected names, callback reentrancy, weak ownership and absence
 of new Text or pattern authority. Existing source, projection, selected-content,
 request and provider-lifetime tests remain separate regression coverage.
+
+All eleven new naming tests and twenty-two existing related controls passed
+in the combined 360-method run at `7d1ffdf`. The
+[aggregate](../artifacts/lookup-window-image360-7d1ffdf-results.json) records
+exact starts and terminals and clean owned-process closure. This qualifies
+the selected headless behavior, not native caption delivery or Narrator.

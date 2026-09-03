@@ -19711,3 +19711,50 @@ SHA256 is `4324595e6ff76e9a5e8b9e5d1508954f03d563f3a5cec6e46b1aa535ca1bf064`.
 The same selected workload will rerun from a fresh committed source state; no
 execution result is claimed by the signature correction. Prior failed outputs
 and all nine original completion requirements remain unchanged.
+
+### 2026-09-03: combined360 passes before stock Full validation
+
+At fixed commit `7d1ffdff8b11d8f8c177b1805cdb2352f25c52d7`, all 360
+selected methods passed exactly once across sixteen serial batches. This
+includes all 255 methods from the earlier lookup selection, eleven new window
+root naming tests with twenty-two existing controls, and twenty-two new Image
+tests with fifty-one existing controls. One shared projection test is counted
+once. The union therefore contains thirty-nine new tests and 321 existing
+controls. All three corrected candidate-source fixtures reached and passed
+their original behavioral assertions. The Image discovery correction changes
+only signatures; an independent peer also verified the exact twenty-two
+insertions and unchanged bodies, helpers, assertions and selector order.
+
+The initial incremental build completed in 253.43 seconds. Every batch exited
+naturally with code zero and had exact expected starts and terminals. Root
+independently checked full owned descendant/resource/signal closure for all
+sixteen batches, with no timeout, termination, acquisition uncertainty, pending
+signal or cleanup error. Source endpoints remained unchanged. The original
+post-setter keyboard handoff passed in 47.283 seconds; this is not a controlled
+timing comparison, Original155 qualification or a hardware-performance result.
+
+Raw logs and individual receipts remain in
+`artifacts/lookupwindowimageasync360-9d2ac8253e204bf28c1047799653733f/`.
+The independent aggregate is
+`artifacts/lookup-window-image360-7d1ffdf-results.json`, SHA256
+`7c704de413ce6894fdf62c49f42b997e350d85e8e2f023908eb56f9706c82117`.
+The earlier 252-pass/three-fixture-failure result and later discovery failure
+are preserved rather than rewritten as successes.
+
+The next validation uses the existing stock `agent-check.ps1 -Full -Format`
+route with a fresh bound CoreLogic evidence directory. Its reviewed owned
+launcher allows one 5,400-second execution period and the unchanged total
+ten-second cleanup allowance; the separate Original155 900-second gate is not
+altered or replaced. Success requires all thirty-two stock stages, natural
+process closure, exact individual test evidence and review of retained-render
+outputs. This plan is not an already obtained Full result. The held canonical
+native acquisition route is not invoked. No additional production candidate
+will enter the checkout during this fixed-source validation.
+
+Before stock output paths are regenerated, root preserved 117 historical
+generated files (38,637,281 bytes), including the five PNG/raw-BMP pairs and
+the existing gallery comparison directory. Every copied file matched its
+source bytes. The receipt is
+`artifacts/before-stock-full-visuals-6c84331cdea843d8ae9bd190610d59a3/preservation.json`.
+No original output or baseline was deleted or modified by preservation. The
+nine product completion gates remain open with their original scope intact.

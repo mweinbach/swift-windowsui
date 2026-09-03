@@ -1057,6 +1057,12 @@ names for unlabelled system symbols also remain unqualified; the current text
 projection can expose a glyph-derived name. Focused tests cover authored labels
 and semantic snapshots, not native delivery, bounds, decoded pixels or Narrator.
 
+The twenty-two new Image tests and fifty-one existing related controls passed
+at `7d1ffdf` within the combined 360-method regression run. The new methods use
+the async signatures required by Windows XCTest discovery; their original
+bodies and assertions are unchanged. The earlier discovery failure remains
+recorded in [goal.md](../goal.md), alongside the fresh passing aggregate.
+
 Retained modal ancestors remain in accessibility projections as the geometry
 and navigation path to the active presentation, but do not expose stored
 actions or an activation fallback. Live Invoke rechecks terminal runtime

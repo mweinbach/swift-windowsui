@@ -474,3 +474,12 @@ keyboard handoff (46.37 seconds). This is not a complete pass or a controlled
 performance comparison. The
 [aggregate](../artifacts/lazy-lookup-indices255-c9806f3-results.json) preserves
 the failed run while the fixture setup is investigated.
+
+After adding the required structural identity segment to the three new
+fixtures, the complete original 255-method selection passed within the fresh
+360-method run at `7d1ffdf`. All six new lookup tests and all 249 original
+controls passed; neither production checks nor behavioral assertions were
+relaxed. The original keyboard handoff passed in 47.283 seconds. This remains
+an individual debug-test duration, not a controlled performance comparison or
+qualification of the separate Original155 gate. See the
+[combined aggregate](../artifacts/lookup-window-image360-7d1ffdf-results.json).

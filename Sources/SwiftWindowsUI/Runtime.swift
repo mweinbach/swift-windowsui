@@ -27917,6 +27917,36 @@ extension RetainedViewRuntime {
         releaseLazyListTarget(item, invalidatingLayout: true)
     }
 
+    /// A focused List action may have queued its ordinary reveal before its
+    /// logical demand is released. Acknowledge only this cleanup's one owned
+    /// invalidation, never a callback, new layout, or replacement row.
+    package func releaseLazyListTarget(
+        _ item: RetainedLazyListAccessibilityItem, afterNavigation receipt: RetainedListNavigationReceipt
+    ) {
+        guard item.runtime === self, item.realization?.isActive == true,
+            let content = item.content, ownsLazyListAttachment(content), let target = focusedNode,
+            receipt.permitsReveal(in: self, target: target),
+            content.retainedLazyListAdapter?.mountedNodes(for: item.token)?.contains(where: { $0 === target }) == true
+        else {
+            releaseLazyListTarget(item)
+            return
+        }
+        let geometry = layoutSettlementGeometryRevision
+        let nextGeometry = geometry.addingReportingOverflow(1)
+        let nextMutation = presentationMutationRevision.addingReportingOverflow(1)
+        let pointer = pointerSequence
+        let pass = layoutPassID
+        let sequence = layoutSettlementResolutionSequence
+        releaseLazyListTarget(item)
+        guard !nextGeometry.overflow, !nextMutation.overflow,
+            layoutSettlementGeometryRevision == nextGeometry.partialValue,
+            presentationMutationRevision == nextMutation.partialValue,
+            pointerSequence == pointer, layoutPassID == pass, layoutSettlementResolutionSequence == sequence,
+            receipt.geometryRevision == geometry
+        else { return }
+        receipt.recordGeometryRevision(layoutSettlementGeometryRevision)
+    }
+
     private func releaseLazyListTarget(
         _ item: RetainedLazyListAccessibilityItem, invalidatingLayout: Bool
     ) {

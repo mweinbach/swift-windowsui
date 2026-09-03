@@ -700,3 +700,207 @@ private final class FinalPrefetchPublicProbe {
         return [AnyView(Button("Row \(id)") { [weak self] in self?.activations.append(id) }.frame(height: 24))]
     }
 }
+
+/// Native List reveal uses the same small raw lanes as the UIA controls above,
+/// without creating a UIA request or supplying a private planning flag.
+@MainActor
+final class ListRevealPrefetchScopeTests: XCTestCase {
+    func testSameScrollOmitsOptionalSiblingRowsButRealizesItsRequiredViewport() async throws {
+        let fixture = try ListRevealPrefetchScopeFixture(hasIndependentScroll: false)
+        defer { fixture.close() }
+        let (receipt, target) = try fixture.prepareNavigation()
+        defer { receipt.cancelPreparedNavigation() }
+        fixture.arm()
+
+        XCTAssertTrue(fixture.runtime.withLazyListResolutionBudget { receipt.finishNavigation() })
+
+        try fixture.assertCompleted(target: target)
+        let required = Set(18...20)
+        XCTAssertEqual(Set(fixture.finalCalls(in: fixture.sibling, from: fixture.siblingFinalStart)), required)
+        XCTAssertEqual(Set(fixture.sibling.rowIDs), required)
+        XCTAssertTrue(required.isSubset(of: Set(fixture.primary.rowIDs)))
+        XCTAssertTrue(Set(fixture.primary.rowIDs).isSubset(of: required.union([0])))
+        XCTAssertTrue(
+            Set(fixture.finalCalls(in: fixture.primary, from: fixture.primaryFinalStart)).isSubset(of: required))
+        fixture.assertOriginalBudget()
+
+        // An actual later viewport change needs row21. Optional rows should
+        // resume on this ordinary build, after the reveal query has unwound.
+        let primaryCalls = fixture.primary.probe.calls.count
+        let siblingCalls = fixture.sibling.probe.calls.count
+        fixture.scroll.onLayout = nil
+        fixture.runtime.recordsLazyListUIAPhasesForTesting = true
+        fixture.scroll.scrollOffset += 20
+        XCTAssertNotNil(fixture.runtime.resolvedLayoutFrame(of: fixture.runtime.root))
+        XCTAssertTrue(fixture.primary.probe.calls.dropFirst(primaryCalls).contains { $0.id > 21 })
+        XCTAssertTrue(fixture.sibling.probe.calls.dropFirst(siblingCalls).contains { $0.id > 21 })
+        XCTAssertTrue(fixture.primary.rowIDs.contains(21))
+        XCTAssertTrue(fixture.sibling.rowIDs.contains(21))
+        XCTAssertTrue(fixture.primary.rowIDs.contains { $0 > 21 })
+        XCTAssertTrue(fixture.sibling.rowIDs.contains { $0 > 21 })
+        fixture.assertOriginalBudget()
+    }
+
+    func testIndependentScrollKeepsOrdinaryPrefetchDuringTheOriginalRevealQuery() async throws {
+        let fixture = try ListRevealPrefetchScopeFixture(hasIndependentScroll: true)
+        defer { fixture.close() }
+        let independent = try XCTUnwrap(fixture.independent)
+        let independentScroll = try XCTUnwrap(fixture.independentScroll)
+        let (receipt, target) = try fixture.prepareNavigation()
+        defer { receipt.cancelPreparedNavigation() }
+        fixture.arm()
+
+        XCTAssertTrue(fixture.runtime.withLazyListResolutionBudget { receipt.finishNavigation() })
+
+        try fixture.assertCompleted(target: target)
+        XCTAssertEqual(independentScroll.scrollOffset, 360)
+        let required = Set(18...20)
+        let calls = fixture.finalCalls(in: independent, from: fixture.independentFinalStart)
+        XCTAssertTrue(required.isSubset(of: Set(calls)))
+        XCTAssertTrue(calls.contains { $0 > 20 }, "A separate scroll must retain optional prefetch")
+        XCTAssertTrue(required.isSubset(of: Set(independent.rowIDs)))
+        XCTAssertTrue(independent.rowIDs.contains { $0 > 20 })
+        XCTAssertEqual(Set(fixture.sibling.rowIDs), required)
+        XCTAssertTrue(
+            Set(fixture.finalCalls(in: fixture.sibling, from: fixture.siblingFinalStart)).isSubset(of: required))
+        fixture.assertOriginalBudget()
+    }
+}
+
+@MainActor
+private final class ListRevealPrefetchScopeFixture {
+    let primary: FinalPrefetchLane
+    let sibling: FinalPrefetchLane
+    let independent: FinalPrefetchLane?
+    let scroll: ViewNode
+    let independentScroll: ViewNode?
+    let runtime: RetainedViewRuntime
+    let scope: RetainedListNavigationOwner
+    private(set) var primaryFinalStart: Int?
+    private(set) var siblingFinalStart: Int?
+    private(set) var independentFinalStart: Int?
+
+    init(hasIndependentScroll: Bool) throws {
+        let primary = try FinalPrefetchLane(slot: 10, hasGaps: false)
+        let sibling = try FinalPrefetchLane(slot: 11, hasGaps: false)
+        let independent: FinalPrefetchLane? =
+            try hasIndependentScroll ? FinalPrefetchLane(slot: 12, hasGaps: false) : nil
+        let columns = ViewNode(
+            layoutMode: .stack(.horizontal(spacing: 0, alignment: .leading, distribution: .fillEqually)),
+            children: [primary.list, sibling.list])
+        let scroll = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 240, height: 60), clipsToBounds: true,
+            layoutMode: .stack(.vertical(spacing: 0, alignment: .stretch)), scrollAxis: .vertical,
+            children: [columns])
+        let independentScroll = independent.map { lane in
+            ViewNode(
+                frame: Rect(x: 240, y: 0, width: 120, height: 60), clipsToBounds: true,
+                layoutMode: .stack(.vertical(spacing: 0, alignment: .stretch)), scrollAxis: .vertical,
+                children: [lane.list])
+        }
+        let root = ViewNode(
+            frame: Rect(x: 0, y: 0, width: hasIndependentScroll ? 360 : 240, height: 60),
+            children: [scroll] + (independentScroll.map { [$0] } ?? []))
+        let runtime = RetainedViewRuntime(root: root)
+        let scope = RetainedListNavigationOwner(runtime: runtime)
+        scope.install(on: scroll)
+        runtime.clock = { 0 }
+        self.primary = primary
+        self.sibling = sibling
+        self.independent = independent
+        self.scroll = scroll
+        self.independentScroll = independentScroll
+        self.runtime = runtime
+        self.scope = scope
+        for lane in [primary, sibling] + (independent.map { [$0] } ?? []) { lane.probe.runtime = runtime }
+        XCTAssertNotNil(runtime.resolvedLayoutFrame(of: root))
+        XCTAssertEqual(primary.rowIDs, Array(0...6))
+        XCTAssertEqual(sibling.rowIDs, Array(0...6))
+        if let independent { XCTAssertEqual(independent.rowIDs, Array(0...6)) }
+    }
+
+    func prepareNavigation() throws -> (RetainedListNavigationReceipt, ViewNode) {
+        XCTAssertFalse(primary.rowIDs.contains(20))
+        let item = try XCTUnwrap(runtime.lazyListTarget(in: primary.list, key: .init(20)))
+        defer { runtime.releaseLazyListTarget(item) }
+        let target = try XCTUnwrap(runtime.realizeLazyListTarget(item))
+        XCTAssertEqual(target.dynamicContentIndex, 20)
+        XCTAssertEqual(scroll.scrollOffset, 0)
+        XCTAssertGreaterThan(target.resolvedFrame.minY, scroll.resolvedFrame.height)
+        let source = try XCTUnwrap(primary.weakRow(0)?.node)
+        for row in [source, target] {
+            row.isFocusable = true
+            row.isFocusEnabled = true
+            row.accessibilityTraits = .isSelectable
+            row.interceptsVerticalArrowKeys = true
+            _ = scope.makeRowOwner(on: row)
+        }
+        let receipt = try XCTUnwrap(scope.prepareAction(from: try XCTUnwrap(source.listNavigationOwner)))
+        XCTAssertTrue(receipt.prepareTarget(try XCTUnwrap(target.listNavigationOwner), requiresRevealBeforeFocus: true))
+        return (receipt, target)
+    }
+
+    func arm() {
+        runtime.recordsLazyListUIAPhasesForTesting = true
+        scroll.onLayout = { [weak self] _ in
+            guard let self, self.scroll.scrollOffset > 0, self.primaryFinalStart == nil else { return }
+            self.primaryFinalStart = self.primary.probe.calls.count
+            self.siblingFinalStart = self.sibling.probe.calls.count
+            self.independentFinalStart = self.independent?.probe.calls.count
+            // Expose a required viewport in another physical scroll during
+            // this same query. The target's scroll intent is unchanged.
+            self.independentScroll?.scrollOffset = self.scroll.scrollOffset
+        }
+    }
+
+    func finalCalls(in lane: FinalPrefetchLane, from start: Int?) -> [Int] {
+        guard let start else {
+            XCTFail("The original reveal must reach its post-offset layout")
+            return []
+        }
+        return lane.probe.calls.dropFirst(start).map(\.id)
+    }
+
+    func assertCompleted(target: ViewNode) throws {
+        XCTAssertNotNil(primaryFinalStart)
+        XCTAssertNotNil(siblingFinalStart)
+        XCTAssertEqual(scroll.scrollOffset, 360)
+        XCTAssertTrue(runtime.focusedNode === target)
+        XCTAssertTrue(target.isFocused)
+        XCTAssertFalse(target.isLayoutDeferredByVirtualization)
+        XCTAssertTrue(target.parent === primary.list)
+        XCTAssertTrue(runtime.lazyListUIAPhasesForTesting.allSatisfy { $0.kind != .ownedScroll })
+        XCTAssertTrue(primary.probe.activations.isEmpty)
+        XCTAssertTrue(sibling.probe.activations.isEmpty)
+    }
+
+    func assertOriginalBudget(file: StaticString = #filePath, line: UInt = #line) {
+        let trace = runtime.lazyListUIAPhasesForTesting
+        XCTAssertFalse(trace.isEmpty, file: file, line: line)
+        XCTAssertLessThan(trace.count, 512, file: file, line: line)
+        XCTAssertEqual(trace.first?.remainingElements, 128, file: file, line: line)
+        XCTAssertEqual(trace.first?.remainingRounds, 4, file: file, line: line)
+        XCTAssertLessThanOrEqual(runtime.lastLazyListConsumedElements, 128, file: file, line: line)
+        XCTAssertLessThanOrEqual(runtime.lastLazyListConsumedRounds, 4, file: file, line: line)
+        XCTAssertEqual(
+            trace.filter { $0.kind == .roundDebit }.count, runtime.lastLazyListConsumedRounds, file: file, line: line)
+        for (first, second) in zip(trace, trace.dropFirst()) {
+            XCTAssertGreaterThanOrEqual(first.remainingElements, second.remainingElements, file: file, line: line)
+            XCTAssertGreaterThanOrEqual(first.remainingRounds, second.remainingRounds, file: file, line: line)
+        }
+        XCTAssertEqual(runtime.lazyListResolutionBudgetConfiguration.elementLimit, 128, file: file, line: line)
+        XCTAssertEqual(runtime.lazyListResolutionBudgetConfiguration.roundLimit, 4, file: file, line: line)
+    }
+
+    func close() {
+        scroll.onLayout = nil
+        runtime.stopRenderLifecycleCallbacks()
+        for lane in [primary, sibling] + (independent.map { [$0] } ?? []) {
+            lane.probe.onCanBuild = nil
+            lane.probe.onCanAdopt = nil
+            lane.source.close()
+        }
+        runtime.cancelRenderLifecycleTasks()
+        runtime.root.removeAllChildren()
+    }
+}

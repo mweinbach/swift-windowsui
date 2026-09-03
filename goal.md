@@ -16985,3 +16985,47 @@ focused regression run, not a substitute for the original combined 155-test
 gate or full validation. Behavioral results for these fixes remain pending.
 The original requirements, 128-element/four-round budgets, and nine open
 completion gates remain unchanged.
+
+### 2026-09-02 — Preserve the focused row's queued reveal across its own cleanup
+
+The uninstrumented 28-method run at `ef2a8d9` completed naturally with 25
+passes and three failures. Cold Down/Up navigation and immediate focus after
+empty/disabled selection now pass. Related ownership, authored-scroll,
+measurement, and coverage refusals pass, as do twelve of thirteen UIA
+final-prefetch tests. The remaining failures are the warm row's later reveal,
+the one-element/one-round close-time payload release, and public pending UIA
+replacement. The build took 332.84 seconds; the tests took 439.777 seconds.
+The exact 28 starts and terminals, nine assertions in three failing methods,
+natural exit 1, empty owned Job, cleanup and unchanged source were verified in
+`artifacts/patched-keyboard-regressions-15fcdcdec2ab483c8bd9641e8257dc79`.
+This is not an overall regression pass or the original combined gate.
+
+Warm navigation now focuses in the required order but queues its scroll while
+layout is dirty. Releasing the action's logical demand immediately afterward
+invalidates layout once more, making that queued receipt obsolete. The new
+navigation-specific cleanup acknowledges only its own single geometry and
+presentation-mutation increments. It requires the original still-permitted
+focused target to belong to the item's native row token, checked nonoverflowing
+successors of both counters, and unchanged pointer, layout pass, resolution
+sequence and receipt geometry. Ordinary release and cancellation are unchanged;
+no request or binding is retained for later frames. Any extra mutation still
+prevents the acknowledgement.
+
+Two new raw-runtime tests check the earlier reveal-prefetch change: required
+rows in another lane of the same scroll remain included, optional neighbors
+are omitted only during the reveal, independent scrolling retains ordinary
+prefetch, and a later ordinary viewport change restores optional neighbors.
+All original test bodies remain unchanged. Root source review, contracts,
+strict three-file lint and whitespace checks pass; these new tests and the
+warm cleanup correction still need behavioral validation.
+
+A separate unchanged public UIA replacement test at `ef2a8d9`, using only the
+existing bounded rejection diagnostic, completed naturally with its original
+five failures in 6.874 seconds. Its trace reaches a measured target after all
+four rounds, so the first scroll is correctly refused for lack of remaining
+budget. Artifacts are in
+`artifacts/uia-public-replacement-diagnostic-77c5aa23a7eb4fe0b5cc0d0139354db0`;
+exact selection, source preservation and complete owned cleanup were verified.
+The unused target-phase work and close-time payload retention remain under
+investigation. No budget, assertion, frame limit, original requirement or
+completion gate is relaxed. All nine completion gates remain open.

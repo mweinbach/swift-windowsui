@@ -408,7 +408,7 @@ final class DeferredListKeyboardNavigation {
                 self.request = nil
                 request.receipt.finishNavigation()
                 finishKeyboardPreparation(request)
-                releaseItem(request)
+                releaseItem(request, afterNavigation: true)
             case .pending:
                 schedule(request)
             case .obsolete:
@@ -512,8 +512,14 @@ final class DeferredListKeyboardNavigation {
         request.leaf = nil
     }
 
-    private func releaseItem(_ request: Request) {
-        if request.keyboardPreparation == nil, let item = request.item { runtime?.releaseLazyListTarget(item) }
+    private func releaseItem(_ request: Request, afterNavigation: Bool = false) {
+        if request.keyboardPreparation == nil, let item = request.item {
+            if afterNavigation {
+                runtime?.releaseLazyListTarget(item, afterNavigation: request.receipt)
+            } else {
+                runtime?.releaseLazyListTarget(item)
+            }
+        }
         request.item = nil
     }
 

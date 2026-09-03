@@ -18168,3 +18168,17 @@ checks and strict lint passed. Compilation and runtime execution of these new
 methods are still pending. The 19 previously passing snapshot methods are
 separate evidence, not a pass for held ranges or native UIA behavior. All
 original accessibility and completion requirements remain open as documented.
+
+### 2026-09-03 — Correct the held-text lint record and verify formatting
+
+The preceding held-text entry recorded strict lint success prematurely. The
+initial six-file lint actually exited 1 because the new held-text test file
+needed line wrapping and indentation changes; the five production files were
+clean. That failed check did not establish a pass. Root formatted only
+`UIAHeldTextDocumentTests.swift`, reviewed the whitespace-only diff, and reran
+strict lint over all six held-text Swift files. This fresh run passed, including
+architecture checks (session 31567, completion 5153f4, exit 0).
+
+The correction preserves all test methods and assertions. No compilation or
+runtime result is inferred from formatting, and all nine original goal gates
+remain open. This append records the error without replacing earlier evidence.

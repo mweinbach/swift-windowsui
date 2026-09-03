@@ -172,13 +172,15 @@ final class UIAHeldTextDocumentTests: XCTestCase {
         let range = try XCTUnwrap(document.documentRange())
         var factories = 0
         let data = RetainedLazyListDataSource<Int, [ViewNode]>()
-        XCTAssertTrue(data.replaceData([0], id: \.self) { _ in
-            factories += 1
-            return [ViewNode(text: "Unconstructed")]
-        })
-        let adapter = try XCTUnwrap(RetainedLazyListRuntimeAdapter(
-            provider: data, estimatedExtent: 20, prefetchExtent: 0,
-            maximumMountedRecords: 2, maximumMountedLeaves: 2, maximumProtectedRecords: 1))
+        XCTAssertTrue(
+            data.replaceData([0], id: \.self) { _ in
+                factories += 1
+                return [ViewNode(text: "Unconstructed")]
+            })
+        let adapter = try XCTUnwrap(
+            RetainedLazyListRuntimeAdapter(
+                provider: data, estimatedExtent: 20, prefetchExtent: 0,
+                maximumMountedRecords: 2, maximumMountedLeaves: 2, maximumProtectedRecords: 1))
         fixture.container.retainedLazyListAdapter = adapter
         XCTAssertTrue(adapter.ownsAttachment(fixture.container))
         XCTAssertNil(try range.getText())
@@ -235,15 +237,19 @@ final class UIAHeldTextDocumentTests: XCTestCase {
     func testRequestAdmissionAndProviderRevocationRejectHeldPublication() async throws {
         let fixture = try HeldTextFixture()
         let harness = HeldTextRequestHarness(source: fixture.source)
-        XCTAssertEqual(try harness.reply(.textDocument(element: fixture.id), isAvailable: { false }), .textDocument(nil))
+        XCTAssertEqual(
+            try harness.reply(.textDocument(element: fixture.id), isAvailable: { false }), .textDocument(nil))
         let document = try XCTUnwrap(harness.document(fixture.id))
         let range = try XCTUnwrap(document.documentRange())
         var checks = 0
         let request = UIAProviderRequest.textRangeContent(range: range, maximumUTF16Length: -1)
-        XCTAssertEqual(try harness.reply(request, isAvailable: {
-            checks += 1
-            return checks == 1
-        }), .string(nil))
+        XCTAssertEqual(
+            try harness.reply(
+                request,
+                isAvailable: {
+                    checks += 1
+                    return checks == 1
+                }), .string(nil))
         XCTAssertEqual(try harness.reply(request), .string("Original"))
         harness.bridge.revokeNativeRequests()
         XCTAssertEqual(try harness.reply(request), .string(nil))
@@ -348,17 +354,20 @@ private final class HeldTextFixture {
         let text = ViewNode(frame: Rect(x: 10, y: 10, width: 180, height: 20), text: content)
         text.resolvedFrame = text.frame
         text.accessibilityIdentifier = "held-text"
-        let container = selected
+        let container =
+            selected
             ? ViewNode.selectedContentBoundary(role: .viewThatFits, child: text)
             : ViewNode(frame: root.frame)
         if !selected { container.addChild(text) }
         root.addChild(container)
         let runtime = RetainedViewRuntime(root: root)
         let effects = HeldTextEffects()
-        let source = RuntimeUIAElementTreeSource(runtime: runtime, screenBoundsMapper: {
-            effects.maps += 1
-            return $0
-        })
+        let source = RuntimeUIAElementTreeSource(
+            runtime: runtime,
+            screenBoundsMapper: {
+                effects.maps += 1
+                return $0
+            })
         id = try XCTUnwrap(source.uiaElementSnapshots().first { $0.automationID == "held-text" }?.id)
         self.runtime = runtime
         self.container = container

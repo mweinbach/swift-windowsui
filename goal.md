@@ -17686,3 +17686,84 @@ Contract checks before and after the change and strict Runtime lint passed.
 Execution must still verify the existing detachment, multiple-leaf and alignment
 controls and the original 155-method gate. No timing improvement is claimed
 from source review. All nine original completion gates remain open.
+
+### 2026-09-03 — Verify the unchanged lazy placement controls
+
+At `1d1197a`, all five existing placement controls passed after a 29.08-second
+build. The tests took 0.080 seconds and cover layout-callback detachment,
+multiple measured leaves, unequal-height prefixes, and deferred leading
+alignment. Every selected method started and terminated exactly once, with
+natural child/wrapper exit 0, fixed source and complete owned cleanup in
+`artifacts/lazy-layout-controls-95e2642a59dd4d6082f8abdd884e46b8`;
+raw SHA-256 `bc14c6d4c55a896be7a12943b4259fab0d98b5b052f931c787667435e154fd0e`.
+These are focused behavioral controls, not a measured speedup or replacement
+for the original combined and full gates.
+
+### 2026-09-03 — Keep original text-range ownership as an explicit accessibility requirement
+
+The pending internal copied-text candidate validates the original weak target
+across one acquisition and return, then returns text values without continuing
+provider authority. It must not be promoted into an advertised COM TextPattern
+by retaining only the string and element ID. A fresh lookup can accept a
+replacement or a detach/reinsert at the same ID; equal UTF-16 content is not
+proof that the original document attachment still exists. A saved string also
+cannot detect later privacy changes.
+
+A future retained document/range contract must keep the original weak physical
+target and validate its current eligible projection through existing native
+call admission. Its content-change policy must explicitly update ranges or
+invalidate the original document record; it cannot silently renew authority
+from a new snapshot. Plain nonselectable text need not invent selection or a
+caret. Real visible ranges, point hit-testing, range operations and text-change
+events are still required before claiming implemented TextPattern behavior.
+See Microsoft's [Text and TextRange requirements](https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-implementingtextandtextrange).
+
+The remaining acceptance detail includes original-attachment removal and
+reinsertion with identical text; replacement nodes and repeated IDs; privacy,
+secure/editor/lazy exclusions introduced after acquisition; disabled/offscreen
+content versus actual visibility; revocation during queued acquisition and
+GetText; the chosen A-to-B-to-A content-change policy; real COM pointer,
+identity, reference-count and embedded-NUL ownership behavior; and retained
+geometry and TextChanged delivery. These are future checks, not eight new
+implemented or passing tests. No native interface or partial pattern was added
+by this review. The existing copied-text candidate remains internal, and the
+original text/editing/accessibility completion requirements remain unchanged.
+
+### 2026-09-03 — Preserve the original combined timeout after the keyboard repair
+
+The unchanged original 155-method selection ran at `1d1197a` after a cached
+2.30-second build. It reached the unchanged 900-second deadline without
+returning any individual XCTest start or terminal records. All 155 outcomes in
+this run therefore remain unknown. It is not a combined pass, and the focused
+successes cannot substitute for it.
+
+The supervisor terminated its owned process tree and verified direct-process
+exit, an empty Job, descendant closure, closed resources and restored signal
+handlers. Total elapsed time was 900.015 seconds; child exit was 124 and runner
+exit was 1. There were no acquisition uncertainties, pending signals or cleanup
+errors. The strict checker independently compared complete source/index
+endpoints and confirmed preservation. Its natural-success checks correctly
+failed. Evidence is in
+`artifacts/cohort155-normal-1d1197a-fb81fc01629b47d79f1cf9d7ea626cdd` and
+`artifacts/cohort155-check-1d1197a.json`;
+raw SHA-256 `08af6aedd76925649ea7422383f2b0df750b33a4c06ba1d4eaf92b0bf9383f39`.
+The limit and selection are not extended or replaced. Broad validation remains
+open; no test or hardware speedup is established by the small layout change.
+
+### 2026-09-03 — Bound the independent consumer's preferences read
+
+GPU Workbench now reads at most 65,537 bytes from its settings file, accepting
+at most 64 KiB and rejecting overflow before JSON decoding. This follows the
+existing demo policy and bounds allocation for an oversized corrupt file read
+on the UI actor; it does not bound filesystem latency. Startup, Reload and
+Save's validation of existing bytes use the same read. Failure keeps the draft,
+last accepted preferences and original file unchanged.
+
+One added model test covers a valid file exactly at the limit and the same
+file with one extra whitespace byte, checking startup, Reload and Save. The six
+existing model tests remain unchanged. Strict lint and contracts pass; the
+seven tests and an actual external Release build still require execution.
+The sample is single-window and exercises shared state across tabs, not the
+separate cross-window open/close/reopen requirement. No native or clean-machine
+qualification is claimed. Licensing remains unchanged pending the owner's
+choice; all nine original completion gates remain open.

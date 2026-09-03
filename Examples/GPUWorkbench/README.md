@@ -11,6 +11,8 @@ explicit Save/Reload, per-user JSON persistence, a bundled PNG, and a private
 shows or hides the dashboard's saved-profile section. Its default preferences file is
 `%LOCALAPPDATA%/SwiftWindowsUI.GPUWorkbench/settings.json`. Invalid names and
 unreadable/unwritable storage report an error without discarding the draft.
+Settings reads accept up to 64 KiB, with one extra byte read to detect overflow
+before decoding. Oversized files are left unchanged.
 Save refuses to overwrite an unreadable existing file. Repair or move that file
 and retry; Reload replaces the draft only after a valid read. Atomic replacement
 is used for saving. This is single-process persistence, not concurrent-writer
@@ -48,7 +50,7 @@ if ($LASTEXITCODE -ne 0) { throw 'External release build failed.' }
 
 Use the toolchain's ordinary release settings. Do not disable reflection metadata
 or add metadata-stripping flags: mounted `State` needs consumer-module metadata.
-The six model tests exercise persistence and failure handling; they do **not**
+The seven model tests exercise persistence and failure handling; they do **not**
 qualify mounted reflection. The native counter/rebuild check below is required
 for that. The injected writer-denial test is not an actual filesystem ACL test.
 

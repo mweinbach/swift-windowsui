@@ -69,6 +69,44 @@ final class WorkbenchModelTests: XCTestCase {
         }
     }
 
+    func testOversizedSettingsPreserveFileAndDraftOnLoadAndSave() async throws {
+        try withSettingsURL { url in
+            let saved = WorkbenchPreferences(displayName: "Saved profile", showSavedProfileDetails: true)
+            var maximum = try JSONEncoder().encode(saved)
+            maximum.append(Data(repeating: 0x20, count: 65_536 - maximum.count))
+            try maximum.write(to: url)
+            let model = WorkbenchModel(settingsURL: url)
+            XCTAssertNil(model.errorMessage)
+            XCTAssertEqual(model.savedPreferences, saved)
+
+            var oversized = maximum
+            oversized.append(0x20)
+            try oversized.write(to: url)
+            let restarted = WorkbenchModel(settingsURL: url)
+            XCTAssertTrue(restarted.errorMessage?.contains("64 KiB") == true)
+            XCTAssertEqual(restarted.displayName, "Operator")
+            XCTAssertTrue(restarted.showSavedProfileDetails)
+            XCTAssertEqual(restarted.savedPreferences, WorkbenchPreferences())
+            XCTAssertEqual(try Data(contentsOf: url), oversized)
+
+            model.displayName = "Unsaved edit"
+            model.showSavedProfileDetails = false
+            model.reload()
+            XCTAssertTrue(model.errorMessage?.contains("64 KiB") == true)
+            XCTAssertEqual(model.displayName, "Unsaved edit")
+            XCTAssertFalse(model.showSavedProfileDetails)
+            XCTAssertEqual(model.savedPreferences, saved)
+            XCTAssertEqual(try Data(contentsOf: url), oversized)
+
+            model.save()
+            XCTAssertTrue(model.errorMessage?.contains("64 KiB") == true)
+            XCTAssertEqual(model.displayName, "Unsaved edit")
+            XCTAssertFalse(model.showSavedProfileDetails)
+            XCTAssertEqual(model.savedPreferences, saved)
+            XCTAssertEqual(try Data(contentsOf: url), oversized)
+        }
+    }
+
     func testWriteFailurePreservesSavedFileAndDraftThenRetrySucceeds() async throws {
         try withSettingsURL { url in
             WorkbenchModel(settingsURL: url).save()

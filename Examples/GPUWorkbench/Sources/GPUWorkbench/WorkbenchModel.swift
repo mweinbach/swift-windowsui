@@ -26,6 +26,8 @@ enum WorkbenchError: Error, CustomStringConvertible {
 
 @MainActor
 final class WorkbenchModel: ObservableObject {
+    private static let maximumSettingsBytes = 65_536
+
     @Published var selectedPage = 0
     @Published var displayName = "Operator"
     @Published var showSavedProfileDetails = true
@@ -111,7 +113,12 @@ final class WorkbenchModel: ObservableObject {
 
     private func readPreferences(at url: URL) throws -> WorkbenchPreferences {
         do {
-            let data = try Data(contentsOf: url)
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            let data = try handle.read(upToCount: Self.maximumSettingsBytes + 1) ?? Data()
+            guard data.count <= Self.maximumSettingsBytes else {
+                throw WorkbenchError.message("The settings file exceeds the 64 KiB limit.")
+            }
             return try JSONDecoder().decode(WorkbenchPreferences.self, from: data).validated()
         } catch {
             throw WorkbenchError.message(

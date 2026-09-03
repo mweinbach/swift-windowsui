@@ -20516,3 +20516,49 @@ not passing evidence. The production correction remains under private review.
 The ordinary earlier-sibling ABA and layout-only-query rejection gaps identified
 in review require separate additive coverage, without rewriting this freeze.
 All original failures and all nine completion gates remain open.
+
+
+### 2026-09-03: observe all fifteen pre-correction field-chrome methods
+
+The original-eight-plus-new-seven baseline at
+`84212fa655b57e7455cf936374b178a1a462a66b` completed all fifteen selected
+methods: five passed and ten failed. All four original failures reproduced.
+The new custom-controller child-exclusion test passed; the other six new methods
+failed. Direct and nested positive cases observed missing visible text and
+caret/highlight. Checked and Button cases refused completion and retained old
+visible text. The earlier-mutation test also observed an already-replaced
+controller; the later-mutation test could not reach its required accepted caret.
+These are observed production failures, not permission to weaken the frozen tests.
+
+The compiler completed normally in 256.34 seconds. The selected tests took
+1.484 seconds; owned execution was 265.672
+seconds. The process exited with status one and full owned-process closure,
+without timeout, termination, acquisition uncertainty or supervision errors.
+Every method started and ended exactly once, and all 29 source pins still
+matched. The attempt is
+`artifacts/fieldchrometransportbaseline15-525cf1b45b134fa5a0f01bf302a72261/`,
+raw log SHA256 `a2b0aba10add674a117d84deeaaf261fe224ba496b0742421120a52afd7d3e16`.
+The aggregate is `artifacts/field-chrome-transport-baseline15-84212fa-results.json`,
+SHA256 `ac5e98415a8592a195a21313211eb765256245f665a14756eeb893d292614e8b`. Scenario loops can stop after a thrown
+assertion helper; method completion does not prove every declared subcase ran.
+
+An independent rendering audit selected two existing CPU-raster caret
+reconciliation tests and one real-field blink test as additional collateral.
+The raster tests use synthetic retained nodes and exact pixel comparisons;
+the real-field test checks opacity through the blink cycle. Neither substitutes
+for the failed Unicode/style-after-adoption tests. Their unchanged three-method
+baseline is pending in `artifacts/field-chrome-caret-render-baseline3.json`,
+SHA256 `2cdffc0aa2900421c9ddfdce7df1436ecfa77893ff9557d5638207397a31d925`, with 31 source pins. The ordinary gallery's
+focused-field fixtures are also available for retained PNG review, but contain
+Ada without Unicode selection or synchronous adoption. No combined existing
+Unicode-adoption pixel fixture was found.
+
+The separate frame72-to-ChildTable rebase passed root and independent source
+review: four unchanged frame hunks, zero conflicts, all twelve packet payloads
+verified. Manifest SHA256
+`a713ccccc993c0201d115c9a94da1ce5a2419ba79a0296bbead26820f80b7cfe`;
+combined Adoption source SHA256
+`c7510b57c0b404e90db808829ba5897157fa0ac6cb1d25736761b24a5b65267b`.
+It remains private and uncompiled, with all 72 tests unchanged; the upcoming
+chrome changes require a separate explicit rebase. No full-suite, hardware,
+native accessibility or completion-gate claim follows from these checks.

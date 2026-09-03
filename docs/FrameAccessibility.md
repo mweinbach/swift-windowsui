@@ -167,6 +167,12 @@ identify an empty-line range trap in `RetainedTextMetrics.caretBoundaries`.
 That separate text-metrics defect is not resolved by the passing frame and
 privacy cohorts; native interaction and the full suite remain unqualified.
 
+The new direct empty-caret regression reproduced the range trap at `fe8366c`
+before any production change. A separate guard now returns the single origin
+boundary for an empty line, preserving all nonempty native and pixel geometry.
+The four new tests also query the actual caret provider on focused ordinary
+and secure fields after deletion. Their post-correction validation is pending.
+
 Precise scrolling after framed Realize still conservatively refuses an
 unchanged, previously admitted frontmost sibling-modal stack. Existing
 dirty-layout refusal also remains. Supported modal-stack continuation is

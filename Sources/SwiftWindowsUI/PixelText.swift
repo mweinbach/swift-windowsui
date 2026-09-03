@@ -631,6 +631,8 @@ public enum RetainedTextMetrics {
         displayScale: Double
     ) -> [Double] {
         let count = line.count
+        // An empty line still has one caret boundary at the content origin.
+        guard count > 0 else { return [0] }
         if count > 0,
             let layout = NativeTextRenderer.layout(line, style: style, scaleFactor: displayScale, maxWidth: nil),
             let nativeLine = layout.lines.first

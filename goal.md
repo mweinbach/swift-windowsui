@@ -21596,3 +21596,37 @@ and initially empty focused fields. Their execution is pending. The proposed
 production change returns the single zero boundary for an empty line; all
 nonempty measurement behavior remains unchanged. All nine original gates
 remain open and unchanged.
+
+
+### 2026-09-03: reproduce and correct the empty native caret range
+
+At `fe8366cc063f97de3c792d39197c75c3eb3f8bcc`, the new direct empty-caret
+regression compiled successfully and started once, then terminated with
+`Fatal error: Range requires lowerBound <= upperBound`. There was no test
+terminal, and the run remains failed. Build time was 270.87 seconds; the
+wrapper exited one after 279.953 owned seconds, with complete descendant,
+resource and signal-handler closure, no timeout or termination, and all
+eight source pins unchanged. The zero-test Swift Testing footer is not a
+passing XCTest result. Evidence is
+`artifacts/caret-empty-negative-80e6b8add33a48ce8637e27fd18b0c04`, raw SHA256
+`1a8a6cbf774c8dfbfb13b792bd39f5c11d36ba283f4149e2dad792003b805448`;
+the explicit negative-run audit is `artifacts/caret-empty-negative-fe8366c-audit.json`.
+
+The correction adds only an early empty-line guard and its explanatory
+comment in `RetainedTextMetrics.caretBoundaries`: empty text has the single
+boundary `[0]`. All original nonempty native and pixel measurement code is
+unchanged. The corrected PixelText.swift SHA256 is
+`9d1b1251f6231c82adbd78650bc3a582d26d510d442cd8d8cc5caa99b8caba07`.
+All four regression methods remain unchanged, SHA256
+`5218daa803ea6840e470304393a9fa3ca8404144ec5641184fa65e860e9d280b`.
+Their integration events use the same system-character delivery mode as
+native key events, and require the focused caret provider after deletion.
+Strict formatting and architecture checks passed before and after the edit.
+
+The bounded collateral roster contains 73 existing methods from selection,
+drag selection, IME composition, layout geometry, retained editing layout
+and caret reconciliation, plus the four new methods. Its existing source
+order and assertions are preserved. Execution on the correction, a rebuilt
+external Release consumer, the unchanged ordinary interaction journey and
+the new Full suite remain pending. The prior app failures, test failure and
+all nine original completion gates remain unchanged.

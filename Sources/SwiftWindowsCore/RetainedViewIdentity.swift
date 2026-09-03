@@ -25,7 +25,16 @@ public struct RetainedViewIdentity: Hashable {
         guard isCurrent() else { return false }
         hasher.combine(segments.count)
         for segment in segments {
-            guard segment.checkedHash(into: &hasher, isCurrent: isCurrent) else { return false }
+            switch segment {
+            case .keyed, .explicit:
+                guard segment.checkedHash(into: &hasher, isCurrent: isCurrent) else { return false }
+            case .view, .role, .slot, .branch, .iteration, .occurrence:
+                // These closed framework scalars cannot call authored code.
+                // The entry/exit checks cover their uninterrupted native span;
+                // every user key still checks before and after its own call.
+                hasher.combine(2)
+                hasher.combine(segment)
+            }
         }
         return isCurrent()
     }

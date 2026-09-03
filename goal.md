@@ -16604,3 +16604,39 @@ diagnostic evidence, not a substitute for the original script and strict
 155-outcome requirements. Cleanup approval remains pending at this checkpoint;
 no subsequent SwiftPM, formatter, native, or test run has begun. All nine
 original completion gates remain open and their requirements are unchanged.
+
+### Resumed validation and identity hashing (2026-09-02)
+
+The user authorized stopping necessary stalled processes. A fresh census found
+the prior Swift/XCTest descendants had already exited; no unrelated process was
+terminated. Seven prepared Text/Dashboard files and the 48-file Calendar
+candidate passed strict lint and contracts after reviewed formatting. Those
+feature candidates remain unintegrated and are not runtime validation evidence.
+
+A direct invocation of the original 155 XCTest identifiers now exposes progress
+without SwiftPM's buffered relay. The partial diagnostic is retained under
+`artifacts/cohort155-direct-398c312a61094452b8d46ce9447c1b9b`. It reproduced return
+focus failures and a test's incorrect expectation of eager row-owner rotation.
+Existing deferred-replacement tests require preserving rows without new factory
+calls; the proposed correction instead checks List scope retirement and adds
+explicit stale-handler refusal/fresh-handler usability coverage. It is not yet
+integrated. The original behavioral requirements and work budgets remain intact.
+
+Several keyboard cases took tens of seconds or minutes. Debugger observations
+were partial and perturb timings; they are not performance qualification. Root
+stopped the diagnostic early to investigate and measure a fix. The supervisor
+verified the owned Job empty, handles closed, signal handlers restored, and no
+uncertain acquisition. Original source, executable and DLL endpoint pins stayed
+unchanged. This partial run does not satisfy the official 155-test gate.
+
+The first isolated optimization batches only closed framework scalar segments
+in `RetainedViewIdentity.checkedHash`. It preserves hash encoding, operation
+entry/exit checks and every application-supplied key boundary. Six added tests
+cover bounded check counts, hash compatibility, refusal and nested-key reentry.
+Strict lint/contracts passed; compilation, tests and measured speedup are still
+pending at this checkpoint. All nine original completion gates remain open.
+
+The next usability checkpoint is an independent dashboard/settings consumer of
+public products with real GPU presentation and a relocatable release package.
+SceneStorage lifetime, visible failure reporting and consumer setup candidates
+are being prepared within the original goal, not as substitutes for its scope.

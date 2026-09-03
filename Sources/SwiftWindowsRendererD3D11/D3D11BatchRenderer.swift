@@ -3185,7 +3185,7 @@ final class D3D11BatchKernel {
                     source: shader.source, entryPoint: entryPoint, profile: profile)
                 // A later shader failing compilation must not leak the blobs
                 // produced by earlier iterations of this validation.
-                defer { releaseCOM(&blob) }
+                releaseCOM(&blob)
             }
         }
     }

@@ -18237,3 +18237,28 @@ The aggregate records identify each raw log, its SHA256, exact method outcomes
 and supervised closure. These focused results do not constitute Quick, Full,
 gallery, native-reference, Narrator or original-gate completion. All nine
 original completion gates and their requirements remain open.
+
+### 2026-09-03 — Separate clear conversion from exact blend preservation
+
+The Blend49 failure was an invalid exact expectation for an untouched clear
+pixel: the authored Float-premultiplied blue value scales to approximately
+76.500003 on the 8-bit integer scale. D3D11 permits either 76 or 77 here.
+Root verified the standard conversion bound in the
+[Microsoft functional specification, section 3.2.3.6](https://microsoft.github.io/DirectX-Specs/d3d/archive/D3D11_3_FunctionalSpec.htm#FLOATtoUNORM)
+and the use of those conversion rules for clears in section 5.2.3.1. This is not
+a requirement for ties-to-even or a universal expected WARP byte.
+
+The existing test now renders a separate clear-only control and checks all
+four channels against the authored Float inputs within the specified 0.6
+integer-unit bound. It then requires exact equality with that control outside
+the drawn quad. All original colors, modes, source alpha values, numeric blend
+helpers, center tolerance 2 and CPU parity tolerance 3 remain unchanged. No
+production clear or blend equation changes. A separate one-line cleanup
+releases each compiled validation shader blob directly where its former
+end-of-scope defer already ran, removing a compiler warning with the same
+resource lifetime.
+
+Root and independent review completed. Architecture checks before and after,
+plus strict lint on both changed Swift files, passed. The prior 48/49 result
+remains the runtime evidence until a fresh unchanged-roster run finishes; this
+correction does not itself establish a pass or close a goal requirement.

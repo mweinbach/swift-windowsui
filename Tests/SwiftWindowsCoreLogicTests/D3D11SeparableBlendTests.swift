@@ -28,6 +28,24 @@ final class D3D11SeparableBlendTests: XCTestCase {
         for mode in modes {
             var differsFromNormal = false
             for destination in destinations {
+                let clearOnly = try render(
+                    GPUIScene(clearColor: destination), using: renderer, size: size)
+                let untouched = rgba(clearOnly, x: 0, y: 0)
+                // D3D11 sections 3.2.3.6 and 5.2.3.1 permit 0.6 integer-ULP
+                // for clear-to-UNORM conversion. Validate this separate control
+                // before requiring exact preservation outside the blend quad.
+                let clearInput: [Float] = [
+                    destination.red * destination.alpha,
+                    destination.green * destination.alpha,
+                    destination.blue * destination.alpha,
+                    destination.alpha,
+                ]
+                for channel in 0..<4 {
+                    XCTAssertLessThanOrEqual(
+                        abs(untouched[channel] * 255 - Double(clearInput[channel]) * 255),
+                        Double(Float(0.6)),
+                        "Clear-only channel \(channel) exceeds the D3D11 UNORM conversion bound")
+                }
                 for alpha in [Float(0), 0.35, 1] {
                     let source = Color(red: 0.7, green: 0.3, blue: 0.85, alpha: alpha)
                     var scene = GPUIScene(clearColor: destination)
@@ -36,7 +54,7 @@ final class D3D11SeparableBlendTests: XCTestCase {
                     let initial = quantized(premultiplied(destination))
                     let expected = oracle(source, over: initial, mode: mode)
                     assertPixel(actual, x: 8, y: 8, equals: expected, tolerance: 2)
-                    assertPixel(actual, x: 0, y: 0, equals: initial, tolerance: 0)
+                    assertPixel(actual, x: 0, y: 0, equals: untouched, tolerance: 0)
                     assertCPUParity(actual, scene: scene, size: size, tolerance: 3)
                     let normal = quantized(oracle(source, over: initial, mode: .normal))
                     if zip(quantized(expected), normal).contains(where: { pair in abs(pair.0 - pair.1) > 4.0 / 255 }) {

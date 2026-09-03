@@ -20086,3 +20086,96 @@ path and has not been applied.
 This focused pass does not replace either failed stock Full run, close the
 original 155-test gate, or qualify native presentation, hosted CI or the nine
 original completion gates. A fresh stock Full run remains required.
+
+### 2026-09-03: locate ordinary snapshot cost without changing runtime behavior
+
+At unchanged commit `71b0c449dcbf62e224f7eb35979379c3e6b99848`, the
+original `testCompactDataInspectorDropsMeterButPreservesBothActions` passed
+with existing FILE14 tracing and its existing exact counter opt-in enabled.
+The selector, body, helpers, assertions, ordinary script flags, and 900-second
+execution plus 10-second cleanup contract remained unchanged. No runtime,
+rendering, snapshot, fixture or instrumentation source was changed for this
+diagnostic. It is separate from both stock Full and the original 155-test gate.
+
+Before the run, root executed all 34 frozen parser controls: 34 passed in
+2.138 seconds with no failures, errors or skips. The 26 sealed payload hashes
+matched before and after. Review had found that the first private parser could
+accept extra phase pairs with impossible parentage. That version remains held
+as history; eleven additive controls were frozen before the second parser's
+entry checks were added. All 23 original controls remained byte-identical.
+The accepted manifest SHA256 is
+`41352a0205dea29109dcb185084b4aff63c54c46d6afa023fd24cdfef61752dd`;
+runner SHA256 is
+`6d5674107ea274ae25e1c2a5c9f00c8e5379d6998ca3f92ff93783bd09f68cef`.
+The pure control log is `artifacts/compact-snapshot-parser34-controls.log`,
+SHA256 `cc30b5e649f970c6795e3a55fffcd0bc812c219f094b9a0bbb8e00f4edcfa9ec`.
+
+The one selected XCTest passed in 16.867 seconds. The owned run exited
+naturally with code zero after 26.812 seconds and complete process, descendant,
+resource and signal closure, without timeout, termination, uncertainty, pending
+signals or cleanup errors. All 44 source pins matched at the preserved source
+endpoints. Its artifact directory is
+`artifacts/compactdatasnapshotphases-fc3305fc7f064b76a7275877faf30256/`.
+The raw log SHA256 is
+`9f9f519428f5618ed8c358653a0ac93019f071df9995fc9aab1da3cc540af2c4`;
+the 9,698-byte raw trace SHA256 is
+`3adbfc59ed96da389bfe1da27109d936aa0b9c74b63030d8bcfeb2b44174f088`.
+The aggregate is `artifacts/compact-data-snapshot-phases-71b0c44-results.json`,
+SHA256 `af6134719c7992847d6c0ce2fea3e6ad732637e077e4b207199c3c4f0fd1919f`.
+
+Independent reconciliation recovered the single runtime birth and all 22
+measured boundary records, forming eleven matched intervals. There were no
+geometry rebuilds, malformed records, partial markers, overflow or unmatched
+spans. Inclusive observations were 5.082269 seconds in reconciliation and
+8.875826 seconds in the scene. The scene contains 2.464554 seconds of layout;
+the interval from layout completion to scene return was 6.411245 seconds.
+Post-scene layout took 0.448297 seconds. Nested durations must not be summed.
+
+All ten existing construction-counter fields remained zero. Those counters
+do not count ordinary Button-adoption, layout-scope or accumulated paint-read
+validation, so zero does not rule out those source paths. The post-layout
+scene interval mixes painting, lifecycle, cache and cleanup work. Initial
+facade construction, exclusive paint and the auxiliary frame's total remain
+unmeasured; this snapshot does not rasterize a final CPU bitmap. Without a
+case footer the trace also cannot prove whole-trace completeness. No causal
+attribution, performance improvement, hardware qualification or complete
+render benchmark is claimed. The next investigation must preserve the safety
+checks and prove any proposed algorithmic replacement before integration.
+
+The goal's original requirements and all nine open completion gates are
+unchanged. The two failed stock Full runs remain unresolved by this diagnostic.
+
+### 2026-09-03: preserve the complete census after the five fixture corrections
+
+The closed offline source/generated-metadata reconciliation at
+`71b0c449dcbf62e224f7eb35979379c3e6b99848` again finds exactly 9,082
+XCTest identifiers and 475 planned shards. The helper exited naturally with
+code zero after 274.898 seconds. It executed the reviewed scanner/planner on
+frozen copies only, with no SwiftPM, compiler, test or native workload. Root
+verified all 29 sealed payloads and all 710 frozen/current test source files.
+
+Both generated and discovered identifier files remain byte-identical to the
+previous 2b checkpoint at SHA256
+`ecad1e9247870a1db4c74e3ce4513ae2792eafe362a166e37cd230b1b017ab93`.
+The entire planned-shards file is also byte-identical, SHA256
+`1e8f2fbc6a13820e598ac896c009b3e56b6202a040b01fbd61a61bc2849e4af0`.
+There are no missing, extra or uncovered XCTest identifiers. The same sixteen
+overlapping filter matches remain explicitly recorded, for 9,098 modeled
+executions; they must not be counted as additional distinct tests. The five
+snapshot-lifetime substitutions changed no declarations or selectors.
+
+All nine Swift Testing source files and their 138 source cases remain identical.
+The existing validated Swift Testing verifier and expectation are unchanged;
+the new source/plan compatibility receipt binds this checkpoint to the prior
+receipt without replacing its older embedded-plan hash. This is compatibility
+of source and parser inputs, not observed Swift Testing outcomes.
+
+The sealed packet is
+`C:/Users/maxw6/AppData/Local/Temp/stock-scanner-reconcile-71b0c449-20260903/`.
+Its manifest SHA256 is
+`4de8718cceaf4a2f12f11f4df1a88b0a0000d36f2217c9765dd78a6ba12e68fb`;
+the actual reconciliation SHA256 is
+`b228f7a44d698800f95f705b1c5cc94c215b37a325581a3be41f8d7652c69917`.
+This census describes the closed 71b source state only. It does not prequalify
+forthcoming additional tests, executable provenance, journal completeness,
+runtime outcomes or a future stock Full pass. All original gates remain open.

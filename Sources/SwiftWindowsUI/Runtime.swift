@@ -15798,6 +15798,7 @@ public final class RetainedViewRuntime {
     private weak var latestListNavigationAction: RetainedListNavigationReceipt?
     private var pendingListNavigationReveal: RetainedListNavigationRevealContinuation?
     private var consumingListNavigationReveal: RetainedListNavigationRevealContinuation?
+    private weak var activeListNavigationRevealQuery: RetainedListNavigationRevealContinuation?
     private var isDrainingListNavigationReveal = false
     private static let scrollKeyboardTweenDuration: Double = 0.22
 
@@ -19185,7 +19186,8 @@ public final class RetainedViewRuntime {
             finishLazyListResolutionBudgetIfIdle()
             isDrainingListNavigationReveal = false
         }
-        let settlement = queryingLayout ? queryListNavigationRevealSettlement() : capturedSettlement
+        let settlement =
+            queryingLayout ? queryListNavigationRevealSettlement(for: continuation) : capturedSettlement
         guard isListNavigationRevealCurrent(continuation), receipt.permitsPendingRevealContinuation(continuation) else {
             cancelListNavigationReveal(continuation)
             return false
@@ -19261,10 +19263,14 @@ public final class RetainedViewRuntime {
     }
 
     @inline(never)
-    private func queryListNavigationRevealSettlement() -> RetainedLayoutSettlementReceipt? {
+    private func queryListNavigationRevealSettlement(
+        for continuation: RetainedListNavigationRevealContinuation
+    ) -> RetainedLayoutSettlementReceipt? {
         guard canPrepareLayoutSettlement else { return nil }
         isResolvingLayoutFrame = true
+        activeListNavigationRevealQuery = continuation
         updateResolvedLayout()
+        activeListNavigationRevealQuery = nil
         isResolvingLayoutFrame = false
         let settlement: RetainedLayoutSettlementReceipt?
         if case .settled(let value) = layoutSettlementStatus { settlement = value } else { settlement = nil }
@@ -22458,6 +22464,16 @@ public final class RetainedViewRuntime {
         // scalar before lease callbacks; existing admission still owns every
         // provider, adoption, measurement, and cleanup decision.
         let omitsOptionalPrefetch: Bool = {
+            // The original reveal must settle its required viewport before
+            // optional neighbors can spend the last measurement round. This
+            // hint grants no construction or focus authority to that query.
+            if isDrainingListNavigationReveal, isResolvingLayoutFrame,
+                let reveal = activeListNavigationRevealQuery, pendingListNavigationReveal === reveal,
+                reveal.container === visit.scrollContainer, lazyListResolutionBudget === budget,
+                isListNavigationRevealCurrent(reveal)
+            {
+                return true
+            }
             guard let preparation = uiaPreparation, let request = lazyListUIARequest,
                 request.preparation === preparation, isLazyListUIARequestCurrent(request),
                 request.phase == .finalQuery, request.hint == nil, !request.queryIsSealed,

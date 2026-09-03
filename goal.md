@@ -16931,3 +16931,28 @@ unchanged. Source review, contracts, strict lint, and whitespace checks pass.
 The next uninstrumented run covers the warm offscreen method and seven existing
 eligibility/factory/refusal methods. Cold return and immediate row-0 focus remain
 open, as do the original 155-test combined gate and all nine completion gates.
+
+### 2026-09-02 — Keep optional prefetch out of the original reveal's final round
+
+Source inspection identifies the two additional elements in the cold-return
+trace as optional neighbors. The original keyboard preparation already proved
+coverage of the required future viewport before accepting its offset. Consuming
+that preparation then returned the adapter to ordinary planning, where optional
+prefetch could build new, unmeasured rows after the last measurement phase.
+
+The existing optional-prefetch omission now also applies to the exact active
+List reveal settlement query. A weak marker brackets only its existing layout
+update and is cleared before callback delivery. Planning requires the same
+pending continuation, scroll container, budget, and current native intent.
+Required viewport and protected rows, required boundary probes, construction
+admission, measurement, cleanup, and final focus checks remain unchanged. This
+does not add a query, round, element allowance, retry, or permission to focus.
+Ordinary planning outside that query retains optional prefetch.
+
+Root source review, apply checks, contract checks, strict Runtime lint, and
+whitespace verification pass. Behavioral validation is pending. The previously
+planned eight warm/eligibility cases have not run yet; their next run will be
+combined with the cold return, warm row-0 fix when ready, related revocation
+cases, and existing final-prefetch regressions to avoid redundant compilation.
+This changes only diagnostic scheduling, not any acceptance requirement. All
+original tests, budgets, scope, and nine completion gates remain unchanged.

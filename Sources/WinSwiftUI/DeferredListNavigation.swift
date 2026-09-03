@@ -35,7 +35,6 @@ final class DeferredListKeyboardNavigation {
         let direction: Int
         var ordinal: Int
         var leaf: Int?
-        var ordinaryDestinationLeaf: Int?
         var warmHandoff: RetainedLazyListWarmKeyboardHandoff?
         var originalWarmAdjacentToken: RetainedLazyListRowToken?
         var item: RetainedLazyListAccessibilityItem?
@@ -174,12 +173,24 @@ final class DeferredListKeyboardNavigation {
         if let runtime {
             runtime.withLazyListResolutionBudget {
                 continueInCurrentBudget(request)
+                // Drop the selected row/tag frame before the post-setter query,
+                // without closing or replacing this operation's budget.
+                if let handoff = request.warmHandoff, request.bindingWasWritten {
+                    guard isCurrent(request), let item = request.item,
+                        runtime.permitsOrdinaryLazyListKeyboardContinuation(item, using: handoff)
+                    else {
+                        cancel(request)
+                        return
+                    }
+                    finishWrittenRequest(request)
+                }
             }
         } else {
             continueInCurrentBudget(request)
         }
     }
 
+    @inline(never)
     private func continueInCurrentBudget(_ request: Request) {
         if request.needsSelectionSearch {
             switch resolveSelectionPosition(request) {
@@ -253,10 +264,6 @@ final class DeferredListKeyboardNavigation {
                     schedule(request)
                     return
                 case .empty:
-                    guard request.ordinaryDestinationLeaf == nil else {
-                        cancel(request)
-                        return
-                    }
                     if request.needsImplicitSelectionValidation {
                         useUnmatchedSelectionBoundary(request)
                     } else {
@@ -298,9 +305,7 @@ final class DeferredListKeyboardNavigation {
                 request.leaf = first.1.leaf + request.direction
             }
             let target: (ViewNode, DeferredListRowNavigation)?
-            if let leaf = request.ordinaryDestinationLeaf {
-                target = rows.first(where: { $0.1.leaf == leaf })
-            } else if let leaf = request.leaf {
+            if let leaf = request.leaf {
                 target =
                     request.direction > 0
                     ? rows.first(where: { $0.1.leaf >= leaf })
@@ -309,10 +314,6 @@ final class DeferredListKeyboardNavigation {
                 target = request.direction > 0 ? rows.first : rows.last
             }
             guard let (node, metadata) = target, let owner = node.listNavigationOwner else {
-                guard request.ordinaryDestinationLeaf == nil else {
-                    cancel(request)
-                    return
-                }
                 advance(request)
                 continue
             }
@@ -343,14 +344,19 @@ final class DeferredListKeyboardNavigation {
                     cancel(request)
                     return
                 }
-                // Only the actual destination can leave this construction
-                // plan. Keep its exact leaf while the ordinary resolver earns
-                // readiness; unwind these row/tag captures before that query.
-                request.ordinaryDestinationLeaf = metadata.leaf
+                // Eligibility already accepted this actual destination. Keep
+                // its native demand through the one setter; geometry settles
+                // only after this row/tag frame returns to the budget owner.
                 request.warmHandoff = handoff
-                request.leaf = metadata.leaf
                 finishKeyboardPreparation(request)
-                continue
+            }
+            if let handoff = request.warmHandoff {
+                guard isCurrent(request), let runtime, let item = request.item,
+                    runtime.permitsOrdinaryLazyListKeyboardBinding(item, using: handoff)
+                else {
+                    cancel(request)
+                    return
+                }
             }
             guard isCurrent(request),
                 request.receipt.prepareTarget(owner, requiresRevealBeforeFocus: request.requiresRevealBeforeFocus),
@@ -377,7 +383,7 @@ final class DeferredListKeyboardNavigation {
                 request.set(metadata.tag)
                 request.invalidate()
             }
-            finishWrittenRequest(request)
+            if request.warmHandoff == nil { finishWrittenRequest(request) }
             return
         }
         schedule(request)
@@ -534,14 +540,7 @@ final class DeferredListKeyboardNavigation {
                 return result
             }
         }
-        let resolution: RetainedLazyListTargetResolution
-        if request.ordinaryDestinationLeaf != nil {
-            guard let handoff = request.warmHandoff else { return .obsolete }
-            resolution = runtime.resolveOrdinaryLazyListKeyboardTarget(item, using: handoff)
-        } else {
-            resolution = runtime.resolveLazyListTarget(item)
-        }
-        switch resolution {
+        switch runtime.resolveLazyListTarget(item) {
         case .ready(let roots): return .accepted(roots)
         case .empty: return .empty
         case .pending: return .pending
@@ -563,7 +562,7 @@ final class DeferredListKeyboardNavigation {
         // The inside-cohort warm handoff may use only its original operation's
         // remaining budget. Pending ordinary work cannot create a later replay;
         // any already accepted binding write still keeps its normal cleanup.
-        guard request.ordinaryDestinationLeaf == nil else {
+        guard request.warmHandoff == nil else {
             cancel(request)
             return
         }

@@ -16956,3 +16956,32 @@ combined with the cold return, warm row-0 fix when ready, related revocation
 cases, and existing final-prefetch regressions to avoid redundant compilation.
 This changes only diagnostic scheduling, not any acceptance requirement. All
 original tests, budgets, scope, and nine completion gates remain unchanged.
+
+### 2026-09-02 — Settle warm selection after its accepted binding write
+
+The empty/disabled selected-row trace shows the original warm handoff spending
+two remaining rounds on layout before the binding write, then running out
+while rebuilding the setter's actual viewport. The controller already has the
+accepted physical destination from its original eligibility pass. That physical
+ownership can qualify target preparation and the binding write; it does not
+need to borrow geometry authority from a preliminary ordinary settlement.
+
+The warm path now installs its exact ordinary demand, rechecks that handoff,
+and performs the one accepted binding write before settlement. It returns from
+a non-inlined row/tag frame, releasing those temporary captures, then checks
+the same demand, original budget and pointer sequence plus the receipt's
+post-binding continuation before calling the existing settlement routine.
+The outer budget remains open throughout. Cold and ordinary writes keep their
+existing path, and pending warm work still cannot schedule another attempt.
+The obsolete warm resolver overload and its materializer/leaf bookkeeping are
+removed; ordinary and UIA resolver behavior is retained.
+
+Root source review, apply checks, contract checks, strict lint, and whitespace
+verification pass. No test assertion or method has changed. The next normal,
+uninstrumented run selects exactly 28 methods: the five focus/continuation cases,
+seven eligibility/factory/refusal cases, three related reveal/coverage/measurement
+revocation cases, and all thirteen existing UIA final-prefetch cases. This is a
+focused regression run, not a substitute for the original combined 155-test
+gate or full validation. Behavioral results for these fixes remain pending.
+The original requirements, 128-element/four-round budgets, and nine open
+completion gates remain unchanged.

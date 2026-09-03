@@ -27604,6 +27604,28 @@ extension RetainedViewRuntime {
             realization: realization, pointerSequence: preparation.pointerSequence)
     }
 
+    /// Ending the old plan can retire captures. Recheck the original binding
+    /// authority after that cleanup, without requiring another geometry query.
+    package func permitsOrdinaryLazyListKeyboardBinding(
+        _ item: RetainedLazyListAccessibilityItem, using handoff: RetainedLazyListWarmKeyboardHandoff
+    ) -> Bool {
+        handoff.item === item && handoff.receipt?.permitsBindingWrite == true
+            && lazyListResolutionBudget === handoff.budget && pointerSequence == handoff.pointerSequence
+            && item.realization === handoff.realization && handoff.realization.isActive
+            && isLazyListAccessibilityItemCurrent(item)
+    }
+
+    /// Row/tag captures have unwound after the accepted setter. The original
+    /// demand and event still own settlement; successor declarations on the
+    /// same physical endpoints use the receipt's existing continuation rule.
+    package func permitsOrdinaryLazyListKeyboardContinuation(
+        _ item: RetainedLazyListAccessibilityItem, using handoff: RetainedLazyListWarmKeyboardHandoff
+    ) -> Bool {
+        handoff.item === item && handoff.receipt?.permitsContinuation == true
+            && lazyListResolutionBudget === handoff.budget && pointerSequence == handoff.pointerSequence
+            && item.realization === handoff.realization && handoff.realization.isActive
+    }
+
     /// Freeze the original actual destination before the only binding write.
     /// The receipt still owns its old declaration and setter at this boundary.
     package func prepareLazyListKeyboardSelection(
@@ -27988,27 +28010,6 @@ extension RetainedViewRuntime {
     /// after-layout replay. It does not enqueue another scheduler or repeat a
     /// binding write; the request owner releases the item on cancellation.
     package func resolveLazyListTarget(_ item: RetainedLazyListAccessibilityItem) -> RetainedLazyListTargetResolution {
-        resolveLazyListTarget(item, warmHandoff: nil)
-    }
-
-    package func resolveOrdinaryLazyListKeyboardTarget(
-        _ item: RetainedLazyListAccessibilityItem, using handoff: RetainedLazyListWarmKeyboardHandoff
-    ) -> RetainedLazyListTargetResolution {
-        resolveLazyListTarget(item, warmHandoff: handoff)
-    }
-
-    private func isWarmKeyboardHandoffCurrent(
-        _ handoff: RetainedLazyListWarmKeyboardHandoff, for item: RetainedLazyListAccessibilityItem
-    ) -> Bool {
-        handoff.item === item && handoff.receipt?.permitsBindingWrite == true
-            && lazyListResolutionBudget === handoff.budget && pointerSequence == handoff.pointerSequence
-            && item.realization === handoff.realization && handoff.realization.isActive
-    }
-
-    private func resolveLazyListTarget(
-        _ item: RetainedLazyListAccessibilityItem, warmHandoff: RetainedLazyListWarmKeyboardHandoff?
-    ) -> RetainedLazyListTargetResolution {
-        if let warmHandoff, !isWarmKeyboardHandoffCurrent(warmHandoff, for: item) { return .obsolete }
         guard item.runtime === self, permitsRetainedActionInvocation else { return .obsolete }
         guard !hasActiveRetainedBuild, !isResolvingLazyListLogicalTarget else { return .pending }
         guard isLazyListAccessibilityItemCurrent(item), let adapter = item.adapter, let content = item.content else {
@@ -28049,12 +28050,7 @@ extension RetainedViewRuntime {
         }
         guard beginLazyListTargetResolution(during: nil, ordinaryItem: item) else { return .pending }
         defer { finishLazyListTargetResolution() }
-        if let roots = materializeLazyListTarget(
-            item, during: nil, warmHandoff: warmHandoff)
-        {
-            return .ready(roots)
-        }
-        if let warmHandoff, !isWarmKeyboardHandoffCurrent(warmHandoff, for: item) { return .obsolete }
+        if let roots = materializeLazyListTarget(item, during: nil) { return .ready(roots) }
         guard isLazyListAccessibilityItemCurrent(item) else { return .obsolete }
         return adapter.knownLeafCount(for: item.token) == 0 ? .empty : .pending
     }
@@ -28075,8 +28071,7 @@ extension RetainedViewRuntime {
     }
 
     private func materializeLazyListTarget(
-        _ item: RetainedLazyListAccessibilityItem, during mutation: RetainedAccessibilityMutation?,
-        warmHandoff: RetainedLazyListWarmKeyboardHandoff? = nil
+        _ item: RetainedLazyListAccessibilityItem, during mutation: RetainedAccessibilityMutation?
     ) -> [ViewNode]? {
         guard isLazyListAccessibilityItemCurrent(item), let content = item.content, let adapter = item.adapter,
             adapter.knownLeafCount(for: item.token) != 0
@@ -28090,24 +28085,13 @@ extension RetainedViewRuntime {
                 && pointerSequence == originalPointer
                 && presentationModalSnapshot.map(ObjectIdentifier.init) == originalModal
                 && (mutation == nil || isAccessibilityMutationCurrent(mutation!))
-                && (warmHandoff.map { isWarmKeyboardHandoffCurrent($0, for: item) } ?? true)
         }
-        if let warmHandoff, !isWarmKeyboardHandoffCurrent(warmHandoff, for: item) { return nil }
         if case .settled = layoutSettlementStatus {
             // The existing settled viewport needs no additional query.
         } else {
             guard resolvedLayoutFrame(of: root) != nil, isCurrent(), case .settled = layoutSettlementStatus else {
                 return nil
             }
-        }
-        // The warm transfer installed its demand before this settlement.
-        // Reuse only current actual roots; no second query is needed merely
-        // to add a demand that this item already holds through its setter.
-        if warmHandoff != nil {
-            guard isCurrent(), let nodes = realizedLazyListAccessibilityNodes(for: item), !nodes.isEmpty else {
-                return nil
-            }
-            return nodes
         }
         if item.realization?.isActive != true {
             guard

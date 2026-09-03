@@ -20442,3 +20442,45 @@ this checkpoint. No speedup, allocation reduction, exact ARC equivalence,
 hardware performance or full-suite pass is claimed. The separate field-chrome
 transport correction remains under private design review, and its four original
 failures and all nine original completion gates remain open.
+
+
+### 2026-09-03: child-table controls pass after integration; paired diagnostic closes
+
+At `411fedec439441ec802fa4db3592cbc9e1e60e71`, all 125 frozen child-table controls passed in
+six batches, preserving the original 111 selectors and fourteen new regressions.
+Every selected method started and ended exactly once. All six processes exited
+naturally with zero status and full owned-process closure; no timeout,
+termination or supervision error occurred. All ten source pins still matched.
+The aggregate is `artifacts/button-child-table-after125-411fede-results.json`,
+SHA256 `8ee4473a479d8ba39fb66027269c66835bc13aeff55a47d923a5e6466703a9cb`. This closes the focused
+after-change check, not the full-suite requirement.
+
+The unchanged compact Data snapshot also passed after the change in
+15.767 test seconds (26.032 owned seconds),
+compared with 17.434 test seconds in the prior pinned run.
+Reconciliation measured 5.409498 and
+3.663316 seconds respectively. Scene construction measured
+9.046025 and 9.091332 seconds, including
+scene layout of 2.512113 and
+2.531394 seconds. Nested times must not be summed.
+These are one debug observation on each side, without repetitions or hardware
+qualification; they do not establish a stable speedup, allocation count,
+exclusive paint cost or frame-delivery result.
+
+The after attempt is `artifacts\compactdatasnapshotphases-bfe5c21b3c2a47c6ac0fe7755f838760/`,
+raw log SHA256 `77589a8de308187c29b7238d939500c60ff5a220b126e67fcbe4776039f8aa91` and
+trace SHA256 `de1cdf364f440d2ba9b96772e0405e4c451ac9016701d306c22f25c6585f1b6f`.
+Both attempts have the same 22 paired measured boundaries, all ten existing
+validation counters zero at every boundary, and no partial marker or parser
+error. Neither has a whole-trace footer or final CPU rasterization measurement.
+Both ended naturally with full owned-process closure and preserved sources.
+The comparison record is `artifacts/button-child-table-comparison-411fede.json`,
+SHA256 `c733fca29ada15bfeed64b761c592830fd056cfb863c9d5642cb7008a69bcdb2`.
+
+Root verified all 31 payloads in the sealed pin-only binding manifest,
+SHA256 `37d6d381e56efa08be3fda358a1abb970b169eb77802b06d71f2f294eee5bfb8`,
+and all 45 current after-source pins. No used runner, parser, workload, control
+or execution-limit byte changed during sealing. The independent source review
+is clear; the original baseline remains historical evidence at its own commit.
+The four original field-chrome failures, broader suite validation, and all nine
+original completion gates remain open. No baseline or acceptance threshold changed.

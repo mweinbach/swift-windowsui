@@ -19,9 +19,14 @@ is used for saving. This is single-process persistence, not concurrent-writer
 conflict resolution or cross-window AppStorage conformance.
 
 This fixture is a practical checkpoint within the original project goal, not a
-claim that the toolkit is production-ready. The initial candidate has not yet
-been compiled or run. Checkpoint completion requires the release build, tests,
-staged deployment, and native acceptance sequence below on the actual revision.
+claim that the toolkit is production-ready. On 2026-09-03, an external copy at
+toolkit commit `4330e98` passed all seven model tests and built the executable
+with ordinary Release settings on Swift 6.3 for Windows x64. Its staged
+deployment-only check also passed with developer paths removed, and unchanged
+manifests rejected copies missing the resource bundle, PNG, or `swiftCore.dll`.
+These negative checks stop at manifest validation, before launching the EXE.
+The native acceptance sequence and clean-machine deployment remain unqualified;
+the checkpoint is not complete. Later source revisions need fresh validation.
 
 ## Build as an independent consumer
 

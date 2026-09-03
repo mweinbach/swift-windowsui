@@ -17767,3 +17767,62 @@ The sample is single-window and exercises shared state across tabs, not the
 separate cross-window open/close/reopen requirement. No native or clean-machine
 qualification is claimed. Licensing remains unchanged pending the owner's
 choice; all nine original completion gates remain open.
+
+### 2026-09-03 — Build and stage the independent Release consumer
+
+An external GPU Workbench copy at toolkit commit `4330e98` passed all seven
+model tests with ordinary Release settings, then built the Release executable.
+The compiler was Swift 6.3 (`swift-6.3-RELEASE`), targeting Windows x64 with
+the Swift 6.3.0 SDK/runtime and Visual Studio 18 Community x64 tools. The
+model-test build took 595.82 seconds, the tests 0.161 seconds, and the product
+build 542.03 seconds. The product compiler used `-O` without `-enable-testing`.
+Existing compiler/linker warnings remain; there were no build errors.
+The toolkit checkout and all copied consumer sources stayed unchanged.
+
+Evidence is in
+`artifacts/gpuworkbench-release-dadd1d00f9e6487f87ea4e0cc7be23f7`:
+`result.json`, `model-tests-check.json`, `model-tests.log` (SHA-256
+`014c79a9ee521099c8f27d89a7818a5aa20f974925b3b5257047c5d972df3697`),
+and `product-build.log` (SHA-256
+`2b8a1aa1c38b358b06f71a8a705047b90b49115ee845b6fc1fc5e5494625a8c6`).
+The seven exact XCTest starts and passing terminals were independently counted;
+the separate zero-test Swift Testing footer was not substituted for them.
+
+The generated resource accessor names
+`gpu-workbench_GPUWorkbench.resources`. Separate dumpbin header and import
+inspection covered the executable and 18 runtime DLLs, all x64, with unchanged
+hashes and no remaining parser issues or uninspected runtime files. The
+remaining 24 named DLLs were checked in Windows System32 and identify as
+Windows components; 26 imports are Windows API sets. API-set names can be
+logical aliases, and the Universal CRT is an OS component on Windows 10 and
+later, as described in Microsoft's [API-set documentation](https://learn.microsoft.com/en-us/windows/win32/apiindex/windows-apisets)
+and [CRT deployment documentation](https://learn.microsoft.com/en-us/cpp/windows/universal-crt-deployment?view=msvc-170).
+No Windows DLLs were copied. `runtime-inspection-v2.json`,
+`windows-import-files.json`, and `runtime-closure-review.json` retain this
+build-specific classification, not a universal redistribution claim.
+
+The complete stage contains 20 files: EXE, 18 reviewed runtime DLLs, and the
+103-byte bundled PNG inside its complete resource directory. The deployment
+check ran from a fresh unrelated directory with developer search paths removed,
+exited naturally with code 0, and confirmed bundle/image paths beside the
+staged executable. Three fresh copies omitted the whole bundle, the PNG, or
+`swiftCore.dll`; all exited 1 at manifest validation before application launch,
+with the original manifests unchanged. This proves incomplete-package
+rejection, not native loader failure. The final records are under
+`staging-f3b7916f63db47a8a1fd4954b12acd78` in the evidence directory. The five
+synthetic staging-helper cases also passed.
+
+Earlier failed helper attempts remain recorded: the first import parser read
+PE section headers as dependencies; two Python-to-Windows-PowerShell launches
+inherited incompatible module paths; one negative-result checker did not
+normalize wrapped error text. The corrected final checks used unchanged
+consumer scripts, binaries and source. These failed harness attempts are not
+reported as application failures or erased from the evidence.
+
+This closes only the sample's external Release model/build and local headless
+packaging checks. Mounted private State reflection, rendered image decoding,
+native keyboard/GUI flows, persistence across process restart, real storage
+ACL errors, native failure alerts, actual GPU presentation, a clean Windows
+machine without developer installations, licensing and redistribution review
+remain open. No window or presenter was started by the deployment mode.
+All nine original product completion gates remain open and unchanged.

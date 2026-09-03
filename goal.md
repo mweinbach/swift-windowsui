@@ -20050,3 +20050,39 @@ Compilation and behavioral results remain pending at this checkpoint. Both
 failed stock Full attempts and the original five failures remain evidence;
 none is replaced by this fixture correction. All nine original completion
 gates remain open and retain their original requirements.
+
+### 2026-09-03: all seven demo snapshot-lifetime controls pass
+
+At fixed commit `bbe4136fafdff540f752f01791d143fe40163929`, the exact
+seven-method successor roster produced seven starts and seven passing terminals,
+with no failures or skips. All five original demo action tests now pass with
+their snapshots retained; both unchanged expiry safety tests still refuse
+actions after the owning runtime is released. This confirms the fixture
+correction without weakening the production action-lifetime requirement.
+
+The owned run exited naturally with code zero after 510.625 seconds, including
+209.94 seconds of compilation. It preserved source endpoints and complete
+direct-process, descendant, resource and signal closure. There was no timeout,
+termination, acquisition uncertainty, pending signal or cleanup error. The
+artifact directory is
+`artifacts/demosnapshotlifetimefixed7-6bfc8952dd2949328bd57d0873c0975b/`;
+raw log SHA256 is
+`c387dac58678c927a72cfbb4a42aba591b2f2d45c46a78e3d63b440c52cfc726`.
+The independent aggregate is
+`artifacts/demo-snapshot-lifetime-fixed7-bbe4136-results.json`, SHA256
+`56ec1fb5a31656df80dd97ec4a848eee5b3f8435a0dea40967b8875a96b84ada`.
+
+The five demo tests still took approximately 37 to 77 seconds apiece in this
+debug run. These are uncontrolled test durations, not hardware qualification or
+a performance comparison. Source review identified ordinary button-adoption,
+layout-scope and accumulated paint-read validations that can run without a
+managed lazy-list coordinator. Existing construction counters do not count all
+of those checks. A source-edit-free singleton diagnostic will use existing
+phase tracing to locate expensive intervals before proposing any optimization;
+it cannot establish exclusive paint time, auxiliary-frame duration or complete
+trace coverage. The held managed-admission candidate is not on this snapshot
+path and has not been applied.
+
+This focused pass does not replace either failed stock Full run, close the
+original 155-test gate, or qualify native presentation, hosted CI or the nine
+original completion gates. A fresh stock Full run remains required.

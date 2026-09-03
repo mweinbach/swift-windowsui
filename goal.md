@@ -19833,3 +19833,37 @@ Compilation and those twenty-six outcomes remain pending at this checkpoint.
 The previous failures are retained, and a focused success cannot substitute
 for restarting stock Full from the beginning. All nine original gates remain
 open and unchanged.
+
+### 2026-09-03: Stepper lifetime correction passes all twenty-six focused controls
+
+At fixed commit `2b9b68bf666986ddaa59a72899771e096213a2f2`, the
+unchanged twenty-five original Chrome/Geometry methods and the new runtime
+expiry test all passed, with exact starts and terminals. Both the original
+Stepper interaction and new expiry negative passed in 0.004 seconds. The
+incremental build completed in 260.94 seconds; XCTest reported 1.348 seconds
+for the twenty-six methods. The compiler emitted a weak-variable mutability
+warning for the intentional weak runtime witness; there was no compilation
+error. Strict lint had already passed without changing the frozen fixture.
+
+The owned script exited naturally with code zero. Root checked complete
+process/descendant/resource/signal closure, no timeout, termination,
+uncertainty, pending signals or cleanup errors, and unchanged source endpoints.
+Raw evidence remains in
+`artifacts/stepperchromelifetime26-7a37254a8cbc48b384300bc91606b64a/`,
+SHA256 `001d0b942d095015b118ebeaee2cbaa90a3b67ee3b8ffca2d386fd05e290f771`.
+The independent aggregate is
+`artifacts/stepper-chrome-lifetime26-2b9b68b-results.json`, SHA256
+`9dac494666755546b485b725d7eeab58738faea8a90bff1c52eb6978cfb1debd`.
+An additional read-only audit found no other interaction in
+ControlChromePolishTests using an expired node-only fixture: the segmented
+hover path keeps its snapshot's strong runtime, and remaining helpers inspect
+stored geometry/chrome or existing scene output.
+
+The next stock Full attempt starts from stage one at the resulting clean
+checkpoint, using the same reviewed launcher, unchanged 5,400-second execution
+allowance and ten-second cleanup allowance, and a fresh journal directory.
+No shard resume or focused substitution is used. The old Full failure and
+isolated failure remain historical evidence; this focused success does not
+qualify Full, native behavior, the Original155 gate or any original product
+completion gate. Private accessibility candidates remain outside the checkout
+during this validation. The nine original gates remain open and unchanged.

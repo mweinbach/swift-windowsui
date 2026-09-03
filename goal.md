@@ -17584,3 +17584,28 @@ The small source patch and new test pass strict lint/contracts. They still
 require execution with the original managed/raw reader tests and the separate
 ordinary-keyboard correction. No public compatibility or completion claim is
 made from source inspection; all nine original gates remain open.
+
+### 2026-09-03 — Retain the timed-out sixteen-method result without inferring outcomes
+
+The sixteen-method run at `4f943e9` built successfully in 365.93 seconds but
+reached the unchanged 900-second execution deadline before SwiftPM returned
+any individual XCTest case records. No method has a reported start, terminal
+or pass in the saved log; all sixteen outcomes remain unknown. This does not
+establish either a new regression or successful keyboard/epoch repair.
+
+The supervisor terminated only its owned process tree. Its receipt confirms
+successful termination, direct-process exit, an empty Job, descendant closure,
+closed resources, restored signal handlers and preserved fixed source, with no
+acquisition uncertainty or reported cleanup errors. Total elapsed time was
+900.031 seconds, inside the cleanup allowance. The wrapper returned 1 and the
+supervisor reported child exit 124. The strict focused checker correctly fails
+because this was not natural completion; its combined cleanup/source flag also
+requires no timeout and must not be interpreted as a successful test receipt.
+
+Evidence is in
+`artifacts/ordinary-keyboard-regressions-b650fd83c3c04e3b836e15006ab1da22`;
+raw SHA-256 `f9cea46536bd727dac6b3145adc5c91061008480549fa0f566988f285b1fb899`.
+The next runs use the existing compiled outputs and smaller exact selections
+to identify which original failure or new control needs more work. They do not
+replace or extend the original 155-method gate. All nine original completion
+gates remain open and unchanged.

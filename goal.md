@@ -19202,3 +19202,54 @@ evidence. This roster is not a replacement for the unchanged whole155 command
 or its original 900-second execution allowance. All nine original product
 completion gates, live performance targets, full-suite and native/display
 qualification remain open without changed thresholds or scope.
+
+### 2026-09-03: validation indices exposed initial scalar estimate rollback failures
+
+At `64cb6874873c161b4d4722b05cad36bf7164b5db`, the completed 231-method
+validation observed **229 passes and two failures**, not a passing roster.
+All 13 new modal/proof-index methods and all 20 diagnostics controls passed.
+The unchanged original keyboard handoff passed in 46.588 seconds; this single
+uninstrumented observation is neither a controlled performance comparison nor
+the original whole155 qualification.
+
+The original adapter methods
+`testExhaustedBudgetKeepsUnknownRowsPendingWithoutFactories` and
+`testObsoleteEmptyFactoryDoesNotCertifyZeroExtent` both required a 20-point
+unresolved estimate and received zero. Their assertions are unchanged. All
+231 starts/terminals were observed exactly across eleven batches. Batch two
+exited naturally with code one; the other ten exited zero. Every owned job
+closed fully with no timeout, forced termination, uncertainty, interruption,
+pending signal, supervision error or tracked-source change. The first build
+took 390.78 seconds. Raw logs and closure records are preserved under
+`artifacts/validationindices231-7f0531899c164530bec6f17dedf8ffb1/`, with the
+independent aggregate in `artifacts/validation-indices231-64cb687-results.json`.
+
+Both failures occur before any lazy Candidate is constructed. Preparation
+installs initial metadata estimates, then its non-ready cleanup restores a
+previous nil extent index. The rejected-snapshot layout fallback consequently
+reports zero. This rollback path and the original tests also exist unchanged
+at `b7413968`; that source comparison is not a historical test execution.
+
+The correction preserves initial scalar estimates when no previous index
+exists. It still revokes generation, gap-summary, pending-candidate and accepted
+snapshot authority and leaves work incomplete/unresolved. It grants no layout
+placements, measurements, completed row table or construction authority.
+Any nonnil previous index, including an empty or zero-total index, still
+restores all four coordinate fields together. Stage identity, attempt
+ownership and cleanup ordering remain unchanged, so late disposal cannot
+overwrite a newer stage or publication.
+
+Five new regression methods were frozen before the one-hunk production patch:
+cold budget exhaustion, discarded initial empty content, accepted-empty
+replacement rollback, factory teardown, and cleanup publishing a newer context.
+Root reviewed all five and the source patch. Strict lint and contracts passed
+after only whitespace formatting in the new test file; the production patch
+and every existing test remained byte-identical to their reviewed versions.
+Integration pins are in `artifacts/initial-scalar-estimates-integration.json`.
+
+The next normal roster contains **243 methods**: the same 231 plus five new
+controls and seven existing scalar-stage tests. Its original expectations and
+execution policy are unchanged; results are pending at this entry. This is
+additional regression evidence, not a replacement for the original whole155
+gate or its 900-second allowance. All nine original completion gates, full
+suite, live performance and native/display qualification remain open.

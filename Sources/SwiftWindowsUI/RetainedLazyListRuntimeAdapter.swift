@@ -3026,10 +3026,15 @@ package final class RetainedLazyListRuntimeAdapter {
         // table, or transferred index. Consume this identity before moving data.
         guard pendingScalarGeometry === stage else { return }
         pendingScalarGeometry = nil
-        extentIndex = stage.index
-        tokens = stage.tokens
-        positions = stage.positions
-        inheritedExtentSpacing = stage.inheritedSpacing
+        // A first snapshot has no previous coordinate basis. Keep its
+        // estimates, but revoke snapshot authority below as usual.
+        // A nonnil empty index still represents coordinates to restore.
+        if stage.index != nil {
+            extentIndex = stage.index
+            tokens = stage.tokens
+            positions = stage.positions
+            inheritedExtentSpacing = stage.inheritedSpacing
+        }
         generation = nil
         gapBoundaryIndex = nil
         pendingCandidate = false

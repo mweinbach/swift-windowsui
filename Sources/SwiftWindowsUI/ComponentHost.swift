@@ -1283,6 +1283,7 @@ public final class ComponentHost {
                 buttonActions: buttonActions, uiaAuthority: check.uiaAuthority)
         else { return false }
         guard check.isCurrent, plan?.isCurrent != false, plan?.stillOwnsOldChildren != false else { return false }
+        lazyJournal?.prepareOwnedCandidateReaderReplacement(from: source, to: target)
         let propertyCheck = NodeReconcileAdmission(
             admission, source: source, target: target, childrenSnapshot: plan?.childrenSnapshot,
             lazyJournal: lazyJournal, taskAdoption: taskAdoption, buttonActions: buttonActions,

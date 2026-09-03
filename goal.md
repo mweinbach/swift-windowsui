@@ -18815,3 +18815,55 @@ installed UIA/Narrator work, complete text-provider behavior, hardware/native
 presentation, full-suite and release qualification remain as documented. The
 calendar candidate and keyboard diagnostic still require their own integration
 and tests. All nine original completion gates remain open; no push has occurred.
+
+### 2026-09-03: preserve declared calendar members through exact reader replacement
+
+The next runtime correction addresses the three original calendar failures
+without changing their methods or assertions. An accepted unscoped reader can
+lose its original physical contribution while replacing its geometry content.
+Its existing qualification correctly stops general publication at that point,
+but ordinary candidate members still need proof that their same declaration
+survived. Losing that proof incorrectly revokes the calendar's browsing State
+and reconstructs January after February was accepted.
+
+The new proof is limited to plain members of the already accepted original
+candidate field. It freezes the exact source, selected registration and output,
+original contribution and expected group. A Void Host hook after the recursive
+prepass binds only that original field and publication while the original
+contribution is active. The first own prepared geometry-property absence must
+then be observed and its cleanup drained. Actual normal and replacement-group
+completion remain separate required facts. Foreign-first retirement, ambiguous
+sources, SELF, child-catalog and deferred-source aliases are refused.
+
+Only this member batch may advance its private exact snapshot after acceptance.
+The original qualification stays revoked; Task, new-field, SELF, child-reader,
+generic afterimage and continuation authority do not receive this exception.
+The source-isolation check preserves first-claim order and the legacy dispatcher.
+No State is copied to a new owner and no revoked owner is revived. A still
+declared candidate may preserve logical State while cold, but old physical
+callbacks remain unavailable. Actual declaration omission still retires State.
+
+Root applied the independently reviewed cumulative patch after `e7e421c`.
+The patch SHA-256 is
+`a558a6026bf496d03f6a0571fe48af6d930dcde9469289a67168d3a70a75c479`.
+The two existing source preimages and all three resulting files matched their
+pins exactly before formatting. Only three line wraps in Activity were needed
+for strict lint; Host and all 509 new test lines remained unchanged. Final
+lint and architecture contracts pass in
+`artifacts/calendar-reader24-lint-final.log`. Compilation and behavior still
+require execution; source review is not a passing test result.
+
+Three new tests exercise a real member replacement, cold declaration retention
+and exact omission; foreign-first retirement refusal; and a positive shared
+source legacy-reader control. The last test is not a reproducer of interception
+by the earlier held draft or of post-capture ABA. The original frozen 415-line
+test prefix remains unchanged. Missing, wrong, reentrant and ABA facts have
+additional source proof obligations beyond these isolated dynamic cases.
+
+The first execution roster is the prior 21-method insertion selection plus the
+three new tests, under `artifacts/calendar-reader24-selection.json`. It includes
+the original three failing calendar methods, all fifteen OrdinaryOwnedHandoff
+methods and all three OrdinaryPreparedInsertionIsolation methods. The normal
+owned runner will bind the roster to the clean integration commit, preserving
+its 900+10 bounds and all original test assertions. This is distinct from both
+CalendarText155 and the original155 gate. All nine completion gates stay open.

@@ -17432,3 +17432,41 @@ The helper now reads the immutable main-actor event recorder before entering
 that closure, so only the recorder crosses the isolation boundary. No unchecked
 Sendable conformance, production change, assertion change or budget change is
 introduced. The same eight methods will run again; all nine gates remain open.
+
+### 2026-09-03 — Identify unused ordinary-frame phases and remove the diagnostic
+
+The eight-method run at `32cbfae` built in 292.06 seconds and completed in
+222.670 seconds. All seven new checked-identity adapter methods passed. The
+instrumented original pending-eligibility method again failed the same four
+focus, scroll and pending-preparation assertions, after 222.659 seconds.
+Selection still wrote row 900 exactly once and the accepted row was not
+deferred. Exact case records, natural exit 1, unchanged source and complete
+owned cleanup were verified in
+`artifacts/adapter-keyboard-diagnostic-9029aceec5e3495d999e70f00ac095bf`;
+raw SHA-256 `b4dff2080bda05549e3d21c14e21ff645903e651cc12c193e74a8e940c4ad283`.
+
+The 132-line diagnostic records the single accepted write at frame 21 with
+23 cumulative factories. At frame 63 there are 45 cumulative factories, one
+write, an unrevoked settling preparation and unresolved adapter work, without
+a settlement receipt. These totals do not establish the remaining row count.
+Source inspection explains the alternating provider and measurement-only
+frames: changed measurements invalidate the layout visit, so that paid round
+cannot enter its remaining reader/provider phases until layout is refreshed.
+The existing correction is deliberately restricted to an explicit query with
+its original budget and is unavailable during an ordinary render. The queued
+replay counts after a frame do not establish a replay deadlock.
+
+The exact formatted diagnostic patch has been reversed. Runtime and both
+original test bodies again match their pre-diagnostic `6d1ae5f` content; the
+original keyboard test file SHA-256 is
+`24201fba6b514269ca300ace67ec1c8a339a8b394698db7c8367c7ea274ff9fc`.
+The seven new tests and their actor-capture correction remain. Instrumented
+timing is not a qualified speed comparison or an uninstrumented acceptance.
+
+The next correction must be a separate ordinary-render path that refreshes
+layout before finishing phases already owed in the same paid round. It must
+retain the original request, all element/round limits, callback ordering,
+physical ownership checks and the unchanged 64-frame test bound. It must not
+make stale carried row records eligible or relax the query-only correction.
+The original combined deadline and all nine completion gates remain unchanged
+and open.

@@ -1,4 +1,3 @@
-import Foundation
 import SwiftWindowsCore
 import XCTest
 
@@ -550,32 +549,12 @@ final class LazyListKeyboardPreparationTests: XCTestCase {
     }
 
     func testPendingEligibilityContinuesOnlyThroughOrdinaryFramesWithItsOriginalAction() async throws {
-        let diagnosticStart = ContinuousClock.now
-        let diagnosticURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("artifacts", isDirectory: true)
-            .appendingPathComponent(
-                "keyboard-progress-pending-\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString).log")
-        try Data().write(to: diagnosticURL, options: .withoutOverwriting)
-        let diagnosticFile = try FileHandle(forWritingTo: diagnosticURL)
-        defer { try? diagnosticFile.close() }
-        func diagnosticProgress(_ phase: String, frame: Int, factories: Int, writes: Int, snapshot: String = "") throws
-        {
-            try diagnosticFile.write(
-                contentsOf: Data(
-                    "[keyboard-progress] phase=\(phase) frame=\(frame) elapsed=\(diagnosticStart.duration(to: ContinuousClock.now)) factories=\(factories) writes=\(writes) \(snapshot)\n"
-                        .utf8))
-        }
         let fixture = try KeyboardPreparationFixture()
         defer { fixture.close() }
-        try diagnosticProgress(
-            "fixture-ready", frame: -1, factories: fixture.probe.factories.count, writes: fixture.probe.writes.count)
         fixture.probe.selected = 899
         XCTAssertTrue(fixture.runtime.configureLazyListResolutionBudget(elementLimit: 1, roundLimit: 1))
         fixture.beginTrace()
         try XCTUnwrap(try fixture.row(0).onKeyDown)(Self.down)
-        try diagnosticProgress(
-            "key-return", frame: -1, factories: fixture.probe.factories.count, writes: fixture.probe.writes.count)
         fixture.endTrace()
         XCTAssertTrue(fixture.probe.writes.isEmpty)
         XCTAssertNil(fixture.findRow(900))
@@ -585,23 +564,12 @@ final class LazyListKeyboardPreparationTests: XCTestCase {
 
         // Keep the same limits for every ordinary frame. No further key,
         // explicit resolution query, or larger replacement budget is supplied.
-        for diagnosticFrame in 0..<64
-        where fixture.runtime.focusedNode !== fixture.findRow(900) || fixture.findRow(900) == nil {
+        for _ in 0..<64 where fixture.runtime.focusedNode !== fixture.findRow(900) || fixture.findRow(900) == nil {
             let calls = fixture.probe.factories.count
-            try diagnosticProgress(
-                "before-render", frame: diagnosticFrame, factories: fixture.probe.factories.count,
-                writes: fixture.probe.writes.count)
             fixture.host.render()
-            try diagnosticProgress(
-                "after-render", frame: diagnosticFrame, factories: fixture.probe.factories.count,
-                writes: fixture.probe.writes.count,
-                snapshot: fixture.runtime.keyboardProgressSnapshotForTesting(
-                    preparation: original, adapter: fixture.adapter))
             XCTAssertLessThanOrEqual(fixture.probe.factories.count - calls, 1)
             if let pending = fixture.adapter.keyboardPreparation { XCTAssertTrue(pending === original) }
         }
-        try diagnosticProgress(
-            "checks-enter", frame: -1, factories: fixture.probe.factories.count, writes: fixture.probe.writes.count)
         XCTAssertEqual(fixture.probe.writes, [900])
         let target = try fixture.row(900)
         XCTAssertTrue(fixture.runtime.focusedNode === target)
@@ -611,8 +579,6 @@ final class LazyListKeyboardPreparationTests: XCTestCase {
         XCTAssertNil(fixture.adapter.keyboardPreparation)
         XCTAssertEqual(fixture.runtime.lazyListResolutionBudgetConfiguration.elementLimit, 1)
         XCTAssertEqual(fixture.runtime.lazyListResolutionBudgetConfiguration.roundLimit, 1)
-        try diagnosticProgress(
-            "checks-return", frame: -1, factories: fixture.probe.factories.count, writes: fixture.probe.writes.count)
     }
 
     func testPendingAfterTheSingleWriteUsesOrdinarySettlementWithoutRepeatingTheSetter() async throws {
@@ -645,34 +611,14 @@ final class LazyListKeyboardPreparationTests: XCTestCase {
     }
 
     func testInterveningOrdinaryCallbackCannotLendAReplacementSourceToPendingEligibility() async throws {
-        let diagnosticStart = ContinuousClock.now
-        let diagnosticURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("artifacts", isDirectory: true)
-            .appendingPathComponent(
-                "keyboard-progress-intervening-\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString).log")
-        try Data().write(to: diagnosticURL, options: .withoutOverwriting)
-        let diagnosticFile = try FileHandle(forWritingTo: diagnosticURL)
-        defer { try? diagnosticFile.close() }
-        func diagnosticProgress(_ phase: String, frame: Int, factories: Int, writes: Int, snapshot: String = "") throws
-        {
-            try diagnosticFile.write(
-                contentsOf: Data(
-                    "[keyboard-progress] phase=\(phase) frame=\(frame) elapsed=\(diagnosticStart.duration(to: ContinuousClock.now)) factories=\(factories) writes=\(writes) \(snapshot)\n"
-                        .utf8))
-        }
         let fixture = try KeyboardPreparationFixture()
         defer { fixture.close() }
-        try diagnosticProgress(
-            "fixture-ready", frame: -1, factories: fixture.probe.factories.count, writes: fixture.probe.writes.count)
         fixture.probe.selected = 899
         XCTAssertTrue(fixture.runtime.configureLazyListResolutionBudget(elementLimit: 1, roundLimit: 1))
         let handler = try XCTUnwrap(try fixture.row(0).onKeyDown)
         let originalScope = try XCTUnwrap(fixture.scroll.listNavigationOwner)
         fixture.beginTrace()
         handler(Self.down)
-        try diagnosticProgress(
-            "key-return", frame: -1, factories: fixture.probe.factories.count, writes: fixture.probe.writes.count)
         fixture.endTrace()
         XCTAssertTrue(fixture.probe.writes.isEmpty)
         assertOneBudget(fixture, rounds: 1, elements: 1)
@@ -694,19 +640,7 @@ final class LazyListKeyboardPreparationTests: XCTestCase {
                 fixture.host.reload()
             }
         }
-        for diagnosticFrame in 0..<64 where replacements == 0 {
-            try diagnosticProgress(
-                "before-render", frame: diagnosticFrame, factories: fixture.probe.factories.count,
-                writes: fixture.probe.writes.count)
-            fixture.host.render()
-            try diagnosticProgress(
-                "after-render", frame: diagnosticFrame, factories: fixture.probe.factories.count,
-                writes: fixture.probe.writes.count,
-                snapshot: fixture.runtime.keyboardProgressSnapshotForTesting(
-                    preparation: original, adapter: fixture.adapter))
-        }
-        try diagnosticProgress(
-            "checks-enter", frame: -1, factories: fixture.probe.factories.count, writes: fixture.probe.writes.count)
+        for _ in 0..<64 where replacements == 0 { fixture.host.render() }
         XCTAssertTrue(scheduled)
         XCTAssertEqual(replacements, 1)
         XCTAssertFalse(fixture.scroll.listNavigationOwner === originalScope)
@@ -721,8 +655,6 @@ final class LazyListKeyboardPreparationTests: XCTestCase {
         XCTAssertTrue(fixture.probe.writes.isEmpty)
         XCTAssertEqual(fixture.runtime.lazyListResolutionBudgetConfiguration.elementLimit, 1)
         XCTAssertEqual(fixture.runtime.lazyListResolutionBudgetConfiguration.roundLimit, 1)
-        try diagnosticProgress(
-            "checks-return", frame: -1, factories: fixture.probe.factories.count, writes: fixture.probe.writes.count)
     }
 
     func testAnimatedAdoptionCannotRestoreTheOriginalTargetsRevokedRowRole() async throws {

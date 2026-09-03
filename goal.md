@@ -20261,3 +20261,53 @@ source state and establish the failing path before any correction. Other
 production candidates remain private. This is neither a complete 232-method
 pass nor full-suite/native-display qualification. All nine original completion
 gates and the existing unresolved stock Full failures remain open.
+
+
+### 2026-09-03: isolate the chrome failure and execute the remaining Value controls
+
+At the documentation-only successor `0fe83a8f12dfec43a8d35ae18b3ba76884a4adb2`,
+all eight original `UIAFieldChromeAdoptionTests` ran in isolation. Four passed
+and the same four failed with the same missing caret/selection assertions.
+The run built in 0.51 seconds and closed naturally with exit one after 8.828
+seconds of owned supervision. This rules out dependence on preceding cases in
+the 232-method run; it is not a historical first-bad-commit measurement.
+
+The isolated attempt is
+`artifacts/securefieldchromeoriginal8-c8eeed09afb34cf0a6d6e3c2db7ac06a/`,
+raw SHA256 `96e8ad6dcb1761935095bd3f3a551e2ac81aa901ca8214ffc358c2c429b3026e`.
+Its aggregate is `artifacts/secure-field-chrome-original8-0fe83a8-results.json`,
+SHA256 `38ed5845c2c1768fe05003327e24b8429a00dabfdbec8001d32ea9202eaea6f1`.
+
+Independent source review identifies an ordering defect in ordinary
+reconciliation. `ComponentHost.reconcilePreparedChildren` copies the proposed
+child array before `updateNodeProperties` reconciles the editor controller.
+That reconciliation hides the existing label and appends the prepared chrome
+rows to the detached incoming field. The recursive adoption then consumes the
+earlier array membership: the shared label object is hidden, but the appended
+row containing the caret or selected segment is absent. Direct `performAdoption`
+has the same early-copy ordering. The editor's cached chrome signature has
+already advanced, so an identical later refresh is not proof of recovery.
+These source paths predate the secure-value patch. This establishes the source
+mechanism, not an executed historical baseline or permission to reread an
+arbitrary changed candidate after callbacks. Checked plans and their original
+ownership/ABA guards must remain authoritative in the correction.
+
+The 46 previously unstarted controls ran as a separate, explicitly named cohort
+at the same source state. All 46 had exact starts and passing terminals across
+two batches. The attempt is
+`artifacts/securevalueunobserved46-227fa1a74ad048c2bc0b171164ad68b0/`;
+the raw log hashes are
+`142a400d314d9c5d9658fd6df3fb689d5494e5bf54f51ae37063b6e91567ef33`
+and `d08d480a830a4d73626aa55201b7fcc3161f6f814fbcc8121475c1b073a8e9b0`.
+The aggregate is `artifacts/secure-value-unobserved46-0fe83a8-results.json`,
+SHA256 `66b0e0ded1b94c6ae5b81fd0565f4587a80b385bbe97aa5cc571360a4bb8a9f2`.
+This does not rewrite or resume the failed 232-method attempt.
+
+All three completed batches across the two new attempts have natural exits,
+verified direct-child/owned-descendant closure and restored resources/signals,
+without timeout, termination, uncertainty or supervisor error. The checkout
+remained clean and all 27 source pins for the isolation roster still match.
+No assertion or production source changed. A private correction design and
+additive tests are being reviewed before implementation. The four failures,
+fresh complete-roster validation, stock Full and all original goal gates remain
+unresolved; none of this is native-display or complete accessibility evidence.

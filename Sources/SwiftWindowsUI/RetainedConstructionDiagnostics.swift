@@ -4,6 +4,16 @@ import Foundation
 /// The runner supplies one exclusively created, empty file in its attempt directory.
 package enum RetainedConstructionDiagnostics {
     package static let environmentKey = "SWIFT_WINDOWSUI_FILE14_TRACE_FILE"
+    static let validationCountersEnvironmentKey = "SWIFT_WINDOWSUI_KEYBOARD_VALIDATION_COUNTERS"
+    static let validationCountersFlag = ProcessInfo.processInfo.environment[validationCountersEnvironmentKey]
+
+    @MainActor
+    static func validationCounters(
+        for trace: RetainedConstructionTrace?, flag: String?
+    ) -> RetainedConstructionValidationCounters? {
+        guard trace != nil, flag == "1" else { return nil }
+        return RetainedConstructionValidationCounters()
+    }
 
     /// Read once. The absent-variable path allocates no writer, lock, or observer.
     package static let writer = configuredWriter(path: ProcessInfo.processInfo.environment[environmentKey])
@@ -143,6 +153,33 @@ package final class RetainedConstructionTraceWriter: @unchecked Sendable {
         return append(fields: data)
     }
 
+    /// Fixed scalar metadata is formatted only at a phase boundary.
+    @discardableResult
+    func recordValidationPhase(
+        _ event: StaticString, span: UInt64? = nil, runtime: UInt, birth: UInt64,
+        host: UInt? = nil, node: UInt? = nil, monotonicSeconds: Double,
+        snapshot: RetainedConstructionValidationCounters.Snapshot, partial: Bool
+    ) -> UInt64? {
+        guard status == .active else { return nil }
+        guard event.utf8CodeUnitCount <= 128, monotonicSeconds.isFinite else {
+            rejectRecord()
+            return nil
+        }
+        var fields = "\"event\":\(Self.quoted(String(describing: event)))"
+        if let span { fields += ",\"span\":\(span)" }
+        fields += ",\"runtime\":\(runtime),\"birth\":\(birth)"
+        if let host { fields += ",\"host\":\(host)" }
+        if let node { fields += ",\"node\":\(node)" }
+        fields += ",\"monotonicSeconds\":\(monotonicSeconds),\"validationCounts\":{\(snapshot.jsonFields)}"
+        fields += ",\"coverage\":\(Self.quoted(partial ? "PARTIAL" : "OBSERVED"))"
+        let data = Data(fields.utf8)
+        guard data.count <= Self.maximumRecordBytes else {
+            rejectRecord()
+            return nil
+        }
+        return append(fields: data)
+    }
+
     package func runtimeTrace(nativeID: UInt) -> RetainedConstructionTrace? {
         guard let birth = record("runtime.birth", runtime: nativeID) else { return nil }
         return RetainedConstructionTrace(writer: self, runtimeID: nativeID, birth: birth)
@@ -270,6 +307,16 @@ package struct RetainedConstructionTrace: Sendable {
         self.writer = writer
         self.runtimeID = runtimeID
         self.birth = birth
+    }
+
+    @discardableResult
+    func recordValidationPhase(
+        _ event: StaticString, span: UInt64? = nil, host: UInt? = nil, node: UInt? = nil,
+        monotonicSeconds: Double, snapshot: RetainedConstructionValidationCounters.Snapshot, partial: Bool
+    ) -> UInt64? {
+        writer.recordValidationPhase(
+            event, span: span, runtime: runtimeID, birth: birth, host: host, node: node,
+            monotonicSeconds: monotonicSeconds, snapshot: snapshot, partial: partial)
     }
 
     @discardableResult

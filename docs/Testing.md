@@ -1758,3 +1758,34 @@ against the same committed source. Preserve the original eleven-case workload
 and its timeout. Pure parser/controller fake controls, writer tests, actual
 dashboard outcomes, and complete product qualification are separate results.
 The newly joined Swift diagnostics still require compilation and execution.
+
+## Keyboard validation counters
+
+`SWIFT_WINDOWSUI_KEYBOARD_VALIDATION_COUNTERS=1` enables a separate scalar
+counter collector only when the existing File14 trace writer is configured.
+Absent, empty or other flag values leave it disabled. File14 alone retains its
+original event schema and spans. Counters record admission checks, completed
+subtree validations and actual node visits, and modal requests/scans/visits.
+They do not change authority checks, callback ordering or return values.
+Completion counts cover the `validateCompletedSubtrees` walk, not every direct
+completion validation elsewhere in the runtime.
+
+Only phase boundaries read the monotonic clock or format/write records. Each
+runtime permits 512 enriched phase records and one explicit PARTIAL cap marker;
+ordinary File14 records continue after the counter cap. Integer overflow
+saturates and marks the capture partial. Counters retain no runtime, node or
+authored callback. Their timings include instrumentation cost and are not
+exclusive costs or hardware performance qualification.
+
+`RetainedConstructionValidationCounterTests` adds nine controls, paired with the
+eleven existing `RetainedConstructionDiagnosticsTests` in the focused20 roster.
+Compilation and execution are pending at source integration. A separate parser
+check has passed ten Python test methods covering 23 synthetic traces; that is
+not Swift execution. The reviewed diagnostic runner requires the original single
+keyboard handoff method, exact source pins, a clean commit, an exclusively created
+empty trace and the unchanged owned 900+10 process limits. Its reader validates
+strict JSON, event fields, runtime births, counters, timestamps and nested phase
+pairs. A partial, malformed, unmeasured or unmatched capture cannot satisfy
+`requiredKeyboardPhasePairsObserved`. `wholeTraceCompletenessProven` remains
+false, and XCTest success is independently required. Neither this diagnostic
+nor the focused20 roster substitutes for the original155 gate.

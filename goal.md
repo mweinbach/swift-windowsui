@@ -18922,3 +18922,68 @@ hardware performance, full-suite or release qualification is claimed. The
 keyboard counter diagnostic and subsequent broader checks remain pending.
 All nine original completion gates stay open; the goal's prior bytes remain
 unchanged and no push has occurred.
+
+### 2026-09-03: opt-in keyboard validation counters enter focused testing
+
+The original155 gate has two preserved 900-second timeout results, while three
+original keyboard singletons have passed. Their elapsed times do not identify
+the expensive phase or establish either timeout's cause. The next diagnostic
+therefore counts actual admission checks, completed-subtree walks and node
+visits, and modal requests, scans and visited nodes. It records scalar totals
+and monotonic time at phase boundaries rather than adding clocks, files or
+string formatting inside each validation check. Counts cover only their named
+call sites, especially completed-subtree walks rather than all independent
+completion validation calls.
+
+The collector requires exactly `SWIFT_WINDOWSUI_KEYBOARD_VALIDATION_COUNTERS=1`
+and an existing configured File14 trace. File14 alone preserves its original
+schema and span relationships. Nil, empty or malformed flags allocate no
+collector. This is a collector claim, not a claim that the existing environment
+lookup allocates nothing. The collector owns only numeric counters, not UI
+objects or authored callbacks. Predicates, branch order, callback scope and
+existing return values remain unchanged.
+
+Each runtime emits at most 512 enriched phase observations plus one PARTIAL cap
+marker; the original trace continues afterward. UInt64 overflow saturates and
+marks observations partial. New keyboard hooks cover preparation, eligibility,
+selection, settlement and release. Reported durations are inclusive instrumented
+intervals and can overlap. They are not exclusive work costs, a historical
+timeout diagnosis or proof of whole-trace completeness.
+
+Root applied the final reviewed v2 production patch and v3 nine-test patch after
+`6b58439`, with hashes
+`bbc4eb649566edc89c4e476cc6b9bccb152632e61dbfb3abd0291515b68f7da5` and
+`4bd6477ab77ae62a6facd423ff5d03b3af020cebf1e6e5331f175dd8029f6bbf`.
+Exact private afterimages were verified, apart from the already tested calendar
+Host hook, which is preserved byte-for-byte. Four new-test formatting hunks
+changed whitespace only; all four production files were unchanged by formatting.
+Strict lint and architecture contracts pass in
+`artifacts/keyboard-counter20-lint-formatted.log`. All original keyboard test
+bytes remain unchanged. The Swift implementation is not yet compiled or tested.
+
+The focused roster contains nine new counter tests and eleven unchanged writer
+tests. Its 2,814-byte JSON is `artifacts/keyboard-counter20-selection.json`,
+SHA-256 `84931d700692d65fbf8e515b7085394a904c25d8f71d8f2a58de4702b833213f`.
+The independent parser controls already passed ten methods and 23 synthetic
+cases, covering valid and nested pairs, missing events/births, unknown or
+duplicate fields, counter/time regression, overflow, caps and partial markers.
+Their log is `artifacts/keyboard-diagnostic-v3-parser-controls.log`; they extract
+only the frozen reader function and never launch the driver or supervisor.
+
+The subsequent diagnostic is restricted to the unchanged original
+`testAnInvalidatedPostSetterHandoffCannotPerformAnotherQuery` singleton. It
+creates its own empty trace, refuses inherited counter configuration, preserves
+the existing supervisor and 900+10 bounds, and separately requires natural
+XCTest success. Its bounded strict reader validates schema, UInt64 counters,
+monotonic timestamps, exact births and ordered phase pairs. Partial, malformed,
+unmeasured or unmatched evidence prevents its phase-pair observation claim;
+`wholeTraceCompletenessProven` is always false.
+
+The runner's seven source pins are retained. Root rebinds only the reviewed
+Host hook and formatted new-test afterimages, with an exact inverse check;
+`artifacts/keyboard-diagnostic-rebind.json` records that change. The resulting
+runner hash is
+`db47cfe6e115e90645ec8d3926e6d952f3c2c3b8621d0b52c349fbd80485b50e`.
+The original normal runner and historical File14 reader are untouched. This
+diagnostic is not the original155 gate, full-suite or native qualification.
+All original completion gates remain open.

@@ -389,7 +389,7 @@ public final class ComponentHost {
     }
 
     public func setComponents(_ content: @escaping () -> [Component]) {
-        let trace = runtime.constructionTrace
+        let trace = runtime.constructionPhaseTrace
         let span = trace?.record("components.set.enter", host: UInt(bitPattern: ObjectIdentifier(self)))
         buildComponents = content
         reload()
@@ -616,7 +616,7 @@ public final class ComponentHost {
         let reloadStartedAt = isProfiling ? PlatformClock.now() : 0
 
         let oldChildren = runtime.root.children
-        let trace = runtime.constructionTrace
+        let trace = runtime.constructionPhaseTrace
         let composeSpan = trace?.record("compose.enter", host: UInt(bitPattern: ObjectIdentifier(self)))
         let components = buildComponents?() ?? []
         trace?.record("compose.returned", span: composeSpan, host: UInt(bitPattern: ObjectIdentifier(self)))

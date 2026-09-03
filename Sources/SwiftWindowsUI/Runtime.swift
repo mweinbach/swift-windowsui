@@ -2861,6 +2861,7 @@ final class RetainedLazyListAdoptionAdmission {
     let ordinaryConstructionRequest: RetainedLazyListOrdinaryConstructionRequest?
     let keyboardPreparation: RetainedLazyListKeyboardPreparation?
     private var completedSubtrees: [RetainedLazyListAdoptionCompletion] = []
+    private let validationCounters: RetainedConstructionValidationCounters?
     private var wasRevoked = false
     private var isFinishingCandidate = false
     private(set) var didMutate = false
@@ -2883,6 +2884,7 @@ final class RetainedLazyListAdoptionAdmission {
         self.sequence = sequence
         self.ordinaryConstructionRequest = ordinaryConstructionRequest
         self.keyboardPreparation = keyboardPreparation
+        self.validationCounters = runtime.constructionValidationCounters
         self.expectedDisplayScale = runtime.displayScale
         self.expectedLayoutPassID = runtime.layoutPassID
         let preparation = runtime.lazyListUIAConstructionPreparation
@@ -2908,6 +2910,7 @@ final class RetainedLazyListAdoptionAdmission {
     /// Before installing a row candidate this admits only construction. The
     /// checked reconciler requires isCurrent, which also requires a candidate.
     var isBuildCurrent: Bool {
+        validationCounters?.recordAdmissionCheck()
         let candidateCurrent = isFinishingCandidate ? candidate?.isOperationCurrent : candidate?.isCurrent
         guard !wasRevoked, candidateCurrent != false, attachment.isCurrent,
             let container, let runtime, let adapter, let lease,
@@ -2969,11 +2972,17 @@ final class RetainedLazyListAdoptionAdmission {
     /// Fresh scalar evidence from the same ordered walk used by isBuildCurrent.
     /// No validity result or query survives into a callback or later operation.
     func validateCompletedSubtrees() -> RetainedLazyListCompletionValidation {
+        let counters = validationCounters
+        counters?.recordForestStart()
         var nodeVisits = 0
+        var forestWasCurrent = true
+        defer { counters?.recordForestResult(nodeVisits: nodeVisits, isCurrent: forestWasCurrent) }
         for completion in completedSubtrees {
+            counters?.recordCompletionValidation()
             let validation = completion.validation()
             nodeVisits += validation.nodeVisits
             guard validation.isCurrent else {
+                forestWasCurrent = false
                 return RetainedLazyListCompletionValidation(isCurrent: false, nodeVisits: nodeVisits)
             }
         }
@@ -17190,6 +17199,17 @@ public final class RetainedViewRuntime {
     public let root: ViewNode
     /// Nil without the explicit diagnostic environment. Contains no UI owner.
     package private(set) var constructionTrace: RetainedConstructionTrace?
+    private(set) var constructionValidationCounters: RetainedConstructionValidationCounters?
+
+    var constructionPhaseTrace: RetainedConstructionPhaseTrace? {
+        guard let trace = constructionTrace else { return nil }
+        return RetainedConstructionPhaseTrace(trace: trace, counters: constructionValidationCounters)
+    }
+
+    var constructionValidationTrace: RetainedConstructionPhaseTrace? {
+        guard constructionValidationCounters != nil else { return nil }
+        return constructionPhaseTrace
+    }
     private var sceneGeometryDiagnosticRequest: RetainedSceneGeometryDiagnosticRequest?
 
     /// Arms one diagnostic only. It never refreshes layout, a cache, or a font probe.
@@ -19492,6 +19512,8 @@ public final class RetainedViewRuntime {
         lazyListUIARejectionsForTesting.isEnabled = Self.printsLazyListUIARejectionsForTesting
         constructionTrace = RetainedConstructionDiagnostics.writer?.runtimeTrace(
             nativeID: UInt(bitPattern: ObjectIdentifier(self)))
+        constructionValidationCounters = RetainedConstructionDiagnostics.validationCounters(
+            for: constructionTrace, flag: RetainedConstructionDiagnostics.validationCountersFlag)
         self.root.setRuntime(self)
         RetainedButtonActionTree.publishStandalone(in: [self.root])
     }
@@ -19618,7 +19640,7 @@ public final class RetainedViewRuntime {
 
     /// Render the current view tree as a GPUIScene for batch rendering.
     public func renderScene(at timestamp: Double = 0) -> GPUIScene {
-        let trace = constructionTrace
+        let trace = constructionPhaseTrace
         let sceneSpan = trace?.record("scene.enter")
         // This defer owns only diagnostic scalars, not self or render payloads.
         // A body exit boundary is not proof that the caller has resumed.
@@ -20443,9 +20465,15 @@ public final class RetainedViewRuntime {
     /// The last accepted prepaint's modal, without running layout or a user
     /// callback while the next presentation is being constructed.
     package var presentationModalSnapshot: ViewNode? {
+        let counters = constructionValidationCounters
+        counters?.recordModalRequest()
         guard permitsRenderLifecycleCallbacks else { return nil }
+        counters?.recordModalScan()
+        var visited: UInt64 = 0
+        defer { counters?.recordModalResult(nodeVisits: visited) }
         return prepaintState.dispatchNodes.last {
-            $0.node.isModalPresentationScope
+            if counters != nil { visited += 1 }
+            return $0.node.isModalPresentationScope
                 && isPresentationNodeAvailable($0.node, requiresEnabled: false)
         }?.node
     }
@@ -25030,7 +25058,7 @@ public final class RetainedViewRuntime {
     }
 
     private func updateResolvedLayout(resuming phase: LazyListUIAUnusedProviderPhase? = nil) {
-        let trace = constructionTrace
+        let trace = constructionPhaseTrace
         let layoutSpan = trace?.record("layout.enter")
         defer { trace?.record("layout.returnBoundary", span: layoutSpan) }
         if phase == nil { revokeUnenteredLazyListUIAProviderPhase() }
@@ -25598,7 +25626,7 @@ public final class RetainedViewRuntime {
 
             if let budget = lazyListResolutionBudget, !budget.consumeElement() { break }
 
-            let trace = constructionTrace
+            let trace = constructionPhaseTrace
             let rebuildSpan = trace?.record("geometry.rebuild.enter", node: UInt(bitPattern: ObjectIdentifier(node)))
             let rebuilt = rebuildGeometryReader(
                 node, slot: slot, uiaAuthority: uiaAuthority, readerWitness: readerWitness)
@@ -25625,7 +25653,7 @@ public final class RetainedViewRuntime {
         defer { buttonConstruction.finish() }
         guard uiaAuthority?.isCurrent != false, let build = node.geometryReaderBuild else { return false }
         if let lease = node.retainedSubtreeBuildLease {
-            let trace = constructionTrace
+            let trace = constructionPhaseTrace
             let managedSpan = trace?.record("geometry.managed.enter", node: UInt(bitPattern: ObjectIdentifier(node)))
             let rebuilt = rebuildManagedGeometryReader(
                 node, slot: slot, build: build, lease: lease, uiaAuthority: uiaAuthority,
@@ -26423,7 +26451,7 @@ public final class RetainedViewRuntime {
         guard nativeAdmission.keyboardPreparation == nil || nativeConstructionIsCurrent() else { return false }
         let canAdoptBeforeBody = epoch.canAdopt
         guard nativeConstructionIsCurrent(), canAdoptBeforeBody else { return false }
-        let trace = constructionTrace
+        let trace = constructionPhaseTrace
         let contentSpan = trace?.record("geometry.content.enter", node: UInt(bitPattern: ObjectIdentifier(node)))
         let candidates = buildGeometryDescriptorContent(
             slot: slot, build: build, descriptorBuild: descriptorBuild)
@@ -30887,6 +30915,9 @@ extension RetainedViewRuntime {
         from first: RetainedLazyListAccessibilityItem,
         toward next: RetainedLazyListAccessibilityItem?, receipt: RetainedListNavigationReceipt
     ) -> RetainedLazyListKeyboardPreparation? {
+        let trace = constructionValidationTrace
+        let phaseSpan = trace?.record("keyboard.preparation.enter")
+        defer { trace?.record("keyboard.preparation.returnBoundary", span: phaseSpan) }
         guard receipt.permitsBindingWrite, canPrepareLayoutSettlement, !hasActiveRetainedBuild,
             !isResolvingLazyListLogicalTarget, activeLazyListKeyboardPreparation == nil,
             activeAccessibilityMutation == nil, lazyListAccessibilityPreparation == nil,
@@ -30977,6 +31008,9 @@ extension RetainedViewRuntime {
     package func prepareLazyListKeyboardItem(
         _ item: RetainedLazyListAccessibilityItem, using preparation: RetainedLazyListKeyboardPreparation
     ) -> RetainedLazyListKeyboardEligibility {
+        let trace = constructionValidationTrace
+        let phaseSpan = trace?.record("keyboard.eligibility.enter")
+        defer { trace?.record("keyboard.eligibility.returnBoundary", span: phaseSpan) }
         guard preparation.phase == .eligibility, preparation.isCurrent,
             item.content === preparation.original.content, item.adapter === preparation.adapter,
             item.membership === preparation.original.membership, isLazyListAccessibilityItemCurrent(item)
@@ -31079,6 +31113,9 @@ extension RetainedViewRuntime {
     package func prepareLazyListKeyboardSelection(
         _ item: RetainedLazyListAccessibilityItem, using preparation: RetainedLazyListKeyboardPreparation
     ) -> Bool {
+        let trace = constructionValidationTrace
+        let phaseSpan = trace?.record("keyboard.selection.enter")
+        defer { trace?.record("keyboard.selection.returnBoundary", span: phaseSpan) }
         guard preparation.phase == .eligibility, preparation.isCurrent,
             let receipt = preparation.receipt, receipt.permitsBindingWrite,
             let pass = preparation.eligibilityPass, lazyListKeyboardEligibilityPassIsCurrent(pass, for: preparation),
@@ -31381,6 +31418,9 @@ extension RetainedViewRuntime {
     func settleLazyListKeyboardSelection(
         _ preparation: RetainedLazyListKeyboardPreparation, target: ViewNode, receipt: RetainedListNavigationReceipt
     ) -> RetainedListNavigationReadiness {
+        let trace = constructionValidationTrace
+        let phaseSpan = trace?.record("keyboard.settlement.enter")
+        defer { trace?.record("keyboard.settlement.returnBoundary", span: phaseSpan) }
         guard preparation.receipt === receipt, preparation.target?.node === target, preparation.isCurrent else {
             return .obsolete
         }
@@ -31486,6 +31526,9 @@ extension RetainedViewRuntime {
     private func endLazyListKeyboardPreparation(
         _ preparation: RetainedLazyListKeyboardPreparation, invalidatingLayout: Bool
     ) {
+        let trace = constructionValidationTrace
+        let phaseSpan = trace?.record("keyboard.release.enter")
+        defer { trace?.record("keyboard.release.returnBoundary", span: phaseSpan) }
         guard preparation.runtime === self, preparation.phase != .released else { return }
         preparation.phase = .released
         preparation.eligibilityPass = nil

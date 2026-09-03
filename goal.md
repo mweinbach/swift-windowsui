@@ -19611,3 +19611,39 @@ Strict lint and contracts pass with no formatting or production changes. Runtime
 validation remains pending in a fresh combined run that preserves every method
 from the original 255 selection. The previous 252-pass/3-failure result stays
 unchanged and no completion gate is closed by this setup correction.
+
+### 2026-09-03: public Image owns one removable accessibility role
+
+Public Image now applies semantic metadata exactly once to its final returned
+node. This includes private typed-fit and composite-symbol wrappers created by
+Image itself. Existing rendering metadata still reaches its original recipients;
+private symbol glyphs remain hidden and internal Controls.image primitives do
+not acquire a public role. The default is the `.isImage` trait alone, so later
+authored trait removal is not defeated by an independent isAccessibilityImage
+flag. Explicit labels, decorative state and later hidden/role overrides retain
+their distinct meanings. A missing decoded bitmap can still expose its authored
+image semantics; that is not evidence of successful decoding.
+
+Root and two independent reviewers checked the source delta and twenty-two
+preimplementation tests. Tests cover ordinary and missing/named bitmap sources,
+symbols and composite variants, typed fit, singleton projection, authored labels,
+decorative/hidden state, removable/restored roles, unchanged paint fields,
+explicit grouping, selected content and neutral internal primitives. Fifty-one
+unchanged related image, fit, stretching, paint, projection and trait controls
+are also selected. The patch SHA256 is
+`8d98acef68db6ce7130e4e0d9b1900ac3cd92c4a1781d1628fef5c26fc314ef6`.
+Views.swift after integration is
+`641284c0339d74fed238580bc0005b4b2e9bae87c602b6ffcd5ea0b52483279a`;
+the frozen new test file remains
+`f5565af9fead28d1d033b3ccb62871b404d86e6ebae81c4568701e4035713c2b`.
+Strict lint and architecture checks pass without formatting changes. Compilation
+and the combined regression run are next, not already obtained results.
+
+Generic frame/View.aspectRatio forwarding is deliberately unchanged. The old
+staged GPUWorkbench Name+Image journey remains failed: its label is applied after
+a generic frame, and this patch does not fix that wrapper's semantics. No selector
+or assertion is loosened. Meaningful unlabelled symbol naming remains unqualified;
+the existing projection can derive its Name from the symbol glyph. The tests
+cover semantic snapshots, not native UIA delivery, enabled/offscreen bounds,
+image decoding, pixels, hardware rendering or Narrator. All nine original product
+completion gates remain open with no scope reduction.

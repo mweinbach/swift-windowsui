@@ -7247,13 +7247,15 @@ public struct Image: View {
                     bitmapFontAttribution: context.bitmapFontAttribution
                 )
                 applyImageMetadata(to: node, context: context)
-                return retainedSymbolVariantNode(
+                let imageNode = retainedSymbolVariantNode(
                     iconNode: node,
                     iconSize: preferredSize ?? baseSize,
                     variants: symbolVariants,
                     tint: renderedColor,
                     context: context
                 )
+                applyAccessibility(to: imageNode)
+                return imageNode
             }
         case .bitmap(let bitmap):
             // Resizable bitmaps accept layout's finite proposal. Keep the
@@ -7287,7 +7289,13 @@ public struct Image: View {
                 applyImageMetadata(to: node, context: context)
                 return node
             }
-            return fitsProposal ? retainedAspectFitComponent(child: image, aspectRatio: aspectRatioValue) : image
+            let imageComponent =
+                fitsProposal ? retainedAspectFitComponent(child: image, aspectRatio: aspectRatioValue) : image
+            return Component { runtime in
+                let imageNode = imageComponent.makeNode(runtime: runtime)
+                applyAccessibility(to: imageNode)
+                return imageNode
+            }
         }
     }
 
@@ -7421,6 +7429,9 @@ public struct Image: View {
     }
 
     private func applyAccessibility(to node: ViewNode) {
+        // Public Image owns one semantic element, including its private fit
+        // or symbol wrapper. Explicit View modifiers run after this default.
+        node.accessibilityTraits.insert(.isImage)
         node.accessibilityLabel = accessibilityLabel
         node.isAccessibilityHidden = isAccessibilityHidden
     }
@@ -7565,7 +7576,6 @@ public struct Image: View {
     }
 
     private func applyImageMetadata(to node: ViewNode, context: ViewBuildContext) {
-        applyAccessibility(to: node)
         node.symbolVariableValue = symbolVariableValue ?? context.symbolVariableValue
         node.symbolRenderingMode = context.symbolRenderingMode?.retainedSymbolRenderingMode
         node.symbolVariants = context.symbolVariants.retainedSymbolVariants

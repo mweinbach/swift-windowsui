@@ -1042,6 +1042,21 @@ Explicit labels, text, child behavior and selected-content roots keep their own
 semantics. See [Window root names](UIAWindowRootNames.md) for the exact fallback
 and ownership boundaries.
 
+Public `Image` assigns its default `.isImage` trait and authored accessibility
+metadata once to the final image node, including its own typed fit and composite
+symbol wrappers. Rendering metadata remains on the existing paint nodes;
+internal bitmap primitives stay neutral and private symbol glyphs stay hidden.
+The default uses the removable trait, not an independent image-role flag, so
+later trait removal or replacement remains effective. Decorative and explicit
+hidden state still apply to the whole public image.
+
+This does not implement accessibility forwarding through generic `frame` or
+generic `View.aspectRatio` wrappers. A label applied after such a frame can
+still create a Group instead of naming the underlying Image. Meaningful default
+names for unlabelled system symbols also remain unqualified; the current text
+projection can expose a glyph-derived name. Focused tests cover authored labels
+and semantic snapshots, not native delivery, bounds, decoded pixels or Narrator.
+
 Retained modal ancestors remain in accessibility projections as the geometry
 and navigation path to the active presentation, but do not expose stored
 actions or an activation fallback. Live Invoke rechecks terminal runtime

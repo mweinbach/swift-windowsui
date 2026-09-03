@@ -160,6 +160,7 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
         }
         // Decide from this projection before either effectful bounds-mapper call.
         let rootName = fallbackWindowRootName(for: root, in: runtime)
+        let passwordElements = Self.capturePasswordElements(in: root)
         refreshLogicalItems(using: root, in: runtime)
         guard rootRequest?.isCurrent(in: runtime) != false else { return [] }
         var snapshots: [UIAElementSnapshot] = []
@@ -167,7 +168,8 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
         guard rootRequest?.isCurrent(in: runtime) != false else { return [] }
         try appendSnapshots(
             for: root, parentID: nil, rootBounds: rootBounds, into: &snapshots,
-            runtime: runtime, rootRequest: rootRequest, rootName: rootName, screenBoundsMapper: screenBoundsMapper)
+            runtime: runtime, rootRequest: rootRequest, passwordElements: passwordElements,
+            rootName: rootName, screenBoundsMapper: screenBoundsMapper)
         guard rootRequest?.isCurrent(in: runtime) != false else { return [] }
         // Transparent retained containers are flattened by the accessibility
         // projection, so the nearest projected parent is the honest UIA
@@ -685,7 +687,8 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
     private static func isWritableValueNode(_ node: ViewNode) -> Bool {
         guard AccessibilityProjection.resolveControlType(for: node) == .edit,
             !node.accessibilityTraits.contains(.isSecureTextInput),
-            let controller = node.textInputController as? any TextInputAccessibilityValueReplacing
+            let controller = node.textInputController as? any TextInputAccessibilityValueReplacing,
+            !controller.isSecure
         else { return false }
         return controller.hasCurrentAccessibilityValueOwnership
     }
@@ -861,6 +864,22 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
 
     // MARK: - Snapshot flattening
 
+    /// Remember disclosure restrictions before logical refresh or bounds mapping
+    /// can replace an editor. Projection identities retain neither nodes nor
+    /// controllers, and only suppress this projection's already copied values.
+    private static func capturePasswordElements(in root: AccessibilityElementProjection) -> Set<ObjectIdentifier> {
+        var result: Set<ObjectIdentifier> = []
+        for element in root.flattened() {
+            if element.traits.contains(.isSecureTextInput)
+                || (element.sourceNode?.textInputController as? any TextInputAccessibilityValueReplacing)?.isSecure
+                    == true
+            {
+                result.insert(ObjectIdentifier(element))
+            }
+        }
+        return result
+    }
+
     private func appendSnapshots(
         for element: AccessibilityElementProjection,
         parentID: UInt64?,
@@ -868,6 +887,7 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
         into list: inout [UIAElementSnapshot],
         runtime: RetainedViewRuntime,
         rootRequest: RetainedNodeRequest?,
+        passwordElements: Set<ObjectIdentifier>,
         rootName: String? = nil,
         screenBoundsMapper: (Rect) throws -> Rect
     ) rethrows {
@@ -885,7 +905,12 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
 
         let screenBounds = try screenBoundsMapper(element.bounds)
         guard rootRequest?.isCurrent(in: runtime) != false else { return }
-        let isPassword = element.traits.contains(.isSecureTextInput)
+        // Mapping may retire the original controller or install a secure one.
+        // Neither change can downgrade protection of this copied projection.
+        let isPassword =
+            passwordElements.contains(ObjectIdentifier(element))
+            || element.traits.contains(.isSecureTextInput)
+            || (element.sourceNode?.textInputController as? any TextInputAccessibilityValueReplacing)?.isSecure == true
         let supportsValue = element.controlType == .edit && !isPassword
         let isSelected: Bool? = element.traits.contains(.isSelectable) ? element.isSelected : nil
         let hasWritableCapability: Bool
@@ -901,7 +926,7 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
                 id: id,
                 parentID: parentID,
                 name: parentID == nil ? (rootName ?? element.name) : element.name,
-                value: element.value,
+                value: isPassword ? nil : element.value,
                 helpText: element.hint,
                 automationID: element.identifier,
                 controlType: Self.controlTypeID(for: element.controlType),
@@ -914,7 +939,7 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
                     && (!element.actions.isEmpty || element.sourceNode?.onActivate != nil),
                 isPassword: isPassword,
                 supportsValue: supportsValue,
-                isReadOnly: !element.isEnabled || !hasWritableCapability,
+                isReadOnly: isPassword || !element.isEnabled || !hasWritableCapability,
                 toggleState: element.controlType == .checkBox ? (element.isSelected ? .on : .off) : nil,
                 isSelected: isSelected,
                 isVirtualizedPlaceholder: element.isVirtualizedPlaceholder,
@@ -929,7 +954,8 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
         for child in element.children {
             try appendSnapshots(
                 for: child, parentID: id, rootBounds: rootBounds, into: &list,
-                runtime: runtime, rootRequest: rootRequest, screenBoundsMapper: screenBoundsMapper)
+                runtime: runtime, rootRequest: rootRequest, passwordElements: passwordElements,
+                screenBoundsMapper: screenBoundsMapper)
         }
     }
 

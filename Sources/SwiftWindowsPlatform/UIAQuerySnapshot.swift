@@ -48,7 +48,9 @@ package struct UIAQuerySnapshot: Sendable {
         case Int32(SWU_UIA_STRING_NAME):
             return snapshot.name
         case Int32(SWU_UIA_STRING_VALUE):
-            return snapshot.value
+            // A held or queried Value interface can outlive pattern support.
+            // Password state and value must come from this same copied element.
+            return snapshot.isPassword ? nil : snapshot.value
         case Int32(SWU_UIA_STRING_HELP_TEXT):
             return snapshot.helpText
         case Int32(SWU_UIA_STRING_AUTOMATION_ID):

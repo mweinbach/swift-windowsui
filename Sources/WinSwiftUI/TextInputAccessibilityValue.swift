@@ -25,6 +25,10 @@ struct TextInputAccessibilityValueResult: Sendable {
 /// Choosing this capability never authorizes a fallback to another text effect.
 @MainActor
 protocol TextInputAccessibilityValueReplacing: RetainedTextInputController {
+    /// Immutable built-in editor configuration, independent of authored traits.
+    /// This must not run a Binding getter or any application callback.
+    var isSecure: Bool { get }
+
     /// Stored lifetime only, including manual revocation with an unchanged
     /// node slot. This must not run bindings, layout, or application callbacks.
     var hasCurrentAccessibilityValueOwnership: Bool { get }

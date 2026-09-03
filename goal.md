@@ -20179,3 +20179,50 @@ the actual reconciliation SHA256 is
 This census describes the closed 71b source state only. It does not prequalify
 forthcoming additional tests, executable provenance, journal completeness,
 runtime outcomes or a future stock Full pass. All original gates remain open.
+
+### 2026-09-03: preserve native secure-editor protection through Value queries
+
+The integrated candidate derives password protection from the built-in editor's
+immutable secure configuration as well as authored accessibility traits.
+Removing a password trait therefore cannot enable an editable Value operation;
+the rejection occurs before focus or a binding write. This does not prohibit an
+explicit focus request and does not turn internal display fragments into Text
+documents. Existing controller ownership and accepted-successor rules remain.
+
+Snapshot construction records password projection identities before logical
+refresh or effectful bounds mapping. A mapper clearing or replacing a controller
+cannot disclose the old projection's copied secure value or make it writable;
+installing a secure controller also protects the current copied projection.
+These identities retain no nodes or controllers and only suppress disclosure
+for that projection. A fresh query can report ordinary non-password content
+after a legitimate replacement. The platform query snapshot also masks Value
+using the password flag from the same copied element, including queries through
+an already held or directly queried COM Value interface. Passive non-password
+values remain readable even without advertised ValuePattern support.
+
+The candidate changes three production files and adds nineteen tests across
+two test files. All 34,144 original bytes of `UIAValueAdapterTests.swift` are
+preserved as a prefix. The focused roster contains those nineteen new methods
+and 213 unchanged controls. Root verified all fifty sealed payloads and source
+before-images. The only formatter derivative is one line break before `== true`
+in `capturePasswordElements`; independent whole-file comparison confirmed no
+other normalized text changes. The source derivative SHA256 is
+`f5d459a5be57c4517c4eba1e4d0d63bf7f16fea5bb2b696516cf96aa636a0a7e`.
+Its roster updates only that source hash and preserves all 232 ordered selectors:
+`artifacts/secure-value-format-derivative/controls232.json`, SHA256
+`7516a4d51f2486fabde7bc9a0c7dff57033ac909e12c2f8929bf98a25d5bc7eb`.
+
+The original private manifest SHA256 is
+`b3019cdae3fac9416decf091d37fb6506331aae7293d6de5ba095f14e47f6991`;
+its candidate patch SHA256 is
+`3d1dfb416b281f0766e205413a609866eb85dc3af0413ee9b185564b89620464`.
+The first private candidate remains recorded as rejected by review; three
+additional mapper regression tests were frozen before its correction. Root's
+integration receipt is `artifacts/secure-value-integration-receipt.json`.
+
+Architecture checks and strict lint passed for the reviewed source derivative
+and test files. Compilation and execution of the 232-method successor roster
+are still pending at this checkpoint. Headless COM coverage is not an HWND,
+Narrator, TextPattern, native display, complete accessibility or full-suite
+qualification. The separate generic-frame candidate remains private. No
+original completion requirement or gate is changed.

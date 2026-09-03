@@ -741,3 +741,357 @@ final class UIAValueAdapterTests: XCTestCase {
         }
     }
 }
+
+// Native controller security is independent of authored presentation traits.
+// These hosted retained tests create no HWND or COM provider; the separate
+// UIASecureValueQueryTests exercise the real Value interface without a window.
+extension UIAValueAdapterTests {
+    func testSecureControllerSuppressesAuthoredValueAfterPasswordTraitRemoval() async throws {
+        for presentsStaticText in [false, true] {
+            try withFixture(control: .secure) { fixture in
+                let node = try fixture.editor()
+                let original = try XCTUnwrap(node.textInputController)
+                node.accessibilityTraits.remove(.isSecureTextInput)
+                if presentsStaticText {
+                    node.accessibilityTraits.remove(.isTextInput)
+                    node.accessibilityTraits.insert(.isStaticText)
+                }
+                node.accessibilityValue = "Explicit value remains stored, not disclosed"
+                let reads = fixture.state.primary.readVersions.count
+                let snapshot = try fixture.snapshot()
+
+                XCTAssertEqual(snapshot.controlType, presentsStaticText ? 50020 : 50004)
+                XCTAssertTrue(snapshot.isPassword)
+                XCTAssertFalse(snapshot.supportsValue)
+                XCTAssertTrue(snapshot.isReadOnly)
+                XCTAssertNil(snapshot.value)
+                XCTAssertEqual(node.accessibilityValue, "Explicit value remains stored, not disclosed")
+                XCTAssertTrue(node.textInputController === original)
+                XCTAssertEqual(fixture.state.primary.readVersions.count, reads)
+                XCTAssertTrue(fixture.state.primary.attemptedValues.isEmpty)
+                XCTAssertEqual(fixture.state.primary.selectionWrites, 0)
+            }
+        }
+    }
+
+    func testSecureControllerRefusesValueBeforeFocusAfterPasswordTraitRemoval() async throws {
+        try withFixture(control: .secure) { fixture in
+            let node = try fixture.editor()
+            let original = try XCTUnwrap(node.textInputController)
+            let sentinel = ViewNode(
+                frame: Rect(x: 320, y: 200, width: 20, height: 20),
+                isFocusable: true, accessibilityLabel: "Unchanged focus")
+            fixture.runtime.root.addChild(sentinel)
+            fixture.runtime.requestFocus(sentinel)
+            fixture.render()
+            XCTAssertTrue(fixture.runtime.focusedNode === sentinel)
+            node.accessibilityTraits.remove(.isSecureTextInput)
+            node.accessibilityValue = "Do not disclose"
+            let id = try fixture.snapshot().id
+            var focusEntries = 0
+            node.onFocusEnter = { focusEntries += 1 }
+            let rawInput = UIAAdapterRawInputProbe()
+            rawInput.install(on: node)
+            let reads = fixture.state.primary.readVersions.count
+            let originalText = fixture.state.primary.text
+
+            XCTAssertFalse(fixture.source.uiaSetValue(elementID: id, value: "not submitted"))
+            XCTAssertTrue(fixture.runtime.focusedNode === sentinel)
+            XCTAssertEqual(focusEntries, 0)
+            XCTAssertTrue(node.textInputController === original)
+            XCTAssertEqual(fixture.state.primary.readVersions.count, reads)
+            XCTAssertEqual(fixture.state.primary.text, originalText)
+            XCTAssertTrue(fixture.state.primary.attemptedValues.isEmpty)
+            XCTAssertEqual(fixture.state.primary.selectionWrites, 0)
+            rawInput.assertUnused()
+        }
+    }
+
+    func testSecureControllerStillAcceptsExplicitFocusAfterPasswordTraitRemoval() async throws {
+        try withFixture(control: .secure) { fixture in
+            let node = try fixture.editor()
+            let original = try XCTUnwrap(node.textInputController)
+            fixture.runtime.requestFocus(nil)
+            fixture.render()
+            node.accessibilityTraits.remove(.isSecureTextInput)
+            let id = try fixture.snapshot().id
+
+            XCTAssertTrue(fixture.source.uiaSetFocusResult(elementID: id))
+            XCTAssertTrue(fixture.runtime.focusedNode === node)
+            XCTAssertTrue(node.isFocused)
+            XCTAssertTrue(node.textInputController === original)
+            XCTAssertTrue(try fixture.snapshot().isPassword)
+            XCTAssertTrue(fixture.state.primary.attemptedValues.isEmpty)
+            XCTAssertEqual(fixture.state.primary.selectionWrites, 0)
+        }
+    }
+
+    func testSecureControllerAndDisplayFragmentNeverBecomeTextDocumentsAfterTraitRemoval() async throws {
+        try withFixture(control: .secure) { fixture in
+            let node = try fixture.editor()
+            let original = try XCTUnwrap(node.textInputController)
+            let fragment = try XCTUnwrap(uiaAdapterNodes(in: node).first { $0 !== node && $0.text != nil })
+            node.accessibilityTraits = .isStaticText
+            node.text = "Stored owner sentinel"
+            node.accessibilityValue = "Stored value sentinel"
+            fragment.accessibilityTraits = .isStaticText
+            fragment.accessibilityIdentifier = "secure-display-fragment"
+            fragment.text = "Stored fragment sentinel"
+            let owner = try fixture.snapshot()
+            let fragmentID = try XCTUnwrap(
+                fixture.source.uiaElementSnapshots().first { $0.automationID == "secure-display-fragment" }?.id)
+            let reads = fixture.state.primary.readVersions.count
+
+            XCTAssertTrue(owner.isPassword)
+            XCTAssertFalse(owner.supportsValue)
+            XCTAssertTrue(owner.isReadOnly)
+            XCTAssertNil(owner.value)
+            XCTAssertNil(fixture.source.uiaTextSnapshot(elementID: owner.id))
+            XCTAssertNil(fixture.source.uiaTextDocument(elementID: owner.id))
+            XCTAssertNil(fixture.source.uiaTextSnapshot(elementID: fragmentID))
+            XCTAssertNil(fixture.source.uiaTextDocument(elementID: fragmentID))
+            XCTAssertTrue(node.textInputController === original)
+            XCTAssertEqual(fixture.state.primary.readVersions.count, reads)
+            XCTAssertTrue(fixture.state.primary.attemptedValues.isEmpty)
+            XCTAssertEqual(fixture.state.primary.selectionWrites, 0)
+        }
+    }
+
+    func testNativePasswordProtectionDoesNotStickToAReplacedControllerSlot() async throws {
+        for installsCustom in [false, true] {
+            try withFixture(control: .secure) { fixture in
+                let node = try fixture.editor()
+                node.accessibilityTraits.remove(.isSecureTextInput)
+                node.accessibilityValue = "Authored read-only value"
+                node.textInputController = installsCustom ? UIAAdapterUnsupportedController() : nil
+                let rawInput = UIAAdapterRawInputProbe()
+                rawInput.install(on: node)
+                let reads = fixture.state.primary.readVersions.count
+                let snapshot = try fixture.snapshot()
+
+                XCTAssertFalse(snapshot.isPassword)
+                XCTAssertTrue(snapshot.supportsValue)
+                XCTAssertTrue(snapshot.isReadOnly)
+                XCTAssertEqual(snapshot.value, "Authored read-only value")
+                XCTAssertFalse(fixture.source.uiaSetValue(elementID: snapshot.id, value: "not submitted"))
+                XCTAssertEqual(fixture.state.primary.readVersions.count, reads)
+                XCTAssertTrue(fixture.state.primary.attemptedValues.isEmpty)
+                XCTAssertEqual(fixture.state.primary.selectionWrites, 0)
+                rawInput.assertUnused()
+            }
+        }
+    }
+
+    func testPlainControllerKeepsAuthoredValueWhenPasswordPresentationIsRemoved() async throws {
+        for control in [UIAAdapterControl.field, .editor] {
+            try withFixture(control: control) { fixture in
+                let node = try fixture.editor()
+                let original = try XCTUnwrap(node.textInputController)
+                node.accessibilityValue = "Authored nonpassword value"
+                node.accessibilityTraits.insert(.isSecureTextInput)
+                let reads = fixture.state.primary.readVersions.count
+                let protected = try fixture.snapshot()
+                XCTAssertTrue(protected.isPassword)
+                XCTAssertFalse(protected.supportsValue)
+                XCTAssertTrue(protected.isReadOnly)
+                XCTAssertNil(protected.value)
+
+                node.accessibilityTraits.remove(.isSecureTextInput)
+                let ordinary = try fixture.snapshot()
+                XCTAssertFalse(ordinary.isPassword)
+                XCTAssertTrue(ordinary.supportsValue)
+                XCTAssertFalse(ordinary.isReadOnly)
+                XCTAssertEqual(ordinary.value, "Authored nonpassword value")
+                XCTAssertTrue(node.textInputController === original)
+                XCTAssertEqual(fixture.state.primary.readVersions.count, reads)
+                XCTAssertTrue(fixture.state.primary.attemptedValues.isEmpty)
+                XCTAssertEqual(fixture.state.primary.selectionWrites, 0)
+            }
+        }
+    }
+
+    func testFocusRebuildInstallingActualSecureControllerCannotDispatchOriginalValue() async throws {
+        try withFixture(control: .field) { fixture in
+            let node = try fixture.editor()
+            let original = try XCTUnwrap(node.textInputController)
+            fixture.runtime.requestFocus(nil)
+            fixture.render()
+            let id = try fixture.snapshot().id
+            let rawInput = UIAAdapterRawInputProbe()
+            rawInput.install(on: node)
+            var entries = 0
+            node.onFocusEnter = { [weak fixture] in
+                entries += 1
+                guard let fixture else { return }
+                fixture.state.control = .secure
+                fixture.rebuild()
+                guard let current = try? fixture.editor() else {
+                    XCTFail("The focus rebuild must install its actual secure editor")
+                    return
+                }
+                current.accessibilityTraits.remove(.isSecureTextInput)
+            }
+
+            XCTAssertFalse(fixture.source.uiaSetValue(elementID: id, value: "not submitted"))
+            XCTAssertEqual(entries, 1)
+            XCTAssertTrue(fixture.state.primary.attemptedValues.isEmpty)
+            XCTAssertTrue(fixture.state.alternate.attemptedValues.isEmpty)
+            XCTAssertEqual(fixture.state.primary.selectionWrites, 0)
+            XCTAssertEqual(fixture.state.alternate.selectionWrites, 0)
+            let next = try fixture.editor()
+            let replacement = try XCTUnwrap(next.textInputController)
+            XCTAssertFalse(replacement === original)
+            XCTAssertFalse(next.accessibilityTraits.contains(.isSecureTextInput))
+            XCTAssertTrue(try fixture.snapshot().isPassword)
+            rawInput.assertUnused()
+        }
+    }
+
+    func testMapperCannotDiscloseCopiedSecureValueAfterClearingOrReplacingController() async throws {
+        for installsCustom in [false, true] {
+            for mutatesRootMapper in [false, true] {
+                try withFixture(control: .secure) { fixture in
+                    let node = try fixture.editor()
+                    let original = try XCTUnwrap(node.textInputController)
+                    node.accessibilityTraits.remove(.isSecureTextInput)
+                    node.accessibilityValue = "Private value copied before mapping"
+                    let projection = try XCTUnwrap(AccessibilityProjection.project(runtime: fixture.runtime))
+                    let index = try XCTUnwrap(projection.flattened().firstIndex { $0.sourceNode === node })
+                    let mutationCall = mutatesRootMapper ? 1 : index + 2
+                    var mapperCalls = 0
+                    var mutations = 0
+                    let source = RuntimeUIAElementTreeSource(
+                        runtime: fixture.runtime,
+                        screenBoundsMapper: { bounds in
+                            mapperCalls += 1
+                            if mapperCalls == mutationCall {
+                                mutations += 1
+                                node.textInputController = installsCustom ? UIAAdapterUnsupportedController() : nil
+                                node.accessibilityValue = "New authored read-only value"
+                            }
+                            return bounds
+                        })
+                    let reads = fixture.state.primary.readVersions.count
+                    let protected = try fixture.snapshot(using: source)
+
+                    XCTAssertEqual(mutations, 1)
+                    XCTAssertGreaterThanOrEqual(mapperCalls, mutationCall)
+                    XCTAssertFalse(node.textInputController === original)
+                    XCTAssertFalse(node.accessibilityTraits.contains(.isSecureTextInput))
+                    XCTAssertTrue(protected.isPassword)
+                    XCTAssertFalse(protected.supportsValue)
+                    XCTAssertTrue(protected.isReadOnly)
+                    XCTAssertNil(protected.value)
+                    let fresh = try fixture.snapshot(using: source)
+                    XCTAssertFalse(fresh.isPassword)
+                    XCTAssertTrue(fresh.supportsValue)
+                    XCTAssertTrue(fresh.isReadOnly)
+                    XCTAssertEqual(fresh.value, "New authored read-only value")
+                    XCTAssertEqual(fixture.state.primary.readVersions.count, reads)
+                    XCTAssertTrue(fixture.state.primary.attemptedValues.isEmpty)
+                    XCTAssertEqual(fixture.state.primary.selectionWrites, 0)
+                }
+            }
+        }
+    }
+
+    func testMapperCannotMakeCopiedPasswordSnapshotWritableWithAPlainController() async throws {
+        for mutatesRootMapper in [false, true] {
+            try withFixture(control: .secure) { fixture in
+                let node = try fixture.editor()
+                node.accessibilityTraits.remove(.isSecureTextInput)
+                node.accessibilityValue = "Private value copied before mapping"
+                let context = ViewBuildContext(
+                    canvasSizeProvider: { Size(width: 360, height: 280) }, invalidateHandler: {})
+                let replacementNode = TextField("Public replacement", text: .constant("Public text"))
+                    .makeComponent(context: context).makeNode(runtime: fixture.runtime)
+                let replacement = try XCTUnwrap(replacementNode.textInputController)
+                let projection = try XCTUnwrap(AccessibilityProjection.project(runtime: fixture.runtime))
+                let index = try XCTUnwrap(projection.flattened().firstIndex { $0.sourceNode === node })
+                let mutationCall = mutatesRootMapper ? 1 : index + 2
+                var mapperCalls = 0
+                var mutations = 0
+                let source = RuntimeUIAElementTreeSource(
+                    runtime: fixture.runtime,
+                    screenBoundsMapper: { bounds in
+                        mapperCalls += 1
+                        if mapperCalls == mutationCall {
+                            mutations += 1
+                            node.textInputController = replacement
+                            node.accessibilityValue = "New authored writable value"
+                        }
+                        return bounds
+                    })
+                let reads = fixture.state.primary.readVersions.count
+                let protected = try fixture.snapshot(using: source)
+
+                XCTAssertEqual(mutations, 1)
+                XCTAssertGreaterThanOrEqual(mapperCalls, mutationCall)
+                XCTAssertTrue(node.textInputController === replacement)
+                XCTAssertTrue(protected.isPassword)
+                XCTAssertFalse(protected.supportsValue)
+                XCTAssertTrue(protected.isReadOnly)
+                XCTAssertNil(protected.value)
+                let fresh = try fixture.snapshot(using: source)
+                XCTAssertFalse(fresh.isPassword)
+                XCTAssertTrue(fresh.supportsValue)
+                XCTAssertFalse(fresh.isReadOnly)
+                XCTAssertEqual(fresh.value, "New authored writable value")
+                XCTAssertEqual(fixture.state.primary.readVersions.count, reads)
+                XCTAssertTrue(fixture.state.primary.attemptedValues.isEmpty)
+                XCTAssertEqual(fixture.state.primary.selectionWrites, 0)
+                withExtendedLifetime(replacementNode) {}
+            }
+        }
+    }
+
+    func testMapperInstallingSecureControllerAlsoSuppressesEarlierPublicProjectionValue() async throws {
+        for mutatesRootMapper in [false, true] {
+            try withFixture(control: .field) { fixture in
+                let node = try fixture.editor()
+                node.accessibilityValue = "Public value copied before mapping"
+                let context = ViewBuildContext(
+                    canvasSizeProvider: { Size(width: 360, height: 280) }, invalidateHandler: {})
+                let replacementNode = SecureField("Protected replacement", text: .constant("Private replacement"))
+                    .makeComponent(context: context).makeNode(runtime: fixture.runtime)
+                let replacement = try XCTUnwrap(replacementNode.textInputController)
+                let projection = try XCTUnwrap(AccessibilityProjection.project(runtime: fixture.runtime))
+                let index = try XCTUnwrap(projection.flattened().firstIndex { $0.sourceNode === node })
+                let mutationCall = mutatesRootMapper ? 1 : index + 2
+                var mapperCalls = 0
+                var mutations = 0
+                let source = RuntimeUIAElementTreeSource(
+                    runtime: fixture.runtime,
+                    screenBoundsMapper: { bounds in
+                        mapperCalls += 1
+                        if mapperCalls == mutationCall {
+                            mutations += 1
+                            node.textInputController = replacement
+                            node.accessibilityValue = "Protected authored replacement value"
+                        }
+                        return bounds
+                    })
+                let reads = fixture.state.primary.readVersions.count
+                let protected = try fixture.snapshot(using: source)
+
+                XCTAssertEqual(mutations, 1)
+                XCTAssertGreaterThanOrEqual(mapperCalls, mutationCall)
+                XCTAssertTrue(node.textInputController === replacement)
+                XCTAssertFalse(node.accessibilityTraits.contains(.isSecureTextInput))
+                XCTAssertTrue(protected.isPassword)
+                XCTAssertFalse(protected.supportsValue)
+                XCTAssertTrue(protected.isReadOnly)
+                XCTAssertNil(protected.value)
+                let fresh = try fixture.snapshot(using: source)
+                XCTAssertTrue(fresh.isPassword)
+                XCTAssertFalse(fresh.supportsValue)
+                XCTAssertTrue(fresh.isReadOnly)
+                XCTAssertNil(fresh.value)
+                XCTAssertEqual(fixture.state.primary.readVersions.count, reads)
+                XCTAssertTrue(fixture.state.primary.attemptedValues.isEmpty)
+                XCTAssertEqual(fixture.state.primary.selectionWrites, 0)
+                withExtendedLifetime(replacementNode) {}
+            }
+        }
+    }
+}

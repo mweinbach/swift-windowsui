@@ -31,9 +31,13 @@ suppress a subsequent normal refresh of the same value. Normal refresh and
 adoption share the Unicode segmentation algorithm.
 
 The original eight adoption regressions, seven transport tests and three
-authority/recovery methods remain unchanged. Their pre-correction baselines
-contain failures; validation of this implementation is pending. Existing caret
-raster tests and focused-field gallery images are additional collateral, not
-proof of Unicode adoption, UIA TextPattern, native IME or Narrator behavior.
+authority/recovery methods remain unchanged. All eighteen passed at `f0f3cb0`,
+as did the separate secure-value232, Button125, paint20 and caret3 selections.
+The two focused-field gallery images matched their baselines exactly and were
+visually reviewed. Earlier failing baselines remain recorded in `goal.md`.
+These overlapping focused selections do not qualify the full test suite.
+Existing caret raster tests and ordinary focused-field gallery images are
+additional collateral, not proof of Unicode adoption pixels, UIA TextPattern,
+native IME or Narrator behavior.
 Secure and multiline inputs do not use this registration path. Full native
 text-input parity remains unqualified.

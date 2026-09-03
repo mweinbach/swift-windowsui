@@ -20764,3 +20764,80 @@ full-suite, native presentation, timing or completion-gate claim is made.
 Post-integration strict lint and architecture contracts also passed. The
 architecture and current limits are documented in
 `docs/TextInputChromeAdoption.md`; it does not claim completed native parity.
+
+
+### 2026-09-03: field-chrome correction passes the unchanged acceptance and collateral selections
+
+At `f0f3cb0fdf4d50051da78faab9cdfbc2d53f71d6`, all eighteen field-chrome methods passed.
+This includes the four original failing methods, direct/nested positive edits,
+checked positive completion, coexistence with Button ownership, earlier and
+later mutation refusals, local-frame ABA, layout-only query refusal and normal
+same-value recovery. No original assertion was removed or relaxed. The exact
+eighteen-method run closed naturally in 387.016 seconds,
+including the broad rebuild and SwiftPM discovery. The raw log SHA256 is
+`1e722f0b556270ae52d4af5376c6f947f506a24ea068c3565f4b61de1217af40`.
+
+The unchanged secure-value232, Button125, paint20 and caret3 selections also
+passed at this same source revision. Every expected method in each selection
+started and ended exactly once, each process exited naturally with status zero
+and full owned-process/resource closure, and all bound source hashes matched.
+There were no timeouts, terminations or supervision errors. These selections
+overlap; their sizes are not a count of distinct full-suite coverage.
+
+| Selection | Methods passed | Batches | Verified source pins | Aggregate SHA256 |
+| --- | --- | --- | --- | --- |
+| after18 | 18 | 1 | 34 | `6a63cd1e440efa5fd59a5d8a4a8e59ba363582533f9f16360e0c8ad0ccfd8510` |
+| secure232 | 232 | 10 | 34 | `c3c73ee723e435d0d50fd44572270f739d40a6417f8815481a264f20c9af8fe9` |
+| button125 | 125 | 6 | 41 | `fff048dee8a1b1ef9a3319bd25c4d6aeaac0c0c5f01db56b1394368ca1952804` |
+| paint20 | 20 | 1 | 40 | `cb469e8053da4eb8bcb5a4b8067627886ac915bfe1a42abc898123cdefa08721` |
+| caret3 | 3 | 1 | 36 | `3308b8e9dc7b87d808cffa43d4ba4e8b27fd4afc88eb60a92dc03cacae89491a` |
+
+The fresh secure232 result is a complete passing selection. The earlier failed
+secure232 attempt and its separately observed final46 remain historical
+evidence and are not retroactively reclassified. Full stock validation, native
+TextPattern/Narrator, the original timeout and all nine product gates remain open.
+
+The unchanged compact Data diagnostic passed in 15.208
+test seconds (25.063 owned seconds), compared with
+15.061 in the prior after-paint observation. Reconciliation
+was 3.602223 then 3.598442
+seconds; scene construction was 8.543857 then
+8.630286, including scene layout of
+2.541171 then 2.483218.
+One observation per revision cannot establish a stable regression or speedup,
+allocation changes, exclusive paint cost or hardware pacing. Nested intervals
+must not be summed.
+
+Diagnostic attempt:
+`artifacts/compactdatasnapshotphases-86be36e177fe402ca03ea702a6c7692c/`;
+raw SHA256 `2ef7dc1bcdd4f271174251114da6a8ac0f622eae92b644c632deeae9ba5ada0d`;
+trace SHA256 `373b6b83dbe59ce687561008322a920108c90146838e03f4bd634ccf1b7d02ce`. All 22 measured boundaries paired,
+with all ten existing counters zero and no partial marker or parser error.
+The trace still lacks whole-trace closure and final raster timing. Root
+verified all seventeen sealed after-chrome diagnostic payloads, all 47 source
+pins, unchanged runner logic outside the exact source-pin assignment, and all
+34 unchanged parser controls (log SHA256
+`1496a947e18a37a53f8be60141e4007605bbca8d80411149d827a1e85b707948`).
+Combined evidence is `artifacts/field-chrome-validation-f0f3cb0.json`,
+SHA256 `fca3746ad821d88b07883855e0a1f51864dda311e425bce05508fa45c48ae790`. No completion criterion changed.
+
+
+The ordinary stock gallery command also passed both focused-field fixtures,
+dark and light, at the same revision. Both 200-by-200 retained PNGs have zero
+changed pixels and zero maximum channel delta. Root opened and inspected each:
+the text, caret and focused border are intact, with no baseline update.
+The report SHA256 is `a4f781cc02cd78625c10cf801b2be58c9bc63543d4029dead959b648ed42ec53`; the images under
+`artifacts/field-chrome-gallery-after-f0f3cb0/current/` have SHA256
+`3095cb9d9c225f3070bc09a4566925ae8813533b4934469d5cda15c59f1be11e` and
+`a1281dc8b3c0a16117fc1f59ae1723cf2314f59c60cec3c9ed99cbbf7095d67f`. The recorded review is
+`artifacts/field-chrome-gallery-after-f0f3cb0-review.json`, SHA256 `152ef8a4e7b5422987a06070a681ba10a0f55c79132ecd352aa20f8c63cdf6a4`.
+The gallery product rebuilt in 100.40 seconds and the stock script exited zero.
+This command did not use the separate owned-Job supervision adapter; no such
+closure claim is inferred. Two ordinary Ada fixtures do not prove Unicode
+adoption, native font qualification, GPU output, Narrator or the whole gallery.
+
+The private frame72 composition has passed overlap review, but root identified
+a concrete inventory omission: its new frame metadata/storage fields were not
+included in the chrome helper's closed-payload check. That composition remains
+unintegrated while a separate narrow amendment and regression tests are
+prepared. Original frame tests and original completion gates remain unchanged.

@@ -22,6 +22,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/demo-screenshot.ps1
 
 ## Agent Guardrails
 
+Focused field-chrome adoption checks and their evidence limits are documented
+in [TextInputChromeAdoption.md](TextInputChromeAdoption.md). The original
+adoption, transport and authority/recovery suites check acceptance before a
+subsequent layout; caret raster tests and focused-field gallery PNGs remain
+separate rendering checks.
+
 Use these checks when making agent-driven changes:
 
 ```powershell

@@ -17296,3 +17296,40 @@ cause of this timeout. Its weak identity checks, ownership rules, removal
 ordering and Task behavior must remain intact. Neither a speedup nor a passing
 combined/full run is claimed. The original selection and deadline stay fixed,
 and all nine completion gates remain open without changing the goal.
+
+### 2026-09-02 — Index repeated descriptor lookups without caching authority
+
+Three small baseline controls completed naturally at `83d79f8`: the original
+removed-button accessibility restoration diagnostic and both existing ordinary
+and lazy owned-plan freeze tests. All three passed, with exact starts and
+terminals, unchanged source and complete owned cleanup verified in
+`artifacts/descriptor-regressions-baseline-40214e65997c4ce09cddd7ced950e88e`.
+The restoration case took 0.034 seconds; each freeze control took 0.001 seconds.
+These results do not locate the combined run's unreported delay.
+
+Descriptor groups previously searched the output array and required-facet
+array repeatedly while registering their members. The reviewed change keeps
+those ordered arrays and adds native indexes for lookup and deduplication.
+Every output hit still checks the original weak node against the current node;
+an expired or reused address cannot authorize reuse. Required facet identities
+remain held by the original array, and all construction, owner, subtree and
+Task guards still run. No authored identity equality or hashing is introduced.
+
+Append and removal now update the indexes through one internal interface.
+Removal preserves the old output/facet release order and rebuilds native
+metadata afterward. Ordinary lookup avoids repeated linear scans, at the cost
+of additional storage proportional to the group size; removal remains linear.
+This is a source-level complexity improvement, not a measured frame-time or
+combined-suite speedup, and it is not established as the timeout's cause.
+
+Seven new tests check wide groups, Task payload/declaration order, partial and
+complete removal, weak capture release, absence of authored identity calls,
+and rejection after all original guard changes. The patch preserves all other
+Activity bytes, and the already reviewed later Calendar composition can retain
+the exact indexed implementation. Contracts, strict two-file lint, whitespace
+checks and root source review pass without a formatting change.
+
+The next fixed-source run contains these seven methods, the three baseline
+controls and the two original distant-row/empty-disabled keyboard methods:
+twelve methods total. The original 155-method combined gate and all nine
+completion gates remain open; no deadline or completion criterion changes.

@@ -4016,6 +4016,7 @@ private struct RetainedDescriptorSourceFacet {
 @MainActor
 fileprivate final class RetainedDescriptorSourceOutput {
     weak var node: ViewNode?
+    let nodeIdentity: ObjectIdentifier
     let component: RetainedDescriptorComponentID
     let group: RetainedDescriptorGroupID
     let constructionComponent: RetainedDescriptorComponentID
@@ -4028,6 +4029,7 @@ fileprivate final class RetainedDescriptorSourceOutput {
         constructionComponent: RetainedDescriptorComponentID
     ) {
         self.node = node
+        nodeIdentity = ObjectIdentifier(node)
         self.component = component
         self.group = group
         self.constructionComponent = constructionComponent
@@ -4066,8 +4068,10 @@ private final class RetainedDescriptorGroupRecord {
     let id: RetainedDescriptorGroupID
     let kind: RetainedLazyListContributionKind
     let receipt: RetainedDescriptorContributionReceipt
-    var outputs: [RetainedDescriptorSourceOutput] = []
-    var required: [RetainedDescriptorSourceFacet] = []
+    private(set) var outputs: [RetainedDescriptorSourceOutput] = []
+    private(set) var required: [RetainedDescriptorSourceFacet] = []
+    private var outputIndices: [ObjectIdentifier: Int] = [:]
+    private var requiredIDs: Set<ObjectIdentifier> = []
     var declarations: [RetainedTaskDeclarationID] = []
     var isClosed = false
 
@@ -4093,8 +4097,32 @@ private final class RetainedDescriptorGroupRecord {
             requiredFacets: required.map(\.id))
     }
 
+    func output(for node: ViewNode) -> RetainedDescriptorSourceOutput? {
+        // The index covers every append and removal, but cannot keep nodes alive.
+        // An expired node's reused address must still match the weak reference.
+        guard let index = outputIndices[ObjectIdentifier(node)], outputs.indices.contains(index),
+            outputs[index].node === node
+        else { return nil }
+        return outputs[index]
+    }
+
+    func appendOutput(_ output: RetainedDescriptorSourceOutput) {
+        outputIndices[output.nodeIdentity] = outputs.count
+        outputs.append(output)
+    }
+
     func require(_ facet: RetainedDescriptorSourceFacet) {
-        if !required.contains(where: { $0.id === facet.id }) { required.append(facet) }
+        if requiredIDs.insert(ObjectIdentifier(facet.id)).inserted { required.append(facet) }
+    }
+
+    func removeOutputs(with payloads: Set<ObjectIdentifier>) {
+        // Preserve both array orders and the existing release order. Rebuild
+        // only native metadata, without loading any surviving weak node.
+        outputs.removeAll { payloads.contains(ObjectIdentifier($0.payload)) }
+        required.removeAll { payloads.contains(ObjectIdentifier($0.source)) }
+        outputIndices.removeAll(keepingCapacity: true)
+        for (index, output) in outputs.enumerated() { outputIndices[output.nodeIdentity] = index }
+        requiredIDs = Set(required.map { ObjectIdentifier($0.id) })
     }
 }
 
@@ -4231,8 +4259,7 @@ final class RetainedDescriptorConstructionLedger {
             for output in rejected { output.node?.markRejectedRetainedSource() }
             guard !isFrozen else { continue }
             let payloads = Set(rejected.map { ObjectIdentifier($0.payload) })
-            record.outputs.removeAll { payloads.contains(ObjectIdentifier($0.payload)) }
-            record.required.removeAll { payloads.contains(ObjectIdentifier($0.source)) }
+            record.removeOutputs(with: payloads)
         }
     }
 
@@ -4295,7 +4322,7 @@ final class RetainedDescriptorConstructionLedger {
         guard let record = groups[ObjectIdentifier(group)], record.kind == .scopedTask,
             recordSourceOutput(source, attribution: attribution, group: group)
         else { return nil }
-        return record.outputs.first(where: { $0.node === source })?.payload
+        return record.output(for: source)?.payload
     }
 
     fileprivate func contribution(
@@ -4335,10 +4362,10 @@ final class RetainedDescriptorConstructionLedger {
         _ source: ViewNode, to record: RetainedDescriptorGroupRecord,
         constructedBy component: RetainedDescriptorComponentID
     ) {
-        guard !record.outputs.contains(where: { $0.node === source }) else { return }
+        guard record.output(for: source) == nil else { return }
         let output = RetainedDescriptorSourceOutput(
             node: source, component: record.component, group: record.id, constructionComponent: component)
-        record.outputs.append(output)
+        record.appendOutput(output)
         record.require(output.facet(.childAttachment))
         if record.kind == .scopedTask {
             // Only explicitly staged task members enter a cohort. Descendant

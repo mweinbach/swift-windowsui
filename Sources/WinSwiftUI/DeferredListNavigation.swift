@@ -343,6 +343,8 @@ final class DeferredListKeyboardNavigation {
                 finishKeyboardPreparation(request)
                 continue
             }
+            request.receipt.traceKeyboardFocus(
+                request.requiresRevealBeforeFocus ? "target.reveal-first" : "target.focus-first")
             guard isCurrent(request),
                 request.receipt.prepareTarget(owner, requiresRevealBeforeFocus: request.requiresRevealBeforeFocus),
                 isCurrent(request)
@@ -376,27 +378,33 @@ final class DeferredListKeyboardNavigation {
 
     private func finishWrittenRequest(_ request: Request) {
         guard isCurrent(request) else {
+            request.receipt.traceKeyboardFocus("written.obsolete")
             cancel(request)
             return
         }
         if let runtime, !runtime.canPrepareLayoutSettlement {
+            request.receipt.traceKeyboardFocus("written.layout-blocked")
             schedule(request, afterLayout: false)
             return
         }
         withTransaction(request.transaction) {
             switch request.receipt.settlePreparedTarget() {
             case .ready:
+                request.receipt.traceKeyboardFocus("settle.ready")
                 guard isCurrent(request) else {
                     cancel(request)
                     return
                 }
                 self.request = nil
-                request.receipt.finishNavigation()
+                let finished = request.receipt.finishNavigation()
+                request.receipt.traceKeyboardFocus(finished ? "finish.true" : "finish.false")
                 finishKeyboardPreparation(request)
                 releaseItem(request)
             case .pending:
+                request.receipt.traceKeyboardFocus("settle.pending")
                 schedule(request)
             case .obsolete:
+                request.receipt.traceKeyboardFocus("settle.obsolete")
                 cancel(request)
             }
         }

@@ -16868,3 +16868,36 @@ keyboard focus/continuation cases. A separate unchanged eligibility benchmark wi
 measure any observed effect; fewer source-level checks are not a latency qualification.
 The original 23 keyboard cases, additional regressions, original 155-test gate, all
 other validation obligations, and nine open completion gates remain unchanged.
+
+### 2026-09-02 — Preserve failing focus outcomes and distinguish their next stopping points
+
+The uninstrumented run at `d2ae070` built in 295.57 seconds and completed 52
+tests in 189.197 seconds. All 47 identity tests passed, including the nine new
+scalar-prefix tests. Both separate keyboard regressions passed: replacement
+continuation and rejection after an authored equal-valued scroll assignment at
+a positive offset. Three original keyboard methods still failed: cold Down/Up
+navigation kept focus on 900 after selecting 899, empty/disabled selection did
+not immediately focus row 0, and the warm prefetched destination reported focus
+after scrolling (94 rather than 0). Five assertions failed across those three
+methods. These results show that the anchor exclusion and warm handoff alone
+are insufficient; they are not a keyboard acceptance pass.
+
+The owned run exited naturally with status 1 and no timeout or termination;
+Job emptiness, descendant closure, resources, signal handlers, and unchanged
+source were verified with no cleanup errors. Evidence is retained in
+`artifacts/identity-focus-regressions-5a26b9c96ef3403787eb8335c3c40441`.
+
+The unchanged eligibility regression then passed in 11.871 seconds after a
+0.38-second cached build, with natural zero exit and the same verified cleanup
+and source preservation, at
+`artifacts/prefix-eligibility-benchmark-a0bcd73e2e3547ac8b38e73e38d1a5c9`.
+The previous membership/hash observation was 12.521 seconds. These individual,
+uncontrolled elapsed observations do not qualify a performance improvement.
+
+A bounded, opt-in diagnostic now distinguishes existing readiness, measurement
+correction, and finish-navigation outcomes without extra authorization checks,
+queries, callbacks, retries, or larger budgets. Its next selection is exactly
+the three failing original focus methods. The temporary trace must be removed
+before uninstrumented acceptance. No assertion, original method, completion
+requirement, or original 128-element/four-round limit is relaxed. All nine
+original completion gates remain open.

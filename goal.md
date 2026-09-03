@@ -16831,3 +16831,40 @@ The next uninstrumented run covers the original 23 keyboard cases, both separate
 continuation/scroll-intent regressions, and the 19 lifetime/failure cases (44 total).
 Execution of the fixes and the subsequent original 155-test gate remain pending.
 All original goal requirements and nine open completion gates are unchanged.
+
+### 2026-09-02 — Preserve large-suite failures and reduce scalar identity comparison overhead
+
+The uninstrumented keyboard-fix source at `0a139902` compiled successfully, but
+the 44-case run reached its unchanged 900-second outer deadline after a 393.29-second
+build. An identical cached-build retry (0.37-second build) also reached that deadline.
+Both owned Jobs were terminated and verified empty; process handles/resources closed,
+signal handlers were restored, source remained unchanged, and cleanup reported no
+errors. SwiftPM did not flush individual XCTest outcomes in either attempt. Neither
+run is a pass or evidence that the focus fixes work. The artifacts are
+`artifacts/keyboard-fixed-tests-8b362a82d7ea4396b89b4c0ca522ef3b` and
+`artifacts/keyboard-fixed-tests-5848c69b8fa34d33a8196a9aa7249581`.
+
+A source audit found no newly reachable unbounded loop in the warm handoff or anchor
+exclusion. The 25 keyboard methods build 31 fixtures, mostly with 1,000 logical rows,
+and include two separate tests allowing 64 ordinary frames. This identifies substantial
+bounded work, not a measured explanation of the timeout. Seven disjoint diagnostic
+groups preserve all 44 methods and assertions if isolation is needed. Their results
+would remain distinct from the required original 155-method combined gate.
+
+The checked identity prefix comparison now compares same-family framework scalar
+segments directly. Successful scalar-only prefixes keep entry and exit authorization
+checks (two regardless of length); equality retains its existing wrapper check (three).
+A scalar mismatch rechecks authorization before returning false. Every authored keyed
+or explicit comparison, recursive framework key box, cross-family comparison, and
+false/nil short circuit retains its prior checked path. No currentness result is cached,
+no runtime budget changes, and the previously tested hash optimization is unchanged.
+
+Nine additional identity tests cover scalar counts and families, mismatches, structural
+length refusal, unvisited suffixes, and authored equality revocation for equal/unequal
+results and nested boxes. Root and independent source review, contract checks, strict
+two-file lint, and whitespace checks passed; compilation and execution of this change
+remain pending. The next bounded run contains 47 identity regressions and five exact
+keyboard focus/continuation cases. A separate unchanged eligibility benchmark will
+measure any observed effect; fewer source-level checks are not a latency qualification.
+The original 23 keyboard cases, additional regressions, original 155-test gate, all
+other validation obligations, and nine open completion gates remain unchanged.

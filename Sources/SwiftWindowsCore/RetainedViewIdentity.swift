@@ -49,10 +49,18 @@ public struct RetainedViewIdentity: Hashable {
         guard isCurrent() else { return nil }
         guard segments.count >= prefix.segments.count else { return false }
         for index in prefix.segments.indices {
-            guard let equal = segments[index].checkedEquals(prefix.segments[index], isCurrent: isCurrent) else {
-                return nil
+            let segment = segments[index]
+            let other = prefix.segments[index]
+            switch (segment, other) {
+            case (.view, .view), (.role, .role), (.slot, .slot), (.branch, .branch),
+                (.iteration, .iteration), (.occurrence, .occurrence):
+                // Same-family framework scalars cannot enter authored equality.
+                // A mismatch still checks freshness before returning its result.
+                guard segment == other else { return isCurrent() ? false : nil }
+            default:
+                guard let equal = segment.checkedEquals(other, isCurrent: isCurrent) else { return nil }
+                if !equal { return false }
             }
-            if !equal { return false }
         }
         return isCurrent() ? true : nil
     }

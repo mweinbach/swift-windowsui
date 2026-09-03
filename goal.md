@@ -20663,3 +20663,29 @@ changed. All 34 unchanged parser controls passed; log SHA256
 No workload, test assertion, parser, supervision deadline or completion
 criterion changed. The independent field-chrome correction and all original
 failed gates remain open; this is not a full-suite or product completion claim.
+
+
+### 2026-09-03: add field-chrome authority and recovery oracles without changing prior tests
+
+Three separately frozen methods add eight cases: four ordinary earlier-sibling
+source/label attachment ABA cases, an unchanged-frame success control, field
+and base-label frame ABA, and a layout-only query that leaves dirty flags set.
+The seven refusal cases require inactive prepared chrome and a visible current
+base, without inventing failure of the underlying ordinary adoption. Each then
+separately calls the real native refresh handler to check same-value cache
+recovery: one getter, one callback, no extra layout pass or value/selection
+write. The deliberate query is separately counted before refusal assertions;
+the historical zero-layout assertions are untouched.
+
+Two independent source reviews are clear. Root read the fixture, all three
+methods and both review findings. Initial strict lint reported only wrapping
+and indentation. A separate formatter derivative preserves all non-whitespace
+bytes and all methods; root reviewed its complete diff. Original freeze SHA256
+`a5dcecc16c7f8f4ae7ca5c267396c5df2d225895441faa734f7cb7c6792f4174`;
+tracked `UIAFieldChromeAuthoritySupplementTests.swift` SHA256 `4f7ec58e8d5e4734e373bbccb7e45061beb508a84387cd32465aa58a2a694cb1`.
+All original eight and previously frozen seven test bytes remain unchanged.
+The independent pre-correction three-method baseline is pending at
+`artifacts/field-chrome-authority-supplement-baseline3.json`, SHA256
+`fcb68aed202a50ac38b468c580be9b6688e8c8294c94b81ad90fdc130ac48bfb`, with 32 current source pins. Its source
+binding explicitly includes the already validated paint-ancestry change.
+No new passing behavior or completion gate is claimed by adding these tests.

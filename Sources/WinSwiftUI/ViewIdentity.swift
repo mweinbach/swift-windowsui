@@ -6,7 +6,10 @@ struct ViewIdentityContext {
     var path = RetainedViewIdentity()
     var currentType: ObjectIdentifier?
     var installedOwner: StateMountOwner?
-    var installedEpoch: StateMountEpoch?
+    // The active build owns this installation receipt through commit and
+    // terminal callbacks. Deferred component contexts must not keep a
+    // completed epoch alive after those owners have finished.
+    weak var installedEpoch: StateMountEpoch?
     var lazyList: LazyListViewAttribution?
     var descriptorComponent: RetainedDescriptorComponentAttribution?
 }

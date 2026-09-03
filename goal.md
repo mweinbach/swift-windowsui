@@ -17562,3 +17562,25 @@ Source review and strict lint/contracts pass. The next execution must establish
 the new controls and the original pending-eligibility outcome without the
 removed diagnostic. No combined, full-suite, native or performance pass is
 claimed; all nine original completion gates remain open.
+
+### 2026-09-03 — Stop deferred contexts retaining completed State epochs
+
+The managed-reader lifetime investigation identified a direct strong path:
+the adopted reader closure retains its ViewBuildContext, whose installed-epoch
+receipt retained the completed StateMountEpoch. The context's installedEpoch
+reference is now weak. Active build/registry/runtime ownership remains
+responsible for keeping the epoch alive through commit and terminal callbacks;
+a deferred context is not an additional owner of completed build work.
+
+The installed owner, lazy attribution and descriptor fields remain intact.
+Expiration of the weak epoch is not converted into fresh root or delegate
+authority. A new regression keeps the live reader, State binding and escaped
+context while checking callback-time commit, subsequent epoch release, State
+survival and rejection of that stale context during a later build. The original
+managed-reader assertion remains unchanged. Runtime publication and callback
+rules are untouched by this separate ownership change.
+
+The small source patch and new test pass strict lint/contracts. They still
+require execution with the original managed/raw reader tests and the separate
+ordinary-keyboard correction. No public compatibility or completion claim is
+made from source inspection; all nine original gates remain open.

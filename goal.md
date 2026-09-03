@@ -18418,3 +18418,62 @@ none of the nine original completion requirements has been narrowed or closed.
   not qualify the original keyboard cohort, full suite, native presentation,
   or any of the nine original completion gates. Calendar retirement diagnosis
   remains open; the proposed ordinary insertion fallback is not integrated.
+
+### Gallery 85 pass and independent ordinary insertion-fact correction (2026-09-03)
+
+- A fresh normal gallery build and render at clean
+  `12cac40d37f4f9fbfeea0d8f9c8290afc2ca14d8` passed **all 85 baseline entries**,
+  exit 0, without update, skip-build or skip-render flags. The report is
+  `artifacts/gallery-compare-12cac40-validation/report.json`, SHA-256
+  `8aab1f8dc78413a3fd1315300051badfac1383875b189d27862ba7372c213af6`.
+  All 85 current PNGs are byte-identical to the earlier `118f410` render; only
+  the reviewed grid baseline changed. Grid now has zero difference. The two
+  previously reviewed nonzero passing comparisons retain the same metrics.
+  `artifacts/gallery-12cac40-review.json` records the image hash comparisons
+  and clean revision. This gallery pass does not replace full-suite or native
+  qualification, and the historical 84/1 failure remains preserved.
+- The third temporary calendar diagnostic ran the same original single test
+  at `12cac40`, with the same normal test script, owned process supervision,
+  FILE14 writer and 900+10 limit. It failed once at 1.740 seconds, with the
+  original four assertion failures, after a natural total 120.813-second run.
+  No timeout, termination, signal, uncertainty or cleanup error occurred;
+  all tracked source/index/HEAD/proof endpoint comparisons matched.
+- Its 111-event trace records the failing owner's first retirement at event
+  71, through component-payload removal and unreferenced retirement, not the
+  direct declaration-table replacement route. Events 73-82 associate that
+  owner with the original failed descriptor plan. The two refused insertion
+  sources map exactly to the missing ordinary attachment facets at 90/91.
+  The accepted boundary owner recorded at 11 is a different ID and remains
+  unrevoked until teardown at 110. This rules out revocation of that observed
+  boundary as the immediate cause. It does **not** classify every retirement
+  as correct: exact normal plans should use their existing handoff, while
+  declaration-only, zero-source and other departure paths have separate rules.
+- Evidence is retained in
+  `artifacts/calendar-first-owner-diagnostic-e43439e4c24b48ee957933bb08106a84`:
+  raw log SHA-256
+  `51131fb5859857e5d61b8e0ad8537040319f4032b32439c742d15bbe6f69d32b`,
+  trace SHA-256
+  `eb0750e778312c32551cc87253df904e93e7b8a24dbe5ce30e9b5d18b7e9fca3`.
+  Root reconciliation is `artifacts/calendar-first-owner-12cac40-reconciled.json`.
+  Both temporary source files were restored byte-for-byte, with receipt in
+  `artifacts/calendar-first-owner-source-3d5922d2c4584112a2151304f954fffd`.
+  All diagnostic instrumentation is removed from production.
+- The independent lost-fact correction is now integrated in
+  `RetainedLazyListActivity.swift`: only when an ordinary journal lacks its
+  combined insertion publication can the ordinary ledger consume its exact
+  preexisting insertion ticket. It rechecks the original weak node, target and
+  attachment identities and actual physical attachment. Any Task group,
+  Task-declaration field or missing group rejects the entire ticket. It records
+  only those prepared attachment facets, once; it does not prepare new facets,
+  publish owned/candidate authority, revive an owner, enter a managed fallback,
+  or advance group completion. The successful combined path and later normal
+  completion cut remain unchanged.
+- Three new `OrdinaryPreparedInsertionIsolationTests` cover real owned refusal
+  followed by ordinary settlement, repeated consumption, whole-ticket rejection
+  for mixed Task input, and wrong-source/attachment-change refusal. Original
+  calendar, State, candidate and handoff assertions remain unchanged. Two
+  independent source reviews and strict lint/architecture contracts pass.
+  Execution of these new tests, the original three calendar failures and
+  `OrdinaryOwnedHandoffTests` is pending at this entry. No claim that calendar
+  behavior is repaired or that all owner retirement is correct is made before
+  those results. All nine original completion gates remain open.

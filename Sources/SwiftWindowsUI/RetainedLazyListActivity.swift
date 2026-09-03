@@ -3734,7 +3734,13 @@ final class RetainedLazyListAdoptionJournal {
         guard let pending = insertedNodes.removeValue(forKey: ObjectIdentifier(storage.targetID)),
             pending.node === node, pending.target === storage.targetID,
             pending.attachment === storage.attachmentID, let actual = actualAttachment(for: node)
-        else { return [] }
+        else {
+            // Ordinary reconciliation may accept the physical insertion after
+            // a later metadata preparation refuses. Keep only its independently
+            // prepared, task-free descriptor facts; completion remains separate.
+            if isOrdinaryAdoption { ordinaryLedger?.recordAcceptedTaskFreeInsertedFacets(on: node) }
+            return []
+        }
         _ = recordAcceptedInsertedDescriptor(on: node)
         recordInsertionPublication(from: node, to: node, actual: actual, inserted: true)
         ownedLedger?.recordAcceptedInsertedNode(
@@ -5267,6 +5273,21 @@ final class RetainedDescriptorConstructionLedger {
         for facet in pending.facets { recordAcceptedFacet(facet, actual: actual) }
         // Checked node/subtree completion remains a separate post-callback fact.
         return completeGroups()
+    }
+
+    fileprivate func recordAcceptedTaskFreeInsertedFacets(on node: ViewNode) {
+        guard let storage = node.retainedLazyListActivityStorage,
+            let pending = insertions.removeValue(forKey: ObjectIdentifier(storage.targetID)),
+            pending.node === node, pending.target === storage.targetID,
+            pending.attachment === storage.attachmentID, let actual = actualAttachment(for: node),
+            pending.facets.allSatisfy({ facet in
+                if case .scopedTaskDeclaration = facet.nativeField { return false }
+                guard let group = groups[ObjectIdentifier(facet.group)] else { return false }
+                return group.kind != .scopedTask
+            })
+        else { return }
+        for facet in pending.facets { recordAcceptedFacet(facet, actual: actual) }
+        // Do not advance completion or Task delivery at this attachment cut.
     }
 
     private func recordAcceptedFacet(

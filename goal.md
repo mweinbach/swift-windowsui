@@ -19803,3 +19803,33 @@ test requiring an actually deallocated runtime and zero further binding
 writes. Production admission, arithmetic, original assertions and deadlines
 remain unchanged. Correction validation and a fresh Full run from the start
 are still required. All nine original completion gates remain open.
+
+### 2026-09-03: retain the runtime in the Stepper interaction fixture
+
+The fixture-only amendment now keeps the original runtime and node together
+through both Stepper actions using an explicit extended lifetime. The geometry
+helper still returns only a node; its original construction, attachment and
+rendering body is shared unchanged. No production file, timeout, flag,
+arithmetic or original assertion changed. The additive test first requires
+exactly one write per live action, then releases the owning fixture, verifies
+its weak runtime witness is nil, and requires both escaped actions to produce
+zero further writes while the same control nodes remain alive.
+
+Root reviewed the complete patch and independently verified all twelve sealed
+packet files, eight base pins, the unchanged frozen negative and the exact
+inverse restoration of the entire original test file. The inverse check's
+first diagnostic exposed only a missing blank-line removal in the temporary
+verification script; that script was corrected before applying the patch.
+Both source checks then passed. Strict lint and architecture contracts pass.
+Patch SHA256 is
+`f92940198f1df406514738604befc62e3ee3f4b70efd44d6a7a76e6ab049a544`;
+test-file SHA256 is
+`6d80e45bfa104fcd87acd3d06b8243bad4f86a385a5e17741234da9f3aef8f0d`.
+
+The frozen focused roster contains all twenty-five original methods from the
+failed shard plus this one new negative, SHA256
+`248a558014f213519442fbccc1585600d1decbeaaffec7c62e01c390e86e2c6f`.
+Compilation and those twenty-six outcomes remain pending at this checkpoint.
+The previous failures are retained, and a focused success cannot substitute
+for restarting stock Full from the beginning. All nine original gates remain
+open and unchanged.

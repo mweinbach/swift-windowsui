@@ -22,12 +22,14 @@ final class ControlChromePolishTests: XCTestCase {
                 get: { value },
                 set: { value = $0 }
             )
-            let node = makeChromeRuntimeNode(
+            let fixture = makeOwnedChromeRuntimeNode(
                 Stepper(value: binding, in: 0...10) {
                     Text("Count")
                 }
                 .frame(width: 200, height: 40)
             )
+            defer { withExtendedLifetime(fixture) {} }
+            let node = fixture.node
             assertChromeDescendantFramesWithinBounds(node)
             let row = tryUnwrap(node.children.first)
             // NSStepper is a vertical pair inside one bezel beside the
@@ -82,6 +84,51 @@ final class ControlChromePolishTests: XCTestCase {
             XCTAssertEqual(value, 4, "decrement should still fire its action")
             increment.onActivate?()
             XCTAssertEqual(value, 5, "increment should still fire its action")
+        }
+    }
+
+    func testPublishedStepperActionsRefuseAfterTheirRuntimeIsReleased() async {
+        await MainActor.run {
+            var value = 5
+            var writes = 0
+            let binding = Binding<Int>(
+                get: { value },
+                set: {
+                    writes += 1
+                    value = $0
+                }
+            )
+            var fixture: (runtime: RetainedViewRuntime, node: ViewNode)? = makeOwnedChromeRuntimeNode(
+                Stepper(value: binding, in: 0...10) {
+                    Text("Count")
+                }
+                .frame(width: 200, height: 40)
+            )
+            weak var runtimeWitness: RetainedViewRuntime? = fixture?.runtime
+            let node = tryUnwrap(fixture?.node)
+            let decrement = tryUnwrap(firstNode(in: node) { $0.accessibilityLabel == "Decrement" })
+            let increment = tryUnwrap(firstNode(in: node) { $0.accessibilityLabel == "Increment" })
+            let decrementAction = tryUnwrap(decrement.onActivate)
+            let incrementAction = tryUnwrap(increment.onActivate)
+            withExtendedLifetime(fixture) {
+                XCTAssertNotNil(runtimeWitness)
+                decrementAction()
+                XCTAssertEqual(value, 4)
+                XCTAssertEqual(writes, 1)
+                incrementAction()
+                XCTAssertEqual(value, 5)
+                XCTAssertEqual(writes, 2)
+            }
+
+            fixture = nil
+
+            XCTAssertNil(runtimeWitness, "The negative case must release the actual runtime owner")
+            XCTAssertTrue(firstNode(in: node) { $0.accessibilityLabel == "Decrement" } === decrement)
+            XCTAssertTrue(firstNode(in: node) { $0.accessibilityLabel == "Increment" } === increment)
+            decrementAction()
+            incrementAction()
+            XCTAssertEqual(value, 5)
+            XCTAssertEqual(writes, 2, "Escaped published actions must not write after their runtime expires")
         }
     }
 
@@ -496,13 +543,21 @@ private func makeChromeRuntimeNode<V: View>(
     _ view: V,
     canvas: Size = Size(width: 480, height: 360)
 ) -> ViewNode {
+    makeOwnedChromeRuntimeNode(view, canvas: canvas).node
+}
+
+@MainActor
+private func makeOwnedChromeRuntimeNode<V: View>(
+    _ view: V,
+    canvas: Size = Size(width: 480, height: 360)
+) -> (runtime: RetainedViewRuntime, node: ViewNode) {
     let runtime = RetainedViewRuntime(root: ViewNode())
     let context = ViewBuildContext(canvasSizeProvider: { canvas }, invalidateHandler: {})
     let node = view.makeComponent(context: context).makeNode(runtime: runtime)
     runtime.root.addChild(node)
     runtime.setRootSize(IntSize(width: Int32(canvas.width), height: Int32(canvas.height)))
     _ = runtime.renderFrame()
-    return node
+    return (runtime, node)
 }
 
 @MainActor

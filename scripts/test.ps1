@@ -47,36 +47,160 @@ function Get-ReportedExitCode {
     return [int]$LASTEXITCODE
 }
 
+function Get-SwiftTestCommentEnd {
+    param([string]$Text, [int]$Start)
+    if ($Text.Substring($Start, 2) -ceq '//') {
+        $end = $Text.IndexOfAny([char[]]@([char]13, [char]10), $Start + 2)
+        if ($end -lt 0) { return $Text.Length }
+        return $end
+    }
+    $depth = 1
+    $marker = [regex]::new('/\*|\*/')
+    for ($match = $marker.Match($Text, $Start + 2); $match.Success; $match = $match.NextMatch()) {
+        if ($match.Value -ceq '/*') { $depth++ } else { $depth-- }
+        if ($depth -eq 0) { return $match.Index + $match.Length }
+    }
+    throw "Unterminated block comment in Swift test source."
+}
+
+function Get-SwiftTestStringEnd {
+    param([string]$Text, [int]$Start)
+    $quote = $Start
+    while ($quote -lt $Text.Length -and $Text[$quote] -ceq '#') { $quote++ }
+    $hashes = $Text.Substring($Start, $quote - $Start)
+    $quoteCount = 1
+    if ($Text.Length - $quote -ge 3 -and $Text.Substring($quote, 3) -ceq '"""') { $quoteCount = 3 }
+    $closing = ('"' * $quoteCount) + $hashes
+    $escape = '\' + $hashes
+    $position = $quote + $quoteCount
+    while ($position -lt $Text.Length) {
+        $position = $Text.IndexOfAny([char[]]@('"', '\'), $position)
+        if ($position -lt 0) { break }
+        if ($Text[$position] -ceq '"' -and $Text.Length - $position -ge $closing.Length -and
+            $Text.Substring($position, $closing.Length) -ceq $closing) {
+            return $position + $closing.Length
+        }
+        if ($Text[$position] -ceq '\' -and $Text.Length - $position -ge $escape.Length -and
+            $Text.Substring($position, $escape.Length) -ceq $escape) {
+            $escaped = $position + $escape.Length
+            if ($escaped -ge $Text.Length) { break }
+            if ($Text[$escaped] -ceq '(') {
+                $position = Get-SwiftTestInterpolationEnd -Text $Text -Start ($escaped + 1)
+            } else {
+                $position = $escaped + 1
+            }
+        } else {
+            $position++
+        }
+    }
+    throw "Unterminated string in Swift test source."
+}
+
+function Get-SwiftTestInterpolationEnd {
+    param([string]$Text, [int]$Start)
+    # Parentheses inside nested strings or comments do not close interpolation.
+    # Everything in this span remains literal payload for declaration discovery.
+    $depth = 1
+    $position = $Start
+    $marker = [regex]::new('//|/\*|#*"|[()]')
+    while ($position -lt $Text.Length) {
+        $match = $marker.Match($Text, $position)
+        if (-not $match.Success) { break }
+        if ($match.Value.StartsWith('/')) {
+            $position = Get-SwiftTestCommentEnd -Text $Text -Start $match.Index
+        } elseif ($match.Value.EndsWith('"')) {
+            $position = Get-SwiftTestStringEnd -Text $Text -Start $match.Index
+        } else {
+            if ($match.Value -ceq '(') { $depth++ } else { $depth-- }
+            $position = $match.Index + $match.Length
+            if ($depth -eq 0) { return $position }
+        }
+    }
+    throw "Unterminated string interpolation in Swift test source."
+}
+
+function Get-SwiftTestCodeWithoutTrivia {
+    param([string]$Text)
+    # Preserve offsets/newlines while masking comments and string payloads. This
+    # is lexical ownership bookkeeping, not Swift parsing or macro evaluation.
+    $builder = [Text.StringBuilder]::new()
+    $position = 0
+    $marker = [regex]::new('//|/\*|#*"')
+    while ($position -lt $Text.Length) {
+        $match = $marker.Match($Text, $position)
+        if (-not $match.Success) {
+            [void]$builder.Append($Text, $position, $Text.Length - $position)
+            break
+        }
+        [void]$builder.Append($Text, $position, $match.Index - $position)
+        if ($match.Value.StartsWith('/')) {
+            $end = Get-SwiftTestCommentEnd -Text $Text -Start $match.Index
+        } else {
+            $end = Get-SwiftTestStringEnd -Text $Text -Start $match.Index
+        }
+        [void]$builder.Append([regex]::Replace($Text.Substring($match.Index, $end - $match.Index), '[^\r\n]', ' '))
+        $position = $end
+    }
+    return $builder.ToString()
+}
+
+function Get-SwiftTestTypeBodies {
+    param([string]$Code, [string]$File)
+    $bodies = [Collections.Generic.List[object]]::new()
+    $scopes = [Collections.Generic.List[object]]::new()
+    $pattern = '(?m)(?<import>\bimport[ \t]+(?:class|struct|enum|protocol|typealias|func|var|let)\b[^\r\n;{}]*)|\b(?<kind>class|struct|actor|enum|protocol|extension)[ \t\r\n]+(?<name>[A-Za-z_][A-Za-z0-9_]*)(?<header>[^{};]*)\{|(?<open>\{)|(?<close>\})|^[ \t]*(?:nonisolated[ \t]+)?func[ \t]+(?<method>test\w+)[ \t]*\([ \t\r\n]*\)'
+    foreach ($match in [regex]::Matches($Code, $pattern)) {
+        if ($match.Groups['import'].Success) {
+            continue
+        } elseif ($match.Groups['kind'].Success) {
+            $body = $null
+            if ($scopes.Count -eq 0) {
+                $body = [pscustomobject]@{
+                    Name = $match.Groups['name'].Value
+                    Kind = $match.Groups['kind'].Value
+                    Header = $match.Groups['header'].Value
+                    File = $File
+                    Methods = [Collections.Generic.List[string]]::new()
+                }
+                [void]$bodies.Add($body)
+            }
+            [void]$scopes.Add($body)
+        } elseif ($match.Groups['open'].Success) {
+            [void]$scopes.Add($null)
+        } elseif ($match.Groups['close'].Success) {
+            if ($scopes.Count -eq 0) { throw "Unexpected closing brace in Swift test source: $File" }
+            $scopes.RemoveAt($scopes.Count - 1)
+        } elseif ($scopes.Count -gt 0) {
+            $body = $scopes[$scopes.Count - 1]
+            if ($null -ne $body -and $body.Kind -cin @('class', 'extension')) {
+                [void]$body.Methods.Add($match.Groups['method'].Value)
+            }
+        }
+    }
+    if ($scopes.Count -ne 0) { throw "Unterminated type or body in Swift test source: $File" }
+    return $bodies.ToArray()
+}
+
 function Get-DiscoveredTestTargets {
     param([string]$SourceRoot)
-
     if (-not (Test-Path -LiteralPath $SourceRoot)) {
         throw "Test source root not found: $SourceRoot"
     }
+    $targets = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
+    $bodies = [Collections.Generic.List[object]]::new()
+    $files = @(Get-ChildItem -LiteralPath $SourceRoot -Filter "*.swift" -File)
+    foreach ($file in $files) {
+        $text = [IO.File]::ReadAllText($file.FullName)
+        $code = Get-SwiftTestCodeWithoutTrivia -Text $text
+        foreach ($body in @(Get-SwiftTestTypeBodies -Code $code -File $file.FullName)) {
+            [void]$bodies.Add($body)
+        }
 
-    $targets = @{}
-
-    Get-ChildItem -LiteralPath $SourceRoot -Filter "*.swift" -File | ForEach-Object {
-        $filePath = $_.FullName
-        $lines = Get-Content -LiteralPath $filePath
-        $current = $null
-
+        # Preserve the existing Swift Testing suite-name discovery. XCTest
+        # attribution below no longer leaks into this independent suite mode.
+        $lines = [regex]::Split($text, '\r\n|\n|\r')
         for ($i = 0; $i -lt $lines.Count; $i++) {
-            $line = $lines[$i]
-
-            if ($line -match 'final\s+class\s+(\w+)\s*:\s*XCTestCase') {
-                $name = $Matches[1]
-                $current = [pscustomobject]@{
-                    Name    = $name
-                    Kind    = "XCTest"
-                    File    = $filePath
-                    Methods = New-Object System.Collections.Generic.List[string]
-                }
-                $targets[$name] = $current
-                continue
-            }
-
-            if ($line -match '@Suite') {
+            if ($lines[$i] -match '@Suite') {
                 $suiteName = $null
                 for ($j = $i; $j -lt [Math]::Min($i + 6, $lines.Count); $j++) {
                     if ($lines[$j] -match '(?:struct|class|actor)\s+(\w+)') {
@@ -85,27 +209,46 @@ function Get-DiscoveredTestTargets {
                     }
                 }
                 if ($suiteName) {
-                    $current = [pscustomobject]@{
-                        Name    = $suiteName
-                        Kind    = "SwiftTesting"
-                        File    = $filePath
-                        Methods = New-Object System.Collections.Generic.List[string]
+                    $targets[$suiteName] = [pscustomobject]@{
+                        Name = $suiteName
+                        Kind = "SwiftTesting"
+                        File = $file.FullName
+                        Methods = [Collections.Generic.List[string]]::new()
                     }
-                    $targets[$suiteName] = $current
                 }
-                continue
-            }
-
-            if ($null -eq $current) {
-                continue
-            }
-
-            if ($current.Kind -eq "XCTest" -and $line -match '^\s*(?:nonisolated\s+)?func\s+(test\w+)\s*\(') {
-                [void]$current.Methods.Add($Matches[1])
             }
         }
     }
 
+    # Register declarations before attaching any methods. A named extension can
+    # precede its class, live in another file, or follow an unrelated helper.
+    foreach ($body in $bodies) {
+        if ($body.Kind -ceq 'class' -and $body.Header -cmatch '^\s*:\s*(?:XCTest\.)?XCTestCase\b') {
+            if ($targets.ContainsKey($body.Name)) { throw "Ambiguous Swift test declaration: $($body.Name)" }
+            $targets[$body.Name] = [pscustomobject]@{
+                Name = $body.Name
+                Kind = "XCTest"
+                File = $body.File
+                Methods = [Collections.Generic.List[string]]::new()
+            }
+        }
+    }
+    $seen = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
+    foreach ($body in $bodies) {
+        if ($body.Kind -cnotin @('class', 'extension') -or -not $targets.ContainsKey($body.Name)) { continue }
+        # Qualified/nested extension ownership is outside this simple-name
+        # scanner. Never credit its methods to the first name component.
+        if ($body.Kind -ceq 'extension' -and $body.Header -cnotmatch '^\s*(?::|where\b|$)') { continue }
+        $target = $targets[$body.Name]
+        if ($target.Kind -cne 'XCTest') { continue }
+        if (-not $seen.ContainsKey($body.Name)) {
+            $seen[$body.Name] = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        }
+        foreach ($method in $body.Methods) {
+            if (-not $seen[$body.Name].Add($method)) { throw "Ambiguous Swift test method: $($body.Name)/$method" }
+            [void]$target.Methods.Add($method)
+        }
+    }
     return @($targets.Values | Sort-Object Name)
 }
 

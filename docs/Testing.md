@@ -166,10 +166,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   hashes, rejected inputs, and publication boundaries; they do not establish
   a successful native capture or any API conformance. The opt-in large fixture
   remains separate. See [SwiftUIAPIAudit.md](SwiftUIAPIAudit.md).
-- `test-swiftui-api-audit-publication-diagnostics.ps1` is a separate opt-in
-  fixture. It checks bounded failure reporting and preservation of the original
-  publication error, then runs the existing ledger suite once. It is not yet
-  registered in Quick or Full. A failed directory move may leave a sibling
+- Quick and Full run `test-sharded-source-discovery.ps1` with synthetic Swift
+  text. It checks XCTest class and named-extension ownership, helper exclusion,
+  and bounded method filters without compiling or running Swift. Comparison to
+  generated XCTest identifiers remains a separate source check.
+  Discovery handles top-level simple XCTestCase classes and named extensions,
+  with line-leading func or nonisolated func test methods. It does not resolve
+  conditional compilation, macros, custom test base classes, nested or qualified
+  test types, Swift regex literals, or other method declaration spellings.
+- Quick and Full run `test-swiftui-api-audit-publication-diagnostics.ps1`.
+  This synthetic fixture checks bounded failure reporting and preservation of
+  the original publication error, then runs the existing ledger suite once.
+  A failed directory move may leave a sibling
   `.publication-failure.json` before the existing staging cleanup runs;
   reporting is best effort and neither retries nor makes publication succeed.
   False path-existence observations do not prove absence when the recorded

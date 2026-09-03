@@ -93,6 +93,10 @@ Invoke-Step "lint explicit-path fixtures (synthetic only)" {
     & (Join-Path $PSScriptRoot "test-lint-paths.ps1")
 }
 
+Invoke-Step "sharded test source discovery fixtures (synthetic only)" {
+    & (Join-Path $PSScriptRoot "test-sharded-source-discovery.ps1")
+}
+
 Invoke-Step "pinned SwiftUI baseline tooling fixtures" {
     & (Join-Path $PSScriptRoot "test-swiftui-baseline.ps1")
 }

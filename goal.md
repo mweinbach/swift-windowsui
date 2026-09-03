@@ -19307,3 +19307,66 @@ The independent result and completed-trace analysis are
 The original whole155 workload and 900-second allowance remain unchanged and
 unqualified by these focused results. Full-suite, native/display, staged-app
 journey and all nine original product completion gates remain open.
+
+### 2026-09-03: original155 remains unqualified; stock XCTest discovery repaired
+
+The unchanged whole155 workload was rerun at
+`697d1be1d6f78aba634390a4b01a553d08f02ee2`. It reached the original 900-second
+execution deadline and required owned-Job termination, finishing after 900.047
+seconds with child exit124 and observed runner exit1. Build completion took
+2.45 seconds. No individual starts or terminals reached the retained log, so
+all 155 outcomes remain unknown; buffered output does not identify the runtime
+phase or establish that no tests executed. The strict checker rejected the run.
+This third preserved timeout is not replaced by the passing scalar243 cohort
+or the single handoff diagnostic, and the original assertions, filter and
+deadline remain unchanged.
+
+Evidence is retained in
+`artifacts/cohort155-normal-697d1be-ef44542cce18488abf1399d3d76713f8/`
+and `artifacts/cohort155-check-697d1be.json`. Raw-log SHA256 is
+`488c12dfa0fc65582054934b3de3b833031dc00ee060d2c3ae82f8c0760303db`.
+The checker independently compared source/index endpoints. The owner verified
+the direct child exit, empty Job, descendant closure, released resources and
+restored signal handlers, with no acquisition uncertainty or cleanup error.
+That is cleanup evidence, not successful natural completion.
+
+The stock sharded runner now discovers top-level XCTest classes and their named
+extensions in two passes, preserving class ownership across leading extensions
+and excluding helper callbacks. Comment/string masking, direct body scope,
+ordinal type identity, qualified-helper exclusion and selective-import handling
+prevent the reviewed attribution mistakes. Duplicate or malformed supported
+declarations are refused. This remains a bounded source scanner, not a complete
+Swift parser; unsupported language forms remain documented in `docs/Testing.md`.
+The complete selection, batching, invocation and evidence-reporting tail is
+unchanged. Quick and Full register the additive source-discovery fixture.
+
+Root executed the actual private and integrated PowerShell scanners, not only
+a model of their behavior. Both matched all 9,026 generated XCTest identifiers
+from 708 registered tables, with no missing or extra source identifiers and
+no uncovered identifiers. The planner includes nine additional Swift Testing
+suite targets and produces 473 shards; this metadata does not census Swift
+Testing methods. The integrated reconciliation is retained under
+`artifacts/stock-discovery-697d1be-integrated-plan-v1/`, with report SHA256
+`4c190c9c0f44174180fc3521c494374d7c84b33f681885811d90a54f690e5890`.
+All recorded input endpoints matched. This is source/plan evidence, not proof
+that those tests executed or that Full passed.
+
+Sixteen identifiers match both shards49 and151. The unchanged singleton filter
+`MaterialContentBlurTests` also matches `D3D11MaterialContentBlurTests`; its
+24-ID/2,843-character estimate actually covers 40 IDs/4,722 characters, exceeding
+the 3,000-character soft planning budget. The overlap is retained explicitly,
+not deduplicated or relabeled exactly-once coverage. No execution failure is
+inferred from this source finding, and no filters were silently changed.
+
+Fresh synthetic validation passed: source discovery14 cases/109 assertions,
+existing target selection30 cases/94 assertions, and existing passive test
+evidence237 cases/727 assertions. Contracts passed before and after integration;
+lint selected no changed Swift files. The first integration preflight stopped
+before edits because the private before-images used LF and the checkout uses
+CRLF. Root proved exact normalized equality, bound the three actual raw hashes,
+and preserved checkout CRLF without changing source content or any test oracle.
+The final integration receipt is `artifacts/stock-discovery-integration.json`.
+All nine original product completion gates remain open. Native app interaction,
+hardware presentation, Narrator, full-suite and release qualification remain
+separate unfinished work. The policy-denied native acquisition harness remains
+HELD and is not retried by this work.

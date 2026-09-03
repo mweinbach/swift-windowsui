@@ -20689,3 +20689,35 @@ The independent pre-correction three-method baseline is pending at
 `fcb68aed202a50ac38b468c580be9b6688e8c8294c94b81ad90fdc130ac48bfb`, with 32 current source pins. Its source
 binding explicitly includes the already validated paint-ancestry change.
 No new passing behavior or completion gate is claimed by adding these tests.
+
+
+### 2026-09-03: preserve the authority-supplement baseline before the chrome correction
+
+The separate three-method baseline at
+`96b23dcffabb509037a8e14ec6d36405138954c0` observed all three methods once;
+all failed (30 assertion failures, two reported unexpected), in 0.058 test
+seconds. The local-frame and layout-query cases could not obtain the required
+provisional native row; ordinary earlier-sibling cases observed a hidden base
+and missing visible text. These are baseline failures, not passing refusals.
+Thrown fixture helpers can stop subcase loops, so this does not claim all eight
+declared cases or seven recovery probes ran.
+
+Owned execution was 261.344
+seconds, with natural exit one and full process closure, no timeout,
+termination, acquisition uncertainty or supervision errors. All 32 source pins
+remain unchanged. Attempt:
+`artifacts/fieldchromeauthoritysupplementbaseline3-dfc9f71a0b0a459ea979df0e8d6a6ec1/`;
+raw SHA256 `41c7212f6375a2f8325fed7b5287d62b76102c6ed4b84664377b3b4a757f7149`.
+Aggregate: `artifacts/field-chrome-authority-supplement-baseline3-96b23dc-results.json`,
+SHA256 `1ccf2640061f24c5e7e80f00e96da1e398343d5eeafc37bdc05be96911a21864`. The original fifteen tests are unchanged.
+
+The six-source chrome candidate is now sealed and independently reviewed;
+root verified all sealed payloads, six afterimages, five current preimages,
+the new-file absence and the portable patch's source-only apply check.
+Seal SHA256 `0417f156122e70a5c82fd914d5cc579282acfac9fb4afa51fc70eb3123a39088`;
+applicable patch SHA256
+`56c961ef90bd162dc4f469a65430ddadd02e50c2a920fbbcd3ac5430a2f38c77`.
+The original patch's absolute Windows headers are preserved as provenance;
+the portable derivative changes only those headers. Source review found no
+concrete blocker, but compilation, actual positive acceptance, refusal,
+cache recovery and rendering remain unqualified. No completion gate changes.

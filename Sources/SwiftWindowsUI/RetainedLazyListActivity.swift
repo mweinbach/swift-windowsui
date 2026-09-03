@@ -6760,6 +6760,8 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
     private var candidateChildCatalogOriginalTargets: [ObjectIdentifier: RetainedOwnedCandidateCatalogNode] = [:]
     private var candidateChildCatalogPublications: [ObjectIdentifier: RetainedOwnedCandidateChildPublication] = [:]
     private var candidateChildCatalogSuccessors: [ObjectIdentifier: RetainedOwnedCandidateChildSuccessor] = [:]
+    private var candidateChildCatalogFieldSuccessors: [ObjectIdentifier: RetainedOwnedCandidateFieldChildSuccessor] =
+        [:]
     private var candidateSelfSources: [ObjectIdentifier: RetainedOwnedCandidateSelfSource] = [:]
     private var candidateSelfRegistrations: [ObjectIdentifier: RetainedOwnedCandidateSelfSource] = [:]
     private var candidateSelfPublications: [ObjectIdentifier: RetainedOwnedCandidateSelfPublication] = [:]
@@ -8538,6 +8540,7 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         candidateChildCatalogOriginalTargets.removeAll()
         candidateChildCatalogPublications.removeAll()
         candidateChildCatalogSuccessors.removeAll()
+        candidateChildCatalogFieldSuccessors.removeAll()
         candidateSelfSources.removeAll()
         candidateSelfRegistrations.removeAll()
         candidateSelfPublications.removeAll()
@@ -9371,6 +9374,26 @@ fileprivate final class RetainedOwnedCandidateChildSuccessor {
 
     init(
         original: RetainedOwnedCandidateCatalogNode, publication: RetainedOwnedCandidateChildPublication,
+        afterimage: RetainedOwnedCandidateCatalogNode?, wasOmitted: Bool
+    ) {
+        self.original = original
+        self.publication = publication
+        self.afterimage = afterimage
+        self.wasOmitted = wasOmitted
+    }
+}
+
+/// Only the exact native field write may carry a current child catalog through
+/// its own revision and removal stores. This grants no reader-build authority.
+@MainActor
+fileprivate final class RetainedOwnedCandidateFieldChildSuccessor {
+    let original: RetainedOwnedCandidateCatalogNode
+    let publication: RetainedOwnedCandidateCatalogPublication
+    let afterimage: RetainedOwnedCandidateCatalogNode?
+    let wasOmitted: Bool
+
+    init(
+        original: RetainedOwnedCandidateCatalogNode, publication: RetainedOwnedCandidateCatalogPublication,
         afterimage: RetainedOwnedCandidateCatalogNode?, wasOmitted: Bool
     ) {
         self.original = original
@@ -10857,10 +10880,18 @@ extension RetainedOwnedComponentConstructionLedger {
         while seen.count < ViewNode.maximumTraversalDepth {
             guard seen.insert(ObjectIdentifier(current)).inserted else { return nil }
             if current.isCurrent { return current }
-            guard let successor = candidateChildCatalogSuccessors[ObjectIdentifier(current)],
+            if let successor = candidateChildCatalogSuccessors[ObjectIdentifier(current)] {
+                guard successor.original === current, !successor.wasOmitted, let accepted = successor.afterimage,
+                    candidateChildCatalogPublications[ObjectIdentifier(successor.publication.source)]
+                        === successor.publication
+                else { return nil }
+                current = accepted
+                continue
+            }
+            guard let successor = candidateChildCatalogFieldSuccessors[ObjectIdentifier(current)],
                 successor.original === current, !successor.wasOmitted, let accepted = successor.afterimage,
-                candidateChildCatalogPublications[ObjectIdentifier(successor.publication.source)]
-                    === successor.publication
+                successor.publication.write.ledger === self, successor.publication.write.wasConsumed,
+                candidatePublications[successor.publication.write.key] === successor.publication
             else { return nil }
             current = accepted
         }
@@ -11250,6 +11281,25 @@ extension RetainedOwnedComponentConstructionLedger {
         }
         let withdrawal = RetainedOwnedCandidateWithdrawal(retired)
         let affected = withdrawal.fields.flatMap { currentCandidatePublications(for: $0) }
+        // Capture only observations current before this callback-free write.
+        // The dependency wave can also change catalogs in another field.
+        let changedFields = Set(([field] + withdrawal.fields).map(ObjectIdentifier.init))
+        var childCatalogs: [RetainedOwnedCandidateCatalogNode] = []
+        var seenChildCatalogs: Set<ObjectIdentifier> = []
+        for qualification in candidateQualifications.values {
+            for graph in qualification.childCatalogGraphs {
+                for originalNode in graph.nodes {
+                    guard let current = currentCandidateChildNode(originalNode),
+                        changedFields.contains(ObjectIdentifier(current.field.field))
+                            || current.dependencies.segments.contains(where: {
+                                changedFields.contains(ObjectIdentifier($0.field))
+                            }),
+                        seenChildCatalogs.insert(ObjectIdentifier(current)).inserted
+                    else { continue }
+                    childCatalogs.append(current)
+                }
+            }
+        }
         // This actual field write may only retain original accepted references.
         // New normal declarations have no authority until their own publication.
         if selectedSegment == nil { field.catalogRevision += 1 }
@@ -11274,6 +11324,14 @@ extension RetainedOwnedComponentConstructionLedger {
         candidatePublications[write.key] = publication
         candidateFieldSuccessors[ObjectIdentifier(original)] = RetainedOwnedCandidateFieldSuccessor(
             original: original, publication: publication)
+        // Freeze the exact result before retirement callbacks or accepted-fact
+        // publication. Preserve each original physical and reader binding.
+        for child in childCatalogs {
+            let omitted = child.normalReference.wasWithdrawn
+            let next = omitted ? nil : RetainedOwnedCandidateCatalogNode(afterOwnWrite: child)
+            candidateChildCatalogFieldSuccessors[ObjectIdentifier(child)] = RetainedOwnedCandidateFieldChildSuccessor(
+                original: child, publication: publication, afterimage: next, wasOmitted: omitted)
+        }
         advanceCandidateContinuation(for: publication, replacing: original)
         for previous in affected where candidatePublications[previous.write.key] === previous {
             refreshCandidateAfterimage(previous)

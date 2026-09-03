@@ -17949,3 +17949,30 @@ checks before and after, plus strict lint, passed. Runtime validation of these
 corrections has not yet run; the previously observed 11 failures remain open
 until their unchanged tests pass. The original goal and all nine completion
 gates are unchanged.
+
+### 2026-09-03 — Preserve selected layout operands and recursive catalog observations
+
+ZStack now reads visible selected children's fill axes through the existing
+checked panel assembly, retaining each physical boundary and its original
+construction path. Grouped Form and Section similarly classify selected rows
+and measure their actual label columns without discarding physical boundaries.
+Measurements, width setters and value-column indent construction retain the
+original row and column observations. The existing form-wide column resolver
+is unchanged; this correction does not claim additional lifetime protection
+for that separate deferred resolver.
+
+An accepted candidate field write now records typed child-catalog afterimages
+for observations that were current immediately before that exact callback-free
+write. These retain the original reader, publication and physical attachment;
+removed declarations remain refused. The map serves recursive catalog
+observation only and does not grant construction or field-publication authority.
+This prevents the writer's own revision update from invalidating a still-live
+nested reader before recursive reconciliation can inspect it.
+
+Both patches received source review. Architecture checks passed before and
+after integration, and strict lint passed after a line-wrap correction. No
+existing test or assertion changed. The previous 144-pass/11-fail result remains
+the current runtime evidence until the unchanged Calendar/Text selection runs
+again. The three historical picker failures need a separate diagnosis; neither
+of these catalog corrections is claimed to resolve them. All nine original
+completion gates remain open, with their original requirements preserved.

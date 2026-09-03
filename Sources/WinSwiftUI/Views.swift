@@ -152,49 +152,99 @@ func groupedFormRowNode(
 /// is — and hands the result up so the form can widen every group to the
 /// same edge once all of them exist.
 @MainActor
-func alignedGroupedFormRows(_ nodes: [ViewNode], scope: GroupedFormColumnScope? = nil) -> [ViewNode] {
-    var labelColumns: [ViewNode] = []
-    for node in nodes {
+func alignedGroupedFormRows(
+    _ rowScopes: [RetainedSelectedContentMutationScope], scope: GroupedFormColumnScope? = nil,
+    admission: @escaping @MainActor () -> Bool
+) -> [ViewNode]? {
+    let nodes = rowScopes.map(\.physicalRoot)
+    var columns:
+        [(row: RetainedSelectedContentMutationScope, index: Int, column: RetainedSelectedContentMutationScope)] = []
+    var needsValueColumnIndent: [Bool] = []
+    func originalColumnsAreCurrent() -> Bool {
+        guard columns.allSatisfy({ $0.row.isCurrent && $0.column.isCurrent }) else {
+            return false
+        }
+        // An admission callback for a later operand can retire an earlier
+        // one. Recheck the original paths without calling admission again.
+        return columns.allSatisfy { entry in
+            let row = entry.row.selectedRoot
+            let column = entry.column.physicalRoot
+            return entry.row.path.isCurrent && entry.column.path.isCurrent
+                && row.children.indices.contains(entry.index)
+                && row.children[entry.index] === column && column.parent === row
+        }
+    }
+    func originalRowsAreCurrent() -> Bool {
+        guard rowScopes.allSatisfy(\.isCurrent), originalColumnsAreCurrent() else { return false }
+        return rowScopes.allSatisfy { $0.path.isCurrent }
+    }
+    for rowScope in rowScopes {
+        guard originalRowsAreCurrent() else { return nil }
+        let node = rowScope.selectedRoot
+        needsValueColumnIndent.append(node.formRowLabelChildIndex == nil && !node.layoutFillAxes.horizontal)
         guard let index = node.formRowLabelChildIndex, node.children.indices.contains(index) else {
             continue
         }
-        labelColumns.append(node.children[index])
+        guard
+            let columnScope = node.children[index].captureSelectedContentMutationScope(
+                admission: { rowScope.isCurrent })
+        else { return nil }
+        columns.append((row: rowScope, index: index, column: columnScope))
+        guard originalRowsAreCurrent() else { return nil }
     }
-    guard !labelColumns.isEmpty else {
+    guard !columns.isEmpty else {
         return nodes
     }
 
-    let columnWidth = labelColumns.reduce(0.0) { widest, column in
-        max(widest, column.intrinsicContentSize().width)
+    var columnWidth = 0.0
+    for entry in columns {
+        guard originalRowsAreCurrent() else { return nil }
+        let measuredWidth = entry.column.selectedRoot.intrinsicContentSize().width
+        guard originalRowsAreCurrent() else { return nil }
+        columnWidth = max(columnWidth, measuredWidth)
     }
     guard columnWidth > 0 else {
         return nodes
     }
-    for column in labelColumns {
+    for entry in columns {
+        guard originalRowsAreCurrent() else { return nil }
+        let column = entry.column.selectedRoot
         column.preferredSize = Size(width: columnWidth, height: column.preferredSize?.height ?? 0)
+        guard originalRowsAreCurrent() else { return nil }
     }
 
+    let labelColumns = columns.map { $0.column.selectedRoot }
     let valueColumnInset = columnWidth + MacOSControlMetrics.Form.labelColumnGap
     var valueColumnIndents: [ViewNode] = []
-    let resolved = nodes.map { node -> ViewNode in
+    var resolved: [ViewNode] = []
+    for (index, rowScope) in rowScopes.enumerated() {
+        guard rowScope.isCurrent, originalColumnsAreCurrent(), rowScope.path.isCurrent else { return nil }
+        let node = rowScope.physicalRoot
         // A rule spans the group edge to edge, and a row that already has a
         // label is already aligned. Everything else — a button, a bare
         // `Text` — belongs in the value column beside its labelled siblings.
-        guard node.formRowLabelChildIndex == nil, !node.layoutFillAxes.horizontal else {
-            return node
+        guard needsValueColumnIndent[index] else {
+            resolved.append(node)
+            continue
         }
-        let indented = Controls.stackPanel(
-            stackLayout: .horizontal(
-                padding: EdgeInsets(top: 0, leading: valueColumnInset, bottom: 0, trailing: 0),
-                alignment: .center
-            ),
-            isHitTestVisible: false,
-            children: [node]
-        )
+        // Classification is complete before the physical row changes
+        // parents. The assembly owns that move without refreshing its path.
+        guard
+            let assembly = RetainedSelectedContentPanelAssembly(
+                sources: [node], selectedContentPaths: [rowScope.path],
+                admission: admission),
+            let indented = assembly.makePanel(
+                layoutMode: .stack(
+                    .horizontal(
+                        padding: EdgeInsets(top: 0, leading: valueColumnInset, bottom: 0, trailing: 0),
+                        alignment: .center)))
+        else { return nil }
         indented.layoutFillAxes = .horizontalOnly
+        guard assembly.finishConstruction(), originalColumnsAreCurrent() else { return nil }
         valueColumnIndents.append(indented)
-        return indented
+        resolved.append(indented)
     }
+    guard originalColumnsAreCurrent() else { return nil }
     scope?.adopt(
         labelColumns: labelColumns,
         valueColumnIndents: valueColumnIndents,
@@ -9420,23 +9470,35 @@ public struct ZStack: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        Component { runtime in
+        let childAdmission = retainedSelectedContentModifierAdmission(context: context)
+        return Component { runtime in
             guard
                 let occurrences = materializedViewListOccurrences(content, context: context),
                 context.viewIdentity.lazyList?.admission.isCurrent != false,
                 context.viewIdentity.descriptorComponent?.canConstruct != false
             else { return rejectedRetainedViewNode() }
-            let childNodes = occurrences.map {
-                $0.makeComponent(context: context).makeNode(runtime: runtime)
+            var childNodes: [ViewNode] = []
+            var childPaths: [RetainedSelectedContentPath] = []
+            for occurrence in occurrences {
+                guard childAdmission(), childPaths.allSatisfy(\.isCurrent) else {
+                    return rejectedRetainedViewNode()
+                }
+                let child = occurrence.makeComponent(context: context).makeNode(runtime: runtime)
+                guard let path = child.captureSelectedContentConstructionPath(), childAdmission(), path.isCurrent else {
+                    return rejectedRetainedViewNode()
+                }
+                childNodes.append(child)
+                childPaths.append(path)
             }
-            let root = Controls.panel(layoutMode: .absolute, isHitTestVisible: false, children: childNodes)
+            guard
+                let assembly = RetainedSelectedContentPanelAssembly(
+                    sources: childNodes, selectedContentPaths: childPaths, admission: childAdmission),
+                let root = assembly.makePanel(), let fillAxes = assembly.layoutFillAxes()
+            else { return rejectedRetainedViewNode() }
             // A ZStack containing flexible content must accept its parent's
             // proposal too. Otherwise a framed Color background stops at the
             // tallest fixed overlay rather than filling the frame.
-            root.layoutFillAxes = LayoutFillAxes(
-                horizontal: childNodes.contains { !$0.isHidden && $0.layoutFillAxes.horizontal },
-                vertical: childNodes.contains { !$0.isHidden && $0.layoutFillAxes.vertical }
-            )
+            root.layoutFillAxes = fillAxes
             root.absoluteChildFrame = { child, bounds in
                 let intrinsic = child.intrinsicContentSize()
                 // Flexible children accept the stack's proposal; fixed ones
@@ -9455,6 +9517,7 @@ public struct ZStack: View {
                 )
                 return Rect(origin: origin, size: childSize)
             }
+            guard assembly.finishConstruction() else { return rejectedRetainedViewNode() }
             return root
         }
     }
@@ -11466,6 +11529,7 @@ public struct Form: View {
         // label column, a leading value column, and section headers outside
         // the boxes they name.
         let content = self.content
+        let rowAdmission = retainedSelectedContentModifierAdmission(context: context)
         return Component { runtime in
             // One column for the whole form. Every section resolves its own
             // group as it builds — it cannot see its siblings — and registers
@@ -11483,12 +11547,17 @@ public struct Form: View {
                 rowContext.viewIdentity.lazyList?.admission.isCurrent != false,
                 rowContext.viewIdentity.descriptorComponent?.canConstruct != false
             else { return rejectedRetainedViewNode() }
-            let rows = alignedGroupedFormRows(
-                occurrences.map {
-                    $0.makeComponent(context: rowContext).makeNode(runtime: runtime)
-                },
-                scope: columnScope
-            )
+            var rowScopes: [RetainedSelectedContentMutationScope] = []
+            for occurrence in occurrences {
+                let row = occurrence.makeComponent(context: rowContext).makeNode(runtime: runtime)
+                guard
+                    let rowScope = row.captureSelectedContentMutationScope(in: runtime, admission: rowAdmission)
+                else { return rejectedRetainedViewNode() }
+                rowScopes.append(rowScope)
+            }
+            guard
+                let rows = alignedGroupedFormRows(rowScopes, scope: columnScope, admission: rowAdmission)
+            else { return rejectedRetainedViewNode() }
             columnScope.resolve()
             let column = Controls.stackPanel(
                 backgroundColor: chrome.backgroundColor,
@@ -11724,6 +11793,7 @@ public struct Section: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let context = context.withViewIdentityType(Self.self)
+        let rowAdmission = retainedSelectedContentModifierAdmission(context: context)
         let expansionBinding = isExpanded
         // A **grouped-form** section header is a heading, not a label:
         // 15/600 at the primary rung, attached to the group under it. The
@@ -11864,31 +11934,45 @@ public struct Section: View {
                 }
             }
 
-            let builtContentNodes: [ViewNode]
-            if expansionBinding?.wrappedValue == false {
-                builtContentNodes = []
-            } else {
+            var builtContentNodes: [ViewNode] = []
+            var rowScopes: [RetainedSelectedContentMutationScope] = []
+            if expansionBinding?.wrappedValue != false {
                 guard
                     let occurrences = materializedViewListOccurrences(content, context: context),
                     context.viewIdentity.lazyList?.admission.isCurrent != false,
                     context.viewIdentity.descriptorComponent?.canConstruct != false
                 else { return rejectedRetainedViewNode() }
-                builtContentNodes = occurrences.map {
-                    $0.makeComponent(context: context.withViewIdentityRole(.content)).makeNode(runtime: runtime)
+                for occurrence in occurrences {
+                    let node = occurrence.makeComponent(context: context.withViewIdentityRole(.content)).makeNode(
+                        runtime: runtime)
+                    if usesGroupedFormChrome {
+                        guard
+                            let rowScope = node.captureSelectedContentMutationScope(
+                                in: runtime, admission: rowAdmission)
+                        else { return rejectedRetainedViewNode() }
+                        rowScopes.append(rowScope)
+                    }
+                    builtContentNodes.append(node)
                 }
             }
             // This section resolves its own group first — the widest label in
             // *this* box — and hands the result to the enclosing form, which
             // widens every group to one column once all of them exist. A
             // section is a grouping, not a separate grid.
-            let contentNodes =
-                usesGroupedFormChrome
-                ? Self.groupedFormRowsWithSeparators(
-                    alignedGroupedFormRows(builtContentNodes, scope: context.groupedFormColumnScope),
+            let contentNodes: [ViewNode]
+            if usesGroupedFormChrome {
+                guard
+                    let rows = alignedGroupedFormRows(
+                        rowScopes, scope: context.groupedFormColumnScope, admission: rowAdmission)
+                else { return rejectedRetainedViewNode() }
+                contentNodes = Self.groupedFormRowsWithSeparators(
+                    rows,
                     palette: palette,
                     thickness: groupedFormRuleThickness
                 )
-                : builtContentNodes
+            } else {
+                contentNodes = builtContentNodes
+            }
             guard let admittedFooterOccurrences = materializedViewListOccurrences(footer, context: footerContext) else {
                 return rejectedRetainedViewNode()
             }

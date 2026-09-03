@@ -253,6 +253,10 @@ final class RetainedOwnedCandidateCatalogTests: XCTestCase {
                         // This later loss is observable application reentry.
                         // It does not inject a fault inside raw-store/afterimage.
                         incoming.b.node.lazyListActivityStorage().revokeAttachment()
+                        // Storage rotation changes activity receipts; this proof observes
+                        // the separate native node attachment.
+                        XCTAssertTrue(originalSourceProof.isCurrent)
+                        incoming.b.node.revokeLazyListAttachmentProofs(removalWrite: nil)
                         XCTAssertFalse(originalSourceProof.isCurrent)
                         XCTAssertFalse(
                             older.journal.applyOwnedCandidateCatalog(

@@ -189,12 +189,14 @@ accepted ownership before cleanup can call application code; stale attempts
 cannot borrow a replacement merely because its identity matches. This policy
 does not make other layout containers retain inactive content.
 
-On 2026-09-03 at `cdef928`, the focused Calendar selection completed with 125
-passing methods and 11 failing methods; the adjacent 19 internal text snapshot
+On 2026-09-03 at `5a8e828`, the focused Calendar selection completed with 131
+passing methods and five failing methods; the adjacent 19 internal text snapshot
 tests passed. The original graphical DatePicker and MultiDatePicker
-rejected-candidate regressions still fail. Additional failures cover selected
-UIA phase revocation, repeated action layout, catalog reentry, container
-metadata, and deferred reader state. These results do not qualify broader Task
+rejected-candidate regressions still fail, along with recursive deferred state
+and a catalog reentry fixture whose storage-only mutation did not perform the
+asserted physical attachment revocation. Selected UIA phase revocation,
+repeated action layout, container metadata and the nested deferred facade now
+pass their focused regressions. These results do not qualify broader Task
 and lifecycle behavior, paint-cache replay, installed-source handling, or
 native SwiftUI lifetime parity.
 

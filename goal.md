@@ -17976,3 +17976,58 @@ the current runtime evidence until the unchanged Calendar/Text selection runs
 again. The three historical picker failures need a separate diagnosis; neither
 of these catalog corrections is claimed to resolve them. All nine original
 completion gates remain open, with their original requirements preserved.
+
+### 2026-09-03 — Verify six corrected behaviors and distinguish the source-proof stimulus
+
+At unchanged `5a8e828`, all 155 Calendar/Text methods completed exactly once:
+150 passed and five failed. The saved selected UIA phase, explicit and implicit
+projected-root actions, ZStack fill axes, grouped-form row metadata and nested
+deferred facade regressions now pass. All 19 internal text snapshot methods
+still pass. Catalog reentry, recursive deferred state, and the three historical
+picker cases remain failed in this record. Eight serial batches exited
+naturally with complete owned cleanup and no timeouts or source changes.
+`artifacts/calendar-text-5a8e828-results.json` records counts and raw hashes for
+`artifacts/calendar-text-selected-8a2e0c4734c544808812e3ac0e3eec07`.
+
+An additional 71 unchanged accessibility methods completed at the same source:
+69 passed, with two failures in `LazyListUIAMeasurementCorrectionTests`.
+Projected action lifetime, ordinary implicit actions, modal actions and unused
+provider-phase tests passed. The failing methods are
+`testOptionalProviderExpansionRequiresTheNextPaidMeasurement` and
+`testUnchangedProviderFallbackStillPaysItsNecessarySecondActualPass`.
+Their fixed-height fixture geometry and phase expectations are under review;
+neither failure is discarded. The complete cleanup and source-preservation
+record is `artifacts/accessibility-collateral-5a8e828-results.json`, backed by
+`artifacts/accessibilitycollateral71-3a22e4fbb2744826a922613aab98ee41`.
+
+The catalog test now receives a fixture-only correction. Storage revocation
+rotates activity receipts, while `captureLazyListAttachmentProof()` observes
+the separate native physical attachment. Existing mounted and detached-source
+tests explicitly preserve this distinction. The fixture previously performed
+only the first write but asserted that the second proof had expired. It now
+also invokes the existing native attachment writer, preserving every original
+assertion and adding an assertion that the preceding storage-only rotation
+leaves the physical proof current. Production proof semantics are unchanged;
+this corrected stimulus still needs execution with the related controls.
+
+Two separate instrumented duplicate tests reproduced the picker and recursive
+failures. The picker kept the same installed outer reader after Next, but lost
+its descriptor anchor and retained an 80-point built width under a 600-point
+resolved width, with the fallback visible. The traces are diagnostic evidence,
+not unchanged-test qualification or timing evidence. Both exact tests finished
+with failures, natural exit 1, complete cleanup and unchanged diagnostic source.
+All three instrumented production files were restored byte-for-byte, and both
+temporary test files were removed. The raw log and trace in
+`artifacts/calendar-recursive-diagnostic-2ce7f34853124b32901ac1235f3e16f2`
+have SHA-256 values
+`b1400df4795926382f98c67225e1df62bfc05e8a0142ef7f5e97230dc997bf92` and
+`86fd44c2be566fe24197e1d81279dfbefeabfce41d6772748fd4481094f99999`.
+Architecture checks passed before instrumentation, after installation and
+after exact restoration; strict lint passed on the subsequent fixture change.
+
+The separate original 155-method gate remains a timed-out run with unknown
+method outcomes. Its silence after the build does not establish startup
+failure: preserved Swift Windows process-relay source can buffer test output
+until EOF. No installed-binary equivalence or cause of that duration is claimed.
+None of these focused results qualifies the full suite, live native behavior,
+or any of the nine original completion gates.

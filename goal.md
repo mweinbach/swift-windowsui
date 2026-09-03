@@ -20311,3 +20311,33 @@ No assertion or production source changed. A private correction design and
 additive tests are being reviewed before implementation. The four failures,
 fresh complete-roster validation, stock Full and all original goal gates remain
 unresolved; none of this is native-display or complete accessibility evidence.
+
+
+### 2026-09-03: freeze child-table behavior before changing its representation
+
+Fourteen additive `RetainedButtonActionChildTableTests` are integrated without
+the proposed production optimization. They use existing runtime/adoption seams
+to test empty, single and multiple child tables, ordered identity, authorized
+child/attachment receipts, refused identity refresh, weak lifetime, initial
+unmanaged adoption and saved actions during temporary-parent callbacks.
+Fresh uncaptured passive children isolate table comparison failures from old
+captured-child attachment failures. A separate control retains that attachment
+obligation. No test hook or public capability is added.
+
+The private design and all test assertions were frozen and independently
+reviewed before production implementation. Root read the tests and review,
+verified all ten sealed payloads and exact original production preimages, and
+copied only the new test file. Its SHA256 is
+`4aa796b4d2d11194edfa344986bfe9e126a466a86bf6ce3cc0b98435065514fd`.
+The original 111 regression selectors remain the exact prefix of the 125-method
+roster; their test files are unchanged. The source-pinned baseline roster is
+`artifacts/button-child-table-baseline125.json`. The original private manifest
+SHA256 is `38a7ae6516a99e9ca3b6a8053455a36ebc77e228cdcf540ea1d4f7d230b6fa17`.
+
+Architecture checks and strict lint passed for the exact new test bytes.
+Compilation and baseline execution remain pending at this checkpoint. The
+production representation, all currentness calls, guard order, counters and
+payload release behavior are unchanged. The proposed scalar representation
+remains private and has no measured speed or allocation benefit. These tests
+do not resolve the four field-chrome failures or replace full-suite, performance,
+native presentation or any original completion requirement. All gates remain open.

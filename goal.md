@@ -17359,3 +17359,40 @@ ordinary frames and will run individually first. Smaller diagnostic groups
 will locate failures or excessive work without changing their assertions,
 frame limits or the original combined selection and deadline. These runs do
 not replace the 155-method gate. All nine original completion gates stay open.
+
+### 2026-09-02 — Isolate pending selection and preserve nested identity callback boundaries
+
+At `9328d80`, the unchanged pending-eligibility method completed in 401.959
+seconds with four failed assertions. Its original one-element/one-round
+budget admitted row 900 and wrote selection exactly once, but sixty-four
+ordinary frames did not scroll or focus it, and the original preparation
+remained pending. The accepted target was not deferred. This is a settlement
+failure, not evidence that eligibility never progressed. Exact case records,
+natural exit 1, unchanged source and complete owned cleanup were verified in
+`artifacts/keyboard-pending-eligibility-178e1cd45adf4af3a49ae431bb139816`;
+raw SHA-256 `1f4e9fa9576cd26f61225537e319f0f5c9b0f932a715dad0cbf66cedf25671ec`.
+
+The unchanged intervening-source method separately passed in 78.269 seconds
+with natural exit 0 and verified source/cleanup in
+`artifacts/keyboard-intervening-source-19c69bdd95604a9683767d8d8de349f3`;
+raw SHA-256 `163b9c376cf37704c5ea99acaefd96c6f1c8531dd5e0f441e04df8b4af905468`.
+Its ordinary callback replaced the source before continuation, and the old
+request performed no selection write, scroll or focus. Neither observation
+replaces the unchanged combined gate.
+
+A separate source review found two adapter identity loops bypassing the
+shared checked identity comparison. They now delegate to Core's existing
+checked prefix/equality methods. Outer authority and proof checks, strictly
+longer prefix and structural suffix requirements, helper capture lifetimes,
+and false/nil results remain intact. Nested framework key boxes now check
+revocation between authored callbacks; uninterrupted scalar segments use
+the existing entry/exit checks without caching authority. This does not by
+itself claim to repair the pending settlement failure or improve timings.
+
+Seven new adapter tests cover distinct/equal identities, malformed prefixes
+and suffixes, nested equality results, revocation before later nested key
+callbacks, and identity-release revocation. They preserve every existing
+test. The next execution checks these cases and gathers separate temporary
+primitive state diagnostics for the pending selection. Instrumented evidence
+must be followed by unchanged tests before claiming acceptance. The original
+budget, frame bounds, 155-method deadline and nine open gates stay unchanged.

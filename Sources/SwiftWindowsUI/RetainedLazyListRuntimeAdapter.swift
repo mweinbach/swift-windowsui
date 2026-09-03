@@ -3411,11 +3411,13 @@ package final class RetainedLazyListRuntimeAdapter {
         guard authorityIsCurrent(authority, additionalProofs: proofs),
             let value, value.segments.count > prefix.segments.count
         else { return false }
-        for index in prefix.segments.indices {
-            guard authorityIsCurrent(authority, additionalProofs: proofs) else { return false }
-            let equal = value.segments[index] == prefix.segments[index]
-            guard authorityIsCurrent(authority, additionalProofs: proofs), equal else { return false }
-        }
+        guard
+            value.checkedHasPrefix(
+                prefix,
+                isCurrent: {
+                    self.authorityIsCurrent(authority, additionalProofs: proofs)
+                }) == true
+        else { return false }
         // Presence is checked; canonical branch/leaf numbering remains the
         // identified factory's contract. Never invent a flattened leaf slot.
         return value.segments.dropFirst(prefix.segments.count).contains { segment in
@@ -3428,7 +3430,8 @@ package final class RetainedLazyListRuntimeAdapter {
         }
     }
 
-    /// Each segment equality is one explicit callout boundary. Identity values
+    /// Checked comparisons preserve each authored key's callout boundary,
+    /// including keys boxed inside framework identity values. Identity values
     /// and their typed keys die in this helper before its caller checks again.
     private func identitiesEqual(
         _ lhs: ViewNode, _ rhs: ViewNode,
@@ -3440,13 +3443,9 @@ package final class RetainedLazyListRuntimeAdapter {
         let right = rhs.retainedViewIdentity
         guard authorityIsCurrent(authority, additionalProofs: proofs), let left, let right else { return nil }
         guard left.segments.count == right.segments.count else { return false }
-        for index in left.segments.indices {
-            guard authorityIsCurrent(authority, additionalProofs: proofs) else { return nil }
-            let equal = left.segments[index] == right.segments[index]
-            guard authorityIsCurrent(authority, additionalProofs: proofs) else { return nil }
-            if !equal { return false }
+        return left.checkedEquals(right) {
+            self.authorityIsCurrent(authority, additionalProofs: proofs)
         }
-        return true
     }
 
     private func snapshotIsCurrent(for viewport: Viewport) -> Bool {

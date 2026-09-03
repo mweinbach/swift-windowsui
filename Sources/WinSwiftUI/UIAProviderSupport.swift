@@ -22,6 +22,19 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
         }
     }
 
+    /// Root ID zero is a window endpoint. Its selected node is captured once
+    /// for an operation; ordinary provider IDs still identify their own node.
+    @MainActor
+    private struct RetainedNodeRequest {
+        weak var node: ViewNode?
+        let selectedPath: RetainedSelectedContentPath?
+
+        func isCurrent(in runtime: RetainedViewRuntime) -> Bool {
+            guard let node else { return false }
+            return RuntimeUIAElementTreeSource.selectedPathIsCurrent(selectedPath, for: node, in: runtime)
+        }
+    }
+
     /// A receipt retains only native logical identity, not a row factory, a
     /// View, state storage, or a physical node. The queried-identity cache is
     /// bounded independently of the number of logical data records.
@@ -68,6 +81,7 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
     private struct ValueCompletion {
         let result: TextInputAccessibilityValueResult
         let target: RetainedAccessibilityTarget
+        let selectedPath: RetainedSelectedContentPath?
         weak var controller: (any RetainedTextInputController)?
         let focusRevision: UInt64
         let mutationRevision: UInt64
@@ -121,17 +135,32 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
             return []
         }
         defer { withExtendedLifetime(runtime) {} }
+        let rootRequest: RetainedNodeRequest?
+        if runtime.root.selectedContentRole != nil {
+            guard let captured = retainedNodeRequest(for: UIAProviderBridge.rootElementID, in: runtime) else {
+                return []
+            }
+            rootRequest = captured
+        } else {
+            rootRequest = nil
+        }
         pruneDeadNodes()
         synchronizeLogicalContainers(in: runtime)
         guard let root = AccessibilityProjection.project(runtime: runtime) else {
             return []
         }
+        if let rootRequest {
+            guard rootRequest.isCurrent(in: runtime), root.sourceNode === rootRequest.node else { return [] }
+        }
         refreshLogicalItems(using: root, in: runtime)
+        guard rootRequest?.isCurrent(in: runtime) != false else { return [] }
         var snapshots: [UIAElementSnapshot] = []
         let rootBounds = try screenBoundsMapper(root.bounds)
+        guard rootRequest?.isCurrent(in: runtime) != false else { return [] }
         try appendSnapshots(
             for: root, parentID: nil, rootBounds: rootBounds, into: &snapshots,
-            screenBoundsMapper: screenBoundsMapper)
+            runtime: runtime, rootRequest: rootRequest, screenBoundsMapper: screenBoundsMapper)
+        guard rootRequest?.isCurrent(in: runtime) != false else { return [] }
         // Transparent retained containers are flattened by the accessibility
         // projection, so the nearest projected parent is the honest UIA
         // Selection container even when it is the window's root pane.
@@ -165,10 +194,19 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
     ) rethrows -> UIAItemContainerResult {
         guard let runtime, runtime.permitsRetainedActionInvocation else { return .unavailable }
         defer { withExtendedLifetime(runtime) {} }
+        let needsRoot =
+            containerID == UIAProviderBridge.rootElementID
+            || afterElementID == UIAProviderBridge.rootElementID
+        let rootRequest = needsRoot ? retainedNodeRequest(for: UIAProviderBridge.rootElementID, in: runtime) : nil
+        guard !needsRoot || rootRequest?.isCurrent(in: runtime) == true else { return .unavailable }
         let snapshots = try captureSnapshots()
-        guard snapshots.contains(where: { $0.id == containerID && $0.supportsItemContainer }),
-            let container = retainedNode(for: containerID, in: runtime),
-            runtime.supportsLazyListAccessibilityItems(in: container)
+        let containerRequest =
+            containerID == UIAProviderBridge.rootElementID
+            ? rootRequest : retainedNodeRequest(for: containerID, in: runtime)
+        guard rootRequest?.isCurrent(in: runtime) != false,
+            snapshots.contains(where: { $0.id == containerID && $0.supportsItemContainer }),
+            let containerRequest, let container = containerRequest.node, containerRequest.isCurrent(in: runtime),
+            runtime.supportsLazyListAccessibilityItems(in: container), containerRequest.isCurrent(in: runtime)
         else { return .unavailable }
 
         let after: RetainedLazyListAccessibilityItem?
@@ -179,17 +217,33 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
                 after = item.target
             } else {
                 guard afterElementID < Self.logicalIDBoundary else { return .unavailable }
-                guard let node = retainedNode(for: afterElementID, in: runtime),
+                let afterRequest =
+                    afterElementID == UIAProviderBridge.rootElementID
+                    ? rootRequest : retainedNodeRequest(for: afterElementID, in: runtime)
+                guard let afterRequest, let node = afterRequest.node, afterRequest.isCurrent(in: runtime),
                     let item = runtime.lazyListAccessibilityItem(in: container, containing: node)
                 else { return .invalidStart }
+                guard afterRequest.isCurrent(in: runtime) else { return .unavailable }
                 after = item
             }
         } else {
             after = nil
         }
-        guard let target = runtime.lazyListAccessibilityItem(in: container, after: after) else { return .end }
-        guard let group = logicalContainer(for: target, in: runtime) else { return .unavailable }
+        guard rootRequest?.isCurrent(in: runtime) != false, containerRequest.isCurrent(in: runtime) else {
+            return .unavailable
+        }
+        let target = runtime.lazyListAccessibilityItem(in: container, after: after)
+        guard rootRequest?.isCurrent(in: runtime) != false, containerRequest.isCurrent(in: runtime) else {
+            return .unavailable
+        }
+        guard let target else { return .end }
+        guard let group = logicalContainer(for: target, in: runtime),
+            rootRequest?.isCurrent(in: runtime) != false, containerRequest.isCurrent(in: runtime)
+        else { return .unavailable }
         if let id = group.idsByToken[target.token], logicalItem(for: id, in: runtime) != nil {
+            guard rootRequest?.isCurrent(in: runtime) != false, containerRequest.isCurrent(in: runtime) else {
+                return .unavailable
+            }
             return .item(id)
         }
 
@@ -200,6 +254,9 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
                 .first { node in
                     Self.isInsideLogicalRoots(node, roots: roots)
                 }
+        }
+        guard rootRequest?.isCurrent(in: runtime) != false, containerRequest.isCurrent(in: runtime) else {
+            return .unavailable
         }
         let id: UInt64
         if let node {
@@ -432,9 +489,10 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
     @inline(never)
     private func setFocusResult(elementID: UInt64, in runtime: RetainedViewRuntime) -> Bool {
         guard runtime.permitsRetainedActionInvocation,
-            let node = retainedNode(for: elementID, in: runtime)
+            let request = retainedNodeRequest(for: elementID, in: runtime), let node = request.node,
+            request.isCurrent(in: runtime)
         else { return false }
-        return runtime.requestAccessibilityFocus(node)
+        return runtime.requestAccessibilityFocus(node, selectedPath: request.selectedPath)
     }
 
     @discardableResult
@@ -531,9 +589,13 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
             }
         }
         guard elementID < Self.logicalIDBoundary else { return false }
-        guard let node = retainedNode(for: elementID, in: runtime),
-            let target = runtime.accessibilityTarget(for: node)
+        guard let request = retainedNodeRequest(for: elementID, in: runtime), let node = request.node,
+            request.isCurrent(in: runtime), let target = runtime.accessibilityTarget(for: node)
         else { return false }
+        // A forced root projection is not a virtualized placeholder. Do not
+        // enter realization with an alias path that its internal scroll
+        // continuation cannot validate. Ordinary provider realization is unchanged.
+        guard request.selectedPath == nil else { return false }
         return runtime.realizeAccessibilityTarget(target, during: mutation)
     }
 
@@ -552,7 +614,8 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
             completion.target.node?.textInputController === controller
         else { return false }
         return Self.valueTargetIsCurrent(
-            completion.target, in: runtime, during: mutation, focusRevision: completion.focusRevision)
+            completion.target, in: runtime, during: mutation, focusRevision: completion.focusRevision,
+            selectedPath: completion.selectedPath)
     }
 
     @inline(never)
@@ -560,40 +623,43 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
         elementID: UInt64, value: String, in runtime: RetainedViewRuntime,
         during mutation: RetainedAccessibilityMutation
     ) -> ValueCompletion? {
-        guard let node = retainedNode(for: elementID, in: runtime),
-            let target = runtime.accessibilityTarget(for: node),
+        guard let request = retainedNodeRequest(for: elementID, in: runtime), let node = request.node,
+            request.isCurrent(in: runtime), let target = runtime.accessibilityTarget(for: node),
             let original = node.textInputController as? any TextInputAccessibilityValueReplacing,
-            Self.isWritableValueNode(node)
+            Self.isWritableValueNode(node), request.isCurrent(in: runtime)
         else { return nil }
         defer { withExtendedLifetime(original) {} }
         // The capability is the selected handler. Keep that exact controller
         // before any focus/layout callback; a replacement may not inherit the
         // request. Raw key and IME handlers are never a fallback.
-        guard runtime.requestAccessibilityFocus(node),
+        guard runtime.requestAccessibilityFocus(node, selectedPath: request.selectedPath),
             runtime.isAccessibilityTargetCurrent(target, during: mutation),
-            node.textInputController === original
+            node.textInputController === original, request.isCurrent(in: runtime)
         else { return nil }
         let focusRevision = runtime.presentationFocusRevision
-        guard Self.valueTargetIsCurrent(target, in: runtime, during: mutation, focusRevision: focusRevision) else {
-            return nil
-        }
+        guard
+            Self.valueTargetIsCurrent(
+                target, in: runtime, during: mutation, focusRevision: focusRevision, selectedPath: request.selectedPath)
+        else { return nil }
         let result = original.replaceValueForAccessibility(
             value,
             validation: TextInputAccessibilityValueValidation(
                 mayDispatch: {
                     node.textInputController === original
                         && Self.valueTargetIsCurrent(
-                            target, in: runtime, during: mutation, focusRevision: focusRevision)
+                            target, in: runtime, during: mutation, focusRevision: focusRevision,
+                            selectedPath: request.selectedPath)
                 },
                 isRetainedTargetCurrent: {
                     Self.valueTargetIsCurrent(
-                        target, in: runtime, during: mutation, focusRevision: focusRevision)
+                        target, in: runtime, during: mutation, focusRevision: focusRevision,
+                        selectedPath: request.selectedPath)
                 }))
         // A compatible setter rebuild can replace the controller while the
         // capability preserves the accepted edit. Publish that completion's
         // weak identity before releasing the original controller's captures.
         return ValueCompletion(
-            result: result, target: target, controller: node.textInputController,
+            result: result, target: target, selectedPath: request.selectedPath, controller: node.textInputController,
             focusRevision: focusRevision, mutationRevision: mutation.revision)
     }
 
@@ -610,9 +676,11 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
     /// or reject this semantic check. It never supplies geometry to UIA.
     private static func valueTargetIsCurrent(
         _ target: RetainedAccessibilityTarget, in runtime: RetainedViewRuntime,
-        during mutation: RetainedAccessibilityMutation, focusRevision: UInt64
+        during mutation: RetainedAccessibilityMutation, focusRevision: UInt64,
+        selectedPath: RetainedSelectedContentPath? = nil
     ) -> Bool {
-        guard runtime.isAccessibilityTargetCurrent(target, during: mutation), let node = target.node,
+        guard selectedPathIsCurrent(selectedPath, for: target.node, in: runtime),
+            runtime.isAccessibilityTargetCurrent(target, during: mutation), let node = target.node,
             runtime.focusedNode === node, node.isFocused, node.isFocusable,
             runtime.presentationFocusRevision == focusRevision, isWritableValueNode(node),
             runtime.permitsConservativeAccessibilityValueTarget(node),
@@ -622,11 +690,37 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
             element.controlType == .edit, element.isEnabled, element.permitsModalActions,
             !element.isVirtualizedPlaceholder, !element.traits.contains(.isSecureTextInput)
         else { return false }
-        return true
+        return selectedPathIsCurrent(selectedPath, for: node, in: runtime)
+    }
+
+    private static func selectedPathIsCurrent(
+        _ path: RetainedSelectedContentPath?, for node: ViewNode?, in runtime: RetainedViewRuntime
+    ) -> Bool {
+        guard let path else { return true }
+        guard let node else { return false }
+        return path.isCurrent && path.isInstalled(in: runtime) && path.physicalRoot === runtime.root
+            && path.selectedNode === node
+    }
+
+    private func retainedNodeRequest(
+        for elementID: UInt64, in runtime: RetainedViewRuntime
+    ) -> RetainedNodeRequest? {
+        if elementID == UIAProviderBridge.rootElementID {
+            guard runtime.root.selectedContentRole != nil else {
+                return RetainedNodeRequest(node: runtime.root, selectedPath: nil)
+            }
+            guard let path = runtime.root.captureSelectedContentPath(in: runtime), let node = path.selectedNode,
+                Self.selectedPathIsCurrent(path, for: node, in: runtime)
+            else { return nil }
+            return RetainedNodeRequest(node: node, selectedPath: path)
+        }
+        guard let node = retainedNode(for: elementID, in: runtime) else { return nil }
+        return RetainedNodeRequest(node: node, selectedPath: nil)
     }
 
     private func retainedNode(for elementID: UInt64, in runtime: RetainedViewRuntime) -> ViewNode? {
-        if elementID == UIAProviderBridge.rootElementID { return runtime.root }
+        // Only the operation-scoped resolver above may interpret root ID zero.
+        guard elementID != UIAProviderBridge.rootElementID else { return nil }
         if logicalIdentitiesByID[elementID] != nil {
             guard uiaLogicalItemState(elementID: elementID) == .ordinary else { return nil }
         } else if elementID >= Self.logicalIDBoundary {
@@ -699,12 +793,14 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
         elementID: UInt64, in runtime: RetainedViewRuntime, intent: AccessibilityDefaultActionIntent
     ) -> Bool {
         guard runtime.permitsRetainedActionInvocation,
-            let node = retainedNode(for: elementID, in: runtime)
+            let request = retainedNodeRequest(for: elementID, in: runtime), let node = request.node,
+            request.isCurrent(in: runtime)
         else { return false }
         // Role, selection state, and the handler belong to one post-query
         // element. A pre-query predicate must not authorize a different role
         // or an obsolete selection transition after layout callbacks run.
-        return AccessibilityProjection.invokeDefaultAction(on: node, in: runtime, intent: intent)
+        return AccessibilityProjection.invokeDefaultAction(
+            on: node, in: runtime, intent: intent, selectedPath: request.selectedPath)
     }
 
     // MARK: - Focus event support
@@ -716,14 +812,25 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
     func projectedElementID(forNodeOrAncestor node: ViewNode) -> UInt64? {
         guard let runtime else { return nil }
         defer { withExtendedLifetime(runtime) {} }
-        guard let root = AccessibilityProjection.project(runtime: runtime) else {
-            return nil
+        let rootRequest: RetainedNodeRequest?
+        if runtime.root.selectedContentRole != nil {
+            guard let captured = retainedNodeRequest(for: UIAProviderBridge.rootElementID, in: runtime) else {
+                return nil
+            }
+            rootRequest = captured
+        } else {
+            rootRequest = nil
+        }
+        guard let root = AccessibilityProjection.project(runtime: runtime) else { return nil }
+        if let rootRequest {
+            guard rootRequest.isCurrent(in: runtime), root.sourceNode === rootRequest.node else { return nil }
         }
         let flattened = root.flattened()
         var current: ViewNode? = node
         while let candidate = current {
+            guard rootRequest?.isCurrent(in: runtime) != false else { return nil }
             if flattened.contains(where: { $0.sourceNode === candidate }) {
-                if candidate === runtime.root {
+                if candidate === root.sourceNode {
                     return UIAProviderBridge.rootElementID
                 }
                 return stableID(for: candidate)
@@ -740,8 +847,11 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
         parentID: UInt64?,
         rootBounds: Rect,
         into list: inout [UIAElementSnapshot],
+        runtime: RetainedViewRuntime,
+        rootRequest: RetainedNodeRequest?,
         screenBoundsMapper: (Rect) throws -> Rect
     ) rethrows {
+        guard rootRequest?.isCurrent(in: runtime) != false else { return }
         let id: UInt64
         if parentID == nil {
             id = UIAProviderBridge.rootElementID
@@ -754,6 +864,7 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
         }
 
         let screenBounds = try screenBoundsMapper(element.bounds)
+        guard rootRequest?.isCurrent(in: runtime) != false else { return }
         let isPassword = element.traits.contains(.isSecureTextInput)
         let supportsValue = element.controlType == .edit && !isPassword
         let isSelected: Bool? = element.traits.contains(.isSelectable) ? element.isSelected : nil
@@ -763,6 +874,7 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
         } else {
             hasWritableCapability = false
         }
+        guard rootRequest?.isCurrent(in: runtime) != false else { return }
 
         list.append(
             UIAElementSnapshot(
@@ -788,15 +900,16 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
                 isVirtualizedPlaceholder: element.isVirtualizedPlaceholder,
                 supportsItemContainer: element.sourceNode.map {
                     element.permitsModalActions && $0.retainedLazyListAdapter != nil
-                        && runtime?.supportsLazyListAccessibilityItems(in: $0) == true
+                        && runtime.supportsLazyListAccessibilityItems(in: $0)
                 } ?? false
             )
         )
 
+        guard rootRequest?.isCurrent(in: runtime) != false else { return }
         for child in element.children {
             try appendSnapshots(
                 for: child, parentID: id, rootBounds: rootBounds, into: &list,
-                screenBoundsMapper: screenBoundsMapper)
+                runtime: runtime, rootRequest: rootRequest, screenBoundsMapper: screenBoundsMapper)
         }
     }
 
@@ -860,5 +973,46 @@ final class RuntimeUIAElementTreeSource: UIAItemContainerSource {
         case .window: return Int32(SWU_UIA_CONTROL_TYPE_WINDOW)
         case .custom: return Int32(SWU_UIA_CONTROL_TYPE_CUSTOM)
         }
+    }
+}
+
+extension RuntimeUIAElementTreeSource: UIATextSnapshotSource {
+    /// Only copied Core values and original weak witnesses leave the capture
+    /// frame. In particular, neither a node nor a projection is retained here.
+    private struct TextSnapshotCompletion {
+        weak var runtime: RetainedViewRuntime?
+        let target: RetainedAccessibilityTarget
+        let snapshot: TextRangeSnapshot
+    }
+
+    func uiaTextSnapshot(elementID: UInt64) -> TextRangeSnapshot? {
+        guard let completion = captureTextSnapshot(elementID: elementID) else { return nil }
+        // The capture frame has returned and released its temporary runtime,
+        // node, and projection references. Recheck the original weak path;
+        // obtaining a replacement witness here would accept a new attachment.
+        guard let runtime, runtime === completion.runtime,
+            runtime.isAccessibilityTextReadTargetCurrent(completion.target),
+            let currentText = completion.target.node?.text,
+            currentText.utf16.elementsEqual(completion.snapshot.text.utf16)
+        else { return nil }
+        return completion.snapshot
+    }
+
+    @inline(never)
+    private func captureTextSnapshot(elementID: UInt64) -> TextSnapshotCompletion? {
+        // Do not reconstruct logical receipts, refresh identity metadata, or
+        // realize a row. Some logical identities reuse a physical ID, so the
+        // logical-identity table is checked as well as the reserved ID range.
+        guard elementID < Self.logicalIDBoundary, logicalIdentitiesByID[elementID] == nil,
+            let runtime,
+            let node = elementID == UIAProviderBridge.rootElementID ? runtime.root : nodesByID[elementID]?.node,
+            let target = runtime.accessibilityTarget(for: node),
+            runtime.isAccessibilityTextReadTargetCurrent(target),
+            let element = AccessibilityProjection.project(runtime: runtime)?.flattened().first(where: {
+                $0.sourceNode === node
+            }), element.controlType == .text, !element.isVirtualizedPlaceholder, element.permitsModalActions,
+            let text = node.text, let snapshot = TextRangeSnapshot(text)
+        else { return nil }
+        return TextSnapshotCompletion(runtime: runtime, target: target, snapshot: snapshot)
     }
 }

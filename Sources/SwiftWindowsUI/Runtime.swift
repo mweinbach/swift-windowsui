@@ -1819,6 +1819,10 @@ private struct ViewMeasurementCacheEntry {
 }
 @MainActor
 private final class MeasurementMemo {
+    // A failed selected-content read is not a legitimate zero measurement.
+    // This flag belongs to one existing memo and is never reset within it.
+    var selectedContentReadFailed = false
+
     struct Key: Hashable {
         var node: ObjectIdentifier
         var measurement: ViewMeasureCacheKey
@@ -1882,17 +1886,174 @@ public struct RetainedGridRowLayout: Equatable, Sendable {
         .horizontal(spacing: standaloneSpacing, alignment: alignment ?? .center)
     }
 }
+/// A layout operand keeps ownership physical while exposing the selected
+/// terminal to the existing numerical solvers. The path never refreshes after
+/// an authored callback; an invalid operand cannot assign replacement content.
+@MainActor
+private struct LayoutChildOperand {
+    let physicalNode: ViewNode
+    let selectedNode: ViewNode
+    let path: RetainedSelectedContentPath?
+
+    init?(_ node: ViewNode) {
+        physicalNode = node
+        if node.hasSelectedContentBoundaryInPhysicalPath {
+            guard let path = node.captureSelectedContentLayoutPath(), path.isCurrent,
+                path.physicalRoot === node, let selectedNode = path.selectedNode
+            else { return nil }
+            self.selectedNode = selectedNode
+            self.path = path
+        } else {
+            selectedNode = node
+            path = nil
+        }
+    }
+
+    var isCurrent: Bool {
+        if let path {
+            return path.isCurrent && path.physicalRoot === physicalNode && path.selectedNode === selectedNode
+        }
+        return !physicalNode.hasSelectedContentBoundaryInPhysicalPath
+    }
+
+    var boundaryNodes: [ViewNode]? {
+        guard isCurrent else { return nil }
+        if let path { return path.boundaryNodes }
+        return []
+    }
+
+    @discardableResult
+    func assign(_ frame: Rect, scope: LayoutOperandScope) -> Bool {
+        guard scope.accepts(self), let boundaries = boundaryNodes else {
+            scope.reject()
+            return false
+        }
+        for boundary in boundaries { boundary.resolvedFrame = .zero }
+        selectedNode.resolvedFrame = frame
+        return true
+    }
+}
+
+@MainActor
+private final class LayoutOperandFailure {
+    var failed = false
+}
+
+/// Layout callbacks run before the placement roster is captured. Selected
+/// operands keep their original path throughout the subsequent phase, while
+/// ordinary trees keep the existing absence of membership checks.
+@MainActor
+private final class LayoutOperandScope {
+    let node: ViewNode
+    let path: RetainedSelectedContentPath?
+    let children: [LayoutChildOperand]
+    let hasSelectedOperands: Bool
+    let failure: LayoutOperandFailure?
+    let memo: MeasurementMemo?
+
+    init?(
+        node: ViewNode, path: RetainedSelectedContentPath? = nil,
+        failure: LayoutOperandFailure? = nil, memo: MeasurementMemo? = nil
+    ) {
+        let selectedPath: RetainedSelectedContentPath?
+        if let path {
+            guard path.isCurrent, path.physicalRoot === node else {
+                failure?.failed = true
+                memo?.selectedContentReadFailed = true
+                return nil
+            }
+            selectedPath = path
+        } else if node.hasSelectedContentBoundaryInPhysicalPath {
+            guard let captured = node.captureSelectedContentLayoutPath(), captured.isCurrent,
+                captured.physicalRoot === node
+            else {
+                failure?.failed = true
+                memo?.selectedContentReadFailed = true
+                return nil
+            }
+            selectedPath = captured
+        } else {
+            selectedPath = nil
+        }
+        var children: [LayoutChildOperand] = []
+        children.reserveCapacity(node.children.count)
+        for child in node.children {
+            guard let operand = LayoutChildOperand(child) else {
+                failure?.failed = true
+                memo?.selectedContentReadFailed = true
+                return nil
+            }
+            children.append(operand)
+        }
+        self.node = node
+        self.path = selectedPath
+        self.children = children
+        hasSelectedOperands = selectedPath != nil || children.contains { $0.path != nil }
+        self.failure = failure
+        self.memo = memo
+    }
+
+    var isCurrent: Bool {
+        guard failure?.failed != true, memo?.selectedContentReadFailed != true else { return false }
+        if let path {
+            guard path.isCurrent, path.physicalRoot === node else {
+                reject()
+                return false
+            }
+        } else if node.hasSelectedContentBoundaryInPhysicalPath {
+            reject()
+            return false
+        }
+        if hasSelectedOperands {
+            guard node.children.count == children.count,
+                zip(node.children, children).allSatisfy({ $0.0 === $0.1.physicalNode && $0.1.isCurrent })
+            else {
+                reject()
+                return false
+            }
+        } else if node.children.contains(where: { $0.selectedContentRole != nil }) {
+            // A callback introduced a selection after this phase started.
+            // It cannot acquire a new path from an otherwise ordinary scope.
+            reject()
+            return false
+        }
+        return true
+    }
+
+    func accepts(_ operand: LayoutChildOperand) -> Bool {
+        guard isCurrent, operand.isCurrent else {
+            reject()
+            return false
+        }
+        return true
+    }
+
+    func reject() {
+        failure?.failed = true
+        memo?.selectedContentReadFailed = true
+    }
+}
+
+@MainActor
 private struct GridCellInput {
-    var node: ViewNode
+    var operand: LayoutChildOperand
+    var node: ViewNode { operand.physicalNode }
+    var selectedNode: ViewNode { operand.selectedNode }
     var firstColumn: Int
     var endColumn: Int
     var isMerged: Bool
 }
+@MainActor
 private struct GridRowInput {
-    var node: ViewNode
+    var operand: LayoutChildOperand
+    var node: ViewNode { operand.physicalNode }
+    var selectedNode: ViewNode { operand.selectedNode }
     var isGridRow: Bool
     var alignment: StackCrossAlignment
     var cells: [GridCellInput]
+    var childrenScope: LayoutOperandScope? = nil
+
+    var isCurrent: Bool { operand.isCurrent && childrenScope?.isCurrent != false }
 }
 private struct GridTrackRun {
     var firstColumn: Int
@@ -2933,6 +3094,1904 @@ private final class ViewNodeChartMetadata {
     var scrollPositionX: String?
     var scrollPositionY: String?
 }
+/// An explicit structural role, never inferred from a panel's contents.
+package enum RetainedSelectedContentRole: Hashable {
+    case viewThatFits
+}
+
+@MainActor
+fileprivate final class RetainedSelectedContentChildrenIdentity {}
+
+fileprivate final class RetainedSelectedContentLayoutFailureIdentity {}
+
+@MainActor
+fileprivate final class RetainedSelectedContentState {
+    let role: RetainedSelectedContentRole
+    var childrenIdentity = RetainedSelectedContentChildrenIdentity()
+
+    init(role: RetainedSelectedContentRole) {
+        self.role = role
+    }
+}
+
+/// Passive native observations for one detached construction. The node keeps
+/// these weakly; they contain neither authored callbacks nor write permission.
+@MainActor
+fileprivate final class RetainedSelectedContentConstructionIncarnation {
+    weak var predecessor: RetainedSelectedContentConstructionIncarnation?
+
+    init(predecessor: RetainedSelectedContentConstructionIncarnation? = nil) {
+        self.predecessor = predecessor
+    }
+}
+
+@MainActor
+fileprivate final class RetainedSelectedContentConstructionObservation {
+    var attachment = RetainedSelectedContentConstructionIncarnation()
+    var children = RetainedSelectedContentConstructionIncarnation()
+
+    func revokeAttachment() {
+        attachment = RetainedSelectedContentConstructionIncarnation(predecessor: attachment)
+    }
+
+    func replaceChildren() {
+        children = RetainedSelectedContentConstructionIncarnation(predecessor: children)
+    }
+}
+
+package struct RetainedSelectedContentPanelBackground: Sendable {
+    package let gradient: GradientType?
+    package let color: Color?
+    package let opacity: Double
+}
+
+/// Finite data reads after exactly one owned, detached panel assembly. This
+/// does not renew an input path or authorize installation, actions, or Tasks.
+@MainActor
+package final class RetainedSelectedContentPanelAssembly {
+    fileprivate struct WeakNode {
+        weak var node: ViewNode?
+    }
+
+    @MainActor
+    fileprivate final class OriginalNode {
+        weak var node: ViewNode?
+        weak var parent: ViewNode?
+        var hadParent: Bool
+        let role: RetainedSelectedContentRole?
+        let observation: RetainedSelectedContentConstructionObservation
+        var attachment: RetainedSelectedContentConstructionIncarnation
+        var children: RetainedSelectedContentConstructionIncarnation
+        var selectedChildren: RetainedSelectedContentChildrenIdentity?
+        var childNodes: [WeakNode]
+
+        init(_ node: ViewNode) {
+            self.node = node
+            parent = node.parent
+            hadParent = node.parent != nil
+            role = node.selectedContentRole
+            let observation =
+                node.selectedContentConstructionObservation
+                ?? RetainedSelectedContentConstructionObservation()
+            node.selectedContentConstructionObservation = observation
+            self.observation = observation
+            attachment = observation.attachment
+            children = observation.children
+            selectedChildren = node.selectedContentState?.childrenIdentity
+            childNodes = node.children.map { WeakNode(node: $0) }
+        }
+
+        var isCurrent: Bool {
+            guard let node, node.runtime == nil, !node.isRemovalOverlay,
+                !node.isRetiringLazyListAttachment, node.selectedContentRole == role,
+                node.selectedContentConstructionObservation === observation,
+                observation.attachment === attachment, observation.children === children,
+                node.selectedContentState?.childrenIdentity === selectedChildren,
+                (node.parent != nil) == hadParent, node.parent === parent,
+                !hadParent || parent != nil, node.children.count == childNodes.count
+            else { return false }
+            return zip(node.children, childNodes).allSatisfy { pair in
+                pair.1.node != nil && pair.0 === pair.1.node
+            }
+        }
+    }
+
+    /// Eligibility only. Strict descendants receive no owned construction
+    /// writes, so these original observations are never advanced.
+    @MainActor
+    private final class OriginalDetachedDescendant {
+        weak var node: ViewNode?
+        weak var parent: ViewNode?
+        weak var source: ViewNode?
+        let role: RetainedSelectedContentRole?
+        let observation: RetainedSelectedContentConstructionObservation
+        let attachment: RetainedSelectedContentConstructionIncarnation
+        let children: RetainedSelectedContentConstructionIncarnation
+        let selectedChildren: RetainedSelectedContentChildrenIdentity?
+        let childNodes: [WeakNode]
+
+        init?(node: ViewNode, parent: ViewNode, source: ViewNode) {
+            guard node.runtime == nil, node.parent === parent,
+                !node.isRemovalOverlay, !node.isRetiringLazyListAttachment
+            else { return nil }
+            self.node = node
+            self.parent = parent
+            self.source = source
+            role = node.selectedContentRole
+            let observation =
+                node.selectedContentConstructionObservation
+                ?? RetainedSelectedContentConstructionObservation()
+            node.selectedContentConstructionObservation = observation
+            self.observation = observation
+            attachment = observation.attachment
+            children = observation.children
+            selectedChildren = node.selectedContentState?.childrenIdentity
+            childNodes = node.children.map { WeakNode(node: $0) }
+        }
+
+        var isCurrent: Bool {
+            guard let node, let parent, source != nil,
+                node.runtime == nil, node.parent === parent,
+                !node.isRemovalOverlay, !node.isRetiringLazyListAttachment,
+                node.selectedContentRole == role,
+                node.selectedContentConstructionObservation === observation,
+                observation.attachment === attachment, observation.children === children,
+                node.selectedContentState?.childrenIdentity === selectedChildren,
+                node.children.count == childNodes.count
+            else { return false }
+            return zip(node.children, childNodes).allSatisfy { pair in
+                pair.1.node != nil && pair.0 === pair.1.node
+            }
+        }
+    }
+
+    fileprivate enum Phase: Equatable {
+        case captured, assembling, assembled, finishing, finished
+    }
+
+    private let sources: [ViewNode]
+    private let selectedNodes: [WeakNode]
+    private let admission: @MainActor () -> Bool
+    private var originalNodes: [OriginalNode] = []
+    private var originalsByNode: [ObjectIdentifier: OriginalNode] = [:]
+    private var originalDescendants: [OriginalDetachedDescendant] = []
+    private var descendantsByNode: [ObjectIdentifier: OriginalDetachedDescendant] = [:]
+    private var panel: ViewNode?
+    private var phase: Phase = .captured
+    private var rejected = false
+    private var checkingAdmission = false
+    private var activeSlot: RetainedSelectedContentPanelAssemblySlot?
+
+    package init?(
+        sources: [ViewNode], selectedContentPaths: [RetainedSelectedContentPath],
+        admission: @escaping @MainActor () -> Bool = { true }
+    ) {
+        guard sources.count == selectedContentPaths.count else { return nil }
+        let rootIDs = Set(sources.map(ObjectIdentifier.init))
+        guard rootIDs.count == sources.count else { return nil }
+        var selected: [WeakNode] = []
+        for (source, path) in zip(sources, selectedContentPaths) {
+            guard case .construction = path.domain, !path.didCapturePanelAssembly,
+                path.physicalRoot === source, path.isCurrent, let node = path.selectedNode
+            else { return nil }
+            // An input may have a detached staging parent, but it cannot be
+            // inside another input's physical subtree.
+            guard
+                !path.links.contains(where: { link in
+                    guard let other = link.node else { return true }
+                    return other !== source && rootIDs.contains(ObjectIdentifier(other))
+                })
+            else { return nil }
+            selected.append(WeakNode(node: node))
+        }
+        self.sources = sources
+        selectedNodes = selected
+        self.admission = admission
+        for path in selectedContentPaths {
+            for link in path.links {
+                guard let node = link.node else { return nil }
+                _ = rememberOriginal(node)
+            }
+        }
+        // A detached selected root may still contain an independently installed
+        // runtime root. Refuse the whole input before admission or departure.
+        guard captureOriginalDescendants(paths: selectedContentPaths) else { return nil }
+        // Claim this separate extraction before an authored admission callback.
+        // The existing relative-selection extraction remains independent.
+        for path in selectedContentPaths { path.didCapturePanelAssembly = true }
+        guard observe(), selectedContentPaths.allSatisfy(\.isCurrent) else { return nil }
+    }
+
+    package func makePanel(
+        preferredSize: Size? = nil, layoutMode: ViewLayoutMode = .absolute,
+        isHitTestVisible: Bool = false
+    ) -> ViewNode? {
+        guard phase == .captured, !rejected else { return nil }
+        phase = .assembling
+        guard observe() else { return nil }
+        let root = Controls.panel(
+            preferredSize: preferredSize, layoutMode: layoutMode,
+            isHitTestVisible: isHitTestVisible, children: [])
+        panel = root
+        _ = rememberOriginal(root)
+        guard observe() else { return nil }
+        for (index, source) in sources.enumerated() {
+            guard observe(), let sourceOriginal = originalsByNode[ObjectIdentifier(source)] else {
+                return nil
+            }
+            let slot = RetainedSelectedContentPanelAssemblySlot(
+                assembly: self, panel: root, source: source, sourceOriginal: sourceOriginal, index: index)
+            activeSlot = slot
+            root.addChild(source, panelAssembly: slot)
+            // Includes the original native add's reconciliation defers.
+            guard slot.complete(), observe() else { return nil }
+            activeSlot = nil
+        }
+        phase = .assembled
+        guard observe(), hasCompletePanel else {
+            reject()
+            return nil
+        }
+        return root
+    }
+
+    package func backgroundStyle(at sourceIndex: Int) -> RetainedSelectedContentPanelBackground? {
+        guard phase == .assembled, sourceIndex >= 0, sourceIndex < selectedNodes.count,
+            observe(), hasCompletePanel, let selected = selectedNodes[sourceIndex].node
+        else { return nil }
+        return RetainedSelectedContentPanelBackground(
+            gradient: selected.backgroundGradient, color: selected.backgroundColor, opacity: selected.opacity)
+    }
+
+    package func layoutFillAxes() -> LayoutFillAxes? {
+        guard phase == .assembled, observe(), hasCompletePanel else { return nil }
+        var result = LayoutFillAxes()
+        for original in selectedNodes {
+            guard let selected = original.node else {
+                reject()
+                return nil
+            }
+            if !selected.isHidden {
+                result.horizontal = result.horizontal || selected.layoutFillAxes.horizontal
+                result.vertical = result.vertical || selected.layoutFillAxes.vertical
+            }
+        }
+        return result
+    }
+
+    package func finishConstruction() -> Bool {
+        guard phase == .assembled, !rejected else { return false }
+        phase = .finishing
+        let accepted = observe() && hasCompletePanel
+        phase = .finished
+        return accepted
+    }
+
+    private var hasCompletePanel: Bool {
+        guard let panel, panel.children.count == sources.count else { return false }
+        return zip(panel.children, sources).allSatisfy { pair in
+            pair.0 === pair.1 && pair.1.parent === panel
+        }
+    }
+
+    @discardableResult
+    private func rememberOriginal(_ node: ViewNode) -> OriginalNode {
+        let id = ObjectIdentifier(node)
+        if let original = originalsByNode[id] { return original }
+        let original = OriginalNode(node)
+        originalNodes.append(original)
+        originalsByNode[id] = original
+        return original
+    }
+
+    private func captureOriginalDescendants(paths: [RetainedSelectedContentPath]) -> Bool {
+        var seen = Set(sources.map(ObjectIdentifier.init))
+        for (source, path) in zip(sources, paths) {
+            guard let sourceIndex = path.links.firstIndex(where: { $0.node === source }) else { return false }
+            let sourceDepth = path.links.count - sourceIndex - 1
+            var pending = source.children.reversed().map { (node: $0, parent: source, depth: sourceDepth + 1) }
+            while let entry = pending.popLast() {
+                let id = ObjectIdentifier(entry.node)
+                guard entry.depth < ViewNode.maximumTraversalDepth, seen.insert(id).inserted,
+                    let original = OriginalDetachedDescendant(node: entry.node, parent: entry.parent, source: source)
+                else { return false }
+                originalDescendants.append(original)
+                descendantsByNode[id] = original
+                for child in entry.node.children.reversed() {
+                    pending.append((node: child, parent: entry.node, depth: entry.depth + 1))
+                }
+            }
+        }
+        return true
+    }
+
+    fileprivate func original(for node: ViewNode) -> OriginalNode? {
+        originalsByNode[ObjectIdentifier(node)]
+    }
+
+    fileprivate func hasOriginalDetachedReceiver(_ node: ViewNode, in source: ViewNode) -> Bool {
+        guard let original = descendantsByNode[ObjectIdentifier(node)], original.source === source else { return false }
+        return original.isCurrent
+    }
+
+    fileprivate func owns(_ slot: RetainedSelectedContentPanelAssemblySlot) -> Bool {
+        !rejected && phase == .assembling && activeSlot === slot
+    }
+
+    fileprivate func reject() { rejected = true }
+
+    fileprivate var originalFactsAreCurrent: Bool {
+        !rejected && originalNodes.allSatisfy(\.isCurrent) && originalDescendants.allSatisfy(\.isCurrent)
+    }
+
+    /// Only called outside native field mutation/exclusive-access scopes.
+    fileprivate func observe() -> Bool {
+        guard !rejected, !checkingAdmission, originalFactsAreCurrent else {
+            reject()
+            return false
+        }
+        checkingAdmission = true
+        let admitted = admission()
+        checkingAdmission = false
+        guard admitted, originalFactsAreCurrent else {
+            reject()
+            return false
+        }
+        return true
+    }
+}
+
+/// Explicit per-source metadata. Public/reentrant operations never receive
+/// this slot. Rejection stops future construction, not already claimed cleanup.
+@MainActor
+fileprivate final class RetainedSelectedContentPanelAssemblySlot {
+    fileprivate enum Stage: Equatable {
+        case sourceAttached, sourceEdgeRemoved, sourceFirstRevoked, sourceSecondRevoked
+        case sourceDetached, addRevoked, parented, appended, complete
+    }
+
+    fileprivate enum WriteKind {
+        case removeChild(Int)
+        case revoke
+        case parentNil
+        case parentPanel
+        case appendChild
+    }
+
+    @MainActor
+    fileprivate final class Write {
+        weak var slot: RetainedSelectedContentPanelAssemblySlot?
+        let original: RetainedSelectedContentPanelAssembly.OriginalNode
+        let kind: WriteKind
+        let predecessor: RetainedSelectedContentConstructionIncarnation
+        let nextStage: Stage
+        let children: [RetainedSelectedContentPanelAssembly.WeakNode]?
+
+        init(
+            slot: RetainedSelectedContentPanelAssemblySlot,
+            original: RetainedSelectedContentPanelAssembly.OriginalNode, kind: WriteKind,
+            predecessor: RetainedSelectedContentConstructionIncarnation, nextStage: Stage,
+            children: [RetainedSelectedContentPanelAssembly.WeakNode]? = nil
+        ) {
+            self.slot = slot
+            self.original = original
+            self.kind = kind
+            self.predecessor = predecessor
+            self.nextStage = nextStage
+            self.children = children
+        }
+    }
+
+    private weak var assembly: RetainedSelectedContentPanelAssembly?
+    private weak var panel: ViewNode?
+    private weak var source: ViewNode?
+    private let sourceOriginal: RetainedSelectedContentPanelAssembly.OriginalNode
+    private let index: Int
+    private var stage: Stage
+    private var pendingWrite: Write?
+
+    init(
+        assembly: RetainedSelectedContentPanelAssembly, panel: ViewNode, source: ViewNode,
+        sourceOriginal: RetainedSelectedContentPanelAssembly.OriginalNode, index: Int
+    ) {
+        self.assembly = assembly
+        self.panel = panel
+        self.source = source
+        self.sourceOriginal = sourceOriginal
+        self.index = index
+        stage = sourceOriginal.hadParent ? .sourceAttached : .sourceDetached
+    }
+
+    @discardableResult
+    func observe() -> Bool {
+        guard let assembly, assembly.owns(self), pendingWrite == nil else {
+            assembly?.reject()
+            return false
+        }
+        return assembly.observe()
+    }
+
+    func mayContinueRuntimeWork(cleanup: Bool) -> Bool {
+        let current = observe()
+        return cleanup || current
+    }
+
+    func mayContinueRuntimeWork(on node: ViewNode, to runtime: RetainedViewRuntime?, cleanup: Bool) -> Bool {
+        let current = observe()
+        guard let source else { return false }
+        // The source root retains its already claimed departure completion.
+        // A recursive receiver has not claimed a new runtime drain: only its
+        // unchanged original nil-to-nil cleanup may start or continue here.
+        if node === source { return cleanup || current }
+        guard runtime == nil, let assembly, assembly.hasOriginalDetachedReceiver(node, in: source) else {
+            assembly?.reject()
+            return false
+        }
+        return cleanup || current
+    }
+
+    func prepareWrite(on node: ViewNode, kind: WriteKind) -> Write? {
+        guard observe(), let assembly, let panel, let source,
+            let original = assembly.original(for: node)
+        else { return nil }
+        let nextStage: Stage
+        let predecessor: RetainedSelectedContentConstructionIncarnation
+        var nextChildren: [RetainedSelectedContentPanelAssembly.WeakNode]?
+        switch kind {
+        case .removeChild(let sourceIndex):
+            guard stage == .sourceAttached, source.parent === node,
+                sourceOriginal.parent === node, sourceIndex >= 0,
+                sourceIndex < original.childNodes.count, original.childNodes[sourceIndex].node === source
+            else {
+                assembly.reject()
+                return nil
+            }
+            var children = original.childNodes
+            children.remove(at: sourceIndex)
+            nextChildren = children
+            predecessor = original.children
+            nextStage = .sourceEdgeRemoved
+        case .revoke:
+            guard node === source else {
+                assembly.reject()
+                return nil
+            }
+            switch stage {
+            case .sourceEdgeRemoved: nextStage = .sourceFirstRevoked
+            case .sourceFirstRevoked: nextStage = .sourceSecondRevoked
+            case .sourceDetached: nextStage = .addRevoked
+            default:
+                assembly.reject()
+                return nil
+            }
+            predecessor = original.attachment
+        case .parentNil:
+            guard node === source, stage == .sourceSecondRevoked else {
+                assembly.reject()
+                return nil
+            }
+            predecessor = original.attachment
+            nextStage = .sourceDetached
+        case .parentPanel:
+            guard node === source, stage == .addRevoked, source.parent == nil else {
+                assembly.reject()
+                return nil
+            }
+            predecessor = original.attachment
+            nextStage = .parented
+        case .appendChild:
+            guard node === panel, stage == .parented, source.parent === panel,
+                original.childNodes.count == index
+            else {
+                assembly.reject()
+                return nil
+            }
+            var children = original.childNodes
+            children.append(.init(node: source))
+            nextChildren = children
+            predecessor = original.children
+            nextStage = .appended
+        }
+        let write = Write(
+            slot: self, original: original, kind: kind, predecessor: predecessor,
+            nextStage: nextStage, children: nextChildren)
+        pendingWrite = write
+        return write
+    }
+
+    func didWrite(_ write: Write?) {
+        guard let write, write.slot === self, pendingWrite === write, let assembly, assembly.owns(self),
+            let node = write.original.node
+        else {
+            assembly?.reject()
+            return
+        }
+        let original = write.original
+        switch write.kind {
+        case .removeChild, .appendChild:
+            guard original.observation.children.predecessor === write.predecessor,
+                let children = write.children, node.children.count == children.count,
+                zip(node.children, children).allSatisfy({ pair in pair.0 === pair.1.node })
+            else {
+                assembly.reject()
+                return
+            }
+            original.children = original.observation.children
+            original.selectedChildren = node.selectedContentState?.childrenIdentity
+            original.childNodes = children
+        case .revoke, .parentNil, .parentPanel:
+            guard original.observation.attachment.predecessor === write.predecessor else {
+                assembly.reject()
+                return
+            }
+            if case .parentNil = write.kind {
+                guard node.parent == nil else {
+                    assembly.reject()
+                    return
+                }
+                original.parent = nil
+                original.hadParent = false
+            } else if case .parentPanel = write.kind {
+                guard let panel, node.parent === panel else {
+                    assembly.reject()
+                    return
+                }
+                original.parent = panel
+                original.hadParent = true
+            }
+            original.attachment = original.observation.attachment
+        }
+        stage = write.nextStage
+        pendingWrite = nil
+        // This is an exact own afterimage, not a new admission callback or path.
+        if !assembly.originalFactsAreCurrent { assembly.reject() }
+    }
+
+    func complete() -> Bool {
+        guard stage == .appended, observe() else {
+            assembly?.reject()
+            return false
+        }
+        stage = .complete
+        return true
+    }
+}
+
+/// A read of one physical selection. This is not a construction, adoption,
+/// action, or Task receipt, and it cannot be rebound to a later publication.
+/// Relative construction data only. Parent assembly may change the containing
+/// attachment without changing these original selected edges. This witness
+/// cannot authorize installation, actions, Tasks, retirement, or publication.
+@MainActor
+package final class RetainedSelectedContentConstructionSelection {
+    fileprivate struct Link {
+        weak var node: ViewNode?
+        weak var child: ViewNode?
+        let role: RetainedSelectedContentRole
+        let childrenIdentity: RetainedSelectedContentChildrenIdentity
+    }
+
+    package private(set) weak var physicalRoot: ViewNode?
+    package private(set) weak var selectedNode: ViewNode?
+    private let links: [Link]
+    private var didCaptureTaskSource = false
+
+    fileprivate init(physicalRoot: ViewNode, selectedNode: ViewNode, links: [Link]) {
+        self.physicalRoot = physicalRoot
+        self.selectedNode = selectedNode
+        self.links = links
+    }
+
+    /// This one-use native extraction copies the original relative links.
+    /// It neither renews the old selection nor allocates an attachment proof.
+    func captureTaskSource(
+        canPublish: @escaping @MainActor () -> Bool
+    ) -> RetainedSelectedContentTaskSource? {
+        guard !didCaptureTaskSource, isCurrent, let physicalRoot, let selectedNode else { return nil }
+        didCaptureTaskSource = true
+        guard canPublish(), isCurrent,
+            let source = RetainedSelectedContentTaskSource(
+                physicalRoot: physicalRoot, selectedNode: selectedNode, links: links, canPublish: canPublish),
+            source.canPublish
+        else { return nil }
+        return source
+    }
+
+    package var isCurrent: Bool {
+        guard let physicalRoot, let selectedNode, selectedNode.selectedContentRole == nil else { return false }
+        var current = physicalRoot
+        for link in links {
+            guard let node = link.node, let child = link.child, node === current,
+                node.selectedContentRole == link.role,
+                node.selectedContentState?.childrenIdentity === link.childrenIdentity,
+                node.children.count == 1, node.children.first === child, child.parent === node
+            else { return false }
+            current = child
+        }
+        return current === selectedNode
+    }
+}
+
+// These observations record native writes for one already registered Task
+// source. They are not attachment, namespace, removal, or action authority.
+fileprivate enum RetainedSelectedTaskMutationField: CaseIterable, Hashable {
+    case children
+    case parent
+    case runtime
+    case revocation
+}
+
+@MainActor
+fileprivate final class RetainedSelectedTaskMutationIdentity {}
+
+@MainActor
+fileprivate struct RetainedSelectedTaskMutationEvent {
+    let field: RetainedSelectedTaskMutationField
+    let predecessor: RetainedSelectedTaskMutationIdentity
+    let successor: RetainedSelectedTaskMutationIdentity
+    let selectedChildren: RetainedSelectedContentChildrenIdentity?
+}
+
+@MainActor
+fileprivate final class RetainedSelectedTaskMutationObservation {
+    weak var node: ViewNode?
+    private var identities: [RetainedSelectedTaskMutationField: RetainedSelectedTaskMutationIdentity] = [:]
+    private var events: [RetainedSelectedTaskMutationField: RetainedSelectedTaskMutationEvent] = [:]
+
+    init(node: ViewNode) {
+        self.node = node
+        for field in RetainedSelectedTaskMutationField.allCases {
+            identities[field] = RetainedSelectedTaskMutationIdentity()
+        }
+    }
+
+    func identity(for field: RetainedSelectedTaskMutationField) -> RetainedSelectedTaskMutationIdentity {
+        identities[field]!
+    }
+
+    func lastEvent(for field: RetainedSelectedTaskMutationField) -> RetainedSelectedTaskMutationEvent? {
+        events[field]
+    }
+
+    func record(_ field: RetainedSelectedTaskMutationField) {
+        let previous = identity(for: field)
+        let next = RetainedSelectedTaskMutationIdentity()
+        identities[field] = next
+        events[field] = RetainedSelectedTaskMutationEvent(
+            field: field, predecessor: previous, successor: next,
+            selectedChildren: field == .children ? node?.selectedContentState?.childrenIdentity : nil)
+    }
+}
+
+@MainActor
+fileprivate struct RetainedSelectedTaskWeakRuntime {
+    weak var value: RetainedViewRuntime?
+}
+
+@MainActor
+fileprivate enum RetainedSelectedTaskMutation {
+    case children([ViewNode])
+    case parent(ViewNode?)
+    case runtime(RetainedViewRuntime?)
+    case revocation
+
+    var field: RetainedSelectedTaskMutationField {
+        switch self {
+        case .children: return .children
+        case .parent: return .parent
+        case .runtime: return .runtime
+        case .revocation: return .revocation
+        }
+    }
+}
+
+@MainActor
+fileprivate struct RetainedSelectedTaskWriteValue {
+    let field: RetainedSelectedTaskMutationField
+    let children: [WeakViewNodeRef]
+    let parent: WeakViewNodeRef?
+    let runtime: RetainedSelectedTaskWeakRuntime?
+
+    init(children: [WeakViewNodeRef]) {
+        field = .children
+        self.children = children
+        parent = nil
+        runtime = nil
+    }
+
+    init(_ mutation: RetainedSelectedTaskMutation) {
+        field = mutation.field
+        switch mutation {
+        case .children(let nodes):
+            children = nodes.map { WeakViewNodeRef(node: $0) }
+            parent = nil
+            runtime = nil
+        case .parent(let node):
+            children = []
+            parent = node.map { WeakViewNodeRef(node: $0) }
+            runtime = nil
+        case .runtime(let value):
+            children = []
+            parent = nil
+            runtime = value.map { RetainedSelectedTaskWeakRuntime(value: $0) }
+        case .revocation:
+            children = []
+            parent = nil
+            runtime = nil
+        }
+    }
+
+    func matches(_ node: ViewNode) -> Bool {
+        switch field {
+        case .children:
+            return node.children.count == children.count
+                && zip(node.children, children).allSatisfy { $0.0 === $0.1.node }
+        case .parent:
+            if let parent { return parent.node != nil && node.parent === parent.node }
+            return node.parent == nil
+        case .runtime:
+            if let runtime { return runtime.value != nil && node.runtime === runtime.value }
+            return node.runtime == nil
+        case .revocation:
+            // First provisioning of a lazy reader token is deliberately not a
+            // revocation. Final Activity facts retain their own actual proofs.
+            return true
+        }
+    }
+}
+
+@MainActor
+fileprivate final class RetainedSelectedTaskNodeExpectation {
+    weak var node: ViewNode?
+    let observation: RetainedSelectedTaskMutationObservation
+    let role: RetainedSelectedContentRole?
+    private var identities: [RetainedSelectedTaskMutationField: RetainedSelectedTaskMutationIdentity] = [:]
+    private var children: [WeakViewNodeRef]
+    private var parent: WeakViewNodeRef?
+    private var runtime: RetainedSelectedTaskWeakRuntime?
+    private var selectedChildren: RetainedSelectedContentChildrenIdentity?
+
+    init(_ node: ViewNode) {
+        self.node = node
+        observation = node.captureSelectedTaskMutationObservation()
+        role = node.selectedContentRole
+        children = node.children.map { WeakViewNodeRef(node: $0) }
+        parent = node.parent.map { WeakViewNodeRef(node: $0) }
+        runtime = node.runtime.map { RetainedSelectedTaskWeakRuntime(value: $0) }
+        selectedChildren = node.selectedContentState?.childrenIdentity
+        for field in RetainedSelectedTaskMutationField.allCases {
+            identities[field] = observation.identity(for: field)
+        }
+    }
+
+    func isCurrent(excluding field: RetainedSelectedTaskMutationField? = nil) -> Bool {
+        guard let node, observation.node === node, node.selectedContentRole == role else { return false }
+        for candidate in RetainedSelectedTaskMutationField.allCases where candidate != field {
+            guard identities[candidate] === observation.identity(for: candidate) else { return false }
+        }
+        if field != .children {
+            guard node.children.count == children.count,
+                zip(node.children, children).allSatisfy({ $0.0 === $0.1.node }),
+                node.selectedContentState?.childrenIdentity === selectedChildren
+            else { return false }
+        }
+        if field != .parent {
+            if let parent {
+                guard parent.node != nil, node.parent === parent.node else { return false }
+            } else if node.parent != nil {
+                return false
+            }
+        }
+        if field != .runtime {
+            if let runtime {
+                guard runtime.value != nil, node.runtime === runtime.value else { return false }
+            } else if node.runtime != nil {
+                return false
+            }
+        }
+        return true
+    }
+
+    func expects(_ event: RetainedSelectedTaskMutationEvent) -> Bool {
+        identities[event.field] === event.predecessor
+            && observation.identity(for: event.field) === event.successor
+    }
+
+    func accept(_ event: RetainedSelectedTaskMutationEvent, value: RetainedSelectedTaskWriteValue) -> Bool {
+        guard let node, event.field == value.field, expects(event), isCurrent(excluding: event.field),
+            value.matches(node)
+        else { return false }
+        identities[event.field] = event.successor
+        switch value.field {
+        case .children:
+            children = value.children
+            selectedChildren = event.selectedChildren
+        case .parent:
+            parent = value.parent
+        case .runtime:
+            runtime = value.runtime
+        case .revocation:
+            break
+        }
+        return true
+    }
+}
+
+@MainActor
+fileprivate final class RetainedSelectedTaskOriginalSlot {
+    weak var node: ViewNode?
+    let role: RetainedSelectedContentRole?
+    weak var child: ViewNode?
+    let childrenIdentity: RetainedSelectedContentChildrenIdentity?
+    var mapping: RetainedSelectedContentTaskMapping?
+
+    init(
+        node: ViewNode, role: RetainedSelectedContentRole?, child: ViewNode?,
+        childrenIdentity: RetainedSelectedContentChildrenIdentity?
+    ) {
+        self.node = node
+        self.role = role
+        self.child = child
+        self.childrenIdentity = childrenIdentity
+    }
+
+    var originalTopologyIsCurrent: Bool {
+        guard let node, node.selectedContentRole == role else { return false }
+        guard role != nil else { return true }
+        guard let child else { return false }
+        return node.selectedContentState?.childrenIdentity === childrenIdentity
+            && node.children.count == 1 && node.children.first === child && child.parent === node
+    }
+}
+
+/// Native bookkeeping for one original registered source. A successful read
+/// here is not a field fact, namespace grant, or permission to start a Task.
+@MainActor
+final class RetainedSelectedContentTaskSource {
+    private let originalQualification: @MainActor () -> Bool
+    fileprivate let slots: [RetainedSelectedTaskOriginalSlot]
+    private var observations: [ObjectIdentifier: RetainedSelectedTaskNodeExpectation] = [:]
+    private var didPrepareSources = false
+    private var wasRefused = false
+    private var wasConsumed = false
+
+    fileprivate init?(
+        physicalRoot: ViewNode, selectedNode: ViewNode,
+        links: [RetainedSelectedContentConstructionSelection.Link],
+        canPublish: @escaping @MainActor () -> Bool
+    ) {
+        guard links.isEmpty ? physicalRoot === selectedNode : links.first?.node === physicalRoot else { return nil }
+        var slots: [RetainedSelectedTaskOriginalSlot] = []
+        for link in links {
+            guard let node = link.node, let child = link.child else { return nil }
+            slots.append(
+                RetainedSelectedTaskOriginalSlot(
+                    node: node, role: link.role, child: child, childrenIdentity: link.childrenIdentity))
+        }
+        slots.append(RetainedSelectedTaskOriginalSlot(node: selectedNode, role: nil, child: nil, childrenIdentity: nil))
+        originalQualification = canPublish
+        self.slots = slots
+    }
+
+    fileprivate func refuse() { wasRefused = true }
+
+    /// Observe only. Expected fields change exclusively at the native ACKs.
+    var canPublish: Bool {
+        guard !wasConsumed, !wasRefused else { return false }
+        guard originalStateIsCurrent() else {
+            refuse()
+            return false
+        }
+        return true
+    }
+
+    fileprivate func originalStateIsCurrent(
+        excluding field: RetainedSelectedTaskMutationField? = nil, on changedNode: ViewNode? = nil
+    ) -> Bool {
+        guard !wasRefused, originalQualification() else { return false }
+        if !didPrepareSources { return slots.allSatisfy(\.originalTopologyIsCurrent) }
+        return observations.values.allSatisfy { expectation in
+            expectation.isCurrent(excluding: expectation.node === changedNode ? field : nil)
+        }
+    }
+
+    private func prepareOriginalSources() -> Bool {
+        guard canPublish else { return false }
+        if didPrepareSources { return true }
+        // All original links were copied at registration, before any source
+        // edge can move. No ancestor path or lazy attachment proof is captured.
+        guard slots.allSatisfy(\.originalTopologyIsCurrent) else {
+            refuse()
+            return false
+        }
+        for slot in slots {
+            guard let node = slot.node else {
+                refuse()
+                return false
+            }
+            observations[ObjectIdentifier(node)] = RetainedSelectedTaskNodeExpectation(node)
+        }
+        didPrepareSources = true
+        guard originalStateIsCurrent() else {
+            refuse()
+            return false
+        }
+        return true
+    }
+
+    fileprivate func expectation(for node: ViewNode) -> RetainedSelectedTaskNodeExpectation? {
+        guard let result = observations[ObjectIdentifier(node)], result.node === node else { return nil }
+        return result
+    }
+
+    /// Called only from the original native mapping or incoming preparation.
+    fileprivate func prepareExpectation(for node: ViewNode) -> RetainedSelectedTaskNodeExpectation? {
+        guard prepareOriginalSources() else { return nil }
+        if let existing = observations[ObjectIdentifier(node)] {
+            guard existing.node === node, existing.isCurrent() else {
+                refuse()
+                return nil
+            }
+            return existing
+        }
+        let result = RetainedSelectedTaskNodeExpectation(node)
+        observations[ObjectIdentifier(node)] = result
+        guard originalStateIsCurrent() else {
+            refuse()
+            return nil
+        }
+        return result
+    }
+
+    func prepareMapping(
+        from source: ViewNode, to target: ViewNode,
+        targetID: RetainedLazyListTargetID, attachmentID: RetainedLazyListAttachmentID
+    ) -> RetainedSelectedContentTaskMapping? {
+        guard prepareOriginalSources(), let index = slots.firstIndex(where: { $0.node === source }) else { return nil }
+        let slot = slots[index]
+        if let existing = slot.mapping {
+            guard existing.source === source, existing.target === target,
+                existing.targetID === targetID, existing.attachmentID === attachmentID, canPublish
+            else {
+                refuse()
+                return nil
+            }
+            return existing
+        }
+        guard source.selectedContentRole == slot.role, target.selectedContentRole == slot.role,
+            prepareExpectation(for: target) != nil, canPublish
+        else {
+            refuse()
+            return nil
+        }
+        let result = RetainedSelectedContentTaskMapping(
+            registration: self, index: index, source: source, target: target,
+            targetID: targetID, attachmentID: attachmentID)
+        slot.mapping = result
+        return result
+    }
+
+    fileprivate func mapping(from source: ViewNode) -> RetainedSelectedContentTaskMapping? {
+        slots.first(where: { $0.node === source })?.mapping
+    }
+
+    fileprivate func mappings(to target: ViewNode) -> [RetainedSelectedContentTaskMapping] {
+        slots.compactMap(\.mapping).filter { $0.target === target }
+    }
+
+    fileprivate func nextMapping(after mapping: RetainedSelectedContentTaskMapping)
+        -> RetainedSelectedContentTaskMapping?
+    {
+        guard mapping.registration === self, mapping.index + 1 < slots.count else { return nil }
+        return slots[mapping.index + 1].mapping
+    }
+
+    fileprivate func owns(_ mapping: RetainedSelectedContentTaskMapping) -> Bool {
+        mapping.registration === self && slots.indices.contains(mapping.index)
+            && slots[mapping.index].mapping === mapping
+    }
+
+    fileprivate func prepareWrite(
+        on node: ViewNode, value: RetainedSelectedTaskWriteValue
+    ) -> RetainedSelectedContentTaskWrite.Participant? {
+        guard canPublish, let expectation = expectation(for: node), expectation.isCurrent() else { return nil }
+        return .init(
+            source: self, expectation: expectation,
+            predecessor: expectation.observation.identity(for: value.field))
+    }
+
+    fileprivate func accepts(
+        _ participant: RetainedSelectedContentTaskWrite.Participant,
+        event: RetainedSelectedTaskMutationEvent, value: RetainedSelectedTaskWriteValue
+    ) -> Bool {
+        guard !wasConsumed, !wasRefused, participant.source === self,
+            let node = participant.expectation.node,
+            expectation(for: node) === participant.expectation,
+            event.predecessor === participant.predecessor,
+            originalStateIsCurrent(excluding: event.field, on: node),
+            participant.expectation.accept(event, value: value)
+        else {
+            refuse()
+            return false
+        }
+        return true
+    }
+
+    fileprivate func preflight(_ acceptance: RetainedSelectedContentTaskNativeAcceptance) -> Bool {
+        guard acceptance.source === self, canPublish, acceptance.mappings.count == slots.count,
+            acceptance.boundaries.count == slots.count - 1,
+            let runtime = acceptance.physical.runtime,
+            let physical = acceptance.physical.node, let selected = acceptance.selected.node
+        else { return false }
+        for (index, mapping) in acceptance.mappings.enumerated() {
+            guard slots[index].mapping === mapping, owns(mapping) else { return false }
+            let actual = index == slots.count - 1 ? acceptance.selected : acceptance.boundaries[index]
+            guard actual.runtime === runtime, mapping.permitsNativeFacet(on: actual) else { return false }
+            if index + 1 < slots.count {
+                guard mapping.hasAcceptedEdge(to: acceptance.mappings[index + 1]) else { return false }
+            }
+        }
+        return acceptance.mappings.first?.target === physical
+            && acceptance.mappings.last?.target === selected
+            && acceptance.mappings[0].permitsNativeFacet(on: acceptance.physical)
+            && originalStateIsCurrent()
+    }
+
+    /// Activity calls this once after it has preflighted all real field facts
+    /// and original qualifications for the whole group, including nil routes.
+    static func consumeInitialPaths(
+        for acceptedMappings: [RetainedSelectedContentTaskNativeAcceptance]
+    ) -> [RetainedSelectedContentPath]? {
+        guard !acceptedMappings.isEmpty else { return nil }
+        var seen = Set<ObjectIdentifier>()
+        for acceptance in acceptedMappings {
+            guard seen.insert(ObjectIdentifier(acceptance.source)).inserted,
+                acceptance.source.preflight(acceptance)
+            else { return nil }
+        }
+        // Recheck the whole group before consuming even its first route.
+        guard acceptedMappings.allSatisfy({ $0.source.preflight($0) }) else { return nil }
+        for acceptance in acceptedMappings { acceptance.source.wasConsumed = true }
+        var paths: [RetainedSelectedContentPath] = []
+        for acceptance in acceptedMappings {
+            guard let physical = acceptance.physical.node, let runtime = acceptance.physical.runtime,
+                acceptance.source.originalStateIsCurrent(), acceptance.physical.isAttached,
+                acceptance.selected.isAttached, acceptance.boundaries.allSatisfy(\.isAttached),
+                let path = physical.captureSelectedContentPath(in: runtime),
+                path.physicalRoot === physical, path.selectedNode === acceptance.selected.node,
+                let boundaries = path.boundaryNodes, boundaries.count == acceptance.boundaries.count,
+                zip(boundaries, acceptance.boundaries).allSatisfy({ $0.0 === $0.1.node }),
+                path.isInstalled(in: runtime)
+            else {
+                for entry in acceptedMappings { entry.source.refuse() }
+                return nil
+            }
+            paths.append(path)
+        }
+        for (acceptance, path) in zip(acceptedMappings, paths) {
+            guard let runtime = acceptance.physical.runtime, acceptance.source.originalStateIsCurrent(),
+                acceptance.physical.isAttached, acceptance.selected.isAttached,
+                acceptance.boundaries.allSatisfy(\.isAttached), path.isInstalled(in: runtime)
+            else {
+                for entry in acceptedMappings { entry.source.refuse() }
+                return nil
+            }
+        }
+        return paths
+    }
+}
+
+@MainActor
+final class RetainedSelectedContentTaskMapping {
+    fileprivate weak var registration: RetainedSelectedContentTaskSource?
+    fileprivate let index: Int
+    private(set) weak var source: ViewNode?
+    private(set) weak var target: ViewNode?
+    let targetID: RetainedLazyListTargetID
+    let attachmentID: RetainedLazyListAttachmentID
+    private weak var acceptedChild: ViewNode?
+    private var acceptedChildrenIdentity: RetainedSelectedContentChildrenIdentity?
+    private var acceptedChildrenMutation: RetainedSelectedTaskMutationIdentity?
+
+    fileprivate init(
+        registration: RetainedSelectedContentTaskSource, index: Int, source: ViewNode, target: ViewNode,
+        targetID: RetainedLazyListTargetID, attachmentID: RetainedLazyListAttachmentID
+    ) {
+        self.registration = registration
+        self.index = index
+        self.source = source
+        self.target = target
+        self.targetID = targetID
+        self.attachmentID = attachmentID
+    }
+
+    func permitsNativeFacet(on actual: RetainedLazyListActualAttachment) -> Bool {
+        guard let registration, let source, let target, registration.canPublish,
+            registration.owns(self), registration.slots[index].node === source,
+            actual.node === target, actual.target === targetID, actual.attachment === attachmentID,
+            actual.isAttached
+        else { return false }
+        return true
+    }
+
+    fileprivate func recordAcceptedEdge(to child: ViewNode) {
+        guard let registration, let target, registration.canPublish,
+            registration.slots[index].role != nil,
+            let next = registration.nextMapping(after: self), next.target === child,
+            let expectation = registration.expectation(for: target), expectation.isCurrent(),
+            target.children.count == 1, target.children.first === child, child.parent === target,
+            let identity = target.selectedContentState?.childrenIdentity
+        else {
+            registration?.refuse()
+            return
+        }
+        let mutation = expectation.observation.identity(for: .children)
+        if let acceptedChildrenMutation {
+            guard self.acceptedChild === child, acceptedChildrenIdentity === identity,
+                acceptedChildrenMutation === mutation
+            else {
+                registration.refuse()
+                return
+            }
+            return
+        }
+        acceptedChild = child
+        acceptedChildrenIdentity = identity
+        acceptedChildrenMutation = mutation
+    }
+
+    fileprivate func hasAcceptedEdge(to next: RetainedSelectedContentTaskMapping) -> Bool {
+        guard let registration, next.registration === registration, let target, let child = next.target,
+            registration.nextMapping(after: self) === next,
+            acceptedChild === child, target.children.count == 1, target.children.first === child,
+            child.parent === target, let expectation = registration.expectation(for: target),
+            expectation.isCurrent(), let acceptedChildrenMutation
+        else { return false }
+        return target.selectedContentState?.childrenIdentity === acceptedChildrenIdentity
+            && expectation.observation.identity(for: .children) === acceptedChildrenMutation
+    }
+}
+
+@MainActor
+struct RetainedSelectedContentTaskNativeAcceptance {
+    let source: RetainedSelectedContentTaskSource
+    let mappings: [RetainedSelectedContentTaskMapping]
+    let physical: RetainedLazyListActualAttachment
+    let boundaries: [RetainedLazyListActualAttachment]
+    let selected: RetainedLazyListActualAttachment
+}
+
+@MainActor
+final class RetainedSelectedContentTaskWrite {
+    fileprivate struct Participant {
+        let source: RetainedSelectedContentTaskSource
+        let expectation: RetainedSelectedTaskNodeExpectation
+        let predecessor: RetainedSelectedTaskMutationIdentity
+    }
+
+    private weak var node: ViewNode?
+    private let observation: RetainedSelectedTaskMutationObservation
+    private let value: RetainedSelectedTaskWriteValue
+    private let participants: [Participant]
+    private var wasConsumed = false
+    fileprivate let owner: RetainedSelectedContentSourceAdoption
+    fileprivate let finalTarget: Bool
+
+    fileprivate init?(
+        node: ViewNode, value: RetainedSelectedTaskWriteValue,
+        sources: [RetainedSelectedContentTaskSource], owner: RetainedSelectedContentSourceAdoption,
+        finalTarget: Bool = false
+    ) {
+        let participants = sources.compactMap { $0.prepareWrite(on: node, value: value) }
+        guard let observation = participants.first?.expectation.observation else { return nil }
+        guard participants.allSatisfy({ $0.expectation.observation === observation }) else {
+            for participant in participants { participant.source.refuse() }
+            return nil
+        }
+        self.node = node
+        self.observation = observation
+        self.value = value
+        self.participants = participants
+        self.owner = owner
+        self.finalTarget = finalTarget
+    }
+
+    fileprivate func didWrite() {
+        guard !wasConsumed else { return }
+        wasConsumed = true
+        guard let node, observation.node === node, let event = observation.lastEvent(for: value.field),
+            observation.identity(for: value.field) === event.successor
+        else {
+            for participant in participants { participant.source.refuse() }
+            return
+        }
+        // One reached native write produced this event. Every original route
+        // receives the same pair, before any later helper can run.
+        for participant in participants { _ = participant.source.accepts(participant, event: event, value: value) }
+    }
+}
+
+@MainActor
+final class RetainedSelectedContentSourceAdoption {
+    fileprivate struct IncomingNode {
+        weak var node: ViewNode?
+        weak var parent: ViewNode?
+        let hadParent: Bool
+        let children: [WeakViewNodeRef]
+    }
+
+    private struct PreparedEdge {
+        let mapping: RetainedSelectedContentTaskMapping
+        let next: RetainedSelectedContentTaskMapping
+        let originalChildrenMutation: RetainedSelectedTaskMutationIdentity
+        let wasInserted: Bool
+    }
+
+    fileprivate weak var targetParent: ViewNode?
+    fileprivate let sources: [RetainedSelectedContentTaskSource]
+    private let proposedChildren: [WeakViewNodeRef]
+    fileprivate let incoming: [ObjectIdentifier: IncomingNode]
+    private let incomingRoots: Set<ObjectIdentifier>
+    private let sourcesByIncomingRoot: [ObjectIdentifier: [RetainedSelectedContentTaskSource]]
+    private var issuedTransfers = Set<ObjectIdentifier>()
+    private let edges: [PreparedEdge]
+    private var preparedClear = false
+    private var preparedFinal = false
+    private var recordedTarget = false
+    fileprivate let destinationRuntime: RetainedSelectedTaskWeakRuntime?
+
+    init?(
+        sourceParent: ViewNode?, targetParent: ViewNode, proposedChildren: [ViewNode],
+        incomingNodes: [ViewNode], sources: [RetainedSelectedContentTaskSource]
+    ) {
+        var seen = Set<ObjectIdentifier>()
+        let sources = sources.filter { seen.insert(ObjectIdentifier($0)).inserted }
+        guard !sources.isEmpty else { return nil }
+        self.targetParent = targetParent
+        self.sources = sources
+        self.proposedChildren = proposedChildren.map { WeakViewNodeRef(node: $0) }
+        destinationRuntime = targetParent.runtime.map { RetainedSelectedTaskWeakRuntime(value: $0) }
+        var incoming: [ObjectIdentifier: IncomingNode] = [:]
+        for node in incomingNodes {
+            let key = ObjectIdentifier(node)
+            guard incoming[key] == nil else {
+                for source in sources { source.refuse() }
+                return nil
+            }
+            incoming[key] = IncomingNode(
+                node: node, parent: node.parent, hadParent: node.parent != nil,
+                children: node.children.map { WeakViewNodeRef(node: $0) })
+        }
+        self.incoming = incoming
+        let incomingRoots = Set(proposedChildren.filter { $0.parent !== targetParent }.map(ObjectIdentifier.init))
+        guard incomingRoots.allSatisfy({ incoming[$0]?.node != nil }) else {
+            for source in sources { source.refuse() }
+            return nil
+        }
+        var edges: [PreparedEdge] = []
+        var sourcesByIncomingRoot: [ObjectIdentifier: [RetainedSelectedContentTaskSource]] = [:]
+        for source in sources where source.canPublish {
+            var relevant = false
+            if let sourceParent, let mapping = source.mapping(from: sourceParent) {
+                relevant = true
+                guard mapping.target === targetParent else {
+                    source.refuse()
+                    continue
+                }
+            }
+            let insertedMappings = source.slots.compactMap(\.mapping).filter { mapping in
+                guard let node = mapping.source else { return false }
+                return incoming[ObjectIdentifier(node)]?.node === node
+            }
+            if !insertedMappings.isEmpty { relevant = true }
+            guard relevant, source.prepareExpectation(for: targetParent) != nil else {
+                source.refuse()
+                continue
+            }
+            // Temporary parents are fixed at this original native preparation.
+            // Keep only weak field expectations after the constructor returns.
+            for key in incomingRoots {
+                guard let entry = incoming[key], let node = entry.node else {
+                    source.refuse()
+                    continue
+                }
+                let includesSource = Self.containsSource(source, below: node, in: incoming)
+                guard includesSource else { continue }
+                sourcesByIncomingRoot[key, default: []].append(source)
+                if let parent = entry.parent { _ = source.prepareExpectation(for: parent) }
+            }
+            for mapping in source.mappings(to: targetParent) {
+                guard let original = mapping.source,
+                    sourceParent === original, let next = source.nextMapping(after: mapping),
+                    proposedChildren.count == 1, proposedChildren.first === next.target,
+                    let expectation = source.expectation(for: targetParent)
+                else {
+                    // An ordinary selected node can itself be a container. Its
+                    // children are physical data, not another selected edge.
+                    if mapping.source?.selectedContentRole != nil { source.refuse() }
+                    continue
+                }
+                guard original.selectedContentRole != nil else { continue }
+                edges.append(
+                    PreparedEdge(
+                        mapping: mapping, next: next,
+                        originalChildrenMutation: expectation.observation.identity(for: .children), wasInserted: false))
+            }
+            for mapping in insertedMappings {
+                guard let node = mapping.source, mapping.target === node,
+                    let expectation = source.expectation(for: node)
+                else {
+                    source.refuse()
+                    continue
+                }
+                guard node.selectedContentRole != nil else { continue }
+                guard let next = source.nextMapping(after: mapping), let child = next.target,
+                    incoming[ObjectIdentifier(child)]?.node === child, next.source === child,
+                    node.children.count == 1, node.children.first === child, child.parent === node
+                else {
+                    source.refuse()
+                    continue
+                }
+                edges.append(
+                    PreparedEdge(
+                        mapping: mapping, next: next,
+                        originalChildrenMutation: expectation.observation.identity(for: .children), wasInserted: true))
+            }
+        }
+        self.incomingRoots = incomingRoots
+        self.sourcesByIncomingRoot = sourcesByIncomingRoot
+        self.edges = edges
+        observe()
+    }
+
+    private static func containsSource(
+        _ source: RetainedSelectedContentTaskSource, below root: ViewNode,
+        in incoming: [ObjectIdentifier: IncomingNode]
+    ) -> Bool {
+        var pending = [ObjectIdentifier(root)]
+        var seen = Set<ObjectIdentifier>()
+        while let key = pending.popLast(), seen.insert(key).inserted, let entry = incoming[key] {
+            if source.slots.contains(where: { $0.node === entry.node }) { return true }
+            pending.append(contentsOf: entry.children.compactMap { $0.node.map(ObjectIdentifier.init) })
+        }
+        return false
+    }
+
+    fileprivate func observe() {
+        for source in sources { _ = source.canPublish }
+    }
+
+    func sourceTransfer(of child: ViewNode, from temporaryParent: ViewNode?) -> RetainedSelectedContentSourceTransfer? {
+        observe()
+        let key = ObjectIdentifier(child)
+        guard incomingRoots.contains(key), issuedTransfers.insert(key).inserted,
+            let entry = incoming[key], entry.node === child,
+            entry.parent === temporaryParent, entry.hadParent == (temporaryParent != nil),
+            temporaryParent == nil || entry.parent != nil
+        else {
+            for source in sourcesByIncomingRoot[key] ?? [] { source.refuse() }
+            return nil
+        }
+        return RetainedSelectedContentSourceTransfer(
+            batch: self, root: child, originalParent: entry.parent, sources: sourcesByIncomingRoot[key] ?? [])
+    }
+
+    func prepareTargetChildrenWrite(_ children: [ViewNode], isFinal: Bool) -> RetainedSelectedContentTaskWrite? {
+        observe()
+        guard let targetParent, !recordedTarget,
+            isFinal ? !preparedFinal : !preparedClear && !preparedFinal,
+            isFinal
+                ? children.count == proposedChildren.count
+                    && zip(children, proposedChildren).allSatisfy({ $0.0 === $0.1.node })
+                : children.isEmpty
+        else {
+            for source in sources { source.refuse() }
+            return nil
+        }
+        if isFinal { preparedFinal = true } else { preparedClear = true }
+        return RetainedSelectedContentTaskWrite(
+            node: targetParent, value: .init(.children(children)), sources: sources,
+            owner: self, finalTarget: isFinal)
+    }
+
+    func didWrite(_ write: RetainedSelectedContentTaskWrite?) {
+        guard let write, write.owner === self else { return }
+        write.didWrite()
+        if write.finalTarget { recordTargetEdges() }
+    }
+
+    func recordUnchangedChildren() {
+        guard !preparedClear, !preparedFinal else {
+            for source in sources { source.refuse() }
+            return
+        }
+        recordTargetEdges()
+        recordInsertedEdges()
+    }
+
+    private func recordTargetEdges() {
+        observe()
+        guard !recordedTarget, let targetParent,
+            targetParent.children.count == proposedChildren.count,
+            zip(targetParent.children, proposedChildren).allSatisfy({ $0.0 === $0.1.node })
+        else {
+            for source in sources { source.refuse() }
+            return
+        }
+        recordedTarget = true
+        for edge in edges where !edge.wasInserted {
+            guard let source = edge.mapping.registration, source.canPublish,
+                let child = edge.next.target, let expectation = source.expectation(for: targetParent)
+            else {
+                edge.mapping.registration?.refuse()
+                continue
+            }
+            if !preparedFinal {
+                guard expectation.observation.identity(for: .children) === edge.originalChildrenMutation else {
+                    source.refuse()
+                    continue
+                }
+            }
+            edge.mapping.recordAcceptedEdge(to: child)
+        }
+    }
+
+    func recordInsertedEdges() {
+        observe()
+        guard recordedTarget else { return }
+        for edge in edges where edge.wasInserted {
+            guard let source = edge.mapping.registration, source.canPublish,
+                let node = edge.mapping.target, let child = edge.next.target,
+                let expectation = source.expectation(for: node), expectation.isCurrent(),
+                expectation.observation.identity(for: .children) === edge.originalChildrenMutation
+            else {
+                edge.mapping.registration?.refuse()
+                continue
+            }
+            edge.mapping.recordAcceptedEdge(to: child)
+        }
+    }
+
+    fileprivate func makeWrite(
+        on node: ViewNode, value: RetainedSelectedTaskWriteValue
+    ) -> RetainedSelectedContentTaskWrite? {
+        observe()
+        return RetainedSelectedContentTaskWrite(node: node, value: value, sources: sources, owner: self)
+    }
+}
+
+/// An explicit native transfer for one original incoming root. Public callback
+/// reentry receives nil; it cannot obtain another ticket from a current node.
+@MainActor
+final class RetainedSelectedContentSourceTransfer {
+    fileprivate let batch: RetainedSelectedContentSourceAdoption
+    private weak var root: ViewNode?
+    private weak var originalParent: ViewNode?
+    private let hadOriginalParent: Bool
+    private let affectedSources: [RetainedSelectedContentTaskSource]
+    private let receivers: Set<ObjectIdentifier>
+    private var preparedSourceRemoval = false
+
+    fileprivate init(
+        batch: RetainedSelectedContentSourceAdoption, root: ViewNode, originalParent: ViewNode?,
+        sources: [RetainedSelectedContentTaskSource]
+    ) {
+        self.batch = batch
+        self.root = root
+        self.originalParent = originalParent
+        hadOriginalParent = originalParent != nil
+        affectedSources = sources
+        var receivers = Set<ObjectIdentifier>()
+        var pending = [ObjectIdentifier(root)]
+        while let key = pending.popLast(), receivers.insert(key).inserted, let entry = batch.incoming[key] {
+            pending.append(contentsOf: entry.children.compactMap { $0.node.map(ObjectIdentifier.init) })
+        }
+        self.receivers = receivers
+    }
+
+    fileprivate func observe() { batch.observe() }
+
+    fileprivate func refuseUnsupportedRoute() {
+        for source in affectedSources { source.refuse() }
+    }
+
+    private func includes(_ node: ViewNode) -> Bool {
+        receivers.contains(ObjectIdentifier(node)) && batch.incoming[ObjectIdentifier(node)]?.node === node
+    }
+
+    fileprivate func prepareSourceRemoval(from parent: ViewNode, at index: Int) -> RetainedSelectedContentTaskWrite? {
+        observe()
+        guard !preparedSourceRemoval, hadOriginalParent, originalParent === parent,
+            let root, root.parent === parent, parent.children.indices.contains(index), parent.children[index] === root
+        else {
+            refuseUnsupportedRoute()
+            return nil
+        }
+        preparedSourceRemoval = true
+        // No extra strong child array survives the native removal statement.
+        let children = parent.children.enumerated().compactMap { position, node in
+            position == index ? nil : WeakViewNodeRef(node: node)
+        }
+        return batch.makeWrite(on: parent, value: .init(children: children))
+    }
+
+    fileprivate func prepareRevocation(on node: ViewNode) -> RetainedSelectedContentTaskWrite? {
+        guard includes(node) else { return nil }
+        return batch.makeWrite(on: node, value: .init(.revocation))
+    }
+
+    fileprivate func prepareParent(on node: ViewNode, to parent: ViewNode?) -> RetainedSelectedContentTaskWrite? {
+        guard node === root, parent == nil || parent === batch.targetParent else {
+            refuseUnsupportedRoute()
+            return nil
+        }
+        return batch.makeWrite(on: node, value: .init(.parent(parent)))
+    }
+
+    fileprivate func prepareRuntime(on node: ViewNode, to runtime: RetainedViewRuntime?)
+        -> RetainedSelectedContentTaskWrite?
+    {
+        guard includes(node) else { return nil }
+        if let runtime {
+            guard batch.destinationRuntime?.value === runtime else {
+                refuseUnsupportedRoute()
+                return nil
+            }
+        }
+        return batch.makeWrite(on: node, value: .init(.runtime(runtime)))
+    }
+
+    fileprivate func didWrite(_ write: RetainedSelectedContentTaskWrite?) {
+        guard let write, write.owner === batch else { return }
+        write.didWrite()
+    }
+}
+
+@MainActor
+package final class RetainedSelectedContentPath {
+    fileprivate enum Domain {
+        case construction
+        case installed
+        case removalVisual
+    }
+
+    fileprivate struct Link {
+        weak var node: ViewNode?
+        weak var parent: ViewNode?
+        let hadParent: Bool
+        let attachment: RetainedAccessibilityIdentity
+        let role: RetainedSelectedContentRole?
+        let childrenIdentity: RetainedSelectedContentChildrenIdentity?
+        weak var selectedChild: ViewNode?
+    }
+
+    package private(set) weak var physicalRoot: ViewNode?
+    package private(set) weak var selectedNode: ViewNode?
+    private weak var checkedRuntime: RetainedViewRuntime?
+    private weak var containingRoot: ViewNode?
+    fileprivate let domain: Domain
+    fileprivate let links: [Link]
+    private let selection: [Link]
+    private let visualQualification: (@MainActor () -> Bool)?
+    private var didCaptureConstructionSelection = false
+    fileprivate var didCapturePanelAssembly = false
+
+    fileprivate init(
+        physicalRoot: ViewNode, selectedNode: ViewNode, containingRoot: ViewNode,
+        runtime: RetainedViewRuntime?, domain: Domain, links: [Link], selection: [Link],
+        visualQualification: (@MainActor () -> Bool)? = nil
+    ) {
+        self.physicalRoot = physicalRoot
+        self.selectedNode = selectedNode
+        self.containingRoot = containingRoot
+        checkedRuntime = runtime
+        self.domain = domain
+        self.links = links
+        self.selection = selection
+        self.visualQualification = visualQualification
+    }
+
+    package var isCurrent: Bool {
+        guard let physicalRoot, let selectedNode, let containingRoot,
+            links.first?.node === selectedNode, links.last?.node === containingRoot,
+            links.contains(where: { $0.node === physicalRoot }), selectedNode.selectedContentRole == nil
+        else { return false }
+        switch domain {
+        case .installed:
+            guard let checkedRuntime, checkedRuntime.root === containingRoot else { return false }
+        case .construction:
+            guard checkedRuntime == nil, containingRoot.parent == nil else { return false }
+        case .removalVisual:
+            guard checkedRuntime == nil, containingRoot.parent == nil, visualQualification?() == true else {
+                return false
+            }
+        }
+        for (index, link) in links.enumerated() {
+            guard let node = link.node,
+                node.storedAccessibilityAttachmentIdentity === link.attachment,
+                node.selectedContentRole == link.role,
+                node.parent === link.parent, (node.parent != nil) == link.hadParent
+            else { return false }
+            switch domain {
+            case .installed:
+                guard node.runtime === checkedRuntime, !node.isRetiringLazyListAttachment,
+                    !node.isRemovalOverlay
+                else { return false }
+            case .construction:
+                guard node.runtime == nil, !node.isRetiringLazyListAttachment, !node.isRemovalOverlay else {
+                    return false
+                }
+            case .removalVisual:
+                guard node.runtime == nil, !node.isRetiringLazyListAttachment else { return false }
+            }
+            if let parent = link.parent {
+                guard parent.children.contains(where: { $0 === node }) else { return false }
+            }
+            if index + 1 < links.count {
+                guard link.parent === links[index + 1].node else { return false }
+            }
+            if link.role != nil {
+                guard let child = link.selectedChild, node.children.count == 1,
+                    node.children.first === child, child.parent === node,
+                    node.selectedContentState?.childrenIdentity === link.childrenIdentity
+                else { return false }
+            }
+        }
+        return true
+    }
+
+    package func isInstalled(in runtime: RetainedViewRuntime) -> Bool {
+        if case .installed = domain { return checkedRuntime === runtime && isCurrent }
+        return false
+    }
+
+    /// Extract once at the original construction operation. Native consumers
+    /// still need their original field facts, construction scope, and exact
+    /// source-to-target mapping before initial publication of an installed path.
+    package func captureConstructionSelection() -> RetainedSelectedContentConstructionSelection? {
+        guard case .construction = domain, !didCaptureConstructionSelection, isCurrent,
+            let physicalRoot, let selectedNode
+        else { return nil }
+        var selectedLinks: [RetainedSelectedContentConstructionSelection.Link] = []
+        for link in selection {
+            guard let node = link.node, let child = link.selectedChild,
+                let role = link.role, let childrenIdentity = link.childrenIdentity
+            else { return nil }
+            selectedLinks.append(
+                .init(node: node, child: child, role: role, childrenIdentity: childrenIdentity))
+        }
+        let result = RetainedSelectedContentConstructionSelection(
+            physicalRoot: physicalRoot, selectedNode: selectedNode, links: selectedLinks)
+        guard isCurrent, result.isCurrent else { return nil }
+        didCaptureConstructionSelection = true
+        return result
+    }
+
+    /// The next physical hop; nested boundaries must still be traversed.
+    package var nextPhysicalChild: ViewNode? {
+        guard isCurrent, selection.first?.node === physicalRoot else { return nil }
+        return selection.first?.selectedChild
+    }
+
+    /// Ordered from the supplied physical root towards the ordinary terminal.
+    package var boundaryNodes: [ViewNode]? {
+        guard isCurrent else { return nil }
+        let nodes = selection.compactMap(\.node)
+        return nodes.count == selection.count ? nodes : nil
+    }
+
+    fileprivate var hasSelectedContentBoundary: Bool { links.contains { $0.role != nil } }
+    fileprivate func contains(_ node: ViewNode) -> Bool { links.contains { $0.node === node } }
+}
+
+/// Kept only for a single post-construction operation. Later installed
+/// callbacks retain their existing native invocation lifetime, not this scope.
+@MainActor
+package final class RetainedSelectedContentMutationScope {
+    package let physicalRoot: ViewNode
+    package let selectedRoot: ViewNode
+    package let path: RetainedSelectedContentPath
+    private let admission: @MainActor () -> Bool
+
+    fileprivate init(
+        physicalRoot: ViewNode, selectedRoot: ViewNode, path: RetainedSelectedContentPath,
+        admission: @escaping @MainActor () -> Bool
+    ) {
+        self.physicalRoot = physicalRoot
+        self.selectedRoot = selectedRoot
+        self.path = path
+        self.admission = admission
+    }
+
+    package var isCurrent: Bool {
+        path.isCurrent && admission() && path.isCurrent
+    }
+}
+
+/// The origin of one paint operation. Capturing a detached source is explicit;
+/// a live operation cannot turn into a construction operation after reentry.
+@MainActor
+final class RetainedSelectedContentPaintDomain {
+    private struct OperandSource {
+        weak var node: ViewNode?
+    }
+
+    private weak var sourceRoot: ViewNode?
+    private weak var checkedRuntime: RetainedViewRuntime?
+    private let sourcePath: RetainedSelectedContentPath?
+    private let mode: RetainedSelectedContentPath.Domain
+    private let visualQualification: (@MainActor () -> Bool)?
+    private var operandPaths: [ObjectIdentifier: RetainedSelectedContentPath] = [:]
+    private var rejectedOperands = Set<ObjectIdentifier>()
+    private var originallySelectedOperands = Set<ObjectIdentifier>()
+    private var operandSources: [ObjectIdentifier: OperandSource] = [:]
+
+    fileprivate init(root: ViewNode) {
+        sourceRoot = root
+        visualQualification = nil
+        if let runtime = root.runtime {
+            checkedRuntime = runtime
+            mode = .installed
+            sourcePath = root.captureSelectedContentPath(in: runtime)
+        } else {
+            checkedRuntime = nil
+            mode = .construction
+            sourcePath = root.captureSelectedContentConstructionPath()
+        }
+    }
+
+    fileprivate init(visualRoot: ViewNode, qualification: @escaping @MainActor () -> Bool) {
+        sourceRoot = visualRoot
+        checkedRuntime = nil
+        mode = .removalVisual
+        visualQualification = qualification
+        sourcePath = visualRoot.captureSelectedContentPath(
+            runtime: nil, containingRoot: visualRoot, domain: .removalVisual,
+            visualQualification: qualification)
+    }
+
+    var isCurrent: Bool { sourcePath?.isCurrent == true }
+
+    func requiresSelectedContentValidation(for node: ViewNode) -> Bool {
+        originallySelectedOperands.contains(ObjectIdentifier(node)) || node.hasSelectedContentBoundaryInPhysicalPath
+    }
+
+    /// Includes operands consumed by native cache-range forwarding, which can
+    /// bypass a painter's node worklist. Ordinary reads impose no new fence.
+    var selectedContentReadsAreCurrent: Bool {
+        for (identity, source) in operandSources {
+            let requiresCheck =
+                originallySelectedOperands.contains(identity)
+                || source.node?.hasSelectedContentBoundaryInPhysicalPath == true
+            if requiresCheck {
+                guard let node = source.node, isCurrent, let path = operandPaths[identity],
+                    path.physicalRoot === node, path.isCurrent
+                else { return false }
+            }
+        }
+        return true
+    }
+
+    func captureOperand(for physical: ViewNode) -> RetainedSelectedContentPaintOperand? {
+        let identity = ObjectIdentifier(physical)
+        guard !rejectedOperands.contains(identity) else { return nil }
+        if let path = operandPaths[identity] {
+            guard isCurrent, path.isCurrent, path.physicalRoot === physical,
+                let selected = path.selectedNode, let boundaries = path.boundaryNodes
+            else { return nil }
+            return RetainedSelectedContentPaintOperand(
+                physicalNode: physical, selectedNode: selected, nextPhysicalChild: path.nextPhysicalChild,
+                boundaryNodes: boundaries, path: path, domain: self)
+        }
+        // Remember a failed first observation too. A later callback cannot
+        // turn another physical lifetime into this paint operation's source.
+        operandSources[identity] = OperandSource(node: physical)
+        if physical.hasSelectedContentBoundaryInPhysicalPath { originallySelectedOperands.insert(identity) }
+        rejectedOperands.insert(identity)
+        guard isCurrent, let sourceRoot else { return nil }
+        let path: RetainedSelectedContentPath?
+        switch mode {
+        case .installed:
+            guard let checkedRuntime else { return nil }
+            path = physical.captureSelectedContentPath(in: checkedRuntime)
+        case .construction:
+            path = physical.captureSelectedContentConstructionPath()
+        case .removalVisual:
+            path = physical.captureSelectedContentPath(
+                runtime: nil, containingRoot: sourceRoot, domain: .removalVisual,
+                visualQualification: visualQualification)
+        }
+        guard let path, path.contains(sourceRoot), path.isCurrent, isCurrent,
+            let selected = path.selectedNode, let boundaries = path.boundaryNodes
+        else { return nil }
+        operandPaths[identity] = path
+        rejectedOperands.remove(identity)
+        return RetainedSelectedContentPaintOperand(
+            physicalNode: physical, selectedNode: selected, nextPhysicalChild: path.nextPhysicalChild,
+            boundaryNodes: boundaries, path: path, domain: self)
+    }
+}
+
+@MainActor
+private final class RetainedSelectedContentTraversalReadSet {
+    private struct Read {
+        weak var node: ViewNode?
+        let operand: RetainedSelectedContentPaintOperand?
+    }
+
+    private var reads: [Read] = []
+    private var domains: [ObjectIdentifier: RetainedSelectedContentPaintDomain] = [:]
+    private var hasFailed = false
+
+    func capture(
+        _ node: ViewNode, in domain: RetainedSelectedContentPaintDomain
+    ) -> RetainedSelectedContentPaintOperand? {
+        domains[ObjectIdentifier(domain)] = domain
+        let operand = domain.captureOperand(for: node)
+        reads.append(Read(node: node, operand: operand))
+        _ = permits(node, using: operand)
+        return operand
+    }
+
+    func permits(_ node: ViewNode, using operand: RetainedSelectedContentPaintOperand?) -> Bool {
+        guard !hasFailed else { return false }
+        if operand?.hasSelectedContentBoundary == true || node.hasSelectedContentBoundaryInPhysicalPath {
+            guard let operand, operand.physicalNode === node, operand.isCurrent else {
+                hasFailed = true
+                return false
+            }
+        }
+        return true
+    }
+
+    var isCurrent: Bool {
+        guard !hasFailed else { return false }
+        guard domains.values.allSatisfy(\.selectedContentReadsAreCurrent) else {
+            hasFailed = true
+            return false
+        }
+        for read in reads {
+            guard let node = read.node else { continue }
+            if !permits(node, using: read.operand) { return false }
+        }
+        return true
+    }
+}
+
+@MainActor
+final class RetainedSelectedContentPaintOperand {
+    let physicalNode: ViewNode
+    let selectedNode: ViewNode
+    let nextPhysicalChild: ViewNode?
+    let boundaryNodes: [ViewNode]
+    let hasSelectedContentBoundary: Bool
+    fileprivate let path: RetainedSelectedContentPath
+    private let domain: RetainedSelectedContentPaintDomain
+
+    fileprivate init(
+        physicalNode: ViewNode, selectedNode: ViewNode, nextPhysicalChild: ViewNode?,
+        boundaryNodes: [ViewNode], path: RetainedSelectedContentPath, domain: RetainedSelectedContentPaintDomain
+    ) {
+        self.physicalNode = physicalNode
+        self.selectedNode = selectedNode
+        self.nextPhysicalChild = nextPhysicalChild
+        self.boundaryNodes = boundaryNodes
+        self.path = path
+        self.domain = domain
+        hasSelectedContentBoundary = path.hasSelectedContentBoundary
+    }
+
+    var isCurrent: Bool {
+        domain.isCurrent && path.isCurrent && path.physicalRoot === physicalNode && path.selectedNode === selectedNode
+    }
+
+    /// Ordinary trees keep their existing painter semantics. A pending node
+    /// moved into or out of a structural selection still needs its old proof.
+    var isCurrentForTraversal: Bool {
+        (!hasSelectedContentBoundary && !physicalNode.hasSelectedContentBoundaryInPhysicalPath) || isCurrent
+    }
+}
+
 @MainActor
 public final class ViewNode {
     private var interactionHandlers: ViewNodeInteractionHandlers?
@@ -2940,6 +4999,146 @@ public final class ViewNode {
     private var dropHandlers: ViewNodeDropHandlers?
     private var lifecycleHandlers: ViewNodeLifecycleHandlers?
     private var chartMetadata: ViewNodeChartMetadata?
+    fileprivate var selectedContentState: RetainedSelectedContentState?
+    fileprivate weak var selectedContentConstructionObservation: RetainedSelectedContentConstructionObservation?
+    fileprivate weak var selectedTaskMutationObservation: RetainedSelectedTaskMutationObservation?
+
+    package var selectedContentRole: RetainedSelectedContentRole? { selectedContentState?.role }
+
+    fileprivate func captureSelectedTaskMutationObservation() -> RetainedSelectedTaskMutationObservation {
+        if let observation = selectedTaskMutationObservation { return observation }
+        let observation = RetainedSelectedTaskMutationObservation(node: self)
+        selectedTaskMutationObservation = observation
+        return observation
+    }
+
+    var hasSelectedContentBoundaryInPhysicalPath: Bool {
+        var current: ViewNode? = self
+        var seen = Set<ObjectIdentifier>()
+        while let node = current {
+            guard seen.insert(ObjectIdentifier(node)).inserted else { return true }
+            if node.selectedContentRole != nil { return true }
+            current = node.parent
+        }
+        return false
+    }
+
+    func captureSelectedContentPaintDomain() -> RetainedSelectedContentPaintDomain {
+        RetainedSelectedContentPaintDomain(root: self)
+    }
+
+    func finishSelectedContentPaint(using operand: RetainedSelectedContentPaintOperand) {
+        guard selectedContentRole != nil, operand.physicalNode === self, operand.isCurrent,
+            !operand.selectedNode.hasDirtySubtree
+        else { return }
+        // This node emitted no paint and owns no cache or appearance status.
+        subtreeDirtyFlags = []
+    }
+
+    /// A stable physical owner with no independent layout, paint, or callback
+    /// identity. Its sole actual child remains the source of semantic content.
+    package static func selectedContentBoundary(role: RetainedSelectedContentRole, child: ViewNode) -> ViewNode {
+        let node = ViewNode(frame: child.frame, isHitTestVisible: false)
+        node.selectedContentState = RetainedSelectedContentState(role: role)
+        node.addChild(child)
+        guard node.children.count == 1, node.children.first === child, child.parent === node else {
+            node.markRejectedRetainedSource()
+            return node
+        }
+        return node
+    }
+
+    package func captureSelectedContentPath(in runtime: RetainedViewRuntime) -> RetainedSelectedContentPath? {
+        captureSelectedContentPath(runtime: runtime, containingRoot: runtime.root, domain: .installed)
+    }
+
+    package func captureSelectedContentConstructionPath() -> RetainedSelectedContentPath? {
+        captureSelectedContentPath(runtime: nil, containingRoot: nil, domain: .construction)
+    }
+
+    fileprivate func captureSelectedContentLayoutPath() -> RetainedSelectedContentPath? {
+        if let runtime { return captureSelectedContentPath(in: runtime) }
+        return captureSelectedContentConstructionPath()
+    }
+
+    package func captureSelectedContentMutationScope(
+        in runtime: RetainedViewRuntime, admission: @escaping @MainActor () -> Bool = { true }
+    ) -> RetainedSelectedContentMutationScope? {
+        guard self.runtime == nil || self.runtime === runtime else { return nil }
+        return captureSelectedContentMutationScope(admission: admission)
+    }
+
+    package func captureSelectedContentMutationScope(
+        admission: @escaping @MainActor () -> Bool = { true }
+    ) -> RetainedSelectedContentMutationScope? {
+        guard admission(), let path = captureSelectedContentLayoutPath(),
+            let selected = path.selectedNode, path.isCurrent
+        else { return nil }
+        return RetainedSelectedContentMutationScope(
+            physicalRoot: self, selectedRoot: selected, path: path, admission: admission)
+    }
+
+    fileprivate func captureSelectedContentPath(
+        runtime expectedRuntime: RetainedViewRuntime?, containingRoot expectedRoot: ViewNode?,
+        domain: RetainedSelectedContentPath.Domain,
+        visualQualification: (@MainActor () -> Bool)? = nil
+    ) -> RetainedSelectedContentPath? {
+        var selected = self
+        var selectedBoundaries: [ViewNode] = []
+        var seen = Set<ObjectIdentifier>()
+        while selected.selectedContentRole != nil {
+            guard seen.count < Self.maximumTraversalDepth, seen.insert(ObjectIdentifier(selected)).inserted,
+                selected.children.count == 1, let child = selected.children.first, child.parent === selected
+            else { return nil }
+            selectedBoundaries.append(selected)
+            selected = child
+        }
+        var links: [RetainedSelectedContentPath.Link] = []
+        var current: ViewNode? = selected
+        seen.removeAll(keepingCapacity: true)
+        while let node = current, links.count < Self.maximumTraversalDepth {
+            guard seen.insert(ObjectIdentifier(node)).inserted else { return nil }
+            switch domain {
+            case .installed:
+                guard let expectedRuntime, node.runtime === expectedRuntime,
+                    !node.isRetiringLazyListAttachment, !node.isRemovalOverlay
+                else { return nil }
+            case .construction:
+                guard node.runtime == nil, !node.isRetiringLazyListAttachment, !node.isRemovalOverlay else {
+                    return nil
+                }
+            case .removalVisual:
+                guard node.runtime == nil, !node.isRetiringLazyListAttachment, visualQualification?() == true else {
+                    return nil
+                }
+            }
+            if let parent = node.parent, !parent.children.contains(where: { $0 === node }) { return nil }
+            if node.selectedContentRole != nil {
+                guard node.children.count == 1, let child = node.children.first, child.parent === node else {
+                    return nil
+                }
+            }
+            links.append(
+                RetainedSelectedContentPath.Link(
+                    node: node, parent: node.parent, hadParent: node.parent != nil,
+                    attachment: node.accessibilityAttachmentIdentity, role: node.selectedContentRole,
+                    childrenIdentity: node.selectedContentState?.childrenIdentity,
+                    selectedChild: node.selectedContentRole == nil ? nil : node.children.first))
+            if node === expectedRoot || (expectedRoot == nil && node.parent == nil) {
+                let selection = selectedBoundaries.compactMap { boundary in
+                    links.first { $0.node === boundary }
+                }
+                guard selection.count == selectedBoundaries.count else { return nil }
+                let path = RetainedSelectedContentPath(
+                    physicalRoot: self, selectedNode: selected, containingRoot: node,
+                    runtime: expectedRuntime, domain: domain, links: links, selection: selection,
+                    visualQualification: visualQualification)
+                return path.isCurrent ? path : nil
+            }
+            current = node.parent
+        }
+        return nil
+    }
 
     /// Structural diagnostics for the sparse-storage regression tests. These
     /// are computed flags, so observing them never creates optional storage.
@@ -5576,17 +7775,41 @@ public final class ViewNode {
     func revokeLazyListAttachmentProofs(
         removalWrite: RetainedRemovalAttachmentWrite?
     ) -> RetainedRemovalAttachmentWriteResult? {
+        revokeLazyListAttachmentProofs(removalWrite: removalWrite, panelAssembly: nil)
+    }
+
+    @discardableResult
+    private func revokeLazyListAttachmentProofs(
+        removalWrite: RetainedRemovalAttachmentWrite?,
+        panelAssembly: RetainedSelectedContentPanelAssemblySlot?, completingPanelDeparture: Bool = false,
+        selectedTaskTransfer: RetainedSelectedContentSourceTransfer? = nil
+    ) -> RetainedRemovalAttachmentWriteResult? {
+        selectedTaskTransfer?.observe()
+        defer { selectedTaskTransfer?.observe() }
+        guard panelAssembly?.mayContinueRuntimeWork(cleanup: completingPanelDeparture) != false else { return nil }
         // Detached source transfers have never published physical activity.
         // Their reserved insertion IDs must survive until that first write.
         if runtime != nil {
             retainedLazyListActivityStorage?.withdrawOwnedPhysicalReferences()
+            selectedTaskTransfer?.observe()
             retainedLazyListActivityStorage?.revokeAttachment()
+            selectedTaskTransfer?.observe()
         }
+        guard panelAssembly?.mayContinueRuntimeWork(cleanup: completingPanelDeparture) != false else { return nil }
         lifecycleHandlers?.completedLazyTaskAppearance = nil
+        selectedTaskTransfer?.observe()
+        guard panelAssembly?.mayContinueRuntimeWork(cleanup: completingPanelDeparture) != false else { return nil }
         hasPaintedCurrentAttachment = false
-        let result = writeRemovalAttachmentIdentity(removalWrite)
+        let result = writeRemovalAttachmentIdentity(
+            removalWrite, panelAssembly: panelAssembly, completingPanelDeparture: completingPanelDeparture,
+            selectedTaskTransfer: selectedTaskTransfer)
+        guard panelAssembly?.mayContinueRuntimeWork(cleanup: completingPanelDeparture) != false else { return result }
         lifecycleHandlers?.lazyListPresentedPaint = nil
+        selectedTaskTransfer?.observe()
+        guard panelAssembly?.mayContinueRuntimeWork(cleanup: completingPanelDeparture) != false else { return result }
         lifecycleHandlers?.lazyListCanvasPaintAlpha = nil
+        selectedTaskTransfer?.observe()
+        guard panelAssembly?.mayContinueRuntimeWork(cleanup: completingPanelDeparture) != false else { return result }
         lifecycleHandlers?.retainedLazyListAdapter?.revokePendingCandidate()
         // The tail may reenter. Return only the already-known successor; its
         // consumer must compare it, never capture a replacement after the tail.
@@ -5595,26 +7818,41 @@ public final class ViewNode {
 
     @inline(never)
     private func writeRemovalAttachmentIdentity(
-        _ record: RetainedRemovalAttachmentWrite?
+        _ record: RetainedRemovalAttachmentWrite?,
+        panelAssembly: RetainedSelectedContentPanelAssemblySlot?, completingPanelDeparture: Bool,
+        selectedTaskTransfer: RetainedSelectedContentSourceTransfer?
     ) -> RetainedRemovalAttachmentWriteResult? {
+        let constructionWrite = panelAssembly?.prepareWrite(on: self, kind: .revoke)
+        if panelAssembly != nil, constructionWrite == nil, !completingPanelDeparture { return nil }
         // Storage revocation above may rotate S or release weak UI members.
         // Compare R's original predecessor only here, beside its actual write.
         let write = record?.claim(on: self, kind: .revoke)
         return withExtendedLifetime(write) {
+            let taskWrite = selectedTaskTransfer?.prepareRevocation(on: self)
+            selectedContentConstructionObservation?.revokeAttachment()
             lifecycleHandlers?.lazyListAttachmentIdentity = write?.replacementIdentity
-            return write?.didWrite()
+            // This reached native revocation counts even when optional
+            // lifecycle storage is nil. Lazy reader provisioning does not.
+            selectedTaskMutationObservation?.record(.revocation)
+            selectedTaskTransfer?.didWrite(taskWrite)
+            let result = write?.didWrite()
+            panelAssembly?.didWrite(constructionWrite)
+            return result
         }
     }
 
     @inline(never)
     @discardableResult
     func writeRemovalParentNil(
-        removalWrite: RetainedRemovalAttachmentWrite?
+        removalWrite: RetainedRemovalAttachmentWrite?,
+        selectedTaskTransfer: RetainedSelectedContentSourceTransfer? = nil
     ) -> RetainedRemovalAttachmentWriteResult? {
         let write = removalWrite?.claim(on: self, kind: .parentNil)
         return withExtendedLifetime(write) {
             // Refusal suppresses only the ACK, never this baseline native write.
+            let taskWrite = selectedTaskTransfer?.prepareParent(on: self, to: nil)
             parent = nil
+            selectedTaskTransfer?.didWrite(taskWrite)
             return write?.didWrite()
         }
     }
@@ -5622,11 +7860,14 @@ public final class ViewNode {
     @inline(never)
     @discardableResult
     func writeRemovalRuntimeNil(
-        removalWrite: RetainedRemovalAttachmentWrite?
+        removalWrite: RetainedRemovalAttachmentWrite?,
+        selectedTaskTransfer: RetainedSelectedContentSourceTransfer? = nil
     ) -> RetainedRemovalAttachmentWriteResult? {
         let write = removalWrite?.claim(on: self, kind: .runtimeNil)
         return withExtendedLifetime(write) {
+            let taskWrite = selectedTaskTransfer?.prepareRuntime(on: self, to: nil)
             runtime = nil
+            selectedTaskTransfer?.didWrite(taskWrite)
             return write?.didWrite()
         }
     }
@@ -6032,12 +8273,33 @@ public final class ViewNode {
 
     public private(set) weak var parent: ViewNode? {
         didSet {
-            if parent !== oldValue { storedAccessibilityAttachmentIdentity = nil }
+            selectedTaskMutationObservation?.record(.parent)
+            if parent !== oldValue {
+                selectedContentConstructionObservation?.revokeAttachment()
+                storedAccessibilityAttachmentIdentity = nil
+            }
         }
     }
-    public private(set) var children: [ViewNode]
+    public private(set) var children: [ViewNode] {
+        willSet {
+            selectedContentConstructionObservation?.replaceChildren()
+            // Revoke only structural selection reads, before this literal
+            // publication. Attachment, namespace, and removal receipts retain
+            // their existing writers and qualification rules.
+            if let selectedContentState {
+                selectedContentState.childrenIdentity = RetainedSelectedContentChildrenIdentity()
+            }
+            selectedTaskMutationObservation?.record(.children)
+        }
+    }
 
-    fileprivate weak var runtime: RetainedViewRuntime?
+    fileprivate weak var runtime: RetainedViewRuntime? {
+        didSet {
+            selectedTaskMutationObservation?.record(.runtime)
+            // Detached assembly's existing nil-to-nil stores are unchanged.
+            if runtime !== oldValue { selectedContentConstructionObservation?.revokeAttachment() }
+        }
+    }
 
     /// "Now" on the animation clock of the runtime this node belongs to.
     ///
@@ -6758,6 +9020,11 @@ public final class ViewNode {
     }
 
     public func addChild(_ child: ViewNode) {
+        addChild(child, panelAssembly: nil)
+    }
+
+    fileprivate func addChild(_ child: ViewNode, panelAssembly: RetainedSelectedContentPanelAssemblySlot?) {
+        guard panelAssembly?.observe() != false else { return }
         guard !isRetiringLazyListAttachment, !child.isRetiringLazyListAttachment,
             child.parent?.isRetiringLazyListAttachment != true
         else { return }
@@ -6769,13 +9036,23 @@ public final class ViewNode {
             if sourceRuntime !== interactionRuntime { sourceRuntime?.endLongPressReconciliation() }
             interactionRuntime?.endLongPressReconciliation()
         }
-        child.removeFromParent()
+        child.removeFromParent(buttonActions: nil, panelAssembly: panelAssembly)
+        guard panelAssembly?.observe() != false else { return }
         guard !isRetiringLazyListAttachment, !child.isRetiringLazyListAttachment, child.parent == nil else { return }
-        child.revokeLazyListAttachmentProofs()
+        child.revokeLazyListAttachmentProofs(removalWrite: nil, panelAssembly: panelAssembly)
+        guard panelAssembly?.observe() != false else { return }
+        let parentWrite = panelAssembly?.prepareWrite(on: child, kind: .parentPanel)
+        if panelAssembly != nil, parentWrite == nil { return }
         child.parent = self
-        child.setRuntime(runtime)
+        panelAssembly?.didWrite(parentWrite)
+        guard panelAssembly?.observe() != false else { return }
+        child.setRuntime(runtime, panelAssembly: panelAssembly)
+        guard panelAssembly?.observe() != false else { return }
         guard !isRetiringLazyListAttachment, !child.isRetiringLazyListAttachment, child.parent === self else { return }
+        let childrenWrite = panelAssembly?.prepareWrite(on: self, kind: .appendChild)
+        if panelAssembly != nil, childrenWrite == nil { return }
         children.append(child)
+        panelAssembly?.didWrite(childrenWrite)
         runtime?.registerLazyListAttachments(in: child)
         RetainedButtonActionTree.publishStandalone(in: [child])
         invalidateRuntime(.children)
@@ -6794,9 +9071,17 @@ public final class ViewNode {
 
     /// Only a framework-owned source transfer may advance an adoption receipt.
     /// Public removal cannot inherit that permission through callback reentry.
-    private func removeFromParent(buttonActions: RetainedButtonActionAdoption?) {
+    private func removeFromParent(
+        buttonActions: RetainedButtonActionAdoption?, panelAssembly: RetainedSelectedContentPanelAssemblySlot? = nil,
+        selectedTaskTransfer: RetainedSelectedContentSourceTransfer? = nil
+    ) {
+        selectedTaskTransfer?.observe()
+        defer { selectedTaskTransfer?.observe() }
+        guard panelAssembly?.observe() != false else { return }
         guard let parent, let index = parent.children.firstIndex(where: { $0 === self }) else { return }
-        parent.removeChild(at: index, buttonActions: buttonActions)
+        parent.removeChild(
+            at: index, buttonActions: buttonActions, panelAssembly: panelAssembly,
+            selectedTaskTransfer: selectedTaskTransfer)
     }
 
     public func removeAllChildren() {
@@ -6916,7 +9201,14 @@ public final class ViewNode {
         removeChild(at: index, buttonActions: nil)
     }
 
-    private func removeChild(at index: Int, buttonActions: RetainedButtonActionAdoption?) {
+    private func removeChild(
+        at index: Int, buttonActions: RetainedButtonActionAdoption?,
+        panelAssembly: RetainedSelectedContentPanelAssemblySlot? = nil,
+        selectedTaskTransfer: RetainedSelectedContentSourceTransfer? = nil
+    ) {
+        selectedTaskTransfer?.observe()
+        defer { selectedTaskTransfer?.observe() }
+        guard panelAssembly?.observe() != false else { return }
         guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
         guard index >= 0, index < children.count else {
             return
@@ -6948,9 +9240,18 @@ public final class ViewNode {
         }
 
         guard !children[index].isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
+        let constructionWrite = panelAssembly?.prepareWrite(on: self, kind: .removeChild(index))
+        // Its admission callback may have changed this table. Unperformed
+        // construction writes stop; the already claimed departure defers above
+        // still finish, without removing a newly substituted child.
+        if panelAssembly != nil, constructionWrite == nil { return }
+        let taskWrite = selectedTaskTransfer?.prepareSourceRemoval(from: self, at: index)
         let removed = children.remove(at: index)
+        selectedTaskTransfer?.didWrite(taskWrite)
+        panelAssembly?.didWrite(constructionWrite)
         let canContinueInsertion = buttonActions?.recordChildrenWrite(on: self) != false
         if let sourceDeparture {
+            selectedTaskTransfer?.refuseUnsupportedRoute()
             detachButtonActionSource(
                 sourceDeparture, taskRoots: physicalTaskRoots[ObjectIdentifier(removed)] ?? [],
                 originalRemoval: originalRemovalAttachments[ObjectIdentifier(removed)])
@@ -6958,7 +9259,8 @@ public final class ViewNode {
             guard canContinueInsertion else { return }
             detachRemovedChild(
                 removed, buttonActions: buttonActions, taskRoots: physicalTaskRoots[ObjectIdentifier(removed)] ?? [],
-                originalRemoval: originalRemovalAttachments[ObjectIdentifier(removed)])
+                originalRemoval: originalRemovalAttachments[ObjectIdentifier(removed)], panelAssembly: panelAssembly,
+                selectedTaskTransfer: selectedTaskTransfer)
         }
         invalidateRuntime()
     }
@@ -7109,25 +9411,41 @@ public final class ViewNode {
     /// `replaceChild` and `setChildren`.
     private func detachRemovedChild(
         _ removed: ViewNode, buttonActions: RetainedButtonActionAdoption? = nil,
-        taskRoots: [RetainedTaskPhysicalDepartureRoot] = [], originalRemoval: RetainedRemovalAttachmentContinuation?
+        taskRoots: [RetainedTaskPhysicalDepartureRoot] = [], originalRemoval: RetainedRemovalAttachmentContinuation?,
+        panelAssembly: RetainedSelectedContentPanelAssemblySlot? = nil,
+        selectedTaskTransfer: RetainedSelectedContentSourceTransfer? = nil
     ) {
+        selectedTaskTransfer?.observe()
+        defer { selectedTaskTransfer?.observe() }
+        // This removal has already claimed its baseline departure. Construction
+        // refusal observes failure but cannot cancel the physical drain.
+        panelAssembly?.observe()
         guard !isRetiringLazyListAttachment, !removed.isRetiringLazyListAttachment,
             buttonActions?.isCurrent != false
         else { return }
         guard !taskRoots.contains(where: \.wasPhysicallyHandled) else { return }
         let currentTaskRoots = taskRoots.filter { $0.canTrackRemoval(of: removed) }
-        let initialWrite = removed.revokeLazyListAttachmentProofs(removalWrite: originalRemoval?.prepareRevoke())
+        let initialWrite = removed.revokeLazyListAttachmentProofs(
+            removalWrite: originalRemoval?.prepareRevoke(), panelAssembly: panelAssembly,
+            completingPanelDeparture: true,
+            selectedTaskTransfer: selectedTaskTransfer)
+        selectedTaskTransfer?.observe()
+        panelAssembly?.observe()
         guard buttonActions?.recordAttachmentWrite(on: removed) != false else { return }
         let taskSetup = initialWrite?.isCurrent == true ? originalRemoval : nil
         removed.revokeTextInputOwnership()
+        panelAssembly?.observe()
         guard buttonActions?.isCurrent != false else { return }
         removed.onDismantlePlatformView?(removed)
+        selectedTaskTransfer?.observe()
+        panelAssembly?.observe()
         guard !isRetiringLazyListAttachment, !removed.isRetiringLazyListAttachment,
             buttonActions?.isCurrent != false
         else { return }
         // Adoption also removes fresh nodes from temporary construction
         // parents. Only a mounted parent can own and retire a removal overlay.
         if runtime != nil, removed.transition.removal.kind != .identity, removed.applyRemovalTransition() {
+            selectedTaskTransfer?.refuseUnsupportedRoute()
             guard !isRetiringLazyListAttachment, !removed.isRetiringLazyListAttachment,
                 buttonActions?.isCurrent != false
             else { return }
@@ -7146,17 +9464,42 @@ public final class ViewNode {
             guard buttonActions?.isCurrent != false else { return }
             let finishesOriginalTaskRoots = taskSetup?.isCurrent == true
             removed.markSubtreeDisappeared()
+            selectedTaskTransfer?.observe()
+            panelAssembly?.observe()
             if finishesOriginalTaskRoots {
                 for root in currentTaskRoots { root.finishImmediateRemoval() }
             }
             guard !isRetiringLazyListAttachment, !removed.isRetiringLazyListAttachment,
                 buttonActions?.isCurrent != false
             else { return }
-            removed.revokeLazyListAttachmentProofs()
+            removed.revokeLazyListAttachmentProofs(
+                removalWrite: nil, panelAssembly: panelAssembly, completingPanelDeparture: true,
+                selectedTaskTransfer: selectedTaskTransfer)
+            selectedTaskTransfer?.observe()
+            let parentWrite = panelAssembly?.prepareWrite(on: removed, kind: .parentNil)
+            let taskWrite = selectedTaskTransfer?.prepareParent(on: removed, to: nil)
             removed.parent = nil
+            selectedTaskTransfer?.didWrite(taskWrite)
+            panelAssembly?.didWrite(parentWrite)
             guard buttonActions?.recordAttachmentWrite(on: removed) != false else { return }
-            removed.setRuntime(nil, buttonActions: buttonActions)
+            removed.setRuntime(
+                nil, buttonActions: buttonActions, panelAssembly: panelAssembly, completingPanelDeparture: true,
+                selectedTaskTransfer: selectedTaskTransfer)
+            panelAssembly?.observe()
         }
+    }
+
+    /// End the original incoming snapshot's strong lifetime before the
+    /// setter reaches any existing callbacks or field-release boundary.
+    @inline(never)
+    private func prepareSelectedTaskSourceAdoption(
+        _ nextChildren: [ViewNode], sourceParent: ViewNode?, journal: RetainedLazyListAdoptionJournal?
+    ) -> RetainedSelectedContentSourceAdoption? {
+        guard let journal,
+            let incoming = Self.lazyListNodes(in: nextChildren.filter { $0.parent !== self })
+        else { return nil }
+        return journal.prepareSelectedTaskSourceChildren(
+            from: sourceParent, to: self, proposedChildren: nextChildren, incomingNodes: incoming)
     }
 
     /// Replaces the child list wholesale with `nextChildren`, in that order.
@@ -7176,6 +9519,9 @@ public final class ViewNode {
         finalChildrenCutWasRefused: inout Bool
     ) {
         guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
+        let selectedTaskAdoption = prepareSelectedTaskSourceAdoption(
+            nextChildren, sourceParent: sourceParent, journal: lazyJournal)
+        defer { selectedTaskAdoption?.observe() }
         // A rebuild reconciles every node in the window, and for the
         // overwhelming majority of them it hands back the same child objects
         // in the same order — the reconcile already matched them and updated
@@ -7187,6 +9533,7 @@ public final class ViewNode {
         // and the reason a rebuild used to re-descend subtrees nothing had
         // touched.
         if isChildListUnchanged(nextChildren) {
+            selectedTaskAdoption?.recordUnchangedChildren()
             if let sourceParent, let lazyJournal,
                 lazyJournal.prepareOwnedStructuralDeclaration(from: sourceParent, to: self)
             {
@@ -7253,7 +9600,9 @@ public final class ViewNode {
         if nextChildren.isEmpty, let sourceParent, let lazyJournal {
             recordsEmptyDeclaration = lazyJournal.prepareOwnedStructuralDeclaration(from: sourceParent, to: self)
         }
+        let emptyTaskWrite = selectedTaskAdoption?.prepareTargetChildrenWrite([], isFinal: false)
         children = []
+        selectedTaskAdoption?.didWrite(emptyTaskWrite)
         buttonActions?.recordChildrenWrite(on: self)
         if recordsEmptyDeclaration, let sourceParent {
             lazyJournal?.recordAcceptedOwnedStructuralDeclaration(from: sourceParent, to: self)
@@ -7264,25 +9613,34 @@ public final class ViewNode {
             detachRemovedChild(
                 child, taskRoots: physicalTaskRoots[ObjectIdentifier(child)] ?? [],
                 originalRemoval: originalRemovalAttachments[ObjectIdentifier(child)])
+            selectedTaskAdoption?.observe()
         }
         guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
         for child in nextChildren {
             guard !child.isRetiringLazyListAttachment, child.parent?.isRetiringLazyListAttachment != true else {
                 return
             }
+            var selectedTaskTransfer: RetainedSelectedContentSourceTransfer?
             if child.parent !== self {
+                selectedTaskTransfer = selectedTaskAdoption?.sourceTransfer(of: child, from: child.parent)
                 guard buttonActions?.beginInsertion(in: [child]) != false else { return }
-                child.removeFromParent(buttonActions: buttonActions)
+                child.removeFromParent(buttonActions: buttonActions, selectedTaskTransfer: selectedTaskTransfer)
+                selectedTaskTransfer?.observe()
                 guard !isRetiringLazyListAttachment, !child.isRetiringLazyListAttachment, child.parent == nil,
                     buttonActions?.isCurrent != false
                 else {
                     return
                 }
-                child.revokeLazyListAttachmentProofs()
+                child.revokeLazyListAttachmentProofs(
+                    removalWrite: nil, panelAssembly: nil, selectedTaskTransfer: selectedTaskTransfer)
+                selectedTaskTransfer?.observe()
+                let parentTaskWrite = selectedTaskTransfer?.prepareParent(on: child, to: self)
                 child.parent = self
+                selectedTaskTransfer?.didWrite(parentTaskWrite)
                 guard buttonActions?.recordAttachmentWrite(on: child) != false else { return }
             }
-            child.setRuntime(runtime, buttonActions: buttonActions)
+            child.setRuntime(runtime, buttonActions: buttonActions, selectedTaskTransfer: selectedTaskTransfer)
+            selectedTaskAdoption?.observe()
             guard !isRetiringLazyListAttachment, !child.isRetiringLazyListAttachment, child.parent === self,
                 buttonActions?.isCurrent != false
             else {
@@ -7303,7 +9661,9 @@ public final class ViewNode {
             finalChildrenCutWasRefused = true
             return
         }
+        let finalTaskWrite = selectedTaskAdoption?.prepareTargetChildrenWrite(nextChildren, isFinal: true)
         writeFinalChildren(nextChildren)
+        selectedTaskAdoption?.didWrite(finalTaskWrite)
         guard buttonActions?.recordChildrenWrite(on: self) != false else { return }
         guard buttonActions?.recordInsertion(in: nextChildren) != false else { return }
         if recordsDeclaration, let sourceParent {
@@ -7311,6 +9671,7 @@ public final class ViewNode {
         }
         for child in nextChildren { runtime?.registerLazyListAttachments(in: child) }
         if buttonActions == nil { RetainedButtonActionTree.publishStandalone(in: nextChildren) }
+        selectedTaskAdoption?.recordInsertedEdges()
         if let lazyJournal {
             // The legacy setter's publication point stays in its original
             // position. These are metadata facts for the ordinary epoch; the
@@ -7459,10 +9820,23 @@ public final class ViewNode {
     fileprivate func setRuntime(
         _ runtime: RetainedViewRuntime?, hasRevokedTextInputOwnership: Bool = false,
         buttonActions: RetainedButtonActionAdoption? = nil,
-        removalOverlay: RetainedRemovalOverlayEntry? = nil
+        removalOverlay: RetainedRemovalOverlayEntry? = nil,
+        panelAssembly: RetainedSelectedContentPanelAssemblySlot? = nil, completingPanelDeparture: Bool = false,
+        selectedTaskTransfer: RetainedSelectedContentSourceTransfer? = nil
     ) {
+        selectedTaskTransfer?.observe()
+        defer { selectedTaskTransfer?.observe() }
+        guard
+            panelAssembly?.mayContinueRuntimeWork(
+                on: self, to: runtime, cleanup: completingPanelDeparture) != false
+        else { return }
         guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
         buttonActionOwner?.runtimeWillChange(from: self.runtime, to: runtime)
+        selectedTaskTransfer?.observe()
+        guard
+            panelAssembly?.mayContinueRuntimeWork(
+                on: self, to: runtime, cleanup: completingPanelDeparture) != false
+        else { return }
         guard buttonActions?.isCurrent != false else { return }
         if let previousRuntime = self.runtime, previousRuntime !== runtime,
             let adapter = retainedLazyListAdapter, adapter.ownsAttachment(self)
@@ -7471,37 +9845,87 @@ public final class ViewNode {
             // before another runtime can acquire it. The supported transfer
             // is detach, complete cleanup, then attach on a fresh operation.
             guard runtime == nil else { return }
+            selectedTaskTransfer?.refuseUnsupportedRoute()
             detachLazyListRuntime(
                 from: previousRuntime, adapter: adapter,
                 hasRevokedTextInputOwnership: hasRevokedTextInputOwnership, removalOverlay: removalOverlay)
+            panelAssembly?.observe()
             return
         }
         let didChangeRuntime = self.runtime !== runtime
         if didChangeRuntime { storedAccessibilityAttachmentIdentity = nil }
         let isLeavingRuntime = self.runtime != nil && self.runtime !== runtime
         if isLeavingRuntime { lifecycleHandlers?.retainedTasks?.invalidateAttachment() }
+        selectedTaskTransfer?.observe()
+        guard
+            panelAssembly?.mayContinueRuntimeWork(
+                on: self, to: runtime, cleanup: completingPanelDeparture) != false
+        else { return }
         if didChangeRuntime {
-            revokeLazyListAttachmentProofs(removalWrite: runtime == nil ? removalOverlay?.prepareRevoke() : nil)
+            revokeLazyListAttachmentProofs(
+                removalWrite: runtime == nil ? removalOverlay?.prepareRevoke() : nil, panelAssembly: nil,
+                selectedTaskTransfer: selectedTaskTransfer)
+            selectedTaskTransfer?.observe()
             guard buttonActions?.recordAttachmentWrite(on: self) != false else { return }
             self.runtime?.unregisterLazyListContainer(self)
+            selectedTaskTransfer?.observe()
+            guard
+                panelAssembly?.mayContinueRuntimeWork(
+                    on: self, to: runtime, cleanup: completingPanelDeparture) != false
+            else { return }
         }
         if isLeavingRuntime, !hasRevokedTextInputOwnership {
             revokeTextInputOwnership()
+            guard
+                panelAssembly?.mayContinueRuntimeWork(
+                    on: self, to: runtime, cleanup: completingPanelDeparture) != false
+            else { return }
         }
         guard buttonActions?.isCurrent != false else { return }
         if didChangeRuntime {
             fileDialogPresenterLease?.invalidate()
+            selectedTaskTransfer?.observe()
+            guard
+                panelAssembly?.mayContinueRuntimeWork(
+                    on: self, to: runtime, cleanup: completingPanelDeparture) != false
+            else { return }
             if let state = scrollContainerState { state.attachmentGeneration &+= 1 }
             self.runtime?.unregisterScrollObservationNode(self)
+            selectedTaskTransfer?.observe()
             scrollObserverStorage?.reset()
+            selectedTaskTransfer?.observe()
+            guard
+                panelAssembly?.mayContinueRuntimeWork(
+                    on: self, to: runtime, cleanup: completingPanelDeparture) != false
+            else { return }
             guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
             if self.runtime != nil { textInputController?.willDetach(from: self) }
+            selectedTaskTransfer?.observe()
+            guard
+                panelAssembly?.mayContinueRuntimeWork(
+                    on: self, to: runtime, cleanup: completingPanelDeparture) != false
+            else { return }
             guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
             self.runtime?.releaseInteractionTargets(in: self)
+            selectedTaskTransfer?.observe()
+            guard
+                panelAssembly?.mayContinueRuntimeWork(
+                    on: self, to: runtime, cleanup: completingPanelDeparture) != false
+            else { return }
             guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
             self.runtime?.cancelColorAnimations(of: self)
+            selectedTaskTransfer?.observe()
+            guard
+                panelAssembly?.mayContinueRuntimeWork(
+                    on: self, to: runtime, cleanup: completingPanelDeparture) != false
+            else { return }
             if runtime == nil {
                 textInputController?.detach(from: self)
+                selectedTaskTransfer?.observe()
+                guard
+                    panelAssembly?.mayContinueRuntimeWork(
+                        on: self, to: runtime, cleanup: completingPanelDeparture) != false
+                else { return }
                 guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
             }
         }
@@ -7514,18 +9938,34 @@ public final class ViewNode {
             self.runtime?.unregisterAnimatingNode(self)
             runtime?.registerAnimatingNode(self)
         }
+        guard
+            panelAssembly?.mayContinueRuntimeWork(
+                on: self, to: runtime, cleanup: completingPanelDeparture) != false
+        else { return }
         guard buttonActions?.isCurrent != false else { return }
         if runtime == nil {
-            writeRemovalRuntimeNil(removalWrite: removalOverlay?.prepareRuntimeNil())
+            writeRemovalRuntimeNil(
+                removalWrite: removalOverlay?.prepareRuntimeNil(), selectedTaskTransfer: selectedTaskTransfer)
         } else {
+            let taskWrite = selectedTaskTransfer?.prepareRuntime(on: self, to: runtime)
             self.runtime = runtime
+            selectedTaskTransfer?.didWrite(taskWrite)
         }
+        guard
+            panelAssembly?.mayContinueRuntimeWork(
+                on: self, to: runtime, cleanup: completingPanelDeparture) != false
+        else { return }
         guard buttonActions?.recordAttachmentWrite(on: self) != false else { return }
         // A native reattachment starts a different physical lifetime. Its
         // later admission cannot inherit the old overlay's input/task fence;
         // stale overlay completion still owns only its captured old payload.
         if runtime != nil { isRemovalOverlay = false }
         if let runtime { listNavigationOwner?.didAttach(to: runtime) }
+        selectedTaskTransfer?.observe()
+        guard
+            panelAssembly?.mayContinueRuntimeWork(
+                on: self, to: runtime, cleanup: completingPanelDeparture) != false
+        else { return }
         if runtime != nil, didChangeRuntime {
             fileDialogPresenterIsDeparting = false
             fileDialogPreparedRevocations = 0
@@ -7533,17 +9973,35 @@ public final class ViewNode {
         if runtime != nil {
             guard buttonActions?.isCurrent != false else { return }
             textInputController?.attach(to: self)
+            selectedTaskTransfer?.observe()
+            guard
+                panelAssembly?.mayContinueRuntimeWork(
+                    on: self, to: runtime, cleanup: completingPanelDeparture) != false
+            else { return }
             guard !isRetiringLazyListAttachment, buttonActions?.isCurrent != false else { return }
         }
         if scrollObserverStorage != nil {
             runtime?.registerScrollObservationNode(self)
+            selectedTaskTransfer?.observe()
         }
         if retainedLazyListAdapter != nil { runtime?.registerLazyListContainer(self) }
+        selectedTaskTransfer?.observe()
         for child in children {
+            guard
+                panelAssembly?.mayContinueRuntimeWork(
+                    on: self, to: runtime, cleanup: completingPanelDeparture) != false
+            else { return }
             guard buttonActions?.isCurrent != false else { return }
             child.setRuntime(
                 runtime, hasRevokedTextInputOwnership: hasRevokedTextInputOwnership || isLeavingRuntime,
-                buttonActions: buttonActions)
+                buttonActions: buttonActions, panelAssembly: panelAssembly,
+                completingPanelDeparture: completingPanelDeparture,
+                selectedTaskTransfer: selectedTaskTransfer)
+            selectedTaskTransfer?.observe()
+            guard
+                panelAssembly?.mayContinueRuntimeWork(
+                    on: self, to: runtime, cleanup: completingPanelDeparture) != false
+            else { return }
             guard buttonActions?.isCurrent != false else { return }
         }
     }
@@ -7866,11 +10324,20 @@ public final class ViewNode {
         let node: ViewNode
         let depth: Int
         let attachment: RetainedLazyListAttachmentProof?
+        let selectedContentPath: RetainedSelectedContentPath?
+        let failure: LayoutOperandFailure
         weak var checkedRuntime: RetainedViewRuntime?
 
-        init(node: ViewNode, depth: Int) {
+        init(node: ViewNode, depth: Int, failure: LayoutOperandFailure) {
             self.node = node
             self.depth = depth
+            self.failure = failure
+            if node.hasSelectedContentBoundaryInPhysicalPath {
+                selectedContentPath = node.captureSelectedContentLayoutPath()
+                if selectedContentPath == nil { failure.failed = true }
+            } else {
+                selectedContentPath = nil
+            }
             if let runtime = node.runtime, runtime.hasLazyListLayoutScope {
                 attachment = node.captureLazyListAttachmentProof()
                 checkedRuntime = runtime
@@ -7881,7 +10348,13 @@ public final class ViewNode {
         }
 
         var isCurrent: Bool {
-            attachment == nil
+            guard !failure.failed,
+                selectedContentPath?.isCurrent ?? !node.hasSelectedContentBoundaryInPhysicalPath
+            else {
+                failure.failed = true
+                return false
+            }
+            return attachment == nil
                 || (attachment?.isCurrent == true && checkedRuntime?.permitsRetainedActionInvocation == true)
         }
     }
@@ -7892,7 +10365,7 @@ public final class ViewNode {
         /// `.absolute` container's content size is the union of frames its
         /// children only settle on down there, and the scroll anchor and the
         /// clamped offset both read that size.
-        case finish(LayoutTraversalContext)
+        case finish(LayoutTraversalContext, LayoutOperandScope?)
     }
 
     /// Layout, as an explicit worklist rather than a recursion.
@@ -7905,24 +10378,37 @@ public final class ViewNode {
     /// the stack to itself.
     fileprivate func layoutSubtree(displayScale: Double) {
         let baseDepth = ViewNode.traversalDepth
-        defer { ViewNode.traversalDepth = baseDepth }
+        let failure = LayoutOperandFailure()
+        let layoutRuntime = runtime
+        defer {
+            ViewNode.traversalDepth = baseDepth
+            if failure.failed { layoutRuntime?.recordSelectedContentLayoutFailure() }
+        }
 
         var traversal: [LayoutTraversalStep] = [
-            .enter(LayoutTraversalContext(node: self, depth: 0))
+            .enter(LayoutTraversalContext(node: self, depth: 0, failure: failure))
         ]
 
         while let traversalStep = traversal.popLast() {
             let context: LayoutTraversalContext
             switch traversalStep {
-            case .finish(let finishContext):
-                guard finishContext.isCurrent else {
+            case .finish(let finishContext, let scope):
+                guard finishContext.isCurrent, scope?.isCurrent != false else {
                     finishContext.checkedRuntime?.rejectLazyListLayoutVisit()
+                    finishContext.node.pendingLayoutKey = nil
                     continue
                 }
                 ViewNode.traversalDepth = baseDepth + finishContext.depth + 1
+                if finishContext.node.selectedContentRole != nil {
+                    // Structural boundaries own neither content geometry nor
+                    // layout caches. Their physical pass stamp remains real.
+                    finishContext.node.lastLayoutVisitPassID = finishContext.node.runtime?.layoutPassID ?? 0
+                    continue
+                }
+                guard let scope else { continue }
                 finishContext.node.validateLazyListAssignedVerticalGeometry(
-                    context: finishContext, afterChildLayout: true)
-                finishContext.node.finishLayoutPass()
+                    context: finishContext, scope: scope, afterChildLayout: true)
+                finishContext.node.finishLayoutPass(scope: scope)
                 continue
 
             case .enter(let entryContext):
@@ -7936,6 +10422,25 @@ public final class ViewNode {
             }
             guard ViewNode.enterTraversal(atDepth: baseDepth + context.depth) else { continue }
             node.runtime?.recordLayoutVisit()
+
+            if node.selectedContentRole != nil {
+                guard let path = context.selectedContentPath, path.isCurrent,
+                    let child = path.nextPhysicalChild, child.parent === node
+                else {
+                    context.checkedRuntime?.rejectLazyListLayoutVisit()
+                    continue
+                }
+                // The original logical parent already assigned the selected
+                // terminal. Do not propose, position, or cache that slot again.
+                node.resolvedFrame = .zero
+                node.resolvedContentSize = .zero
+                node.pendingLayoutKey = nil
+                node.cachedLayoutKey = nil
+                traversal.append(.finish(context, nil))
+                traversal.append(
+                    .enter(LayoutTraversalContext(node: child, depth: context.depth + 1, failure: failure)))
+                continue
+            }
 
             // Recomputed, never latched: a scrollable node's virtualization
             // flag is only as true as the deferrals this pass is about to
@@ -7967,18 +10472,29 @@ public final class ViewNode {
             let layoutKey = ViewLayoutCacheKey(frame: node.resolvedFrame, displayScale: displayScale)
             let layoutDirtyFlags = node.subtreeDirtyFlags.intersection([.layout, .children])
             if layoutDirtyFlags.isEmpty, node.cachedLayoutKey == layoutKey {
-                node.enqueueCleanPathChildren(into: &traversal, depth: context.depth)
+                guard
+                    let scope = LayoutOperandScope(
+                        node: node, path: context.selectedContentPath, failure: failure)
+                else {
+                    context.checkedRuntime?.rejectLazyListLayoutVisit()
+                    continue
+                }
+                node.enqueueCleanPathChildren(into: &traversal, depth: context.depth, scope: scope, failure: failure)
+                guard context.isCurrent, scope.isCurrent else {
+                    context.checkedRuntime?.rejectLazyListLayoutVisit()
+                    continue
+                }
                 node.lastLayoutVisitPassID = node.runtime?.layoutPassID ?? 0
                 continue
             }
 
-            guard node.beginLayoutPass(context: context) else { continue }
+            guard node.beginLayoutPass(context: context), context.isCurrent,
+                let scope = LayoutOperandScope(node: node, path: context.selectedContentPath, failure: failure)
+            else { continue }
 
-            // The node's own frame is settled and its children's frames are
-            // computed here; `finish` closes the pass once they have been laid
-            // out. Pushed before the children so it pops after all of them.
-            traversal.append(.finish(context))
-            node.placeChildren(into: &traversal, depth: context.depth, layoutKey: layoutKey, context: context)
+            traversal.append(.finish(context, scope))
+            node.placeChildren(
+                into: &traversal, depth: context.depth, layoutKey: layoutKey, context: context, scope: scope)
         }
     }
 
@@ -7987,6 +10503,10 @@ public final class ViewNode {
     /// a descendant `.lazyStack` will resolve its viewport against.
     @inline(never)
     private func beginLayoutPass(context: LayoutTraversalContext) -> Bool {
+        guard context.isCurrent else {
+            context.checkedRuntime?.rejectLazyListLayoutVisit()
+            return false
+        }
         onLayout?(resolvedFrame)
         guard context.isCurrent else {
             context.checkedRuntime?.rejectLazyListLayoutVisit()
@@ -8027,34 +10547,37 @@ public final class ViewNode {
         into traversal: inout [LayoutTraversalStep],
         depth: Int,
         layoutKey: ViewLayoutCacheKey,
-        context: LayoutTraversalContext
+        context: LayoutTraversalContext,
+        scope: LayoutOperandScope
     ) {
+        guard context.isCurrent, scope.isCurrent else { return }
         pendingLayoutKey = layoutKey
         var descendants: [ViewNode] = []
         if retainedLazyListAdapter != nil {
-            layoutRetainedLazyListChildren(descendants: &descendants)
+            layoutRetainedLazyListChildren(descendants: &descendants, scope: scope)
         } else {
             switch layoutMode {
             case .absolute:
-                layoutAbsoluteChildren(descendants: &descendants)
-
+                layoutAbsoluteChildren(descendants: &descendants, scope: scope)
             case .stack(let stackLayout), .lazyStack(let stackLayout):
-                layoutStackChildren(stackLayout: stackLayout, descendants: &descendants)
-
+                layoutStackChildren(stackLayout: stackLayout, descendants: &descendants, scope: scope)
             case .flex(let flexStyle):
-                layoutFlexChildren(flexStyle: flexStyle, descendants: &descendants)
-
+                layoutFlexChildren(flexStyle: flexStyle, descendants: &descendants, scope: scope)
             case .grid(let gridLayout):
-                layoutGridChildren(gridLayout: gridLayout, descendants: &descendants)
-
+                layoutGridChildren(gridLayout: gridLayout, descendants: &descendants, scope: scope)
             case .gridRow(let rowLayout):
-                layoutGridRowChildren(rowLayout: rowLayout, descendants: &descendants)
+                layoutGridRowChildren(rowLayout: rowLayout, descendants: &descendants, scope: scope)
             }
         }
 
-        validateLazyListAssignedVerticalGeometry(context: context)
+        guard context.isCurrent, scope.isCurrent else {
+            context.checkedRuntime?.rejectLazyListLayoutVisit()
+            pendingLayoutKey = nil
+            return
+        }
+        validateLazyListAssignedVerticalGeometry(context: context, scope: scope)
         for child in descendants.reversed() {
-            traversal.append(.enter(LayoutTraversalContext(node: child, depth: depth + 1)))
+            traversal.append(.enter(LayoutTraversalContext(node: child, depth: depth + 1, failure: context.failure)))
         }
     }
 
@@ -8062,35 +10585,50 @@ public final class ViewNode {
     /// original parent context still owns this rejection after any callback;
     /// no replacement owner or estimated child size can qualify it.
     private func validateLazyListAssignedVerticalGeometry(
-        context: LayoutTraversalContext, afterChildLayout: Bool = false
+        context: LayoutTraversalContext, scope: LayoutOperandScope, afterChildLayout: Bool = false
     ) {
-        guard retainedLazyListAdapter == nil, context.node === self, context.isCurrent,
-            let checkedRuntime = context.checkedRuntime, runtime === checkedRuntime,
-            children.count == 1, let child = children.first, !child.isHidden,
-            child.parent === self, child.runtime === checkedRuntime,
-            !child.resolvedFrame.origin.y.isFinite || !child.resolvedFrame.height.isFinite
-                || !child.resolvedFrame.maxY.isFinite,
+        guard retainedLazyListAdapter == nil, context.node === self, context.isCurrent, scope.isCurrent,
+            let checkedRuntime = context.checkedRuntime, runtime === checkedRuntime
+        else { return }
+        let physicalChild: ViewNode
+        let selectedChild: ViewNode
+        if scope.hasSelectedOperands {
+            guard scope.children.count == 1, let operand = scope.children.first else { return }
+            physicalChild = operand.physicalNode
+            selectedChild = operand.selectedNode
+        } else {
+            guard children.count == 1, let child = children.first else { return }
+            physicalChild = child
+            selectedChild = child
+        }
+        guard !selectedChild.isHidden, physicalChild.parent === self, physicalChild.runtime === checkedRuntime,
+            !selectedChild.resolvedFrame.origin.y.isFinite || !selectedChild.resolvedFrame.height.isFinite
+                || !selectedChild.resolvedFrame.maxY.isFinite,
             hasLazyListLogicalVerticalContent() != false
         else { return }
         rejectLazyListLogicalGeometry()
         if afterChildLayout {
             // Its key describes the pre-callback slot. Do not let a clean
             // repeat skip the same child's still-authored invalid position.
-            child.pendingLayoutKey = nil
-            child.cachedLayoutKey = nil
+            selectedChild.pendingLayoutKey = nil
+            selectedChild.cachedLayoutKey = nil
         }
     }
 
     /// Closes a node's layout pass, once its subtree has been laid out.
     @inline(never)
-    private func finishLayoutPass() {
+    private func finishLayoutPass(scope: LayoutOperandScope) {
+        guard scope.isCurrent else {
+            pendingLayoutKey = nil
+            return
+        }
         if case .absolute = layoutMode, retainedLazyListAdapter == nil {
-            // Read back rather than accumulated during placement: a child with
-            // `.position()` rewrites its own frame while *it* lays out, so the
-            // union is only correct once the subtree below has settled.
+            // Position belongs to the selected terminal and settles during its
+            // own pass. Read that final logical frame, never the zero boundary.
             var maxChildX: Double = 0
             var maxChildY: Double = 0
-            for child in children {
+            let contentChildren = scope.hasSelectedOperands ? scope.children.map(\.selectedNode) : children
+            for child in contentChildren {
                 guard !child.isHidden else { continue }
                 maxChildX = max(maxChildX, child.resolvedFrame.maxX)
                 maxChildY = max(maxChildY, child.resolvedFrame.maxY)
@@ -8104,12 +10642,39 @@ public final class ViewNode {
 
         resolvedContentSize = sanitizedLazyListContentSize(resolvedContentSize)
         applyDefaultScrollAnchorAfterLayout()
-        if let pendingLayoutKey {
-            cachedLayoutKey = pendingLayoutKey
+        guard scope.isCurrent else {
+            pendingLayoutKey = nil
+            return
         }
+        if let pendingLayoutKey { cachedLayoutKey = pendingLayoutKey }
         pendingLayoutKey = nil
         resolvedScrollOffset = effectiveScrollOffset
         lastLayoutVisitPassID = runtime?.layoutPassID ?? 0
+    }
+
+    /// Finds the original layout parent through explicit selected-content
+    /// roles only. The returned child is still its actual physical child.
+    private func selectedContentLayoutParent() -> (
+        parent: ViewNode, physicalChild: ViewNode, path: RetainedSelectedContentPath?
+    )? {
+        if !hasSelectedContentBoundaryInPhysicalPath {
+            guard let parent else { return nil }
+            return (parent, self, nil)
+        }
+        var physicalChild = self
+        var depth = 0
+        while let candidate = physicalChild.parent, candidate.selectedContentRole != nil {
+            guard depth < Self.maximumTraversalDepth, candidate.children.count == 1,
+                candidate.children.first === physicalChild
+            else { return nil }
+            physicalChild = candidate
+            depth += 1
+        }
+        guard let parent = physicalChild.parent,
+            parent.children.contains(where: { $0 === physicalChild }),
+            let operand = LayoutChildOperand(physicalChild), operand.selectedNode === self, operand.isCurrent
+        else { return nil }
+        return (parent, physicalChild, operand.path)
     }
 
     /// Logical prefixes can exceed the scene's primitive coordinate range.
@@ -8118,15 +10683,18 @@ public final class ViewNode {
     /// native topology read, not a construction or settlement permission.
     fileprivate func hasLazyListLogicalVerticalContent() -> Bool? {
         if retainedLazyListAdapter != nil { return true }
-        if parent?.retainedLazyListAdapter != nil, scrollAxis == nil { return false }
+        if selectedContentLayoutParent()?.parent.retainedLazyListAdapter != nil, scrollAxis == nil { return false }
         if let scrollAxis, scrollAxis != .vertical { return false }
         var node = self
         var depth = 0
         while depth < Self.maximumTraversalDepth {
             if node !== self, node.scrollAxis != nil { return false }
             if node.retainedLazyListAdapter != nil { return true }
-            guard node.children.count == 1, let child = node.children.first, !child.isHidden else { return false }
-            guard child.parent === node, child.runtime === runtime else { return nil }
+            guard node.children.count == 1, let child = node.children.first else { return false }
+            guard let operand = LayoutChildOperand(child), child.parent === node, child.runtime === runtime else {
+                return nil
+            }
+            guard !operand.selectedNode.isHidden else { return false }
             node = child
             depth += 1
         }
@@ -8173,7 +10741,7 @@ public final class ViewNode {
         let changesOrigin = !frame.origin.y.isFinite || abs(frame.origin.y) > limit
         let changesHeight = !frame.height.isFinite || frame.height > limit
         guard changesOrigin || changesHeight else { return result }
-        let isNativeRow = parent?.retainedLazyListAdapter != nil
+        let isNativeRow = selectedContentLayoutParent()?.parent.retainedLazyListAdapter != nil
         var isContent = false
         if scrollAxis == nil, changesHeight || (changesOrigin && !isNativeRow) {
             guard let content = hasLazyListLogicalVerticalContent() else {
@@ -8245,84 +10813,120 @@ public final class ViewNode {
     @inline(never)
     private func enqueueCleanPathChildren(
         into traversal: inout [LayoutTraversalStep],
-        depth: Int
+        depth: Int,
+        scope: LayoutOperandScope,
+        failure: LayoutOperandFailure
     ) {
+        guard scope.isCurrent else { return }
         runtime?.recordLayoutReuse()
         resolvedScrollOffset = effectiveScrollOffset
 
         var descendants: [ViewNode] = []
         if retainedLazyListAdapter != nil {
-            layoutRetainedLazyListChildren(descendants: &descendants)
+            layoutRetainedLazyListChildren(descendants: &descendants, scope: scope)
         } else if layoutMode.virtualizesChildren, let mainAxis = layoutMode.stackLayout?.axis {
             let window = layoutVirtualizationWindow()
-            for child in children {
-                if Self.isOutsideLayoutViewport(child.resolvedFrame, viewport: window, axis: mainAxis) {
+            for operand in scope.children {
+                guard scope.accepts(operand) else { return }
+                let child = operand.physicalNode
+                if Self.isOutsideLayoutViewport(operand.selectedNode.resolvedFrame, viewport: window, axis: mainAxis) {
                     child.isLayoutDeferredByVirtualization = true
                     virtualizationScrollAncestor?.hasVirtualizedDescendants = true
                     runtime?.recordVirtualizedLayoutSkip()
                     continue
                 }
                 let resumed = child.resumeVirtualizedLayout()
-                if resumed || child.hasDirtySubtree {
-                    descendants.append(child)
-                }
+                if resumed || child.hasDirtySubtree { descendants.append(child) }
             }
         } else if hasDirtySubtree || isOnVirtualizationDescentPath {
-            // The descent-path term is what keeps a lazy stack reachable
-            // through a clean ancestor: a scroll dirties the scrollable node,
-            // not the panel between it and the stack, and a stack never
-            // reached is a stack that never resumes its rows.
-            for child in children where child.hasDirtySubtree || child.isOnVirtualizationDescentPath {
-                descendants.append(child)
+            for operand in scope.children {
+                let child = operand.physicalNode
+                if child.hasDirtySubtree || child.isOnVirtualizationDescentPath { descendants.append(child) }
             }
         }
 
+        guard scope.isCurrent else { return }
         for child in descendants.reversed() {
-            traversal.append(.enter(LayoutTraversalContext(node: child, depth: depth + 1)))
+            traversal.append(.enter(LayoutTraversalContext(node: child, depth: depth + 1, failure: failure)))
         }
+    }
+
+    /// Measures once and carries a rejected selected path back to the caller.
+    @inline(never)
+    private func checkedSizeThatFits(
+        in constraints: LayoutConstraints, scope: LayoutOperandScope
+    ) -> Size? {
+        guard scope.isCurrent else { return nil }
+        let memo = MeasurementMemo()
+        let measured = sizeThatFits(in: constraints, memo: memo)
+        guard !memo.selectedContentReadFailed, scope.isCurrent else {
+            scope.reject()
+            return nil
+        }
+        return measured
+    }
+
+    private func checkedStackShrinkFloorMainExtent(
+        along axis: StackAxis, constraints: LayoutConstraints, scope: LayoutOperandScope
+    ) -> Double? {
+        guard scope.isCurrent else { return nil }
+        let failure = scope.failure ?? LayoutOperandFailure()
+        let floor = stackShrinkFloorMainExtent(along: axis, constraints: constraints, failure: failure)
+        guard !failure.failed, scope.isCurrent else {
+            scope.reject()
+            return nil
+        }
+        return floor
     }
 
     /// `.absolute`: every child keeps its own origin and is measured against
     /// what is left of the container from there.
     @inline(never)
-    private func layoutAbsoluteChildren(descendants: inout [ViewNode]) {
-        for child in children {
+    private func layoutAbsoluteChildren(descendants: inout [ViewNode], scope: LayoutOperandScope) {
+        for operand in scope.children {
+            guard scope.accepts(operand) else { return }
+            let child = operand.selectedNode
             if let absoluteChildFrame {
-                child.resolvedFrame = absoluteChildFrame(child, resolvedFrame)
-                descendants.append(child)
+                let assigned = absoluteChildFrame(child, resolvedFrame)
+                guard scope.isCurrent, operand.assign(assigned, scope: scope) else { return }
+                descendants.append(operand.physicalNode)
                 continue
             }
             let childConstraints = LayoutConstraints(
                 maxWidth: remainingConstraintExtent(resolvedFrame.size.width, offset: child.frame.origin.x),
                 maxHeight: remainingConstraintExtent(resolvedFrame.size.height, offset: child.frame.origin.y)
             )
-            let size = child.sizeThatFits(in: childConstraints)
+            guard let size = operand.physicalNode.checkedSizeThatFits(in: childConstraints, scope: scope),
+                scope.isCurrent
+            else { return }
             let resolvedSize = child.absoluteLayoutSize(from: size)
-            child.resolvedFrame = Rect(origin: child.frame.origin, size: resolvedSize)
-            descendants.append(child)
+            guard operand.assign(Rect(origin: child.frame.origin, size: resolvedSize), scope: scope) else { return }
+            descendants.append(operand.physicalNode)
         }
     }
 
     /// `.flex`: the engine solves the whole row or column, then each child is
     /// placed at the frame it was given.
     @inline(never)
-    private func layoutFlexChildren(flexStyle: FlexStyle, descendants: inout [ViewNode]) {
-        let layouts = flexChildLayouts(for: flexStyle)
-
+    private func layoutFlexChildren(
+        flexStyle: FlexStyle, descendants: inout [ViewNode], scope: LayoutOperandScope
+    ) {
+        guard let layouts = flexChildLayouts(for: flexStyle, scope: scope), scope.isCurrent else { return }
         var visibleIndex = 0
-        for child in children {
-            if child.isHidden {
-                child.resolvedFrame = Rect(x: 0, y: 0, width: 0, height: 0)
+        for operand in scope.children {
+            if operand.selectedNode.isHidden {
+                guard operand.assign(.zero, scope: scope) else { return }
                 continue
             }
-
             let childLayout = layouts[visibleIndex]
-            child.resolvedFrame = Rect(
-                x: childLayout.x, y: childLayout.y, width: childLayout.width, height: childLayout.height)
-            descendants.append(child)
+            guard
+                operand.assign(
+                    Rect(x: childLayout.x, y: childLayout.y, width: childLayout.width, height: childLayout.height),
+                    scope: scope)
+            else { return }
+            descendants.append(operand.physicalNode)
             visibleIndex += 1
         }
-
         resolvedContentSize = resolvedFrame.size
         scrollContainerState?.contentSize = resolvedFrame.size
     }
@@ -8330,28 +10934,27 @@ public final class ViewNode {
     /// `.stack` / `.lazyStack`: allocate the track, then walk it placing —
     /// and, unless virtualization defers them, laying out — each child.
     @inline(never)
-    private func layoutStackChildren(stackLayout: StackLayout, descendants: inout [ViewNode]) {
-        if aspectFitLayout != nil, layoutAspectFitChild(descendants: &descendants) { return }
-        if layoutFrameOrTransparentChild(descendants: &descendants) { return }
-        let allocation = stackAllocation(for: stackLayout)
-        // nil for a plain `.stack` and for a `.lazyStack` with nothing
-        // scrollable above it, which is what makes virtualization opt-in
-        // and bounded rather than a guess.
+    private func layoutStackChildren(
+        stackLayout: StackLayout, descendants: inout [ViewNode], scope: LayoutOperandScope
+    ) {
+        guard scope.isCurrent else { return }
+        if aspectFitLayout != nil, layoutAspectFitChild(descendants: &descendants, scope: scope) { return }
+        if layoutFrameOrTransparentChild(descendants: &descendants, scope: scope) { return }
+        guard scope.isCurrent, let allocation = stackAllocation(for: stackLayout, scope: scope) else { return }
         let virtualizationWindow = layoutVirtualizationWindow()
         var cursor = StackPlacementCursor(mainCursor: allocation.mainCursorStart)
 
-        for child in children {
+        for operand in scope.children {
+            guard scope.accepts(operand) else { return }
             if placeStackChild(
-                child,
-                stackLayout: stackLayout,
-                allocation: allocation,
-                virtualizationWindow: virtualizationWindow,
-                cursor: &cursor
+                operand, stackLayout: stackLayout, allocation: allocation,
+                virtualizationWindow: virtualizationWindow, cursor: &cursor, scope: scope
             ) {
-                descendants.append(child)
+                descendants.append(operand.physicalNode)
             }
         }
 
+        guard scope.isCurrent else { return }
         resolvedContentSize = stackContentSize(
             stackLayout: stackLayout, allocation: allocation, maxCrossExtent: cursor.maxCrossExtent)
     }
@@ -8359,19 +10962,19 @@ public final class ViewNode {
     /// Only facade frame/clip geometry uses the accepted-size path below.
     /// Ordinary stacks, scrolling containers and aspect-fit fallbacks keep
     /// their existing allocation, padding, shrink and virtualization rules.
-    private var singleChildStackLayout: StackLayout? {
+    private func singleChildStackLayout(in scope: LayoutOperandScope) -> StackLayout? {
         guard case .stack(let stack) = layoutMode,
             stack.axis == .vertical, stack.spacing == 0, stack.padding == .zero,
-            stack.distribution == .fill, children.count == 1,
-            let child = children.first, !child.isHidden,
+            stack.distribution == .fill, scope.children.count == 1,
+            let child = scope.children.first?.selectedNode, !child.isHidden,
             scrollAxis == nil, scrollContainerState == nil,
             retainedLazyListAdapter == nil, aspectFitLayout == nil
         else { return nil }
         return stack
     }
 
-    private var forwardsSingleChildSize: Bool {
-        forwardsChildSize && singleChildStackLayout != nil
+    private func forwardsSingleChildSize(in scope: LayoutOperandScope) -> Bool {
+        forwardsChildSize && singleChildStackLayout(in: scope) != nil
             && preferredSize == nil && frame.size == .zero
             && layoutConstraints == nil && layoutFillAxes.isEmpty
             && fixedPreferredSizeAxes.isEmpty
@@ -8383,17 +10986,23 @@ public final class ViewNode {
     /// of an assigned slot: an ordinary parent may still have compressed this
     /// wrapper, so its child is proposed the actual resolved bounds.
     @inline(never)
-    private func layoutFrameOrTransparentChild(descendants: inout [ViewNode]) -> Bool {
+    private func layoutFrameOrTransparentChild(
+        descendants: inout [ViewNode], scope: LayoutOperandScope
+    ) -> Bool {
         let fixedFrame =
             forwardsStackMainAxisProposal
             && (fixedPreferredExtent(along: .horizontal) != nil || fixedPreferredExtent(along: .vertical) != nil)
-        guard forwardsSingleChildSize || fixedFrame,
-            let stack = singleChildStackLayout, let child = children.first
+        guard scope.isCurrent, forwardsSingleChildSize(in: scope) || fixedFrame,
+            let stack = singleChildStackLayout(in: scope), let operand = scope.children.first
         else { return false }
+        let child = operand.selectedNode
 
         let proposal = LayoutConstraints(
             maxWidth: max(0, resolvedFrame.width), maxHeight: max(0, resolvedFrame.height))
-        let accepted = child.sizeThatFits(in: proposal)
+        guard let accepted = operand.physicalNode.checkedSizeThatFits(in: proposal, scope: scope), scope.isCurrent
+        else {
+            return false
+        }
         let guideX = stackCrossOriginUsingAlignmentGuide(
             for: child, stackAxis: .vertical, stackAlignment: stack.alignment,
             contentOrigin: 0, contentExtent: resolvedFrame.width, childExtent: accepted.width)
@@ -8417,9 +11026,14 @@ public final class ViewNode {
         case .end: y = resolvedFrame.height - accepted.height
         }
 
-        child.resolvedFrame = Rect(x: x, y: y, width: max(0, accepted.width), height: max(0, accepted.height))
-        _ = child.resumeVirtualizedLayout()
-        descendants.append(child)
+        guard
+            operand.assign(
+                Rect(x: x, y: y, width: max(0, accepted.width), height: max(0, accepted.height)), scope: scope)
+        else {
+            return false
+        }
+        _ = operand.physicalNode.resumeVirtualizedLayout()
+        descendants.append(operand.physicalNode)
         let crossExtent = guideX == nil ? accepted.width : max(0, x + accepted.width)
         resolvedContentSize = Size(
             width: max(resolvedFrame.width, crossExtent), height: max(resolvedFrame.height, accepted.height))
@@ -8430,32 +11044,41 @@ public final class ViewNode {
     /// restore a fixed child's preferred dimensions through absolute layout.
     /// If this was a declined probe or its assigned slot changed, the original
     /// stack path remains responsible for allocation, alignment and clamping.
-    private func layoutAspectFitChild(descendants: inout [ViewNode]) -> Bool {
-        guard let measurement = cachedMeasurement,
+    private func layoutAspectFitChild(descendants: inout [ViewNode], scope: LayoutOperandScope) -> Bool {
+        guard scope.isCurrent, let measurement = cachedMeasurement,
             let fittedAspect = measurement.result.fittedAspect,
             fittedAspect == aspectFitLayout,
             measurement.key.displayScale == (runtime?.displayScale ?? 1),
             applyingLayoutConstraints(to: measurement.key.constraints) == measurement.key.constraints,
             measurement.result.size == resolvedFrame.size,
-            children.count == 1, let child = children.first, !child.isHidden
+            scope.children.count == 1, let operand = scope.children.first, !operand.selectedNode.isHidden
         else { return false }
 
-        child.resolvedFrame = Rect(origin: .zero, size: measurement.result.size)
-        descendants.append(child)
+        guard operand.assign(Rect(origin: .zero, size: measurement.result.size), scope: scope) else { return false }
+        descendants.append(operand.physicalNode)
         resolvedContentSize = resolvedFrame.size
         scrollContainerState?.contentSize = resolvedFrame.size
         return true
     }
 
     @inline(never)
-    private func layoutGridChildren(gridLayout: RetainedGridLayout, descendants: inout [ViewNode]) {
-        let geometry = makeGridGeometry(
-            layout: gridLayout,
-            constraints: LayoutConstraints(
-                maxWidth: resolvedFrame.width, maxHeight: resolvedFrame.height),
-            memo: MeasurementMemo(), alignInProposal: true)
+    private func layoutGridChildren(
+        gridLayout: RetainedGridLayout, descendants: inout [ViewNode], scope: LayoutOperandScope
+    ) {
+        let memo = MeasurementMemo()
+        guard scope.isCurrent,
+            let geometry = makeGridGeometry(
+                layout: gridLayout,
+                constraints: LayoutConstraints(maxWidth: resolvedFrame.width, maxHeight: resolvedFrame.height),
+                memo: memo, alignInProposal: true, scope: scope),
+            !memo.selectedContentReadFailed, scope.isCurrent
+        else {
+            scope.reject()
+            return
+        }
         resolvedGridGeometry = geometry
-        placeGridRows(geometry, descendants: &descendants)
+        placeGridRows(geometry, descendants: &descendants, scope: scope)
+        guard scope.isCurrent else { return }
         resolvedContentSize = Size(
             width: max(resolvedFrame.width, geometry.size.width),
             height: max(resolvedFrame.height, geometry.size.height))
@@ -8465,52 +11088,67 @@ public final class ViewNode {
     /// The single placement boundary for a Grid's physical row nodes. It is
     /// deliberately separate from measurement so checked child visits can be
     /// composed here without changing the numerical track solver.
-    private func placeGridRows(_ geometry: GridLayoutGeometry, descendants: inout [ViewNode]) {
+    private func placeGridRows(
+        _ geometry: GridLayoutGeometry, descendants: inout [ViewNode], scope: LayoutOperandScope
+    ) {
+        guard scope.isCurrent else { return }
         var rowIndex = 0
-        for child in children {
-            if child.isHidden {
-                child.resolvedFrame = .zero
+        for operand in scope.children {
+            if operand.selectedNode.isHidden {
+                guard operand.assign(.zero, scope: scope) else { return }
                 continue
             }
             guard rowIndex < geometry.rows.count,
-                geometry.rows[rowIndex].identity == ObjectIdentifier(child)
+                geometry.rows[rowIndex].identity == ObjectIdentifier(operand.physicalNode)
             else { continue }
-            child.resolvedFrame = geometry.rows[rowIndex].frame
-            descendants.append(child)
+            guard operand.assign(geometry.rows[rowIndex].frame, scope: scope) else { return }
+            descendants.append(operand.physicalNode)
             rowIndex += 1
         }
     }
 
     @inline(never)
-    private func layoutGridRowChildren(rowLayout: RetainedGridRowLayout, descendants: inout [ViewNode]) {
-        guard let grid = parent, case .grid(let layout) = grid.layoutMode,
-            grid.children.contains(where: { $0 === self })
+    private func layoutGridRowChildren(
+        rowLayout: RetainedGridRowLayout, descendants: inout [ViewNode], scope: LayoutOperandScope
+    ) {
+        guard scope.isCurrent else { return }
+        guard let parentContext = selectedContentLayoutParent(),
+            case .grid(let layout) = parentContext.parent.layoutMode
         else {
-            layoutStackChildren(stackLayout: rowLayout.standaloneStackLayout, descendants: &descendants)
+            layoutStackChildren(stackLayout: rowLayout.standaloneStackLayout, descendants: &descendants, scope: scope)
             return
         }
+        let grid = parentContext.parent
 
-        // A row callback can change a shared sizing input after the Grid began
-        // its pass. Rebuild from installed nodes, never a source-row capture.
+        // A row callback may change shared sizing inputs. Keep the existing
+        // recomputation, keyed by the Grid's actual physical child occurrence.
         if grid.resolvedGridGeometry == nil {
+            guard let gridScope = LayoutOperandScope(node: grid, failure: scope.failure, memo: scope.memo) else {
+                scope.reject()
+                return
+            }
             var rows: [ViewNode] = []
-            grid.layoutGridChildren(gridLayout: layout, descendants: &rows)
+            grid.layoutGridChildren(gridLayout: layout, descendants: &rows, scope: gridScope)
+            guard gridScope.isCurrent, scope.isCurrent, parentContext.path?.isCurrent != false else {
+                scope.reject()
+                return
+            }
         }
-        guard let geometry = grid.resolvedGridGeometry,
-            let row = geometry.rows.first(where: { $0.identity == ObjectIdentifier(self) })
+        guard scope.isCurrent, parentContext.path?.isCurrent != false, let geometry = grid.resolvedGridGeometry,
+            let row = geometry.rows.first(where: { $0.identity == ObjectIdentifier(parentContext.physicalChild) })
         else { return }
 
         var cellIndex = 0
-        for child in children {
-            if child.isHidden {
-                child.resolvedFrame = .zero
+        for operand in scope.children {
+            if operand.selectedNode.isHidden {
+                guard operand.assign(.zero, scope: scope) else { return }
                 continue
             }
             guard cellIndex < row.cells.count,
-                row.cells[cellIndex].identity == ObjectIdentifier(child)
+                row.cells[cellIndex].identity == ObjectIdentifier(operand.physicalNode)
             else { continue }
-            child.resolvedFrame = row.cells[cellIndex].frame
-            descendants.append(child)
+            guard operand.assign(row.cells[cellIndex].frame, scope: scope) else { return }
+            descendants.append(operand.physicalNode)
             cellIndex += 1
         }
         resolvedContentSize = row.frame.size
@@ -8518,44 +11156,60 @@ public final class ViewNode {
     }
 
     @inline(never)
-    private func measureGrid(layout: RetainedGridLayout, plan: MeasurementPlan, memo: MeasurementMemo) -> Size {
-        let geometry = makeGridGeometry(
-            layout: layout, constraints: plan.childConstraints, memo: memo, alignInProposal: false)
+    private func measureGrid(
+        layout: RetainedGridLayout, plan: MeasurementPlan, memo: MeasurementMemo, scope: LayoutOperandScope
+    ) -> Size {
+        guard scope.isCurrent,
+            let geometry = makeGridGeometry(
+                layout: layout, constraints: plan.childConstraints, memo: memo, alignInProposal: false, scope: scope),
+            !memo.selectedContentReadFailed, scope.isCurrent
+        else {
+            scope.reject()
+            return .zero
+        }
         inheritedStackFillAxes = LayoutFillAxes(
             horizontal: explicitWidth == nil && geometry.fillAxes.horizontal,
             vertical: explicitHeight == nil && geometry.fillAxes.vertical)
-        return finishMeasurement(plan: plan, childSizes: [], memo: memo, gridSize: geometry.size)
+        return finishMeasurement(plan: plan, childSizes: [], memo: memo, gridSize: geometry.size, scope: scope)
     }
 
     /// Enumerates only direct rows and explicitly expanded structural children.
     /// A nested Grid, padding, frame, or other real layout container is one cell.
-    private func gridInputs(layout: RetainedGridLayout) -> (rows: [GridRowInput], columns: Int) {
+    private func gridInputs(
+        layout: RetainedGridLayout, scope: LayoutOperandScope
+    ) -> (rows: [GridRowInput], columns: Int)? {
+        guard scope.isCurrent else { return nil }
         var rows: [GridRowInput] = []
         var columnCount = 0
-        for child in children where !child.isHidden {
-            if case .gridRow(let rowLayout) = child.layoutMode {
+        for operand in scope.children where !operand.selectedNode.isHidden {
+            if case .gridRow(let rowLayout) = operand.selectedNode.layoutMode {
+                guard
+                    let rowScope = LayoutOperandScope(
+                        node: operand.selectedNode, failure: scope.failure, memo: scope.memo)
+                else {
+                    scope.reject()
+                    return nil
+                }
                 var cells: [GridCellInput] = []
                 var cursor = 0
-                for cell in child.children where !cell.isHidden {
-                    // Saturation is defensive behavior for uncharacterized
-                    // overflowing spans; it keeps every physical child finite.
+                for cell in rowScope.children where !cell.selectedNode.isHidden {
                     let first = min(cursor, Int.max - 1)
-                    let span = max(1, cell.gridCellColumns)
+                    let span = max(1, cell.selectedNode.gridCellColumns)
                     let end = span > Int.max - first ? Int.max : first + span
                     cells.append(
-                        GridCellInput(node: cell, firstColumn: first, endColumn: end, isMerged: end - first > 1))
+                        GridCellInput(operand: cell, firstColumn: first, endColumn: end, isMerged: end - first > 1))
                     cursor = end
                 }
                 columnCount = max(columnCount, cursor)
                 rows.append(
                     GridRowInput(
-                        node: child, isGridRow: true, alignment: rowLayout.alignment ?? layout.verticalAlignment,
-                        cells: cells))
+                        operand: operand, isGridRow: true, alignment: rowLayout.alignment ?? layout.verticalAlignment,
+                        cells: cells, childrenScope: rowScope))
             } else {
                 rows.append(
                     GridRowInput(
-                        node: child, isGridRow: false, alignment: layout.verticalAlignment,
-                        cells: [GridCellInput(node: child, firstColumn: 0, endColumn: 1, isMerged: true)]))
+                        operand: operand, isGridRow: false, alignment: layout.verticalAlignment,
+                        cells: [GridCellInput(operand: operand, firstColumn: 0, endColumn: 1, isMerged: true)]))
                 columnCount = max(1, columnCount)
             }
         }
@@ -8563,6 +11217,14 @@ public final class ViewNode {
             rows[index].cells[0].endColumn = columnCount
         }
         return (rows, columnCount)
+    }
+
+    private func gridRowsAreCurrent(_ rows: [GridRowInput], scope: LayoutOperandScope) -> Bool {
+        guard scope.isCurrent, rows.allSatisfy(\.isCurrent) else {
+            scope.reject()
+            return false
+        }
+        return true
     }
 
     private func gridTracks(
@@ -8575,7 +11237,7 @@ public final class ViewNode {
             for cell in row.cells {
                 boundaries.insert(cell.firstColumn)
                 boundaries.insert(cell.endColumn)
-                if !cell.isMerged, let alignment = cell.node.gridColumnAlignment,
+                if !cell.isMerged, let alignment = cell.selectedNode.gridColumnAlignment,
                     columnAlignments[cell.firstColumn] == nil
                 {
                     // Different overrides in one column are undefined by
@@ -8598,20 +11260,46 @@ public final class ViewNode {
     @inline(never)
     private func measureGridCells(
         row: GridRowInput, tracks: [GridTrackRun]?, spacing: Double, height: Double = .infinity,
-        memo: MeasurementMemo
-    ) -> [Size] {
-        if row.isGridRow, !ViewNode.enterTraversal() {
-            return [Size](repeating: .zero, count: row.cells.count)
+        memo: MeasurementMemo, scope: LayoutOperandScope
+    ) -> [Size]? {
+        guard scope.isCurrent, row.isCurrent, !memo.selectedContentReadFailed else {
+            scope.reject()
+            return nil
         }
-        defer { if row.isGridRow { ViewNode.leaveTraversal() } }
-        return row.cells.map { cell in
+        var enteredLevels = 0
+        defer { for _ in 0..<enteredLevels { ViewNode.leaveTraversal() } }
+        if row.isGridRow {
+            guard let boundaries = row.operand.boundaryNodes else {
+                scope.reject()
+                return nil
+            }
+            // The Grid solver bypasses the row's own measure entry. Charge
+            // every physical boundary plus that same original GridRow level.
+            for _ in 0...boundaries.count {
+                guard ViewNode.enterTraversal() else { return [Size](repeating: .zero, count: row.cells.count) }
+                enteredLevels += 1
+            }
+        }
+        var sizes: [Size] = []
+        sizes.reserveCapacity(row.cells.count)
+        for cell in row.cells {
+            guard scope.isCurrent, row.isCurrent, cell.operand.isCurrent else {
+                scope.reject()
+                return nil
+            }
             let width =
                 tracks.map {
                     gridSpanExtent($0, firstColumn: cell.firstColumn, endColumn: cell.endColumn, spacing: spacing)
                 } ?? .infinity
-            return sanitizedLayoutSize(
-                cell.node.sizeThatFits(in: LayoutConstraints(maxWidth: width, maxHeight: height), memo: memo))
+            let measured = cell.node.sizeThatFits(
+                in: LayoutConstraints(maxWidth: width, maxHeight: height), memo: memo)
+            guard scope.isCurrent, row.isCurrent, !memo.selectedContentReadFailed else {
+                scope.reject()
+                return nil
+            }
+            sizes.append(sanitizedLayoutSize(measured))
         }
+        return sizes
     }
 
     private func gridCellFills(_ node: ViewNode, axis: StackAxis) -> Bool {
@@ -8628,21 +11316,46 @@ public final class ViewNode {
     @inline(never)
     private func gridCellFloors(
         row: GridRowInput, axis: StackAxis, tracks: [GridTrackRun], spacing: Double,
-        constraints: LayoutConstraints
-    ) -> [Double] {
-        if row.isGridRow, !ViewNode.enterTraversal() {
-            return [Double](repeating: 0, count: row.cells.count)
+        constraints: LayoutConstraints, scope: LayoutOperandScope
+    ) -> [Double]? {
+        guard scope.isCurrent, row.isCurrent else {
+            scope.reject()
+            return nil
         }
-        defer { if row.isGridRow { ViewNode.leaveTraversal() } }
-        return row.cells.map { cell in
+        var enteredLevels = 0
+        defer { for _ in 0..<enteredLevels { ViewNode.leaveTraversal() } }
+        if row.isGridRow {
+            guard let boundaries = row.operand.boundaryNodes else {
+                scope.reject()
+                return nil
+            }
+            for _ in 0...boundaries.count {
+                guard ViewNode.enterTraversal() else { return [Double](repeating: 0, count: row.cells.count) }
+                enteredLevels += 1
+            }
+        }
+        var floors: [Double] = []
+        floors.reserveCapacity(row.cells.count)
+        for cell in row.cells {
+            guard scope.isCurrent, row.isCurrent, cell.operand.isCurrent else {
+                scope.reject()
+                return nil
+            }
             let proposal = LayoutConstraints(
                 maxWidth: axis == .vertical
-                    ? gridSpanExtent(
-                        tracks, firstColumn: cell.firstColumn, endColumn: cell.endColumn, spacing: spacing)
+                    ? gridSpanExtent(tracks, firstColumn: cell.firstColumn, endColumn: cell.endColumn, spacing: spacing)
                     : constraints.maxWidth,
                 maxHeight: constraints.maxHeight)
-            return sanitizedLayoutExtent(cell.node.stackShrinkFloorMainExtent(along: axis, constraints: proposal))
+            guard
+                let floor = cell.node.checkedStackShrinkFloorMainExtent(
+                    along: axis, constraints: proposal, scope: scope), scope.isCurrent, row.isCurrent
+            else {
+                scope.reject()
+                return nil
+            }
+            floors.append(sanitizedLayoutExtent(floor))
         }
+        return floors
     }
 
     private func updateGridColumnGuides(
@@ -8653,11 +11366,12 @@ public final class ViewNode {
             tracks[index].guideAfter = 0
         }
         for (rowIndex, row) in rows.enumerated() {
-            for (cellIndex, cell) in row.cells.enumerated() where !cell.isMerged && cell.node.gridCellAnchor == nil {
+            for (cellIndex, cell) in row.cells.enumerated()
+            where !cell.isMerged && cell.selectedNode.gridCellAnchor == nil {
                 guard let index = tracks.firstIndex(where: { $0.firstColumn == cell.firstColumn }) else { continue }
                 let width = sizes[rowIndex][cellIndex].width
                 let guide = gridGuideValue(
-                    for: cell.node, axis: .vertical, alignment: tracks[index].alignment, extent: width)
+                    for: cell.selectedNode, axis: .vertical, alignment: tracks[index].alignment, extent: width)
                 tracks[index].guideBefore = max(tracks[index].guideBefore, guide)
                 tracks[index].guideAfter = max(tracks[index].guideAfter, width - guide)
             }
@@ -8674,10 +11388,10 @@ public final class ViewNode {
         for (index, cell) in row.cells.enumerated() {
             let height = sizes[index].height
             result.height = max(result.height, height)
-            result.isFlexible = result.isFlexible || gridCellFills(cell.node, axis: .vertical)
-            if !cell.isMerged, cell.node.gridCellAnchor == nil {
+            result.isFlexible = result.isFlexible || gridCellFills(cell.selectedNode, axis: .vertical)
+            if !cell.isMerged, cell.selectedNode.gridCellAnchor == nil {
                 let guide = gridGuideValue(
-                    for: cell.node, axis: .horizontal, alignment: row.alignment, extent: height)
+                    for: cell.selectedNode, axis: .horizontal, alignment: row.alignment, extent: height)
                 result.guideBefore = max(result.guideBefore, guide)
                 result.guideAfter = max(result.guideAfter, height - guide)
             }
@@ -8691,22 +11405,28 @@ public final class ViewNode {
     @inline(never)
     private func makeGridGeometry(
         layout: RetainedGridLayout, constraints: LayoutConstraints, memo: MeasurementMemo,
-        alignInProposal: Bool
-    ) -> GridLayoutGeometry {
-        let inputs = gridInputs(layout: layout)
+        alignInProposal: Bool, scope: LayoutOperandScope
+    ) -> GridLayoutGeometry? {
+        guard let inputs = gridInputs(layout: layout, scope: scope) else { return nil }
         let rows = inputs.rows
         let horizontalSpacing = gridSpacing(layout.horizontalSpacing)
         let verticalSpacing = gridSpacing(layout.verticalSpacing)
         var tracks = gridTracks(rows: rows, columns: inputs.columns, layout: layout)
-        let naturalSizes = rows.map {
-            measureGridCells(row: $0, tracks: nil, spacing: horizontalSpacing, memo: memo)
+        var naturalSizes: [[Size]] = []
+        for row in rows {
+            guard gridRowsAreCurrent(rows, scope: scope),
+                let sizes = measureGridCells(
+                    row: row, tracks: nil, spacing: horizontalSpacing, memo: memo, scope: scope)
+            else { return nil }
+            naturalSizes.append(sizes)
         }
+        guard gridRowsAreCurrent(rows, scope: scope) else { return nil }
         updateGridColumnGuides(rows: rows, sizes: naturalSizes, tracks: &tracks, establishExtent: true)
         var requirements: [(cell: GridCellInput, width: Double)] = []
         for (rowIndex, row) in rows.enumerated() {
             for (cellIndex, cell) in row.cells.enumerated() {
                 requirements.append((cell, naturalSizes[rowIndex][cellIndex].width))
-                if gridCellFills(cell.node, axis: .horizontal) {
+                if gridCellFills(cell.selectedNode, axis: .horizontal) {
                     for index in gridRunIndices(
                         tracks, firstColumn: cell.firstColumn, endColumn: cell.endColumn)
                     {
@@ -8732,8 +11452,11 @@ public final class ViewNode {
         var minimumRequirements: [(cell: GridCellInput, width: Double)] = []
         if availableWidth.isFinite, tracks.reduce(0, { $0 + $1.extent }) > max(0, availableWidth) {
             for row in rows {
-                let floors = gridCellFloors(
-                    row: row, axis: .horizontal, tracks: tracks, spacing: horizontalSpacing, constraints: constraints)
+                guard gridRowsAreCurrent(rows, scope: scope),
+                    let floors = gridCellFloors(
+                        row: row, axis: .horizontal, tracks: tracks, spacing: horizontalSpacing,
+                        constraints: constraints, scope: scope), gridRowsAreCurrent(rows, scope: scope)
+                else { return nil }
                 for (index, cell) in row.cells.enumerated() {
                     minimumRequirements.append((cell, floors[index]))
                     gridRequireSpanExtent(
@@ -8758,21 +11481,28 @@ public final class ViewNode {
                 endColumn: requirement.cell.endColumn, spacing: horizontalSpacing, tracks: &tracks)
         }
 
-        let fittedSizes = rows.map {
-            measureGridCells(row: $0, tracks: tracks, spacing: horizontalSpacing, memo: memo)
+        var fittedSizes: [[Size]] = []
+        for row in rows {
+            guard gridRowsAreCurrent(rows, scope: scope),
+                let sizes = measureGridCells(
+                    row: row, tracks: tracks, spacing: horizontalSpacing, memo: memo, scope: scope)
+            else { return nil }
+            fittedSizes.append(sizes)
         }
+        guard gridRowsAreCurrent(rows, scope: scope) else { return nil }
         updateGridColumnGuides(rows: rows, sizes: fittedSizes, tracks: &tracks, establishExtent: false)
         var metrics = rows.enumerated().map { gridRowMetrics(row: $0.element, sizes: fittedSizes[$0.offset]) }
         let verticalGaps = gridSpacingTotal(count: rows.count, spacing: verticalSpacing)
         let availableHeight = constraints.maxHeight - verticalGaps
         if availableHeight.isFinite, metrics.reduce(0, { $0 + $1.height }) > max(0, availableHeight) {
             for index in rows.indices {
-                metrics[index].minimumHeight = min(
-                    metrics[index].height,
-                    gridCellFloors(
+                guard gridRowsAreCurrent(rows, scope: scope),
+                    let floors = gridCellFloors(
                         row: rows[index], axis: .vertical, tracks: tracks,
-                        spacing: horizontalSpacing, constraints: constraints
-                    ).max() ?? 0)
+                        spacing: horizontalSpacing, constraints: constraints, scope: scope),
+                    gridRowsAreCurrent(rows, scope: scope)
+                else { return nil }
+                metrics[index].minimumHeight = min(metrics[index].height, floors.max() ?? 0)
             }
         }
         let heights = gridAllocateExtents(
@@ -8791,8 +11521,12 @@ public final class ViewNode {
         var geometry: [GridRowGeometry] = []
         var cursor = sanitizedLayoutCoordinate(origin.y)
         for (index, row) in rows.enumerated() {
-            let sizes = measureGridCells(
-                row: row, tracks: tracks, spacing: horizontalSpacing, height: heights[index], memo: memo)
+            guard gridRowsAreCurrent(rows, scope: scope),
+                let sizes = measureGridCells(
+                    row: row, tracks: tracks, spacing: horizontalSpacing, height: heights[index], memo: memo,
+                    scope: scope),
+                gridRowsAreCurrent(rows, scope: scope)
+            else { return nil }
             let cells = gridCellGeometry(
                 row: row, sizes: sizes, metrics: metrics[index], height: heights[index],
                 tracks: tracks, totalWidth: size.width, layout: layout)
@@ -8811,6 +11545,10 @@ public final class ViewNode {
                                 width: cell.frame.width, height: cell.frame.height)), cells: []))
             }
             cursor = sanitizedLayoutCoordinate(cursor + heights[index] + verticalSpacing)
+        }
+        guard gridRowsAreCurrent(rows, scope: scope), !memo.selectedContentReadFailed else {
+            scope.reject()
+            return nil
         }
         return GridLayoutGeometry(
             size: size,
@@ -8836,7 +11574,7 @@ public final class ViewNode {
                 ? gridHorizontalAlignment(layout.horizontalAlignment, isRightToLeft: layout.isRightToLeft)
                 : (track?.alignment ?? layout.horizontalAlignment)
             let anchor =
-                cell.node.gridCellAnchor
+                cell.selectedNode.gridCellAnchor
                 ?? (cell.isMerged ? Point(x: gridAnchor(for: alignment), y: gridAnchor(for: row.alignment)) : nil)
             let x: Double
             let y: Double
@@ -8850,11 +11588,12 @@ public final class ViewNode {
                 let guideAfter = track?.guideAfter ?? 0
                 x =
                     columnX + guideBefore + (span - guideBefore - guideAfter) * gridAnchor(for: alignment)
-                    - gridGuideValue(for: cell.node, axis: .vertical, alignment: alignment, extent: size.width)
+                    - gridGuideValue(for: cell.selectedNode, axis: .vertical, alignment: alignment, extent: size.width)
                 y =
                     metrics.guideBefore
                     + (height - metrics.guideBefore - metrics.guideAfter) * gridAnchor(for: row.alignment)
-                    - gridGuideValue(for: cell.node, axis: .horizontal, alignment: row.alignment, extent: size.height)
+                    - gridGuideValue(
+                        for: cell.selectedNode, axis: .horizontal, alignment: row.alignment, extent: size.height)
             }
             return GridCellGeometry(
                 identity: ObjectIdentifier(cell.node),
@@ -8920,8 +11659,8 @@ public final class ViewNode {
     }
 
     @inline(never)
-    private func layoutRetainedLazyListChildren(descendants: inout [ViewNode]) {
-        guard let adapter = retainedLazyListAdapter else { return }
+    private func layoutRetainedLazyListChildren(descendants: inout [ViewNode], scope: LayoutOperandScope) {
+        guard scope.isCurrent, let adapter = retainedLazyListAdapter else { return }
         resolvedContentSize = sanitizedLazyListContentSize(
             Size(width: resolvedFrame.width, height: adapter.contentExtent))
         guard let runtime, let (visit, plan) = runtime.lazyListLayoutPlan(for: self) else { return }
@@ -8938,8 +11677,9 @@ public final class ViewNode {
             return
         }
         for placement in plan.placements {
-            guard placement.node.parent === self,
-                placement.node.runtime === runtime
+            guard scope.isCurrent, placement.node.parent === self,
+                placement.node.runtime === runtime,
+                let operand = scope.children.first(where: { $0.physicalNode === placement.node })
             else {
                 runtime.rejectLazyListLayoutVisit()
                 return
@@ -8949,23 +11689,27 @@ public final class ViewNode {
                 recordOrigin = placement.originY
                 localOffset = 0
             }
-            let child = placement.node
-            let attachment = child.captureLazyListAttachmentProof()
-            // The measured prefix places later records. Natural measurement
-            // of this bounded mounted leaf also detects local state changes
-            // which do not replace the provider's logical generation.
+            let child = operand.selectedNode
+            let attachment = operand.physicalNode.captureLazyListAttachmentProof()
             let measured: Size
             if child.isHidden {
                 measured = .zero
-            } else if child.retainedLazyListGap != nil {
+            } else if operand.physicalNode.retainedLazyListGap != nil {
                 // An unknown predecessor gives provisional zero geometry.
                 // The adapter withholds measurement publication/settlement
                 // until its bounded native boundary query has an answer.
                 measured = Size(width: resolvedFrame.width, height: placement.extent ?? 0)
             } else {
-                measured = child.sizeThatFits(in: LayoutConstraints(maxWidth: resolvedFrame.width))
+                guard
+                    let size = operand.physicalNode.checkedSizeThatFits(
+                        in: LayoutConstraints(maxWidth: resolvedFrame.width), scope: scope)
+                else {
+                    runtime.rejectLazyListLayoutVisit()
+                    return
+                }
+                measured = size
             }
-            guard runtime.lazyListVisitIsCurrent(visit), attachment.isCurrent,
+            guard scope.isCurrent, runtime.lazyListVisitIsCurrent(visit), attachment.isCurrent,
                 measured.width.isFinite, measured.height.isFinite, measured.height >= 0
             else {
                 runtime.rejectLazyListLayoutVisit()
@@ -8987,17 +11731,21 @@ public final class ViewNode {
                     for: child, stackAxis: .vertical,
                     stackAlignment: layoutMode.stackLayout?.alignment ?? .leading,
                     contentOrigin: 0, contentExtent: resolvedFrame.width, childExtent: width) ?? 0
-            guard crossOrigin.isFinite else {
+            guard crossOrigin.isFinite, scope.isCurrent, runtime.lazyListVisitIsCurrent(visit), attachment.isCurrent,
+                operand.assign(Rect(x: crossOrigin, y: origin, width: width, height: measured.height), scope: scope)
+            else {
                 runtime.rejectLazyListLayoutVisit()
                 return
             }
-            child.resolvedFrame = Rect(x: crossOrigin, y: origin, width: width, height: measured.height)
-            _ = child.resumeVirtualizedLayout()
-            runtime.recordLazyListLeafMeasurement(
-                placement, attachment: attachment, container: self)
-            // Even clean mounted leaves get the actual pass stamp. The
-            // traversal's existing cache still skips their unchanged subtrees.
-            if !child.isHidden { descendants.append(child) }
+            _ = operand.physicalNode.resumeVirtualizedLayout()
+            guard
+                runtime.recordLazyListLeafMeasurement(
+                    placement, attachment: attachment, container: self, selectedContentPath: operand.path)
+            else {
+                runtime.rejectLazyListLayoutVisit()
+                return
+            }
+            if !child.isHidden { descendants.append(operand.physicalNode) }
         }
     }
 
@@ -9005,41 +11753,38 @@ public final class ViewNode {
     /// out — false when it is hidden, or when virtualization defers it.
     @inline(never)
     private func placeStackChild(
-        _ child: ViewNode,
+        _ operand: LayoutChildOperand,
         stackLayout: StackLayout,
         allocation: StackAllocation,
         virtualizationWindow: Rect?,
-        cursor: inout StackPlacementCursor
+        cursor: inout StackPlacementCursor,
+        scope: LayoutOperandScope
     ) -> Bool {
+        guard scope.isCurrent else { return false }
+        let child = operand.selectedNode
         if child.isHidden {
-            child.resolvedFrame = Rect(x: 0, y: 0, width: 0, height: 0)
+            _ = operand.assign(.zero, scope: scope)
             return false
         }
 
         let placement = stackChildPlacement(
-            of: child,
-            stackLayout: stackLayout,
-            contentRect: allocation.contentRect,
+            of: child, stackLayout: stackLayout, contentRect: allocation.contentRect,
             desiredSize: allocation.desiredSizes[cursor.visibleIndex],
-            allocatedMainSize: allocation.allocatedMainSizes[cursor.visibleIndex],
-            mainCursor: cursor.mainCursor
-        )
+            allocatedMainSize: allocation.allocatedMainSizes[cursor.visibleIndex], mainCursor: cursor.mainCursor)
 
-        child.resolvedFrame = placement.frame
+        guard scope.isCurrent, operand.assign(placement.frame, scope: scope) else { return false }
         cursor.mainCursor += placement.mainAdvance + allocation.effectiveSpacing
         cursor.maxCrossExtent = max(cursor.maxCrossExtent, placement.crossExtent)
         cursor.visibleIndex += 1
 
-        if Self.isOutsideLayoutViewport(
-            placement.frame, viewport: virtualizationWindow, axis: stackLayout.axis)
-        {
-            child.isLayoutDeferredByVirtualization = true
+        if Self.isOutsideLayoutViewport(placement.frame, viewport: virtualizationWindow, axis: stackLayout.axis) {
+            operand.physicalNode.isLayoutDeferredByVirtualization = true
             virtualizationScrollAncestor?.hasVirtualizedDescendants = true
             runtime?.recordVirtualizedLayoutSkip()
             return false
         }
 
-        _ = child.resumeVirtualizedLayout()
+        _ = operand.physicalNode.resumeVirtualizedLayout()
         return true
     }
 
@@ -9091,11 +11836,21 @@ public final class ViewNode {
     /// `sizeThatFits` on every visible child. Out of line those temporaries
     /// are charged to a frame that is gone before the walk goes any deeper.
     @inline(never)
-    private func stackAllocation(for stackLayout: StackLayout) -> StackAllocation {
+    private func stackAllocation(for stackLayout: StackLayout, scope: LayoutOperandScope) -> StackAllocation? {
+        guard scope.isCurrent else { return nil }
         let contentRect = Rect(origin: .zero, size: resolvedFrame.size).inset(by: stackLayout.padding)
-        let visibleChildren = children.filter { !$0.isHidden }
-        let childConstraints = stackChildConstraints(for: contentRect.size, axis: stackLayout.axis)
-        var desiredSizes = visibleChildren.map { $0.sizeThatFits(in: childConstraints) }
+        let visibleChildren = scope.children.filter { !$0.selectedNode.isHidden }
+        let childConstraints = stackChildConstraints(for: contentRect.size, axis: stackLayout.axis, scope: scope)
+        var desiredSizes: [Size] = []
+        desiredSizes.reserveCapacity(visibleChildren.count)
+        for child in visibleChildren {
+            guard scope.accepts(child) else { return nil }
+            guard let size = child.physicalNode.checkedSizeThatFits(in: childConstraints, scope: scope), scope.isCurrent
+            else {
+                return nil
+            }
+            desiredSizes.append(size)
+        }
         let desiredMainSizes = desiredSizes.map { size in
             stackLayout.axis == .vertical ? size.height : size.width
         }
@@ -9105,26 +11860,31 @@ public final class ViewNode {
         let availableChildMainExtent = max(0, availableMainExtent - spacingTotal)
         let allowsOverflowAlongMainAxis = scrollAxis == stackScrollAxis(for: stackLayout.axis)
 
-        let allocatedMainSizes = allocatedStackMainSizes(
-            for: stackLayout,
-            desiredMainSizes: desiredMainSizes,
-            children: visibleChildren,
-            childConstraints: childConstraints,
-            fullMainExtent: stackLayout.axis == .vertical ? resolvedFrame.height : resolvedFrame.width,
-            availableChildMainExtent: availableChildMainExtent,
-            allowsOverflowAlongMainAxis: allowsOverflowAlongMainAxis)
+        guard
+            let allocatedMainSizes = allocatedStackMainSizes(
+                for: stackLayout,
+                desiredMainSizes: desiredMainSizes,
+                children: visibleChildren,
+                childConstraints: childConstraints,
+                fullMainExtent: stackLayout.axis == .vertical ? resolvedFrame.height : resolvedFrame.width,
+                availableChildMainExtent: availableChildMainExtent,
+                allowsOverflowAlongMainAxis: allowsOverflowAlongMainAxis, scope: scope), scope.isCurrent
+        else { return nil }
 
         if stackLayout.axis == .horizontal {
             for index in visibleChildren.indices
             where allocatedMainSizes[index] != desiredSizes[index].width
-                && visibleChildren[index].needsMeasurement(
+                && visibleChildren[index].selectedNode.needsMeasurement(
                     atStackWidth: allocatedMainSizes[index], originalConstraints: childConstraints)
             {
-                desiredSizes[index].height =
-                    visibleChildren[index].sizeThatFits(
+                guard scope.isCurrent else { return nil }
+                guard
+                    let measured = visibleChildren[index].physicalNode.checkedSizeThatFits(
                         in: LayoutConstraints(
-                            maxWidth: allocatedMainSizes[index], maxHeight: childConstraints.maxHeight)
-                    ).height
+                            maxWidth: allocatedMainSizes[index], maxHeight: childConstraints.maxHeight), scope: scope)
+                else { return nil }
+                desiredSizes[index].height = measured.height
+                guard scope.isCurrent else { return nil }
             }
         }
 
@@ -9199,12 +11959,14 @@ public final class ViewNode {
     private func allocatedStackMainSizes(
         for stackLayout: StackLayout,
         desiredMainSizes: [Double],
-        children visibleChildren: [ViewNode],
+        children visibleChildren: [LayoutChildOperand],
         childConstraints: LayoutConstraints,
         fullMainExtent: Double,
         availableChildMainExtent: Double,
-        allowsOverflowAlongMainAxis: Bool
-    ) -> [Double] {
+        allowsOverflowAlongMainAxis: Bool,
+        scope: LayoutOperandScope
+    ) -> [Double]? {
+        guard scope.isCurrent else { return nil }
         if allowsOverflowAlongMainAxis { return desiredMainSizes }
 
         if stackLayout.distribution == .fillEqually, !visibleChildren.isEmpty {
@@ -9220,32 +11982,36 @@ public final class ViewNode {
         // compress before text loses any of its measured height.
         var shrinkFloors: [Double] = []
         if desiredMainSizes.reduce(0, +) > availableChildMainExtent {
-            shrinkFloors = visibleChildren.map {
-                min(
-                    $0.stackShrinkFloorMainExtent(along: stackLayout.axis, constraints: childConstraints),
-                    fullMainExtent)
+            for child in visibleChildren {
+                guard scope.accepts(child) else { return nil }
+                guard
+                    let floor = child.physicalNode.checkedStackShrinkFloorMainExtent(
+                        along: stackLayout.axis, constraints: childConstraints, scope: scope)
+                else { return nil }
+                guard scope.isCurrent else { return nil }
+                shrinkFloors.append(min(floor, fullMainExtent))
             }
         }
 
         var allocatedMainSizes = allocateMainSizes(
             desiredSizes: desiredMainSizes,
-            children: visibleChildren,
+            children: visibleChildren.map(\.selectedNode),
             axis: stackLayout.axis,
             availableExtent: availableChildMainExtent,
             shrinkFloors: shrinkFloors)
 
         let remaining = availableChildMainExtent - allocatedMainSizes.reduce(0, +)
         if remaining > 0 {
-            let totalGrow = visibleChildren.reduce(0.0) { $0 + $1.flexItem.grow }
+            let totalGrow = visibleChildren.reduce(0.0) { $0 + $1.selectedNode.flexItem.grow }
             if totalGrow > 0 {
                 var leftover = remaining
                 for (i, child) in visibleChildren.enumerated() {
-                    guard child.flexItem.grow > 0 else { continue }
+                    guard child.selectedNode.flexItem.grow > 0 else { continue }
                     let share: Double
                     if i == visibleChildren.count - 1 {
                         share = leftover
                     } else {
-                        share = remaining * (child.flexItem.grow / totalGrow)
+                        share = remaining * (child.selectedNode.flexItem.grow / totalGrow)
                         leftover -= share
                     }
                     allocatedMainSizes[i] += share
@@ -9253,16 +12019,16 @@ public final class ViewNode {
             }
         } else if remaining < 0 {
             let deficit = -remaining
-            let totalShrink = visibleChildren.reduce(0.0) { $0 + $1.flexItem.shrink }
+            let totalShrink = visibleChildren.reduce(0.0) { $0 + $1.selectedNode.flexItem.shrink }
             if totalShrink > 0 {
                 var leftover = deficit
                 for (i, child) in visibleChildren.enumerated() {
-                    guard child.flexItem.shrink > 0 else { continue }
+                    guard child.selectedNode.flexItem.shrink > 0 else { continue }
                     let share: Double
                     if i == visibleChildren.count - 1 {
                         share = leftover
                     } else {
-                        share = deficit * (child.flexItem.shrink / totalShrink)
+                        share = deficit * (child.selectedNode.flexItem.shrink / totalShrink)
                         leftover -= share
                     }
                     allocatedMainSizes[i] = max(
@@ -9401,26 +12167,30 @@ public final class ViewNode {
     /// measure-and-solve step, out of line so `layoutSubtree` carries the
     /// resulting array and not the inputs that produced it.
     @inline(never)
-    private func flexChildLayouts(for flexStyle: FlexStyle) -> [FlexboxEngine.ChildLayout] {
-        let visibleChildren = children.filter { !$0.isHidden }
-
-        let childInputs = visibleChildren.map { child -> FlexboxEngine.LayoutInput.ChildInput in
-            let intrinsicSize = child.intrinsicContentSize()
-            return FlexboxEngine.LayoutInput.ChildInput(
-                itemStyle: child.flexItemStyle,
-                intrinsicWidth: child.preferredSize?.width ?? intrinsicSize.width,
-                intrinsicHeight: child.preferredSize?.height ?? intrinsicSize.height
-            )
+    private func flexChildLayouts(
+        for flexStyle: FlexStyle, scope: LayoutOperandScope
+    ) -> [FlexboxEngine.ChildLayout]? {
+        let visibleChildren = scope.children.filter { !$0.selectedNode.isHidden }
+        var childInputs: [FlexboxEngine.LayoutInput.ChildInput] = []
+        childInputs.reserveCapacity(visibleChildren.count)
+        for operand in visibleChildren {
+            guard scope.accepts(operand) else { return nil }
+            guard let intrinsicSize = operand.physicalNode.checkedSizeThatFits(in: .unconstrained, scope: scope),
+                scope.isCurrent
+            else { return nil }
+            let child = operand.selectedNode
+            childInputs.append(
+                FlexboxEngine.LayoutInput.ChildInput(
+                    itemStyle: child.flexItemStyle,
+                    intrinsicWidth: child.preferredSize?.width ?? intrinsicSize.width,
+                    intrinsicHeight: child.preferredSize?.height ?? intrinsicSize.height))
         }
 
         return FlexboxEngine.layout(
             FlexboxEngine.LayoutInput(
                 containerWidth: resolvedFrame.size.width,
                 containerHeight: resolvedFrame.size.height,
-                style: flexStyle,
-                children: childInputs
-            )
-        )
+                style: flexStyle, children: childInputs))
     }
 
     /// The region of this node's own coordinate space — the space its
@@ -9587,9 +12357,34 @@ public final class ViewNode {
         return children
     }
 
+    private struct SelectedContentPaintChild {
+        let node: ViewNode
+        let selectedNode: ViewNode
+        let operand: RetainedSelectedContentPaintOperand?
+        let zIndex: Double
+    }
+
+    private func orderedSelectedContentChildrenForPaint(
+        in domain: RetainedSelectedContentPaintDomain, reads: RetainedSelectedContentTraversalReadSet
+    ) -> [SelectedContentPaintChild] {
+        let physicalChildren = children
+        let children = physicalChildren.map { child in
+            let operand = reads.capture(child, in: domain)
+            let selected = operand?.selectedNode ?? child
+            return SelectedContentPaintChild(
+                node: child, selectedNode: selected, operand: operand, zIndex: selected.zIndex)
+        }
+        guard children.contains(where: { $0.zIndex != 0 }) else { return children }
+        return children.enumerated().sorted { a, b in
+            if a.element.zIndex != b.element.zIndex { return a.element.zIndex < b.element.zIndex }
+            return a.offset < b.offset
+        }.map(\.element)
+    }
+
     /// One node's entry in prepaint's explicit traversal.
     private struct PrepaintTraversalContext {
         let node: ViewNode
+        let selectedContentOperand: RetainedSelectedContentPaintOperand?
         let parentOrigin: Point
         let inheritedClip: RuntimeClipShape?
         let inheritedOpacity: Float
@@ -9610,6 +12405,7 @@ public final class ViewNode {
     /// the range it caches is not closed until they have all been recorded.
     private struct PrepaintFinishState {
         let node: ViewNode
+        let selectedContentOperand: RetainedSelectedContentPaintOperand?
         let startIndex: PrepaintStateIndex
         let cacheKey: ViewPaintCacheKey
         let dispatchIndex: Int
@@ -9645,15 +12441,20 @@ public final class ViewNode {
         inheritedBlendMode: BlendMode = .normal,
         previousState: RuntimePrepaintState? = nil,
         displayScale: Double = 1,
-        replayCount: inout Int
+        replayCount: inout Int,
+        selectedContentPaintDomain: RetainedSelectedContentPaintDomain? = nil
     ) {
         let baseDepth = ViewNode.traversalDepth
         defer { ViewNode.traversalDepth = baseDepth }
+        let paintDomain = selectedContentPaintDomain ?? captureSelectedContentPaintDomain()
+        let selectedReads = RetainedSelectedContentTraversalReadSet()
+        let rootOperand = selectedReads.capture(self, in: paintDomain)
 
         var traversal: [PrepaintTraversalStep] = [
             .enter(
                 PrepaintTraversalContext(
                     node: self,
+                    selectedContentOperand: rootOperand,
                     parentOrigin: parentOrigin,
                     inheritedClip: inheritedClip,
                     inheritedOpacity: inheritedOpacity,
@@ -9672,6 +12473,9 @@ public final class ViewNode {
             let context: PrepaintTraversalContext
             switch traversalStep {
             case .finish(let finish):
+                guard selectedReads.isCurrent,
+                    selectedReads.permits(finish.node, using: finish.selectedContentOperand)
+                else { continue }
                 ViewNode.traversalDepth = baseDepth + finish.depth + 1
                 finish.node.appendScrollIndicatorDeferredDraw(
                     into: &state,
@@ -9682,6 +12486,7 @@ public final class ViewNode {
                     effectiveClip: finish.effectiveClip,
                     effectiveOpacity: finish.effectiveOpacity
                 )
+                guard selectedReads.isCurrent else { continue }
                 finish.node.cachedPrepaintKey = finish.cacheKey
                 finish.node.cachedPrepaintRange = PrepaintStateRange(
                     start: finish.startIndex, end: state.currentIndex, generation: state.generation)
@@ -9692,9 +12497,31 @@ public final class ViewNode {
             }
 
             let node = context.node
+            guard selectedReads.permits(node, using: context.selectedContentOperand) else { continue }
             let parentOrigin = context.parentOrigin
             let inheritedClip = context.inheritedClip
             let inheritedTransform = context.inheritedTransform
+
+            if node.selectedContentRole != nil {
+                guard ViewNode.enterTraversal(atDepth: baseDepth + context.depth),
+                    let operand = context.selectedContentOperand, operand.isCurrent,
+                    let child = operand.nextPhysicalChild
+                else { continue }
+                let childOperand = selectedReads.capture(child, in: paintDomain)
+                traversal.append(
+                    .enter(
+                        PrepaintTraversalContext(
+                            node: child, selectedContentOperand: childOperand,
+                            parentOrigin: parentOrigin, inheritedClip: inheritedClip,
+                            inheritedOpacity: context.inheritedOpacity,
+                            parentDispatchIndex: context.parentDispatchIndex,
+                            inheritedInverseTransform: context.inheritedInverseTransform,
+                            inheritedTransform: inheritedTransform,
+                            inheritedColorEffects: context.inheritedColorEffects,
+                            inheritedBlendMode: context.inheritedBlendMode,
+                            depth: context.depth + 1, isDeferralCandidate: context.isDeferralCandidate)))
+                continue
+            }
 
             // Recorded, not descended into — and recorded before the depth cap
             // is consulted, because in the recursion this was the *parent's*
@@ -9812,8 +12639,10 @@ public final class ViewNode {
                     startIndex: startIndex,
                     previousRange: previousRange,
                     parentDispatchIndex: context.parentDispatchIndex,
-                    cacheKey: cacheKey
+                    cacheKey: cacheKey,
+                    selectedContentPaintDomain: paintDomain
                 )
+                guard selectedReads.isCurrent else { continue }
                 replayCount += 1
                 continue
             }
@@ -9842,6 +12671,7 @@ public final class ViewNode {
                 .finish(
                     PrepaintFinishState(
                         node: node,
+                        selectedContentOperand: context.selectedContentOperand,
                         startIndex: startIndex,
                         cacheKey: cacheKey,
                         dispatchIndex: dispatchIndex,
@@ -9858,11 +12688,12 @@ public final class ViewNode {
             // Reversed so the worklist pops them in paint order: deferral
             // priorities and dispatch indices are assigned in visit order, and
             // the painter reads both as given.
-            for child in node.orderedChildrenForPaint().reversed() {
+            for child in node.orderedSelectedContentChildrenForPaint(in: paintDomain, reads: selectedReads).reversed() {
                 traversal.append(
                     .enter(
                         PrepaintTraversalContext(
-                            node: child,
+                            node: child.node,
+                            selectedContentOperand: child.operand,
                             parentOrigin: childOrigin,
                             inheritedClip: effectiveClip,
                             inheritedOpacity: effectiveOpacity,
@@ -10065,8 +12896,10 @@ public final class ViewNode {
         startIndex: PrepaintStateIndex,
         previousRange: PrepaintStateRange,
         parentDispatchIndex: Int?,
-        cacheKey: ViewPaintCacheKey
+        cacheKey: ViewPaintCacheKey,
+        selectedContentPaintDomain: RetainedSelectedContentPaintDomain
     ) {
+        guard selectedContentPaintDomain.selectedContentReadsAreCurrent else { return }
         let dispatchDelta = startIndex.dispatchIndex - previousRange.start.dispatchIndex
         let interactionDelta = startIndex.interactionIndex - previousRange.start.interactionIndex
         let focusOrderDelta = startIndex.focusOrderIndex - previousRange.start.focusOrderIndex
@@ -10157,8 +12990,10 @@ public final class ViewNode {
             focusOrderDelta: focusOrderDelta,
             deferredSubtreeDelta: deferredSubtreeDelta,
             deferredDrawDelta: deferredDrawDelta,
-            deferredPriorityDelta: deferredPriorityDelta
+            deferredPriorityDelta: deferredPriorityDelta,
+            selectedContentPaintDomain: selectedContentPaintDomain
         )
+        guard selectedContentPaintDomain.selectedContentReadsAreCurrent else { return }
         cachedPrepaintKey = cacheKey
         cachedPrepaintRange = PrepaintStateRange(
             start: startIndex, end: state.currentIndex, generation: state.generation)
@@ -10221,6 +13056,7 @@ public final class ViewNode {
     /// One node's entry in the frame path's explicit traversal.
     private struct FrameTraversalContext {
         let node: ViewNode
+        let selectedContentOperand: RetainedSelectedContentPaintOperand?
         let parentOrigin: Point
         let inheritedClip: RuntimeClipShape?
         let inheritedOpacity: Float
@@ -10236,6 +13072,7 @@ public final class ViewNode {
     /// only known once its descendants have appended theirs.
     private struct FrameNodeFinishState {
         let node: ViewNode
+        let selectedContentOperand: RetainedSelectedContentPaintOperand?
         let startIndex: Int
         let cacheKey: ViewPaintCacheKey
         let depth: Int
@@ -10244,6 +13081,7 @@ public final class ViewNode {
     private enum FrameTraversalStep {
         case enter(FrameTraversalContext)
         case finish(FrameNodeFinishState)
+        case finishSelectedContent(RetainedSelectedContentPaintOperand, depth: Int)
     }
 
     /// The frame path's command walk, as an explicit worklist rather than a
@@ -10269,18 +13107,23 @@ public final class ViewNode {
         previousRenderedFrame: FramePaintSnapshot? = nil,
         snapshotIdentity: PaintSnapshotIdentity,
         displayScale: Double = 1,
-        replayCount: inout Int
+        replayCount: inout Int,
+        selectedContentPaintDomain: RetainedSelectedContentPaintDomain? = nil
     ) {
         // The shared depth counter is a stack-depth proxy for the recursions
         // that are still recursions; this traversal borrows it so that nesting
         // is accounted across the boundary in both directions.
         let baseDepth = ViewNode.traversalDepth
         defer { ViewNode.traversalDepth = baseDepth }
+        let paintDomain = selectedContentPaintDomain ?? captureSelectedContentPaintDomain()
+        let selectedReads = RetainedSelectedContentTraversalReadSet()
+        let rootOperand = selectedReads.capture(self, in: paintDomain)
 
         var traversal: [FrameTraversalStep] = [
             .enter(
                 FrameTraversalContext(
                     node: self,
+                    selectedContentOperand: rootOperand,
                     parentOrigin: parentOrigin,
                     inheritedClip: inheritedClip,
                     inheritedOpacity: inheritedOpacity,
@@ -10295,6 +13138,9 @@ public final class ViewNode {
             let context: FrameTraversalContext
             switch traversalStep {
             case .finish(let state):
+                guard selectedReads.isCurrent,
+                    selectedReads.permits(state.node, using: state.selectedContentOperand)
+                else { continue }
                 ViewNode.traversalDepth = baseDepth + state.depth + 1
                 state.node.cachedFrameKey = state.cacheKey
                 state.node.cachedFrameCommandRange = state.startIndex..<commands.count
@@ -10302,21 +13148,46 @@ public final class ViewNode {
                 state.node.markSubtreeRendered()
                 continue
 
+            case .finishSelectedContent(let operand, let depth):
+                guard selectedReads.isCurrent, operand.isCurrent else { continue }
+                ViewNode.traversalDepth = baseDepth + depth + 1
+                operand.physicalNode.finishSelectedContentPaint(using: operand)
+                continue
+
             case .enter(let entryContext):
                 context = entryContext
             }
 
             let node = context.node
+            guard selectedReads.permits(node, using: context.selectedContentOperand) else { continue }
             let parentOrigin = context.parentOrigin
             let inheritedClip = context.inheritedClip
             let inheritedTransform = context.inheritedTransform
             let startIndex = commands.count
 
             guard ViewNode.enterTraversal(atDepth: baseDepth + context.depth) else {
+                if node.selectedContentRole != nil { continue }
                 node.cachedFrameKey = nil
                 node.cachedFrameCommandRange = startIndex..<startIndex
                 node.cachedFrameSnapshotIdentity = snapshotIdentity
                 node.markSubtreeRendered()
+                continue
+            }
+
+            if node.selectedContentRole != nil {
+                guard let operand = context.selectedContentOperand, operand.isCurrent,
+                    let child = operand.nextPhysicalChild
+                else { continue }
+                let childOperand = selectedReads.capture(child, in: paintDomain)
+                traversal.append(.finishSelectedContent(operand, depth: context.depth))
+                traversal.append(
+                    .enter(
+                        FrameTraversalContext(
+                            node: child, selectedContentOperand: childOperand,
+                            parentOrigin: parentOrigin, inheritedClip: inheritedClip,
+                            inheritedOpacity: context.inheritedOpacity,
+                            inheritedBlendMode: context.inheritedBlendMode,
+                            inheritedTransform: inheritedTransform, depth: context.depth + 1)))
                 continue
             }
 
@@ -10420,7 +13291,9 @@ public final class ViewNode {
                 commands.append(contentsOf: previousRenderedFrame.frame.commands[previousRange])
                 let delta = startIndex - previousRange.lowerBound
                 node.shiftCachedFrameRangesRecursively(
-                    by: delta, from: previousRenderedFrame.identity, to: snapshotIdentity)
+                    by: delta, from: previousRenderedFrame.identity, to: snapshotIdentity,
+                    selectedContentPaintDomain: paintDomain)
+                guard selectedReads.isCurrent else { continue }
                 node.cachedFrameKey = cacheKey
                 node.cachedFrameCommandRange = startIndex..<commands.count
                 node.cachedFrameSnapshotIdentity = snapshotIdentity
@@ -10449,13 +13322,19 @@ public final class ViewNode {
                 effectiveBlendMode: effectiveBlendMode,
                 displayScale: displayScale,
                 canvasCoordinateScale: node.canvasDraw == nil
-                    ? 1 : PaintPlacement.lowering(absoluteFrame, through: effectiveTransform).scale
+                    ? 1 : PaintPlacement.lowering(absoluteFrame, through: effectiveTransform).scale,
+                selectedContentIsCurrent: { selectedReads.isCurrent }
             )
+            guard selectedReads.isCurrent else {
+                commands.removeSubrange(startIndex..<commands.count)
+                continue
+            }
 
             traversal.append(
                 .finish(
                     FrameNodeFinishState(
                         node: node,
+                        selectedContentOperand: context.selectedContentOperand,
                         startIndex: startIndex,
                         cacheKey: cacheKey,
                         depth: context.depth
@@ -10466,14 +13345,15 @@ public final class ViewNode {
             // Pushed in reverse so the worklist pops them in paint order: the
             // command stream's order is the presentation order, exactly as it
             // was when this walk recursed.
-            for child in node.orderedChildrenForPaint().reversed() {
-                guard !child.paintsInDeferredPhase else {
+            for child in node.orderedSelectedContentChildrenForPaint(in: paintDomain, reads: selectedReads).reversed() {
+                guard !child.selectedNode.paintsInDeferredPhase else {
                     continue
                 }
                 traversal.append(
                     .enter(
                         FrameTraversalContext(
-                            node: child,
+                            node: child.node,
+                            selectedContentOperand: child.operand,
                             parentOrigin: childOrigin,
                             inheritedClip: effectiveClip,
                             inheritedOpacity: effectiveOpacity,
@@ -10491,6 +13371,7 @@ public final class ViewNode {
     fileprivate struct RenderLifecycleCandidate {
         weak var node: ViewNode?
         let absoluteFrame: Rect
+        let selectedContentPath: RetainedSelectedContentPath?
     }
 
     /// Lifecycle belongs to the mounted tree, not a painter's recording or
@@ -10505,17 +13386,35 @@ public final class ViewNode {
     ) {
         let baseDepth = ViewNode.traversalDepth
         defer { ViewNode.traversalDepth = baseDepth }
+        let paintDomain = captureSelectedContentPaintDomain()
+        let selectedReads = RetainedSelectedContentTraversalReadSet()
+        let rootOperand = selectedReads.capture(self, in: paintDomain)
         var traversal = [
             FrameTraversalContext(
-                node: self, parentOrigin: parentOrigin, inheritedClip: inheritedClip,
+                node: self, selectedContentOperand: rootOperand,
+                parentOrigin: parentOrigin, inheritedClip: inheritedClip,
                 inheritedOpacity: inheritedOpacity, inheritedBlendMode: .normal,
                 inheritedTransform: inheritedTransform, depth: 0)
         ]
         while let context = traversal.popLast() {
             let node = context.node
+            guard selectedReads.permits(node, using: context.selectedContentOperand) else { continue }
             guard ViewNode.enterTraversal(atDepth: baseDepth + context.depth),
                 !node.isHidden, !node.isRemovalOverlay, !node.isLayoutDeferredByVirtualization
             else { continue }
+            if node.selectedContentRole != nil {
+                guard let operand = context.selectedContentOperand, operand.isCurrent,
+                    let child = operand.nextPhysicalChild
+                else { continue }
+                let childOperand = selectedReads.capture(child, in: paintDomain)
+                traversal.append(
+                    FrameTraversalContext(
+                        node: child, selectedContentOperand: childOperand,
+                        parentOrigin: context.parentOrigin, inheritedClip: context.inheritedClip,
+                        inheritedOpacity: context.inheritedOpacity, inheritedBlendMode: .normal,
+                        inheritedTransform: context.inheritedTransform, depth: context.depth + 1))
+                continue
+            }
             let absoluteFrame = Rect(
                 x: context.parentOrigin.x + node.resolvedFrame.origin.x,
                 y: context.parentOrigin.y + node.resolvedFrame.origin.y,
@@ -10525,7 +13424,11 @@ public final class ViewNode {
                 of: absoluteFrame, transform: node.transform, inheritedTransform: context.inheritedTransform)
             guard context.inheritedClip.allowsSubtreeTraversal(bounds: paintFrame) else { continue }
             if !node.hasAppeared || node.hasPendingAppearanceCallbacks || node.previousFrame != absoluteFrame {
-                candidates.append(RenderLifecycleCandidate(node: node, absoluteFrame: absoluteFrame))
+                candidates.append(
+                    RenderLifecycleCandidate(
+                        node: node, absoluteFrame: absoluteFrame,
+                        selectedContentPath: context.selectedContentOperand?.hasSelectedContentBoundary == true
+                            ? context.selectedContentOperand?.path : nil))
             }
 
             // The node itself appears before its own clip or opacity can stop
@@ -10545,18 +13448,27 @@ public final class ViewNode {
             let childOrigin = Point(
                 x: absoluteFrame.origin.x - (node.scrollAxis == .horizontal ? node.resolvedScrollOffset : 0),
                 y: absoluteFrame.origin.y - (node.scrollAxis == .vertical ? node.resolvedScrollOffset : 0))
-            for child in node.orderedChildrenForPaint().reversed() where !child.paintsInDeferredPhase {
+            for child in node.orderedSelectedContentChildrenForPaint(in: paintDomain, reads: selectedReads).reversed()
+            where !child.selectedNode.paintsInDeferredPhase {
                 traversal.append(
                     FrameTraversalContext(
-                        node: child, parentOrigin: childOrigin, inheritedClip: effectiveClip,
+                        node: child.node, selectedContentOperand: child.operand,
+                        parentOrigin: childOrigin, inheritedClip: effectiveClip,
                         inheritedOpacity: effectiveOpacity, inheritedBlendMode: .normal,
                         inheritedTransform: effectiveTransform, depth: context.depth + 1))
             }
         }
     }
 
-    fileprivate func fireRenderLifecycleCallbacks(absoluteFrame: Rect, in runtime: RetainedViewRuntime) {
-        guard runtime.canDeliverRenderLifecycle(to: self) else { return }
+    fileprivate func fireRenderLifecycleCallbacks(
+        absoluteFrame: Rect, in runtime: RetainedViewRuntime,
+        selectedContentPath: RetainedSelectedContentPath? = nil
+    ) {
+        func hasCurrentSelection() -> Bool {
+            guard let selectedContentPath else { return !hasSelectedContentBoundaryInPhysicalPath }
+            return selectedContentPath.selectedNode === self && selectedContentPath.isInstalled(in: runtime)
+        }
+        guard hasCurrentSelection(), runtime.canDeliverRenderLifecycle(to: self) else { return }
         let isFirstAppearance = !hasAppeared
         let isCompletingAppearance = isFirstAppearance || hasPendingAppearanceCallbacks
         let didMove = !isCompletingAppearance && previousFrame != nil && previousFrame != absoluteFrame
@@ -10566,6 +13478,7 @@ public final class ViewNode {
         defer {
             if let taskAppearance { taskState?.endAppearance(taskAppearance) }
         }
+        guard hasCurrentSelection() else { return }
         // Commit this event before invoking application code. Nested renders
         // must not observe an unfinished appearance or repeat a size change.
         hasAppeared = true
@@ -10575,7 +13488,7 @@ public final class ViewNode {
             hasPendingAppearanceCallbacks = true
             hasPendingAppearanceNodeCallback = true
             onAppear?()
-            guard hasAppeared, runtime.canDeliverRenderLifecycle(to: self) else { return }
+            guard hasCurrentSelection(), hasAppeared, runtime.canDeliverRenderLifecycle(to: self) else { return }
             // The same retained node can now carry a different task or node
             // callback. Finish that phase only after its new geometry settles;
             // do not lose it or repeat the already delivered onAppear action.
@@ -10585,7 +13498,7 @@ public final class ViewNode {
             if hasPendingAppearanceNodeCallback {
                 hasPendingAppearanceNodeCallback = false
                 onAppearWithNode?(self)
-                guard hasAppeared, runtime.canDeliverRenderLifecycle(to: self) else { return }
+                guard hasCurrentSelection(), hasAppeared, runtime.canDeliverRenderLifecycle(to: self) else { return }
                 guard runtime.renderLifecycleRevision == revision else { return }
             }
             // Some producers register only pending launches, with no node
@@ -10594,21 +13507,27 @@ public final class ViewNode {
             let launches = pendingLifecycleTaskLaunches
             pendingLifecycleTaskLaunches.removeAll()
             for launch in launches where lifecycleTasks[launch.key] == nil {
+                guard hasCurrentSelection() else { return }
                 launchLifecycleTask(launch)
+                guard hasCurrentSelection() else { return }
             }
             if let taskState = lifecycleHandlers?.retainedTasks {
                 taskState.deliverPendingAppearance(in: runtime, revision: revision)
-                guard hasAppeared, runtime.canDeliverRenderLifecycle(to: self),
+                guard hasCurrentSelection(), hasAppeared, runtime.canDeliverRenderLifecycle(to: self),
                     runtime.renderLifecycleRevision == revision
                 else { return }
             }
             hasPendingAppearanceCallbacks = false
             if scrollIndicatorsFlashOnAppear {
                 runtime.flashScrollIndicator(for: self)
+                guard hasCurrentSelection() else { return }
             }
         }
+        guard hasCurrentSelection() else { return }
         if didMove { onSizeChange?(absoluteFrame) }
-        guard isRetainedLazyTaskRenderAdmissionCurrent(in: runtime, revision: revision) else { return }
+        guard hasCurrentSelection(), isRetainedLazyTaskRenderAdmissionCurrent(in: runtime, revision: revision) else {
+            return
+        }
         if let activity = retainedLazyListActivityStorage {
             // Record an actual completed render for this physical generation.
             // A later first Task modifier may reuse this native fact; flags
@@ -10616,6 +13535,7 @@ public final class ViewNode {
             lifecycleHandlers?.completedLazyTaskAppearance = activity.captureActualAttachment(of: self, in: runtime)
         }
         if let taskState, lifecycleHandlers?.retainedTasks === taskState {
+            guard hasCurrentSelection() else { return }
             taskState.noteLazyTaskRenderAdmission(in: runtime, revision: revision)
         }
     }
@@ -10682,8 +13602,10 @@ public final class ViewNode {
         effectiveOpacity: Float,
         effectiveBlendMode: BlendMode,
         displayScale: Double,
-        canvasCoordinateScale: Double
+        canvasCoordinateScale: Double,
+        selectedContentIsCurrent: () -> Bool = { true }
     ) {
+        guard selectedContentIsCurrent() else { return }
         let directCommandStartIndex = commands.count
 
         // `FillRectCommand` only carries a uniform radius, so the frame path
@@ -10952,8 +13874,11 @@ public final class ViewNode {
         {
             var context = CanvasGraphicsContext()
             let alpha = lazyListCanvasPaintAlpha
+            guard selectedContentIsCurrent() else { return }
             canvasDraw(&context, fillRect.size.scaled(by: 1 / canvasCoordinateScale))
+            guard selectedContentIsCurrent() else { return }
             alpha?.record(context.operations)
+            guard selectedContentIsCurrent() else { return }
             context.appendCommands(
                 into: &commands,
                 // Draw in logical Canvas coordinates, then apply the inherited
@@ -11254,10 +14179,23 @@ public final class ViewNode {
     }
 
     func shiftCachedFrameRangesRecursively(
-        by delta: Int, from previousIdentity: PaintSnapshotIdentity, to snapshotIdentity: PaintSnapshotIdentity
+        by delta: Int, from previousIdentity: PaintSnapshotIdentity, to snapshotIdentity: PaintSnapshotIdentity,
+        selectedContentPaintDomain: RetainedSelectedContentPaintDomain? = nil
     ) {
         guard ViewNode.enterTraversal() else { return }
         defer { ViewNode.leaveTraversal() }
+        let domain = selectedContentPaintDomain ?? captureSelectedContentPaintDomain()
+        let operand = domain.captureOperand(for: self)
+        guard domain.selectedContentReadsAreCurrent else { return }
+        if domain.requiresSelectedContentValidation(for: self) {
+            guard operand?.isCurrent == true else { return }
+        }
+        if selectedContentRole != nil {
+            guard let child = operand?.nextPhysicalChild else { return }
+            child.shiftCachedFrameRangesRecursively(
+                by: delta, from: previousIdentity, to: snapshotIdentity, selectedContentPaintDomain: domain)
+            return
+        }
 
         guard let existingRange = cachedFrameCommandRange, cachedFrameSnapshotIdentity == previousIdentity else {
             return
@@ -11266,10 +14204,13 @@ public final class ViewNode {
         cachedFrameSnapshotIdentity = snapshotIdentity
 
         for child in children {
-            guard !child.paintsInDeferredPhase else {
+            let childOperand = domain.captureOperand(for: child)
+            if domain.requiresSelectedContentValidation(for: child), childOperand?.isCurrent != true { return }
+            guard !(childOperand?.selectedNode ?? child).paintsInDeferredPhase else {
                 continue
             }
-            child.shiftCachedFrameRangesRecursively(by: delta, from: previousIdentity, to: snapshotIdentity)
+            child.shiftCachedFrameRangesRecursively(
+                by: delta, from: previousIdentity, to: snapshotIdentity, selectedContentPaintDomain: domain)
         }
     }
 
@@ -11281,10 +14222,26 @@ public final class ViewNode {
         focusOrderDelta: Int,
         deferredSubtreeDelta: Int,
         deferredDrawDelta: Int,
-        deferredPriorityDelta: Int
+        deferredPriorityDelta: Int,
+        selectedContentPaintDomain: RetainedSelectedContentPaintDomain? = nil
     ) {
         guard ViewNode.enterTraversal() else { return }
         defer { ViewNode.leaveTraversal() }
+        let domain = selectedContentPaintDomain ?? captureSelectedContentPaintDomain()
+        let operand = domain.captureOperand(for: self)
+        guard domain.selectedContentReadsAreCurrent else { return }
+        if domain.requiresSelectedContentValidation(for: self) {
+            guard operand?.isCurrent == true else { return }
+        }
+        if selectedContentRole != nil {
+            guard let child = operand?.nextPhysicalChild else { return }
+            child.shiftCachedPrepaintRangesRecursively(
+                fromGeneration: fromGeneration, toGeneration: toGeneration,
+                dispatchDelta: dispatchDelta, interactionDelta: interactionDelta, focusOrderDelta: focusOrderDelta,
+                deferredSubtreeDelta: deferredSubtreeDelta, deferredDrawDelta: deferredDrawDelta,
+                deferredPriorityDelta: deferredPriorityDelta, selectedContentPaintDomain: domain)
+            return
+        }
 
         // Hidden or clipped branches did not contribute their descendants to
         // the copied snapshot. Do not rebase those older ranges or make them
@@ -11311,7 +14268,9 @@ public final class ViewNode {
         )
 
         for child in children {
-            guard !child.paintsInDeferredPhase else {
+            let childOperand = domain.captureOperand(for: child)
+            if domain.requiresSelectedContentValidation(for: child), childOperand?.isCurrent != true { return }
+            guard !(childOperand?.selectedNode ?? child).paintsInDeferredPhase else {
                 continue
             }
             child.shiftCachedPrepaintRangesRecursively(
@@ -11322,16 +14281,30 @@ public final class ViewNode {
                 focusOrderDelta: focusOrderDelta,
                 deferredSubtreeDelta: deferredSubtreeDelta,
                 deferredDrawDelta: deferredDrawDelta,
-                deferredPriorityDelta: deferredPriorityDelta
+                deferredPriorityDelta: deferredPriorityDelta,
+                selectedContentPaintDomain: domain
             )
         }
     }
 
     func shiftCachedSceneRangesRecursively(
-        by delta: Int, from previousIdentity: PaintSnapshotIdentity, to snapshotIdentity: PaintSnapshotIdentity
+        by delta: Int, from previousIdentity: PaintSnapshotIdentity, to snapshotIdentity: PaintSnapshotIdentity,
+        selectedContentPaintDomain: RetainedSelectedContentPaintDomain? = nil
     ) {
         guard ViewNode.enterTraversal() else { return }
         defer { ViewNode.leaveTraversal() }
+        let domain = selectedContentPaintDomain ?? captureSelectedContentPaintDomain()
+        let operand = domain.captureOperand(for: self)
+        guard domain.selectedContentReadsAreCurrent else { return }
+        if domain.requiresSelectedContentValidation(for: self) {
+            guard operand?.isCurrent == true else { return }
+        }
+        if selectedContentRole != nil {
+            guard let child = operand?.nextPhysicalChild else { return }
+            child.shiftCachedSceneRangesRecursively(
+                by: delta, from: previousIdentity, to: snapshotIdentity, selectedContentPaintDomain: domain)
+            return
+        }
 
         guard let existingRange = cachedScenePaintRange, cachedSceneSnapshotIdentity == previousIdentity else {
             return
@@ -11340,10 +14313,13 @@ public final class ViewNode {
         cachedSceneSnapshotIdentity = snapshotIdentity
 
         for child in children {
-            guard !child.paintsInDeferredPhase else {
+            let childOperand = domain.captureOperand(for: child)
+            if domain.requiresSelectedContentValidation(for: child), childOperand?.isCurrent != true { return }
+            guard !(childOperand?.selectedNode ?? child).paintsInDeferredPhase else {
                 continue
             }
-            child.shiftCachedSceneRangesRecursively(by: delta, from: previousIdentity, to: snapshotIdentity)
+            child.shiftCachedSceneRangesRecursively(
+                by: delta, from: previousIdentity, to: snapshotIdentity, selectedContentPaintDomain: domain)
         }
     }
 
@@ -11363,61 +14339,85 @@ public final class ViewNode {
     }
 
     private func sizeThatFits(in constraints: LayoutConstraints, memo: MeasurementMemo) -> Size {
+        guard !memo.selectedContentReadFailed else { return .zero }
         guard ViewNode.enterTraversal() else { return .zero }
         defer { ViewNode.leaveTraversal() }
 
+        if selectedContentRole != nil {
+            guard let path = captureSelectedContentLayoutPath(), path.isCurrent,
+                let child = path.nextPhysicalChild, child.parent === self
+            else {
+                memo.selectedContentReadFailed = true
+                return .zero
+            }
+            let measured = child.sizeThatFits(in: constraints, memo: memo)
+            guard path.isCurrent, !memo.selectedContentReadFailed else {
+                memo.selectedContentReadFailed = true
+                return .zero
+            }
+            // The physical level was charged above. Only the selected content
+            // owns a proposal result, memo entry, or measurement cache.
+            return measured
+        }
+
+        guard let scope = LayoutOperandScope(node: self, memo: memo) else { return .zero }
         var plan = MeasurementPlan()
-        if let cached = beginMeasurement(constraints, into: &plan, memo: memo) {
-            return cached
+        if let cached = beginMeasurement(constraints, into: &plan, memo: memo, scope: scope) {
+            return scope.isCurrent ? cached : .zero
         }
+        guard scope.isCurrent else { return .zero }
 
-        if aspectFitLayout != nil, let size = measureAspectFit(plan: plan, memo: memo) {
-            return size
+        if aspectFitLayout != nil, let size = measureAspectFit(plan: plan, memo: memo, scope: scope) {
+            return scope.isCurrent ? size : .zero
         }
-
+        guard scope.isCurrent else { return .zero }
         if case .grid(let layout) = layoutMode {
-            return measureGrid(layout: layout, plan: plan, memo: memo)
+            return measureGrid(layout: layout, plan: plan, memo: memo, scope: scope)
         }
 
+        let visibleChildren = scope.children.filter { !$0.selectedNode.isHidden }
         var childSizes: [Size] = []
-        childSizes.reserveCapacity(children.count)
-        for child in children where !child.isHidden {
-            childSizes.append(
-                child.sizeThatFits(
-                    in: plan.measuresChildrenIndividually
-                        ? absoluteChildConstraints(for: child, in: plan.childConstraints)
-                        : plan.childConstraints,
-                    memo: memo))
+        childSizes.reserveCapacity(visibleChildren.count)
+        for operand in visibleChildren {
+            guard scope.accepts(operand) else { return .zero }
+            let measured = operand.physicalNode.sizeThatFits(
+                in: plan.measuresChildrenIndividually
+                    ? absoluteChildConstraints(for: operand.selectedNode, in: plan.childConstraints)
+                    : plan.childConstraints,
+                memo: memo)
+            guard scope.isCurrent else { return .zero }
+            childSizes.append(measured)
         }
 
         // Children have now resolved inherited greed, so a row containing a
         // Spacer can accept its proposal before widths are allocated.
-        updateInheritedStackFillAxes()
-        if let widths = horizontalStackMeasurementWidths(
-            childSizes: childSizes,
-            constraints: plan.effectiveConstraints,
-            childConstraints: plan.childConstraints)
-        {
-            var index = 0
-            for child in children where !child.isHidden {
+        updateInheritedStackFillAxes(scope: scope)
+        let widths = horizontalStackMeasurementWidths(
+            childSizes: childSizes, constraints: plan.effectiveConstraints,
+            childConstraints: plan.childConstraints, scope: scope)
+        guard scope.isCurrent else { return .zero }
+        if let widths {
+            for (index, operand) in visibleChildren.enumerated() {
+                guard scope.accepts(operand) else { return .zero }
                 if widths[index] != childSizes[index].width,
-                    child.needsMeasurement(atStackWidth: widths[index], originalConstraints: plan.childConstraints)
+                    operand.selectedNode.needsMeasurement(
+                        atStackWidth: widths[index], originalConstraints: plan.childConstraints)
                 {
                     childSizes[index].height =
-                        child.sizeThatFits(
+                        operand.physicalNode.sizeThatFits(
                             in: LayoutConstraints(maxWidth: widths[index], maxHeight: plan.childConstraints.maxHeight),
                             memo: memo
                         ).height
+                    guard scope.isCurrent else { return .zero }
                 }
                 // Keep the allocated width, not the longest wrapped line's
                 // slightly smaller advance: narrowing the row again here can
                 // cause another line break when it is finally placed.
                 childSizes[index].width = widths[index]
-                index += 1
             }
         }
 
-        return finishMeasurement(plan: plan, childSizes: childSizes, memo: memo)
+        return finishMeasurement(plan: plan, childSizes: childSizes, memo: memo, scope: scope)
     }
 
     /// Only the finite positive two-axis proposal is admitted here. Other
@@ -11425,11 +14425,13 @@ public final class ViewNode {
     /// are characterized. In particular, never feed an unbounded proposal to
     /// AspectRatioConstraint's finite sentinel fallback.
     @inline(never)
-    private func measureAspectFit(plan: MeasurementPlan, memo: MeasurementMemo) -> Size? {
+    private func measureAspectFit(
+        plan: MeasurementPlan, memo: MeasurementMemo, scope: LayoutOperandScope
+    ) -> Size? {
         let constraints = plan.effectiveConstraints
-        guard case .stack = layoutMode,
-            let layout = aspectFitLayout, children.count == 1,
-            let child = children.first, !child.isHidden,
+        guard scope.isCurrent, case .stack = layoutMode,
+            let layout = aspectFitLayout, scope.children.count == 1,
+            let operand = scope.children.first, !operand.selectedNode.isHidden,
             constraints.minWidth == 0, constraints.minHeight == 0,
             constraints.maxWidth.isFinite, constraints.maxWidth > 0,
             constraints.maxHeight.isFinite, constraints.maxHeight > 0
@@ -11439,7 +14441,8 @@ public final class ViewNode {
         if let requestedRatio = layout.aspectRatio {
             ratio = requestedRatio
         } else {
-            let ideal = child.sizeThatFits(in: .unconstrained, memo: memo)
+            let ideal = operand.physicalNode.sizeThatFits(in: .unconstrained, memo: memo)
+            guard scope.isCurrent else { return nil }
             guard ideal.width.isFinite, ideal.width > 0, ideal.height.isFinite, ideal.height > 0 else { return nil }
             ratio = ideal.width / ideal.height
         }
@@ -11452,21 +14455,22 @@ public final class ViewNode {
             return nil
         }
 
-        let acceptedSize = child.sizeThatFits(
+        guard scope.isCurrent else { return nil }
+        let acceptedSize = operand.physicalNode.sizeThatFits(
             in: LayoutConstraints(maxWidth: proposal.width, maxHeight: proposal.height), memo: memo)
+        guard scope.isCurrent else { return nil }
         inheritedStackFillAxes = LayoutFillAxes()
-        // A frame or intrinsic child may decline the proposal. Report its
-        // answer, not the proposal or the wrapper's legacy preferred size.
-        return cacheMeasuredSize(acceptedSize, plan: plan, memo: memo, fittedAspect: layout)
+        return cacheMeasuredSize(acceptedSize, plan: plan, memo: memo, fittedAspect: layout, scope: scope)
     }
 
     @inline(never)
     private func horizontalStackMeasurementWidths(
         childSizes: [Size],
         constraints: LayoutConstraints,
-        childConstraints: LayoutConstraints
+        childConstraints: LayoutConstraints,
+        scope: LayoutOperandScope
     ) -> [Double]? {
-        guard let stackLayout = layoutMode.stackLayout, stackLayout.axis == .horizontal,
+        guard scope.isCurrent, let stackLayout = layoutMode.stackLayout, stackLayout.axis == .horizontal,
             scrollAxis != .horizontal, contentMeasurementConstraints(in: constraints).maxWidth.isFinite
         else { return nil }
 
@@ -11477,14 +14481,16 @@ public final class ViewNode {
             width - stackMainPadding(for: stackLayout)
                 - stackLayoutSpacingTotal(count: childSizes.count, spacing: stackLayout.spacing))
         let desiredWidths = childSizes.map(\.width)
-        let widths = allocatedStackMainSizes(
-            for: stackLayout,
-            desiredMainSizes: desiredWidths,
-            children: children.filter { !$0.isHidden },
-            childConstraints: childConstraints,
-            fullMainExtent: width,
-            availableChildMainExtent: availableExtent,
-            allowsOverflowAlongMainAxis: false)
+        guard
+            let widths = allocatedStackMainSizes(
+                for: stackLayout,
+                desiredMainSizes: desiredWidths,
+                children: scope.children.filter { !$0.selectedNode.isHidden },
+                childConstraints: childConstraints,
+                fullMainExtent: width,
+                availableChildMainExtent: availableExtent,
+                allowsOverflowAlongMainAxis: false, scope: scope), scope.isCurrent
+        else { return nil }
         return widths == desiredWidths ? nil : widths
     }
 
@@ -11507,8 +14513,10 @@ public final class ViewNode {
     private func beginMeasurement(
         _ constraints: LayoutConstraints,
         into plan: inout MeasurementPlan,
-        memo: MeasurementMemo
+        memo: MeasurementMemo,
+        scope: LayoutOperandScope
     ) -> Size? {
+        guard scope.isCurrent else { return .zero }
         let displayScale = runtime?.displayScale ?? 1.0
         let effectiveConstraints = applyingLayoutConstraints(to: constraints)
         let cacheKey = ViewMeasureCacheKey(constraints: effectiveConstraints, displayScale: displayScale)
@@ -11541,6 +14549,7 @@ public final class ViewNode {
         plan.effectiveConstraints = effectiveConstraints
         plan.cacheKey = cacheKey
         plan.contentSize = bitmapContentSize() ?? textContentSize(in: contentConstraints) ?? .zero
+        guard scope.isCurrent else { return .zero }
 
         switch layoutMode {
         case .absolute:
@@ -11551,10 +14560,10 @@ public final class ViewNode {
         case .stack(let stackLayout), .lazyStack(let stackLayout):
             plan.childConstraints = stackChildConstraints(
                 for: insetConstraints(contentConstraints, by: stackLayout.padding),
-                axis: stackLayout.axis)
+                axis: stackLayout.axis, scope: scope)
         case .gridRow(let rowLayout):
             plan.childConstraints = stackChildConstraints(
-                for: contentConstraints, axis: rowLayout.standaloneStackLayout.axis)
+                for: contentConstraints, axis: rowLayout.standaloneStackLayout.axis, scope: scope)
         case .grid:
             plan.childConstraints = contentConstraints
         case .flex:
@@ -11563,14 +14572,18 @@ public final class ViewNode {
         return nil
     }
 
-    private func stackChildConstraints(for size: Size, axis: StackAxis) -> LayoutConstraints {
+    private func stackChildConstraints(
+        for size: Size, axis: StackAxis, scope: LayoutOperandScope
+    ) -> LayoutConstraints {
         stackChildConstraints(
             for: LayoutConstraints(maxWidth: max(0, size.width), maxHeight: max(0, size.height)),
-            axis: axis)
+            axis: axis, scope: scope)
     }
 
-    private func stackChildConstraints(for constraints: LayoutConstraints, axis: StackAxis) -> LayoutConstraints {
-        if forwardsStackMainAxisProposal || forwardsSingleChildSize, children.count == 1 {
+    private func stackChildConstraints(
+        for constraints: LayoutConstraints, axis: StackAxis, scope: LayoutOperandScope
+    ) -> LayoutConstraints {
+        if forwardsStackMainAxisProposal || forwardsSingleChildSize(in: scope), scope.children.count == 1 {
             return LayoutConstraints(maxWidth: constraints.maxWidth, maxHeight: constraints.maxHeight)
         }
         switch axis {
@@ -11596,12 +14609,14 @@ public final class ViewNode {
     /// its explicit dimensions, and caches the answer.
     @inline(never)
     private func finishMeasurement(
-        plan: MeasurementPlan, childSizes: [Size], memo: MeasurementMemo, gridSize: Size? = nil
+        plan: MeasurementPlan, childSizes: [Size], memo: MeasurementMemo, gridSize: Size? = nil,
+        scope: LayoutOperandScope
     ) -> Size {
+        guard scope.isCurrent else { return .zero }
         let measuredSize: Size
         switch layoutMode {
         case .absolute:
-            measuredSize = absoluteMeasuredSize(contentSize: plan.contentSize, childSizes: childSizes)
+            measuredSize = absoluteMeasuredSize(contentSize: plan.contentSize, childSizes: childSizes, scope: scope)
         case .stack(let stackLayout), .lazyStack(let stackLayout):
             measuredSize = Self.stackMeasuredSize(of: childSizes, stackLayout: stackLayout)
         case .flex(let flexStyle):
@@ -11616,16 +14631,21 @@ public final class ViewNode {
         // Keep the normal cache/memo path and the inherited-fill update made
         // by the caller, while avoiding a second clamp of the accepted size.
         let resolvedSize =
-            forwardsSingleChildSize && childSizes.count == 1
+            forwardsSingleChildSize(in: scope) && childSizes.count == 1
             ? childSizes[0]
             : applyingExplicitDimensions(to: measuredSize, constraints: plan.effectiveConstraints)
-        return cacheMeasuredSize(resolvedSize, plan: plan, memo: memo)
+        return cacheMeasuredSize(resolvedSize, plan: plan, memo: memo, scope: scope)
     }
 
     private func cacheMeasuredSize(
         _ resolvedSize: Size, plan: MeasurementPlan, memo: MeasurementMemo,
-        fittedAspect: RetainedAspectFitLayout? = nil
+        fittedAspect: RetainedAspectFitLayout? = nil,
+        scope: LayoutOperandScope
     ) -> Size {
+        guard scope.isCurrent, !memo.selectedContentReadFailed else {
+            scope.reject()
+            return .zero
+        }
         let result = ViewMeasurementResult(
             size: resolvedSize, fittedAspect: fittedAspect, inheritedFillAxes: inheritedStackFillAxes)
         cachedMeasurement = ViewMeasurementCacheEntry(key: plan.cacheKey, result: result)
@@ -11647,19 +14667,20 @@ public final class ViewNode {
     }
 
     @inline(never)
-    private func absoluteMeasuredSize(contentSize: Size, childSizes: [Size]) -> Size {
+    private func absoluteMeasuredSize(
+        contentSize: Size, childSizes: [Size], scope: LayoutOperandScope
+    ) -> Size {
         var maxChildX = contentSize.width
         var maxChildY = contentSize.height
-
         var index = 0
-        for child in children where !child.isHidden {
+        for operand in scope.children where !operand.selectedNode.isHidden {
+            let child = operand.selectedNode
             let childSize = childSizes[index]
             index += 1
             let resolvedSize = child.absoluteLayoutSize(from: childSize)
             maxChildX = max(maxChildX, child.frame.origin.x + resolvedSize.width)
             maxChildY = max(maxChildY, child.frame.origin.y + resolvedSize.height)
         }
-
         return Size(width: maxChildX, height: maxChildY)
     }
 
@@ -12168,7 +15189,8 @@ public final class ViewNode {
     /// down from `effectiveFillAxes` keeps the one remaining recursion —
     /// `sizeThatFits` — free of a second one.
     @inline(never)
-    fileprivate func updateInheritedStackFillAxes() {
+    private func updateInheritedStackFillAxes(scope: LayoutOperandScope) {
+        guard scope.isCurrent else { return }
         guard let axis = layoutMode.stackLayout?.axis else {
             inheritedStackFillAxes = LayoutFillAxes()
             return
@@ -12180,7 +15202,9 @@ public final class ViewNode {
             return
         }
 
-        let inherits = children.contains { !$0.isHidden && ViewNode.fillsMainAxis($0, axis: axis) }
+        let inherits = scope.children.contains {
+            !$0.selectedNode.isHidden && ViewNode.fillsMainAxis($0.selectedNode, axis: axis)
+        }
         inheritedStackFillAxes =
             axis == .vertical
             ? LayoutFillAxes(horizontal: false, vertical: inherits)
@@ -12201,11 +15225,33 @@ public final class ViewNode {
     /// paragraphs that can reflow or explicitly truncate take no
     /// width floor. Their measured height still protects every allocated line.
     fileprivate func stackShrinkFloorMainExtent(
-        along axis: StackAxis,
-        constraints: LayoutConstraints
+        along axis: StackAxis, constraints: LayoutConstraints
     ) -> Double {
+        stackShrinkFloorMainExtent(along: axis, constraints: constraints, failure: LayoutOperandFailure())
+    }
+
+    private func stackShrinkFloorMainExtent(
+        along axis: StackAxis, constraints: LayoutConstraints, failure: LayoutOperandFailure
+    ) -> Double {
+        guard !failure.failed else { return 0 }
         guard ViewNode.enterTraversal() else { return 0 }
         defer { ViewNode.leaveTraversal() }
+
+        if selectedContentRole != nil {
+            guard let path = captureSelectedContentLayoutPath(), path.isCurrent,
+                let child = path.nextPhysicalChild, child.parent === self
+            else {
+                failure.failed = true
+                return 0
+            }
+            let floor = child.stackShrinkFloorMainExtent(along: axis, constraints: constraints, failure: failure)
+            guard path.isCurrent, !failure.failed else {
+                failure.failed = true
+                return 0
+            }
+            return floor
+        }
+        guard let scope = LayoutOperandScope(node: self, failure: failure) else { return 0 }
 
         // A declared minimum is a hard floor, whatever the content is: a
         // control that states its macOS height (a 22pt segmented track, a
@@ -12213,74 +15259,66 @@ public final class ViewNode {
         // overflows or scrolls instead, exactly as `.frame(minHeight:)`
         // behaves in SwiftUI.
         let declaredMinimum = max(
-            0,
-            axis == .vertical ? (layoutConstraints?.minHeight ?? 0) : (layoutConstraints?.minWidth ?? 0)
-        )
+            0, axis == .vertical ? (layoutConstraints?.minHeight ?? 0) : (layoutConstraints?.minWidth ?? 0))
+        // A clipping container absorbs squeeze instead of propagating a floor,
+        // including its own declared minimum, as before.
+        if clipsToBounds { return 0 }
 
-        // A clipping container is the declared "content may be cut here"
-        // boundary: it absorbs squeeze (its interior clips or truncates)
-        // instead of resisting it, so it contributes no floor upward — not
-        // even its own declared minimum. Control chrome (buttons, segmented
-        // tracks) relies on this to keep pinned frames contained.
-        if clipsToBounds {
-            return 0
-        }
-
-        // fixedSize can live on a padding/container wrapper rather than on
-        // the text itself. It ends width negotiation for the whole subtree.
         if axis == .horizontal, fixedSizeAxes?.horizontal == true {
-            return max(declaredMinimum, sizeThatFits(in: constraints).width)
+            guard let measured = checkedSizeThatFits(in: constraints, scope: scope) else { return 0 }
+            return max(declaredMinimum, measured.width)
         }
 
         if let text, !text.isEmpty {
-            // Paragraphs can reflow and ask for more height; explicit
-            // single-line text can truncate. Preserve compact ASCII tokens
-            // such as Compute or 68% under sibling pressure, but do not
-            // infer word boundaries from missing spaces in other scripts.
-            // A token's own narrower frame still participates below, so an
-            // explicitly narrow word can wrap.
             if axis == .horizontal {
                 let preservesSingleASCIIToken =
                     text.utf8.allSatisfy { $0 < 0x80 }
                     && text.split(maxSplits: 1, whereSeparator: \.isWhitespace).count == 1
                 let canReflow = textStyle.lineBreakMode == .wrap && !preservesSingleASCIIToken
-                if textStyle.maximumNumberOfLines == 1 || canReflow {
-                    return declaredMinimum
-                }
+                if textStyle.maximumNumberOfLines == 1 || canReflow { return declaredMinimum }
             }
-            let measured = sizeThatFits(in: constraints)
+            guard let measured = checkedSizeThatFits(in: constraints, scope: scope) else { return 0 }
             return max(declaredMinimum, axis == .vertical ? measured.height : measured.width)
         }
-
         if bitmapSurface != nil {
-            let measured = sizeThatFits(in: constraints)
+            guard let measured = checkedSizeThatFits(in: constraints, scope: scope) else { return 0 }
             return max(declaredMinimum, axis == .vertical ? measured.height : measured.width)
         }
-
-        guard let stackLayout = layoutMode.stackLayout else {
-            return declaredMinimum
-        }
+        guard let stackLayout = layoutMode.stackLayout else { return declaredMinimum }
 
         let effectiveConstraints = applyingLayoutConstraints(to: constraints)
         let contentConstraints = insetConstraints(
             contentMeasurementConstraints(in: effectiveConstraints), by: stackLayout.padding)
-        let childConstraints = stackChildConstraints(for: contentConstraints, axis: stackLayout.axis)
-        let visibleChildren = children.filter { !$0.isHidden }
+        let childConstraints = stackChildConstraints(for: contentConstraints, axis: stackLayout.axis, scope: scope)
+        let visibleChildren = scope.children.filter { !$0.selectedNode.isHidden }
         let allocatedWidths: [Double]?
         if axis == .vertical, stackLayout.axis == .horizontal, contentConstraints.maxWidth.isFinite {
-            let childSizes = visibleChildren.map { $0.sizeThatFits(in: childConstraints) }
-            updateInheritedStackFillAxes()
+            var childSizes: [Size] = []
+            for child in visibleChildren {
+                guard scope.accepts(child),
+                    let size = child.physicalNode.checkedSizeThatFits(
+                        in: childConstraints, scope: scope)
+                else { return 0 }
+                childSizes.append(size)
+            }
+            updateInheritedStackFillAxes(scope: scope)
             allocatedWidths = horizontalStackMeasurementWidths(
-                childSizes: childSizes, constraints: effectiveConstraints, childConstraints: childConstraints)
+                childSizes: childSizes, constraints: effectiveConstraints, childConstraints: childConstraints,
+                scope: scope)
+            guard scope.isCurrent else { return 0 }
         } else {
             allocatedWidths = nil
         }
-        let childFloors = visibleChildren.enumerated().map { index, child in
-            child.stackShrinkFloorMainExtent(
+        var childFloors: [Double] = []
+        for (index, child) in visibleChildren.enumerated() {
+            guard scope.accepts(child) else { return 0 }
+            let floor = child.physicalNode.stackShrinkFloorMainExtent(
                 along: axis,
                 constraints: allocatedWidths.map {
                     LayoutConstraints(maxWidth: $0[index], maxHeight: childConstraints.maxHeight)
-                } ?? childConstraints)
+                } ?? childConstraints, failure: failure)
+            guard scope.isCurrent else { return 0 }
+            childFloors.append(floor)
         }
 
         let combinedFloor: Double
@@ -12291,14 +15329,8 @@ public final class ViewNode {
         } else {
             combinedFloor = childFloors.max() ?? 0
         }
-
-        // An explicit main-axis dimension caps the floor: the author asked
-        // for a fixed size, so shrink resistance never exceeds it.
         let explicitMainExtent = axis == .vertical ? explicitHeight : explicitWidth
-        if let explicitMainExtent {
-            return max(declaredMinimum, min(combinedFloor, explicitMainExtent))
-        }
-
+        if let explicitMainExtent { return max(declaredMinimum, min(combinedFloor, explicitMainExtent)) }
         return max(declaredMinimum, combinedFloor)
     }
 
@@ -13700,6 +16732,9 @@ fileprivate final class RetainedLazyListUIATargetPass {
         let resolvedScrollOffset: Double
         let isHidden: Bool
         let isDeferred: Bool
+        // Only physical leaf entries carry this original measurement path.
+        // Every scalar above still describes layout.node itself.
+        let selectedContentPath: RetainedSelectedContentPath?
     }
 
     struct List {
@@ -14007,11 +17042,13 @@ private final class RetainedFocusOperation {
     var revision: UInt64?
     var mutationWitness: UInt64
     let listNavigationReceipt: RetainedListNavigationReceipt?
+    let selectedPath: RetainedSelectedContentPath?
     var remainingQualificationQueries = 4
 
     init(
         target: ViewNode?, origin: RetainedFocusOrigin, beganAttached: Bool,
-        revision: UInt64?, mutationWitness: UInt64, listNavigationReceipt: RetainedListNavigationReceipt? = nil
+        revision: UInt64?, mutationWitness: UInt64, listNavigationReceipt: RetainedListNavigationReceipt? = nil,
+        selectedPath: RetainedSelectedContentPath? = nil
     ) {
         self.target = target
         self.hasTarget = target != nil
@@ -14020,6 +17057,13 @@ private final class RetainedFocusOperation {
         self.revision = revision
         self.mutationWitness = mutationWitness
         self.listNavigationReceipt = listNavigationReceipt
+        self.selectedPath = selectedPath
+    }
+
+    func hasCurrentSelectedPath(in runtime: RetainedViewRuntime) -> Bool {
+        guard let selectedPath else { return true }
+        return selectedPath.isCurrent && selectedPath.isInstalled(in: runtime)
+            && selectedPath.physicalRoot === runtime.root && selectedPath.selectedNode === target
     }
 }
 package enum RetainedSceneGeometryLimits {
@@ -14663,6 +17707,7 @@ public final class RetainedViewRuntime {
     private var layoutSettlementGenerationsExhausted = false
     private var isResolvingLayoutSettlement = false
     private var lastUnmutatedLayoutPassRevision: UInt64?
+    private var selectedContentLayoutFailureIdentity = RetainedSelectedContentLayoutFailureIdentity()
     private var layoutSettlementIdentity: RetainedLayoutSettlementIdentity?
     private var recordedLayoutSettlement: RetainedLayoutSettlementStatus = .unsettled
 
@@ -15219,6 +18264,8 @@ public final class RetainedViewRuntime {
         // A nil gap extent is unresolved provenance, even when the temporary
         // physical frame has height zero. Ordinary leaves have no gap metadata.
         let gapExtent: Double?
+        // The placement's original selected operand, never a later lookup.
+        let selectedContentPath: RetainedSelectedContentPath?
     }
 
     /// Only an already admitted anchor may normalize its stored offset after
@@ -15451,15 +18498,42 @@ public final class RetainedViewRuntime {
 
     fileprivate func rejectLazyListLayoutVisit() { lazyListUnsupportedThisPass = true }
 
+    /// Borrow only the selected operand captured by this physical placement.
+    /// Nil records are ordinary; a typed path can never be obtained here.
+    private func selectedLazyListLeaf(
+        for physical: ViewNode, using originalPath: RetainedSelectedContentPath?
+    ) -> ViewNode? {
+        guard physical.runtime === self else { return nil }
+        if let path = originalPath {
+            guard path.physicalRoot === physical, path.isInstalled(in: self),
+                let selected = path.selectedNode, selected.runtime === self
+            else { return nil }
+            return selected
+        }
+        guard !physical.hasSelectedContentBoundaryInPhysicalPath else { return nil }
+        return physical
+    }
+
+    @discardableResult
     fileprivate func recordLazyListLeafMeasurement(
         _ placement: RetainedLazyListRuntimeAdapter.Placement,
-        attachment: RetainedLazyListAttachmentProof, container: ViewNode
-    ) {
+        attachment: RetainedLazyListAttachmentProof, container: ViewNode,
+        selectedContentPath: RetainedSelectedContentPath?
+    ) -> Bool {
+        guard attachment.isCurrent, placement.node.parent === container,
+            placement.node.runtime === self,
+            selectedLazyListLeaf(for: placement.node, using: selectedContentPath) != nil
+        else {
+            lazyListUnsupportedThisPass = true
+            return false
+        }
         pendingLazyListMeasurements[ObjectIdentifier(container), default: []].append(
             LazyListLeafMeasurement(
                 token: placement.token, leafIndex: placement.leafIndex,
                 node: placement.node, attachment: attachment,
-                gap: placement.node.retainedLazyListGap, gapExtent: placement.extent))
+                gap: placement.node.retainedLazyListGap, gapExtent: placement.extent,
+                selectedContentPath: selectedContentPath))
+        return true
     }
 
     /// Leaf callbacks and child layout have finished before their scalar
@@ -15479,8 +18553,10 @@ public final class RetainedViewRuntime {
             var valid = true
             for record in records {
                 guard let leaf = record.node, record.attachment.isCurrent, leaf.parent === node,
-                    leaf.runtime === self, leaf.isHidden || leaf.lastLayoutVisitPassID == visit.passID,
-                    leaf.resolvedFrame.height.isFinite, leaf.resolvedFrame.height >= 0
+                    leaf.runtime === self,
+                    let selected = selectedLazyListLeaf(for: leaf, using: record.selectedContentPath),
+                    selected.isHidden || leaf.lastLayoutVisitPassID == visit.passID,
+                    selected.resolvedFrame.height.isFinite, selected.resolvedFrame.height >= 0
                 else {
                     valid = false
                     break
@@ -15488,7 +18564,7 @@ public final class RetainedViewRuntime {
                 measurements.append(
                     RetainedLazyListRuntimeAdapter.Measurement(
                         token: record.token, leafIndex: record.leafIndex, node: leaf,
-                        extent: leaf.isHidden ? 0 : leaf.resolvedFrame.height))
+                        extent: selected.isHidden ? 0 : selected.resolvedFrame.height))
             }
             guard valid, lazyListVisitIsCurrent(visit) else {
                 lazyListUnsupportedThisPass = true
@@ -17298,17 +20374,24 @@ public final class RetainedViewRuntime {
     /// External focus needs an actually attached, currently projected owner.
     /// False can follow a callback that already changed focus; it is never a
     /// request to retry the operation or undo a newer accepted focus choice.
-    package func requestAccessibilityFocus(_ node: ViewNode) -> Bool {
+    package func requestAccessibilityFocus(
+        _ node: ViewNode, selectedPath: RetainedSelectedContentPath? = nil
+    ) -> Bool {
+        func selectedPathIsCurrent() -> Bool {
+            guard let selectedPath else { return true }
+            return selectedPath.isCurrent && selectedPath.isInstalled(in: self)
+                && selectedPath.physicalRoot === root && selectedPath.selectedNode === node
+        }
         guard permitsRenderLifecycleCallbacks, !focusRevision.isExhausted,
-            canReadLayoutSettlement, node.isFocusable, isPresentationNodeAvailable(node)
+            canReadLayoutSettlement, node.isFocusable, isPresentationNodeAvailable(node), selectedPathIsCurrent()
         else { return false }
         let revision = presentationFocusRevision
         guard queryFocusLayout(usingFrameQuery: true),
             permitsRenderLifecycleCallbacks, !focusRevision.isExhausted,
             presentationFocusRevision == revision,
-            accessibilityFocusContextIsCurrent(for: node)
+            accessibilityFocusContextIsCurrent(for: node), selectedPathIsCurrent()
         else { return false }
-        return updateFocusTarget(to: node, origin: .accessibility)
+        return updateFocusTarget(to: node, origin: .accessibility, selectedPath: selectedPath)
     }
 
     /// Stored admission only: construction and retained callbacks must finish
@@ -20958,6 +24041,46 @@ public final class RetainedViewRuntime {
         isAccessibilityMutationCurrent(mutation) && target.isCurrent(in: self)
     }
 
+    /// Callback-free eligibility for one internal copy of physical stored text.
+    /// This validates the original weak attachment without opening a mutation,
+    /// settling layout, or promising that a later range/provider stays valid.
+    /// Disabled and ordinary offscreen text are still readable.
+    package func isAccessibilityTextReadTargetCurrent(_ target: RetainedAccessibilityTarget) -> Bool {
+        guard permitsRenderLifecycleCallbacks, canReadLayoutSettlement,
+            !isUpdatingResolvedLayout, !isResolvingPresentationAction,
+            target.isCurrent(in: self), let node = target.node, node.text != nil,
+            AccessibilityProjection.resolveControlType(for: node) == .text,
+            let ancestors = Self.textReadAncestorIDs(of: node, root: root)
+        else { return false }
+        return Self.hasNoCompetingValueModal(in: root, ancestors: ancestors)
+    }
+
+    private static func textReadAncestorIDs(of node: ViewNode, root: ViewNode) -> Set<ObjectIdentifier>? {
+        var ancestors: Set<ObjectIdentifier> = []
+        var candidate: ViewNode? = node
+        while let current = candidate, ancestors.count < ViewNode.maximumTraversalDepth {
+            guard ancestors.insert(ObjectIdentifier(current)).inserted,
+                !current.isHidden, !current.isAccessibilityHidden, !current.isRemovalOverlay,
+                !current.isLayoutDeferredByVirtualization, !current.isPrivacySensitive,
+                current.redactionReasons.isEmpty, current.textInputController == nil,
+                !current.accessibilityTraits.contains(.isTextInput),
+                !current.accessibilityTraits.contains(.isSearchField),
+                !current.accessibilityTraits.contains(.isSecureTextInput),
+                current.retainedLazyListAdapter == nil, current.accessibilityRepresentationChildren == nil
+            else { return nil }
+            // Combining or ignoring an ancestor's children removes this node
+            // from the projection. No descendant-name fallback can restore it.
+            if current !== node,
+                current.accessibilityChildBehavior == .combine || current.accessibilityChildBehavior == .ignore
+            {
+                return nil
+            }
+            if current === root { return root.parent == nil ? ancestors : nil }
+            candidate = current.parent
+        }
+        return nil
+    }
+
     /// A callback-free continuation check for an already-admitted editor
     /// mutation. Every physical modal must enclose the target, deliberately
     /// refusing sibling modal stacks instead of guessing new paint order.
@@ -21193,7 +24316,9 @@ public final class RetainedViewRuntime {
                 return
             }
             guard let node = candidate.node, delivered.insert(ObjectIdentifier(node)).inserted else { continue }
-            node.fireRenderLifecycleCallbacks(absoluteFrame: candidate.absoluteFrame, in: self)
+            node.fireRenderLifecycleCallbacks(
+                absoluteFrame: candidate.absoluteFrame, in: self,
+                selectedContentPath: candidate.selectedContentPath)
         }
         if permitsRenderLifecycleCallbacks, renderLifecycleRevision != revision {
             invalidate(.layout)
@@ -22286,17 +25411,23 @@ public final class RetainedViewRuntime {
             for (index, record) in records.enumerated() {
                 guard let leaf = record.node, record.attachment.isCurrent,
                     leaf === node.children[index], leaf.parent === node, leaf.runtime === self,
-                    leaf.isHidden || leaf.lastLayoutVisitPassID == visit.passID,
-                    leaf.resolvedFrame.height.isFinite, leaf.resolvedFrame.height >= 0
+                    let selected = selectedLazyListLeaf(for: leaf, using: record.selectedContentPath),
+                    selected.isHidden || leaf.lastLayoutVisitPassID == visit.passID,
+                    selected.resolvedFrame.height.isFinite, selected.resolvedFrame.height >= 0
                 else { return false }
                 measurements.append(
                     RetainedLazyListRuntimeAdapter.Measurement(
                         token: record.token, leafIndex: record.leafIndex, node: leaf,
-                        extent: leaf.isHidden ? 0 : leaf.resolvedFrame.height))
+                        extent: selected.isHidden ? 0 : selected.resolvedFrame.height))
             }
             guard adapter.matchesAcceptedMeasurements(measurements, viewport: viewport) else { return false }
         }
         return true
+    }
+
+    fileprivate func recordSelectedContentLayoutFailure() {
+        selectedContentLayoutFailureIdentity = RetainedSelectedContentLayoutFailureIdentity()
+        lastUnmutatedLayoutPassRevision = nil
     }
 
     private func runLayoutPass() {
@@ -22306,12 +25437,14 @@ public final class RetainedViewRuntime {
         let geometryRevision = layoutSettlementGeometryRevision
         let resolutionSequence = layoutSettlementResolutionSequence
         let traversalOverflowCount = ViewNode.traversalDepthOverflowCount
+        let selectedContentFailure = selectedContentLayoutFailureIdentity
         defer {
             isLayoutInProgress = wasLayoutInProgress
             if !wasLayoutInProgress, !layoutSettlementGenerationsExhausted,
                 geometryRevision == layoutSettlementGeometryRevision,
                 resolutionSequence == layoutSettlementResolutionSequence,
-                traversalOverflowCount == ViewNode.traversalDepthOverflowCount
+                traversalOverflowCount == ViewNode.traversalDepthOverflowCount,
+                selectedContentFailure === selectedContentLayoutFailureIdentity
             {
                 lastUnmutatedLayoutPassRevision = geometryRevision
             } else {
@@ -22327,12 +25460,30 @@ public final class RetainedViewRuntime {
         pendingLazyListOrder.removeAll(keepingCapacity: true)
         pendingLazyListMeasurements.removeAll(keepingCapacity: true)
         lazyListUnsupportedThisPass = false
-        root.resolvedFrame = root.frame
+        let rootSelection: RetainedSelectedContentPath?
+        if root.selectedContentRole != nil {
+            guard let path = root.captureSelectedContentPath(in: self),
+                let selected = path.selectedNode, let boundaries = path.boundaryNodes, path.isCurrent
+            else {
+                recordSelectedContentLayoutFailure()
+                return
+            }
+            for boundary in boundaries { boundary.resolvedFrame = .zero }
+            // Root frame is canvas metadata. The selected source keeps its
+            // authored raw frame while receiving the former root's exact slot.
+            selected.resolvedFrame = root.frame
+            rootSelection = path
+        } else {
+            root.resolvedFrame = root.frame
+            rootSelection = nil
+        }
         root.layoutSubtree(displayScale: displayScale)
+        if rootSelection?.isCurrent == false { recordSelectedContentLayoutFailure() }
         if !wasLayoutInProgress, lazyListResolutionDepth == 1,
             geometryRevision == layoutSettlementGeometryRevision,
             resolutionSequence == layoutSettlementResolutionSequence,
-            traversalOverflowCount == ViewNode.traversalDepthOverflowCount
+            traversalOverflowCount == ViewNode.traversalDepthOverflowCount,
+            selectedContentFailure === selectedContentLayoutFailureIdentity
         {
             // Failed or nested passes cannot erase the fact that a previous
             // correction still needs its viewport proved by fresh layout.
@@ -23841,7 +26992,9 @@ public final class RetainedViewRuntime {
     private func validateFocusOperation(
         _ operation: RetainedFocusOperation, expectedFocus: ViewNode?, mayQuery: Bool
     ) -> Bool {
-        guard focusOperationHasAuthority(operation, expectedFocus: expectedFocus) else { return false }
+        guard focusOperationHasAuthority(operation, expectedFocus: expectedFocus),
+            operation.hasCurrentSelectedPath(in: self)
+        else { return false }
         guard operation.origin == .accessibility else { return true }
         // Beginning a build or entering a retained callback phase need not
         // invalidate paint. Check phase admission independently of the owned
@@ -23853,6 +27006,7 @@ public final class RetainedViewRuntime {
         if accessibilityFocusContextIsCurrent(for: target) {
             operation.mutationWitness = presentationMutationRevision
             return focusOperationHasAuthority(operation, expectedFocus: expectedFocus)
+                && operation.hasCurrentSelectedPath(in: self)
         }
         guard mayQuery, operation.remainingQualificationQueries > 0 else { return false }
         operation.remainingQualificationQueries -= 1
@@ -23860,7 +27014,7 @@ public final class RetainedViewRuntime {
         // callback cannot rebase this operation onto a newer focus revision.
         guard queryFocusLayout(usingFrameQuery: true),
             focusOperationHasAuthority(operation, expectedFocus: expectedFocus),
-            accessibilityFocusContextIsCurrent(for: target)
+            accessibilityFocusContextIsCurrent(for: target), operation.hasCurrentSelectedPath(in: self)
         else { return false }
         operation.mutationWitness = presentationMutationRevision
         return true
@@ -23967,7 +27121,8 @@ public final class RetainedViewRuntime {
     @discardableResult
     private func updateFocusTarget(
         to nextFocusedNode: ViewNode?, origin: RetainedFocusOrigin = .ordinary,
-        listNavigationReceipt: RetainedListNavigationReceipt? = nil
+        listNavigationReceipt: RetainedListNavigationReceipt? = nil,
+        selectedPath: RetainedSelectedContentPath? = nil
     ) -> Bool {
         let isCleanup = origin == .cleanup && nextFocusedNode == nil
         guard permitsRenderLifecycleCallbacks || isCleanup else { return false }
@@ -23981,12 +27136,17 @@ public final class RetainedViewRuntime {
                 return false
             }
         }
+        if let selectedPath {
+            guard selectedPath.isCurrent, selectedPath.isInstalled(in: self),
+                selectedPath.physicalRoot === root, selectedPath.selectedNode === nextFocusedNode
+            else { return false }
+        }
         let revision = advanceFocusRevision()
         guard revision != nil || isCleanup else { return false }
         let operation = RetainedFocusOperation(
             target: nextFocusedNode, origin: origin, beganAttached: beganAttached,
             revision: revision, mutationWitness: presentationMutationRevision,
-            listNavigationReceipt: listNavigationReceipt)
+            listNavigationReceipt: listNavigationReceipt, selectedPath: selectedPath)
         let completed = performFocusTransition(operation, to: nextFocusedNode)
         // The inner frame has released its old node and callback captures.
         // Final notification/cleanup can make an already performed transition
@@ -26402,7 +29562,8 @@ extension RetainedViewRuntime {
             guard let node = entry.layout.node, entry.layout.isCurrent, node.runtime === self,
                 node.resolvedFrame == entry.frame, node.resolvedContentSize == entry.contentSize,
                 node.resolvedScrollOffset == entry.resolvedScrollOffset,
-                node.isHidden == entry.isHidden, node.isLayoutDeferredByVirtualization == entry.isDeferred
+                node.isHidden == entry.isHidden, node.isLayoutDeferredByVirtualization == entry.isDeferred,
+                selectedLazyListGeometryIsCurrent(entry, among: phase.geometry)
             else { return false }
         }
         for list in phase.lists {
@@ -26649,8 +29810,14 @@ extension RetainedViewRuntime {
         else { return false }
         var geometry: [RetainedLazyListUIATargetPass.Geometry] = []
         var captured: Set<ObjectIdentifier> = []
-        func captureGeometry(_ node: ViewNode) -> Bool {
+        func captureGeometry(
+            _ node: ViewNode, selectedContentPath: RetainedSelectedContentPath? = nil
+        ) -> Bool {
             var current: ViewNode? = node
+            if let selectedContentPath {
+                guard let selected = selectedLazyListLeaf(for: node, using: selectedContentPath) else { return false }
+                current = selected
+            }
             var depth = 0
             while let actual = current, depth < ViewNode.maximumTraversalDepth {
                 guard actual.runtime === self, !actual.isRetiringLazyListAttachment,
@@ -26664,7 +29831,23 @@ extension RetainedViewRuntime {
                         .init(
                             layout: actual.captureLazyListLocalLayoutProof(), frame: actual.resolvedFrame,
                             contentSize: actual.resolvedContentSize, resolvedScrollOffset: actual.resolvedScrollOffset,
-                            isHidden: actual.isHidden, isDeferred: actual.isLayoutDeferredByVirtualization))
+                            isHidden: actual.isHidden, isDeferred: actual.isLayoutDeferredByVirtualization,
+                            selectedContentPath: actual === node ? selectedContentPath : nil))
+                }
+                if actual === node, let selectedContentPath {
+                    guard let index = geometry.firstIndex(where: { $0.layout.node === node }) else { return false }
+                    let original = geometry[index]
+                    if let prior = original.selectedContentPath {
+                        guard prior === selectedContentPath else { return false }
+                    } else {
+                        // Add this original record's annotation without
+                        // changing the first actual-node geometry snapshot.
+                        geometry[index] = .init(
+                            layout: original.layout, frame: original.frame, contentSize: original.contentSize,
+                            resolvedScrollOffset: original.resolvedScrollOffset,
+                            isHidden: original.isHidden, isDeferred: original.isDeferred,
+                            selectedContentPath: selectedContentPath)
+                    }
                 }
                 if actual === root { return true }
                 guard let parent = actual.parent, parent.children.contains(where: { $0 === actual }) else {
@@ -26684,11 +29867,13 @@ extension RetainedViewRuntime {
             else { return false }
             for measurement in pendingLazyListMeasurements[key, default: []] {
                 guard let leaf = measurement.node, measurement.attachment.isCurrent,
-                    leaf.retainedLazyListGap == measurement.gap, captureGeometry(leaf)
+                    let selected = selectedLazyListLeaf(for: leaf, using: measurement.selectedContentPath),
+                    leaf.retainedLazyListGap == measurement.gap,
+                    captureGeometry(leaf, selectedContentPath: measurement.selectedContentPath)
                 else { return false }
                 if measurement.gap != nil {
                     guard let gapExtent = measurement.gapExtent, gapExtent.isFinite, gapExtent >= 0,
-                        leaf.resolvedFrame.height == (leaf.isHidden ? 0 : gapExtent)
+                        selected.resolvedFrame.height == (selected.isHidden ? 0 : gapExtent)
                     else { return false }
                 }
             }
@@ -26815,6 +30000,29 @@ extension RetainedViewRuntime {
         return true
     }
 
+    private func selectedLazyListGeometryIsCurrent(
+        _ entry: RetainedLazyListUIATargetPass.Geometry,
+        among geometry: [RetainedLazyListUIATargetPass.Geometry]
+    ) -> Bool {
+        guard let originalPath = entry.selectedContentPath else { return true }
+        guard let physical = entry.layout.node,
+            let selected = selectedLazyListLeaf(for: physical, using: originalPath)
+        else { return false }
+        // The same geometry loop checks this actual selected entry's local
+        // proof and scalars, including the existing owned-scroll rule.
+        return geometry.contains(where: { $0.layout.node === selected })
+    }
+
+    private func selectedLazyListTargetGeometry(
+        for physical: ViewNode, in pass: RetainedLazyListUIATargetPass
+    ) -> (node: ViewNode, geometry: RetainedLazyListUIATargetPass.Geometry)? {
+        guard let physicalGeometry = pass.geometry.first(where: { $0.layout.node === physical }),
+            let selected = selectedLazyListLeaf(for: physical, using: physicalGeometry.selectedContentPath),
+            let selectedGeometry = pass.geometry.first(where: { $0.layout.node === selected })
+        else { return nil }
+        return (selected, selectedGeometry)
+    }
+
     private func isQuietLazyListUIAScroll(_ scroll: ViewNode) -> Bool {
         scrollMomenta[ObjectIdentifier(scroll)] == nil && scrollPresentedTweens[ObjectIdentifier(scroll)] == nil
             && scroll.scrollOvershoot == 0 && scroll.scrollPresentedDelta == 0
@@ -26828,6 +30036,18 @@ extension RetainedViewRuntime {
             && isLazyListAccessibilityPreparationCurrent(request.preparation)
             && isLazyListUIAConstructionCurrent(request.preparation)
             && isLazyListAccessibilityItemCurrent(request.item)
+    }
+
+    private func visibleLazyListUIATarget(in roots: [ViewNode], container: ViewNode) -> ViewNode? {
+        let records = pendingLazyListMeasurements[ObjectIdentifier(container), default: []]
+        for physical in roots {
+            guard let record = records.first(where: { $0.node === physical }), record.attachment.isCurrent,
+                physical.parent === container,
+                let selected = selectedLazyListLeaf(for: physical, using: record.selectedContentPath)
+            else { return nil }
+            if !selected.isHidden, !selected.isSeparatorRule, physical.retainedLazyListGap == nil { return physical }
+        }
+        return nil
     }
 
     /// This certificate only ends the current paid convergence phase. It
@@ -26852,7 +30072,7 @@ extension RetainedViewRuntime {
             let targetVisit = pendingLazyListVisits[ObjectIdentifier(content)],
             let targetViewport = targetVisit.viewport,
             let roots = targetAdapter.mountedNodes(for: request.item.token),
-            let target = roots.first(where: { !$0.isHidden && !$0.isSeparatorRule && $0.retainedLazyListGap == nil }),
+            let target = visibleLazyListUIATarget(in: roots, container: content),
             let targetAttachment = accessibilityTarget(for: target),
             permitsConservativeAccessibilityValueTarget(target)
         else {
@@ -26870,8 +30090,19 @@ extension RetainedViewRuntime {
         var leaves: [RetainedLazyListUIATargetPass.Leaf] = []
         var geometry: [RetainedLazyListUIATargetPass.Geometry] = []
         var capturedNodes: Set<ObjectIdentifier> = []
-        func captureGeometry(of node: ViewNode) -> Bool {
+        var capturedTargetMeasurement = false
+        var targetSelectedContentPath: RetainedSelectedContentPath?
+        func captureGeometry(
+            of node: ViewNode, selectedContentPath: RetainedSelectedContentPath? = nil
+        ) -> Bool {
             var current: ViewNode? = node
+            if let selectedContentPath {
+                guard let selected = selectedLazyListLeaf(for: node, using: selectedContentPath) else {
+                    recordLazyListUIARejection(.captureGeometry)
+                    return false
+                }
+                current = selected
+            }
             var depth = 0
             while let actual = current, depth < ViewNode.maximumTraversalDepth {
                 guard actual.runtime === self, !actual.isRetiringLazyListAttachment,
@@ -26890,7 +30121,23 @@ extension RetainedViewRuntime {
                         .init(
                             layout: actual.captureLazyListLocalLayoutProof(), frame: actual.resolvedFrame,
                             contentSize: actual.resolvedContentSize, resolvedScrollOffset: actual.resolvedScrollOffset,
-                            isHidden: actual.isHidden, isDeferred: actual.isLayoutDeferredByVirtualization))
+                            isHidden: actual.isHidden, isDeferred: actual.isLayoutDeferredByVirtualization,
+                            selectedContentPath: actual === node ? selectedContentPath : nil))
+                }
+                if actual === node, let selectedContentPath {
+                    guard let index = geometry.firstIndex(where: { $0.layout.node === node }) else { return false }
+                    let original = geometry[index]
+                    if let prior = original.selectedContentPath {
+                        guard prior === selectedContentPath else { return false }
+                    } else {
+                        // Add this original record's annotation without
+                        // changing the first actual-node geometry snapshot.
+                        geometry[index] = .init(
+                            layout: original.layout, frame: original.frame, contentSize: original.contentSize,
+                            resolvedScrollOffset: original.resolvedScrollOffset,
+                            isHidden: original.isHidden, isDeferred: original.isDeferred,
+                            selectedContentPath: selectedContentPath)
+                    }
                 }
                 if actual === root { return true }
                 guard let parent = actual.parent, parent.children.contains(where: { $0 === actual }) else {
@@ -26929,17 +30176,18 @@ extension RetainedViewRuntime {
                 guard let leaf = record.node, leaf === node.children[index], leaf.parent === node,
                     leaf.runtime === self, record.attachment.isCurrent,
                     !leaf.isRetiringLazyListAttachment, !leaf.isLayoutDeferredByVirtualization,
-                    leaf.isHidden || leaf.lastLayoutVisitPassID == visit.passID,
+                    let selected = selectedLazyListLeaf(for: leaf, using: record.selectedContentPath),
+                    selected.isHidden || leaf.lastLayoutVisitPassID == visit.passID,
                     leaf.retainedLazyListGap == record.gap,
-                    leaf.resolvedFrame.height.isFinite, leaf.resolvedFrame.height >= 0,
-                    captureGeometry(of: leaf)
+                    selected.resolvedFrame.height.isFinite, selected.resolvedFrame.height >= 0,
+                    captureGeometry(of: leaf, selectedContentPath: record.selectedContentPath)
                 else {
                     recordLazyListUIARejection(.captureLeaves)
                     return false
                 }
                 if record.gap != nil {
                     guard let gapExtent = record.gapExtent, gapExtent.isFinite, gapExtent >= 0,
-                        leaf.resolvedFrame.height == (leaf.isHidden ? 0 : gapExtent)
+                        selected.resolvedFrame.height == (selected.isHidden ? 0 : gapExtent)
                     else {
                         recordLazyListUIARejection(.captureGap)
                         return false
@@ -26948,7 +30196,15 @@ extension RetainedViewRuntime {
                 measurements.append(
                     .init(
                         token: record.token, leafIndex: record.leafIndex, node: leaf,
-                        extent: leaf.isHidden ? 0 : leaf.resolvedFrame.height))
+                        extent: selected.isHidden ? 0 : selected.resolvedFrame.height))
+                if leaf === target {
+                    guard !capturedTargetMeasurement else {
+                        recordLazyListUIARejection(.captureTargetIdentity)
+                        return false
+                    }
+                    capturedTargetMeasurement = true
+                    targetSelectedContentPath = record.selectedContentPath
+                }
                 leaves.append(
                     .init(
                         node: leaf, container: node, attachment: record.attachment, gap: record.gap,
@@ -26975,7 +30231,9 @@ extension RetainedViewRuntime {
         }
         guard isLazyListUIARequestCurrent(request), targetAttachment.isCurrent(in: self),
             target.lastLayoutVisitPassID == layoutPassID, target.parent === content,
-            target.resolvedFrame.height > 0, target.resolvedFrame.width > 0
+            capturedTargetMeasurement,
+            let selectedTarget = selectedLazyListLeaf(for: target, using: targetSelectedContentPath),
+            selectedTarget.resolvedFrame.height > 0, selectedTarget.resolvedFrame.width > 0
         else {
             recordLazyListUIARejection(.captureTargetIdentity)
             return false
@@ -27085,7 +30343,8 @@ extension RetainedViewRuntime {
                 node.resolvedFrame == entry.frame, node.resolvedContentSize == entry.contentSize,
                 node.resolvedScrollOffset == entry.resolvedScrollOffset,
                 node.isHidden == entry.isHidden, node.isLayoutDeferredByVirtualization == entry.isDeferred,
-                !node.isRetiringLazyListAttachment
+                !node.isRetiringLazyListAttachment,
+                selectedLazyListGeometryIsCurrent(entry, among: pass.geometry)
             else {
                 recordLazyListUIARejection(.passGeometry)
                 return false
@@ -27161,7 +30420,7 @@ extension RetainedViewRuntime {
     ) -> RetainedLazyListUIAScrollGeometry.Offset? {
         guard isLazyListUIATargetPassCurrent(pass, for: request), let target = pass.target.node,
             let scroll = request.preparation.scroll,
-            let targetGeometry = pass.geometry.first(where: { $0.layout.node === target }),
+            let selectedTarget = selectedLazyListTargetGeometry(for: target, in: pass),
             let scrollGeometry = pass.geometry.first(where: { $0.layout.node === scroll })
         else { return nil }
         var origins: [Point] = []
@@ -27179,7 +30438,7 @@ extension RetainedViewRuntime {
         }
         guard reachedScroll else { return nil }
         return RetainedLazyListUIAScrollGeometry(
-            targetFrame: targetGeometry.frame, ancestorOrigins: origins,
+            targetFrame: selectedTarget.geometry.frame, ancestorOrigins: origins,
             viewportSize: scrollGeometry.frame.size, contentSize: scrollGeometry.contentSize,
             logicalOffset: pass.scrollOffset, overshoot: 0, presentedDelta: 0
         ).checkedOffset()
@@ -27392,8 +30651,12 @@ extension RetainedViewRuntime {
                 recordLazyListUIARejection(.resolveFinal)
                 return nil
             }
-            if prepaintState.dispatchNodes.contains(where: { $0.node === target }),
-                scrollVisibilityFraction(of: target) > 0
+            guard let selectedTarget = selectedLazyListTargetGeometry(for: target, in: nextPass) else {
+                recordLazyListUIARejection(.resolveVisibility)
+                return nil
+            }
+            if prepaintState.dispatchNodes.contains(where: { $0.node === selectedTarget.node }),
+                scrollVisibilityFraction(of: selectedTarget.node) > 0
             {
                 request.phase = .resolved
                 request.completed = true

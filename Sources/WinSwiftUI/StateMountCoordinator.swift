@@ -131,6 +131,7 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
         var context = parent
         context.viewIdentity.lazyList = attribution
         context.viewIdentity.descriptorComponent = nil
+        context.viewIdentity.candidateConstruction = nil
         context.viewIdentity.installedOwner = nil
         context.viewIdentity.installedEpoch = nil
         context.viewIdentity.currentType = nil
@@ -160,7 +161,8 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
     func contextForDescriptorComponent(
         from parent: ViewBuildContext, isInstalledDelegate: Bool = false
     ) -> ViewBuildContext? {
-        guard parent.viewIdentity.lazyList == nil else { return nil }
+        guard parent.viewIdentity.lazyList == nil, parent.viewIdentity.candidateConstruction?.canConstruct != false
+        else { return nil }
         guard let build = currentBuild else { return parent.viewIdentity.descriptorComponent == nil ? parent : nil }
         guard build.descriptorScopeWasBound else {
             return parent.viewIdentity.descriptorComponent == nil ? parent : nil
@@ -181,6 +183,46 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
         context.viewIdentity.descriptorComponent = attribution
         context.viewIdentity.installedOwner = nil
         context.viewIdentity.installedEpoch = nil
+        return context
+    }
+
+    func contextForOwnedCandidateConstruction(from parent: ViewBuildContext) -> ViewBuildContext? {
+        guard parent.stateMountCoordinator === self else { return nil }
+        guard let attribution = parent.viewIdentity.descriptorComponent else {
+            return parent.viewIdentity.candidateConstruction == nil ? parent : nil
+        }
+        guard parent.viewIdentity.lazyList == nil, let build = currentBuild,
+            parent.viewIdentity.installedEpoch === build.epoch, let owner = parent.viewIdentity.installedOwner,
+            build.admitsDescriptor(attribution),
+            let receipt = build.epoch.currentDescriptorOwnedInstallation(
+                for: owner, attribution: attribution, candidateConstruction: parent.viewIdentity.candidateConstruction),
+            let construction = attribution.beginOwnedCandidateConstruction(owner: receipt),
+            isCurrent(build), build.admitsDescriptor(attribution), construction.canConstruct
+        else {
+            attribution.rejectConstruction()
+            return nil
+        }
+        var context = parent
+        context.viewIdentity.candidateConstruction = construction
+        return context
+    }
+
+    func contextForOwnedCandidateDeferredSegment(from parent: ViewBuildContext) -> ViewBuildContext? {
+        guard let inherited = parent.viewIdentity.candidateConstruction else { return parent }
+        guard parent.stateMountCoordinator === self, parent.viewIdentity.lazyList == nil,
+            let attribution = parent.viewIdentity.descriptorComponent, let build = currentBuild,
+            parent.viewIdentity.installedEpoch === build.epoch, let owner = parent.viewIdentity.installedOwner,
+            build.admitsDescriptor(attribution),
+            let receipt = build.epoch.currentDescriptorOwnedInstallation(
+                for: owner, attribution: attribution, candidateConstruction: inherited),
+            let segment = inherited.deferredSegment(owner: receipt, attribution: attribution),
+            isCurrent(build), build.admitsDescriptor(attribution), segment.canConstruct
+        else {
+            parent.viewIdentity.descriptorComponent?.rejectConstruction()
+            return nil
+        }
+        var context = parent
+        context.viewIdentity.candidateConstruction = segment
         return context
     }
 
@@ -263,14 +305,19 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
             if isInstalledDelegate, context.viewIdentity.installedEpoch === build.epoch,
                 let installedOwner = context.viewIdentity.installedOwner
             {
-                guard build.epoch.descriptorOwnerIsCurrent(installedOwner, attribution: attribution),
+                guard
+                    build.epoch.descriptorOwnerIsCurrent(
+                        installedOwner, attribution: attribution,
+                        candidateConstruction: context.viewIdentity.candidateConstruction),
                     build.admitsDescriptor(attribution)
                 else { return nil }
                 return source
             }
             guard
-                let selected = build.epoch.descriptorOwner(at: context.retainedViewIdentity, attribution: attribution),
-                build.admitsDescriptor(attribution)
+                let selected = build.epoch.descriptorOwner(
+                    at: context.retainedViewIdentity, attribution: attribution,
+                    candidateConstruction: context.viewIdentity.candidateConstruction),
+                build.admitsDescriptor(attribution), context.viewIdentity.candidateConstruction?.canConstruct != false
             else { return nil }
             owner = selected
         } else {
@@ -289,7 +336,8 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
         context.viewIdentity.installedEpoch = build.epoch
         return ViewBuildContextScope.withCurrent(context) {
             do {
-                return try DynamicPropertyInstaller.install(source, in: owner)
+                return try DynamicPropertyInstaller.install(
+                    source, in: owner, candidateConstruction: context.viewIdentity.candidateConstruction)
             } catch let error as DynamicPropertyInstallationError {
                 build.supersede()
                 if error.reason != .ownerUnavailable {
@@ -324,36 +372,46 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
 
     func preserveDeclaredSubtree(
         at prefix: RetainedViewIdentity, lazyAttribution: LazyListViewAttribution?,
-        descriptorAttribution: RetainedDescriptorComponentAttribution? = nil
+        descriptorAttribution: RetainedDescriptorComponentAttribution? = nil,
+        candidateConstruction: RetainedOwnedCandidateConstruction? = nil
     ) {
+        guard candidateConstruction?.canConstruct != false else { return }
         guard let attribution = lazyAttribution else {
             if let descriptorAttribution {
                 guard let build = currentBuild, build.admitsDescriptor(descriptorAttribution) else { return }
                 build.epoch.preserveDescriptorDeclaredScopes(
-                    [StateMountDeclarationScope(prefix: prefix)], attribution: descriptorAttribution)
+                    [StateMountDeclarationScope(prefix: prefix)], attribution: descriptorAttribution,
+                    candidateConstruction: candidateConstruction)
             } else {
+                guard candidateConstruction == nil else { return }
                 preserveDeclaredSubtree(at: prefix)
             }
             return
         }
-        guard let build = currentBuild, build.canConstructLazy, attribution.isCurrent else { return }
+        guard candidateConstruction == nil, let build = currentBuild, build.canConstructLazy, attribution.isCurrent
+        else { return }
         build.epoch.preserveLazyDeclaredScopes([StateMountDeclarationScope(prefix: prefix)], attribution: attribution)
     }
 
     func preserveDeclaredScopes(
         _ scopes: [StateMountDeclarationScope], lazyAttribution: LazyListViewAttribution?,
-        descriptorAttribution: RetainedDescriptorComponentAttribution? = nil
+        descriptorAttribution: RetainedDescriptorComponentAttribution? = nil,
+        candidateConstruction: RetainedOwnedCandidateConstruction? = nil
     ) {
+        guard candidateConstruction?.canConstruct != false else { return }
         guard let attribution = lazyAttribution else {
             if let descriptorAttribution {
                 guard let build = currentBuild, build.admitsDescriptor(descriptorAttribution) else { return }
-                build.epoch.preserveDescriptorDeclaredScopes(scopes, attribution: descriptorAttribution)
+                build.epoch.preserveDescriptorDeclaredScopes(
+                    scopes, attribution: descriptorAttribution, candidateConstruction: candidateConstruction)
             } else {
+                guard candidateConstruction == nil else { return }
                 preserveDeclaredScopes(scopes)
             }
             return
         }
-        guard let build = currentBuild, build.canConstructLazy, attribution.isCurrent else { return }
+        guard candidateConstruction == nil, let build = currentBuild, build.canConstructLazy, attribution.isCurrent
+        else { return }
         build.epoch.preserveLazyDeclaredScopes(scopes, attribution: attribution)
     }
 
@@ -371,18 +429,22 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
 
     func discardUnadoptedSubtree(
         at prefix: RetainedViewIdentity, preserveCommitted: Bool, lazyAttribution: LazyListViewAttribution?,
-        descriptorAttribution: RetainedDescriptorComponentAttribution? = nil
+        descriptorAttribution: RetainedDescriptorComponentAttribution? = nil,
+        candidateConstruction: RetainedOwnedCandidateConstruction? = nil
     ) {
+        guard candidateConstruction?.canConstruct != false else { return }
         guard let attribution = lazyAttribution else {
             if let descriptorAttribution {
                 discardDescriptorSubtree(
-                    at: prefix, preserveCommitted: preserveCommitted, attribution: descriptorAttribution)
+                    at: prefix, preserveCommitted: preserveCommitted, attribution: descriptorAttribution,
+                    candidateConstruction: candidateConstruction)
             } else {
+                guard candidateConstruction == nil else { return }
                 discardUnadoptedSubtree(at: prefix, preserveCommitted: preserveCommitted)
             }
             return
         }
-        guard let build = currentBuild, build.canConstructLazy, attribution.isCurrent,
+        guard candidateConstruction == nil, let build = currentBuild, build.canConstructLazy, attribution.isCurrent,
             let lookup = attribution.admission.beginLookup()
         else { return }
         func isCurrentDiscard() -> Bool { self.isCurrent(build) && build.canConstructLazy && lookup.isCurrent }
@@ -412,13 +474,20 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
     }
 
     private func discardDescriptorSubtree(
-        at prefix: RetainedViewIdentity, preserveCommitted: Bool, attribution: RetainedDescriptorComponentAttribution
+        at prefix: RetainedViewIdentity, preserveCommitted: Bool, attribution: RetainedDescriptorComponentAttribution,
+        candidateConstruction: RetainedOwnedCandidateConstruction?
     ) {
-        guard let build = currentBuild, build.admitsDescriptor(attribution),
+        guard candidateConstruction?.canConstruct != false,
+            let build = currentBuild, build.admitsDescriptor(attribution),
             let lookup = descriptorLookupReceipt(for: attribution)
         else { return }
-        func isCurrentDiscard() -> Bool { self.isCurrent(build) && build.canConstructLazy && lookup.isCurrent }
-        defer { if !lookup.isCurrent { attribution.rejectConstruction() } }
+        func isCurrentDiscard() -> Bool {
+            self.isCurrent(build) && build.canConstructLazy && lookup.isCurrent
+                && candidateConstruction?.canConstruct != false
+        }
+        defer {
+            if !lookup.isCurrent || candidateConstruction?.canConstruct == false { attribution.rejectConstruction() }
+        }
         let discard = build.beginOnChangeDiscard(at: prefix, isCurrent: isCurrentDiscard)
         defer { build.endOnChangeDiscard(discard) }
         build.rejectLazySelectionFrames(at: prefix, isCurrent: isCurrentDiscard)
@@ -667,6 +736,7 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
         var context = parent
         context.viewIdentity.lazyList = attribution
         context.viewIdentity.descriptorComponent = nil
+        context.viewIdentity.candidateConstruction = nil
         context.viewIdentity.installedOwner = nil
         context.viewIdentity.installedEpoch = nil
         return context
@@ -685,6 +755,24 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
         context.viewIdentity.descriptorComponent = attribution
         context.viewIdentity.installedOwner = nil
         context.viewIdentity.installedEpoch = nil
+        // This new scope derives its continuation from the originally admitted
+        // reader anchor. A captured token is never reused as build permission.
+        switch attribution.ownedCandidateContinuation() {
+        case .unscoped:
+            guard parent.viewIdentity.candidateConstruction == nil else {
+                attribution.rejectConstruction()
+                return nil
+            }
+            context.viewIdentity.candidateConstruction = nil
+        case .admitted(let construction):
+            context.viewIdentity.candidateConstruction = construction
+        case .rejected:
+            attribution.rejectConstruction()
+            return nil
+        }
+        guard isCurrent(build), build.admitsDescriptor(attribution),
+            context.viewIdentity.candidateConstruction?.canConstruct != false
+        else { return nil }
         return context
     }
 

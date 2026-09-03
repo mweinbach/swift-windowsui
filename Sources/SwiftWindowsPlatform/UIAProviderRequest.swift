@@ -7,6 +7,8 @@ package enum UIAProviderRequest: Equatable, Sendable {
     case runtimeID(element: UInt64)
     case boundingRectangle(element: UInt64)
     case stringProperty(element: UInt64, property: Int32)
+    /// Internal source wiring only; no C callback or native TextPattern route.
+    case textContent(element: UInt64)
     case controlType(element: UInt64)
     case boolProperty(element: UInt64, property: Int32)
     case hasInvokeAction(element: UInt64)

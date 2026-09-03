@@ -795,9 +795,10 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
         }
     }
 
-    /// This resolver is also the headless test seam. Every query case captures
-    /// a new projection at the same boundary as its legacy counterpart. It
-    /// neither batches independent callbacks nor caches a previous projection.
+    /// This resolver is also the headless test seam. Existing query cases
+    /// capture a new projection at the same boundary as their legacy peers.
+    /// Internal text content uses its optional source, with no metadata fallback.
+    /// Neither path batches callbacks or caches a previous projection.
     package func replyForNativeRequest(
         _ request: UIAProviderRequest, geometry: NativeWindowGeometry,
         isAvailable: @MainActor () -> Bool
@@ -813,6 +814,13 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
         case .stringProperty(let element, let property):
             return .string(
                 try nativeQuerySnapshot(geometry).stringProperty(element, property: property))
+        case .textContent(let element):
+            guard isAvailable(), let textSource = source as? any UIATextSnapshotSource else {
+                return .string(nil)
+            }
+            let snapshot = textSource.uiaTextSnapshot(elementID: element)
+            guard isAvailable() else { return .string(nil) }
+            return .string(snapshot?.text)
         case .controlType(let element):
             return .integer(try nativeQuerySnapshot(geometry).controlType(element))
         case .boolProperty(let element, let property):

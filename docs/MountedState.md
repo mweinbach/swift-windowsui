@@ -169,8 +169,33 @@ Opaque inactive bodies and auxiliary builder captures stay unevaluated until
 their next evaluation; deeper native inactive-lifetime behavior is unqualified.
 An inactive sheet's Binding value is not read just to preserve its declared
 State; binding validation waits until its page evaluates.
-ViewThatFits keeps candidate namespaces disjoint and discards rejected
-provisional candidates without retiring a selected sibling. OutlineGroup uses
+
+The reviewed Calendar candidate gives `ViewThatFits` an explicit retained
+ownership boundary. Selection still chooses the first child whose intrinsic
+size fits the context canvas, with the last child as fallback; this is not full
+SwiftUI proposal probing. Known declarations in unselected alternatives can
+survive while that boundary remains accepted. A freshly rejected alternative
+cannot publish new ownership or retire a selected sibling. The intended result
+is that changing which alternative fits does not reset a surviving calendar's
+browsed month or make an escaped old button callback valid again.
+
+The boundary owns physical identity and retirement, while the selected child
+supplies sizing, hit testing, and accessibility content rather than an extra
+panel in the projected tree. Saved actions still require their original
+selected path; switching away and back does not repair that path. State
+preservation does not grant permission to invoke an old action or rebuild
+through an old deferred reader. Removal withdraws the boundary's original
+accepted ownership before cleanup can call application code; stale attempts
+cannot borrow a replacement merely because its identity matches. This policy
+does not make other layout containers retain inactive content.
+
+These Calendar changes have source review only and have not run. The original
+graphical DatePicker and MultiDatePicker rejected-candidate regressions remain
+required validation, not resolved failures. Broader Task and lifecycle behavior,
+paint-cache replay, installed-source handling, and native SwiftUI lifetime
+parity remain unqualified.
+
+OutlineGroup uses
 typed hierarchical row identities and parent-local duplicate ordinals, but
 retains its existing eager construction and expansion behavior.
 

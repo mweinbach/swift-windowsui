@@ -17826,3 +17826,41 @@ ACL errors, native failure alerts, actual GPU presentation, a clean Windows
 machine without developer installations, licensing and redistribution review
 remain open. No window or presenter was started by the deployment mode.
 All nine original product completion gates remain open and unchanged.
+
+### 2026-09-03 — Integrate calendar ownership and selected-content behavior
+
+The reviewed Calendar/Text source is now applied to the toolkit. A retained
+`ViewThatFits` boundary separates surviving declaration ownership from the
+currently selected child's layout, paint, actions and accessibility content.
+This is intended to preserve a surviving calendar's browsed month while
+denying actions and deferred rebuilds through retired selections. Rejected
+fresh alternatives cannot publish ownership or retire an accepted sibling.
+Selected wrappers project the actual content instead of introducing a false
+panel into layout, hit testing or accessibility. Deferred construction,
+reader adoption, descendant retirement and task source handling carry the
+same explicit ownership checks.
+
+The integration preserves the weak mounted epoch fix, the checked descriptor
+output index, and the lazy placement pre-loop visit check. All 657 existing
+Swift test files and all 11 consumer files remained byte-for-byte unchanged.
+The source adds 35 test files with 120 methods: 101 Calendar/selected-content
+methods and 19 internal plain-text snapshot methods. The planned focused
+execution includes 35 unchanged controls, totaling 155 unique methods in
+42 classes. This `CalendarText155` selection is distinct from the original
+155-method gate and does not replace its unresolved result. The original
+DatePicker and MultiDatePicker failing cases remain selected unchanged.
+
+The internal text request copies stored plain text from the original eligible
+attachment; it does not treat an accessibility label/value as document text,
+read an editor binding, realize a lazy row, or authorize a later provider call.
+It advertises no native TextPattern. The previously recorded continuing
+document/range ownership and complete native pattern requirements remain open.
+
+Contracts passed before integration and afterward, and strict lint passed on
+all 53 changed Swift files. Source integration is recorded in
+`artifacts/calendar-text-integration-8eb26d2.json`. Compilation and the selected
+runtime tests are next; no behavioral pass is claimed by applying the patch.
+The current intrinsic-size/context-canvas choice is still not full SwiftUI
+proposal probing. Broader lifecycle, paint-cache replay, installed-source,
+native parity and full-suite qualification remain open. No original product
+completion requirement or test expectation was reduced.

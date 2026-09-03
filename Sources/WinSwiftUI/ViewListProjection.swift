@@ -75,6 +75,7 @@ final class ViewListProjectionActivity {
     var isCurrent: Bool {
         guard !rejected, context?.viewIdentity.lazyList?.isCurrent != false,
             context?.viewIdentity.descriptorComponent?.canConstruct != false,
+            context?.viewIdentity.candidateConstruction?.canConstruct != false,
             !requiresLookup || lookup?.isCurrent == true
         else {
             reject()

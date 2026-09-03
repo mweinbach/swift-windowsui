@@ -93,7 +93,10 @@ final class GroupedFormColumnScope {
 /// labels are, and a per-row column is exactly the ragged layout this
 /// replaces.
 @MainActor
-func groupedFormRowNode(label: ViewNode, content: ViewNode, isHitTestVisible: Bool = false) -> ViewNode {
+func groupedFormRowNode(
+    label: ViewNode, originalLabelScope: RetainedSelectedContentMutationScope,
+    content: ViewNode, isHitTestVisible: Bool = false
+) -> ViewNode {
     // Several controls raise their label's layout priority so a squeezed row
     // sacrifices the control before the words. Inside the column that
     // reading has no work left to do — the column pins the width and the
@@ -101,7 +104,13 @@ func groupedFormRowNode(label: ViewNode, content: ViewNode, isHitTestVisible: Bo
     // allocator's other reading of priority, flex-grow weight, would let the
     // label swallow the column's slack and land leading in a column whose
     // whole point is a trailing edge.
-    label.layoutPriority = 0
+    guard originalLabelScope.physicalRoot === label, originalLabelScope.isCurrent else {
+        return rejectedRetainedViewNode()
+    }
+    originalLabelScope.selectedRoot.layoutPriority = 0
+    guard originalLabelScope.physicalRoot === label, originalLabelScope.isCurrent else {
+        return rejectedRetainedViewNode()
+    }
     let labelColumn = Controls.stackPanel(
         stackLayout: .horizontal(spacing: 0, alignment: .center, mainAlignment: .end),
         isHitTestVisible: false,
@@ -664,59 +673,102 @@ public struct ViewThatFits: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let axes = axes
+        let selectionContext: ViewBuildContext
+        if let coordinator = context.stateMountCoordinator {
+            guard let scoped = coordinator.contextForOwnedCandidateConstruction(from: context) else {
+                return rejectedRetainedViewComponent()
+            }
+            selectionContext = scoped
+        } else {
+            guard context.viewIdentity.candidateConstruction == nil else { return rejectedRetainedViewComponent() }
+            selectionContext = context
+        }
+        let isCurrent = {
+            selectionContext.viewIdentity.lazyList?.admission.isCurrent != false
+                && selectionContext.viewIdentity.descriptorComponent?.canConstruct != false
+                && selectionContext.viewIdentity.candidateConstruction?.canConstruct != false
+        }
         guard
-            let views = materializedViewListOccurrences(content, context: context),
-            context.viewIdentity.lazyList?.admission.isCurrent != false,
-            context.viewIdentity.descriptorComponent?.canConstruct != false
+            isCurrent(), let views = materializedViewListOccurrences(content, context: selectionContext), isCurrent()
         else { return rejectedRetainedViewComponent() }
         // Distinct flattened fragments can have prefix-related paths. Make
         // each complete relative identity one key before building it, so a
         // rejected candidate's scope can never include the selected sibling.
         let candidateContexts = views.map { view in
             let key = RetainedViewIdentity.Key(RetainedViewIdentity(segments: view.structuralIdentity))
-            return context.withViewIdentityRole(.content).withViewIdentityPrefix([.keyed(key)])
+            return selectionContext.withViewIdentityRole(.content).withViewIdentityPrefix([.keyed(key)])
         }
-        let declarations =
-            context.stateMountCoordinator == nil
-            ? [] : views.indices.map { views[$0].declaredStateMountScopes(context: candidateContexts[$0]) }
+        var declarations: [[StateMountDeclarationScope]] = []
+        if context.stateMountCoordinator != nil {
+            for index in views.indices {
+                guard isCurrent() else { return rejectedRetainedViewComponent() }
+                let scopes = views[index].declaredStateMountScopes(context: candidateContexts[index])
+                guard isCurrent() else { return rejectedRetainedViewComponent() }
+                declarations.append(scopes)
+            }
+        }
 
         return Component { runtime in
+            guard isCurrent() else { return rejectedRetainedViewNode() }
             guard !views.isEmpty else {
-                return Controls.panel(preferredSize: .zero, isHitTestVisible: false)
+                return Self.selectedBoundary(
+                    Controls.panel(preferredSize: .zero, isHitTestVisible: false), context: selectionContext)
             }
 
             let availableSize = context.canvasSize
             for (index, view) in views.enumerated() {
+                guard isCurrent() else { return rejectedRetainedViewNode() }
                 let candidateNode = view.makeComponent(context: candidateContexts[index]).makeNode(runtime: runtime)
+                guard isCurrent() else { return rejectedRetainedViewNode() }
                 let candidateSize = candidateNode.intrinsicContentSize()
+                guard isCurrent() else { return rejectedRetainedViewNode() }
                 if Self.fits(candidateSize, in: availableSize, axes: axes) || index == views.count - 1 {
                     if let coordinator = context.stateMountCoordinator {
                         for otherIndex in views.indices where otherIndex != index {
+                            guard isCurrent() else { return rejectedRetainedViewNode() }
                             coordinator.discardUnadoptedSubtree(
                                 at: candidateContexts[otherIndex].retainedViewIdentity, preserveCommitted: false,
                                 lazyAttribution: candidateContexts[otherIndex].viewIdentity.lazyList,
-                                descriptorAttribution: candidateContexts[otherIndex].viewIdentity.descriptorComponent)
+                                descriptorAttribution: candidateContexts[otherIndex].viewIdentity.descriptorComponent,
+                                candidateConstruction: candidateContexts[otherIndex].viewIdentity.candidateConstruction)
+                            guard isCurrent() else { return rejectedRetainedViewNode() }
                             coordinator.preserveDeclaredScopes(
                                 declarations[otherIndex],
                                 lazyAttribution: candidateContexts[otherIndex].viewIdentity.lazyList,
-                                descriptorAttribution: candidateContexts[otherIndex].viewIdentity.descriptorComponent)
+                                descriptorAttribution: candidateContexts[otherIndex].viewIdentity.descriptorComponent,
+                                candidateConstruction: candidateContexts[otherIndex].viewIdentity.candidateConstruction)
+                            guard isCurrent() else { return rejectedRetainedViewNode() }
                         }
                     }
-                    return candidateNode
+                    return Self.selectedBoundary(candidateNode, context: selectionContext)
                 }
                 if let coordinator = context.stateMountCoordinator {
                     coordinator.discardUnadoptedSubtree(
                         at: candidateContexts[index].retainedViewIdentity, preserveCommitted: false,
                         lazyAttribution: candidateContexts[index].viewIdentity.lazyList,
-                        descriptorAttribution: candidateContexts[index].viewIdentity.descriptorComponent)
+                        descriptorAttribution: candidateContexts[index].viewIdentity.descriptorComponent,
+                        candidateConstruction: candidateContexts[index].viewIdentity.candidateConstruction)
+                    guard isCurrent() else { return rejectedRetainedViewNode() }
                     coordinator.preserveDeclaredScopes(
                         declarations[index], lazyAttribution: candidateContexts[index].viewIdentity.lazyList,
-                        descriptorAttribution: candidateContexts[index].viewIdentity.descriptorComponent)
+                        descriptorAttribution: candidateContexts[index].viewIdentity.descriptorComponent,
+                        candidateConstruction: candidateContexts[index].viewIdentity.candidateConstruction)
+                    guard isCurrent() else { return rejectedRetainedViewNode() }
                 }
             }
 
-            return Controls.panel(preferredSize: .zero, isHitTestVisible: false)
+            return Self.selectedBoundary(
+                Controls.panel(preferredSize: .zero, isHitTestVisible: false), context: selectionContext)
         }
+    }
+
+    private static func selectedBoundary(_ selected: ViewNode, context: ViewBuildContext) -> ViewNode {
+        let boundary = ViewNode.selectedContentBoundary(role: .viewThatFits, child: selected)
+        boundary.retainedViewIdentity = context.retainedViewIdentity
+        guard context.viewIdentity.candidateConstruction?.stageBoundary(on: boundary) != false else {
+            return rejectedRetainedViewNode()
+        }
+        return boundary
     }
 
     private static func fits(_ candidateSize: Size, in availableSize: Size, axes: Axis.Set) -> Bool {
@@ -5199,7 +5251,8 @@ public struct TabView: View {
             context.stateMountCoordinator?.preserveDeclaredScopes(
                 page.declaredStateMountScopes(context: pageIdentityContext),
                 lazyAttribution: pageIdentityContext.viewIdentity.lazyList,
-                descriptorAttribution: pageIdentityContext.viewIdentity.descriptorComponent)
+                descriptorAttribution: pageIdentityContext.viewIdentity.descriptorComponent,
+                candidateConstruction: pageIdentityContext.viewIdentity.candidateConstruction)
         }
         let tabBar = tabBarComponent(selectedIndex: selectedIndex, context: context)
 
@@ -5241,7 +5294,12 @@ public struct TabView: View {
                     height: max(0, canvasSize.height - bandHeight)
                 )
             )
+            let pageAdmission = retainedSelectedContentModifierAdmission(context: pageContext)
             let pageNode = selectedPage.makeComponent(context: pageContext).makeNode(runtime: runtime)
+            guard
+                let pageScope = pageNode.captureSelectedContentMutationScope(
+                    in: runtime, admission: pageAdmission), pageScope.isCurrent
+            else { return rejectedRetainedViewNode() }
             // Selecting a different tab replaces the page rather than editing
             // it. Without an identity that moves with the selection the
             // reconciler matched the outgoing page to the incoming one by
@@ -5253,8 +5311,8 @@ public struct TabView: View {
             // what turns it into a fading removal overlay — and the new one
             // arrive, which is what gives it an insertion transition to play.
             pageNode.nodeTag = "tabview-page:\(selectedIndex)"
-            pageNode.transition = RetainedTransition(kind: .opacity)
-            pageNode.implicitReconcileAnimation = Self.retainedTabPageCrossfadeAnimation
+            pageScope.selectedRoot.transition = RetainedTransition(kind: .opacity)
+            pageScope.selectedRoot.implicitReconcileAnimation = Self.retainedTabPageCrossfadeAnimation
             var children = [tabBarNode, pageNode]
             if let pageIndexNode = Self.retainedPageIndexNode(
                 selectedIndex: selectedIndex,
@@ -7684,6 +7742,7 @@ public struct LabeledContent: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let context = context.withViewIdentityType(Self.self)
+        let labelAdmission = retainedSelectedContentModifierAdmission(context: context)
         // In a grouped form the label belongs to the shared label column and
         // reads at the row's own prominence; standing alone it is the
         // secondary half of a label/value pair.
@@ -7716,11 +7775,18 @@ public struct LabeledContent: View {
 
         return Component { runtime in
             let labelNode = labelComponent.makeNode(runtime: runtime)
+            guard
+                let labelScope = labelNode.captureSelectedContentMutationScope(
+                    in: runtime, admission: labelAdmission), labelScope.isCurrent
+            else { return rejectedRetainedViewNode() }
             let contentNode = contentComponent.makeNode(runtime: runtime)
             guard !isFormRow else {
-                return groupedFormRowNode(label: labelNode, content: contentNode)
+                return groupedFormRowNode(
+                    label: labelNode, originalLabelScope: labelScope, content: contentNode)
             }
-            labelNode.layoutPriority = max(labelNode.layoutPriority, 1)
+            guard labelScope.isCurrent else { return rejectedRetainedViewNode() }
+            labelScope.selectedRoot.layoutPriority = max(labelScope.selectedRoot.layoutPriority, 1)
+            guard labelScope.isCurrent else { return rejectedRetainedViewNode() }
             return Controls.stackPanel(
                 stackLayout: .horizontal(spacing: 12, alignment: .center),
                 isHitTestVisible: false,
@@ -9029,6 +9095,7 @@ public struct LazyVGrid: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
+        let childAdmission = retainedSelectedContentModifierAdmission(context: context)
         return Component { runtime in
             let resolvedSpecs = resolveVGridSpecs(self.columns, availableWidth: context.canvasSize.width)
             let columnCount = resolvedSpecs.count
@@ -9054,7 +9121,14 @@ public struct LazyVGrid: View {
                 for columnIndex in 0..<columnCount {
                     guard index < content.count else { break }
                     let cell = content[index].makeComponent(context: childContext).makeNode(runtime: runtime)
-                    applyGridSpec(resolvedSpecs[columnIndex], to: cell, axis: .horizontal)
+                    guard
+                        let cellScope = cell.captureSelectedContentMutationScope(
+                            in: runtime, admission: childAdmission),
+                        cellScope.isCurrent
+                    else { return rejectedRetainedViewNode() }
+                    guard applyGridSpec(resolvedSpecs[columnIndex], to: cellScope, axis: .horizontal) else {
+                        return rejectedRetainedViewNode()
+                    }
                     cellNodes.append(cell)
                     index += 1
                 }
@@ -9114,6 +9188,7 @@ public struct LazyHGrid: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
+        let childAdmission = retainedSelectedContentModifierAdmission(context: context)
         return Component { runtime in
             let resolvedSpecs = resolveHGridSpecs(self.rows, availableHeight: context.canvasSize.height)
             let rowCount = resolvedSpecs.count
@@ -9139,7 +9214,14 @@ public struct LazyHGrid: View {
                 for rowIndex in 0..<rowCount {
                     guard index < content.count else { break }
                     let cell = content[index].makeComponent(context: childContext).makeNode(runtime: runtime)
-                    applyGridSpec(resolvedSpecs[rowIndex], to: cell, axis: .vertical)
+                    guard
+                        let cellScope = cell.captureSelectedContentMutationScope(
+                            in: runtime, admission: childAdmission),
+                        cellScope.isCurrent
+                    else { return rejectedRetainedViewNode() }
+                    guard applyGridSpec(resolvedSpecs[rowIndex], to: cellScope, axis: .vertical) else {
+                        return rejectedRetainedViewNode()
+                    }
                     cellNodes.append(cell)
                     index += 1
                 }
@@ -9279,7 +9361,11 @@ private func resolveHGridSpecs(_ rows: [GridItem], availableHeight: Double) -> [
     return []
 }
 @MainActor
-private func applyGridSpec(_ spec: ResolvedGridSpec, to node: ViewNode, axis: StackAxis) {
+private func applyGridSpec(
+    _ spec: ResolvedGridSpec, to scope: RetainedSelectedContentMutationScope, axis: StackAxis
+) -> Bool {
+    guard scope.isCurrent else { return false }
+    let node = scope.selectedRoot
     switch spec.size {
     case .fixed(let value):
         if axis == .horizontal {
@@ -9287,9 +9373,11 @@ private func applyGridSpec(_ spec: ResolvedGridSpec, to node: ViewNode, axis: St
         } else {
             node.preferredSize = Size(width: node.preferredSize?.width ?? 0, height: value)
         }
+        guard scope.isCurrent else { return false }
         node.flexItem = FlexProperties(grow: 0, shrink: 0)
     case .flexible(let min, let max):
         node.flexItem = FlexProperties(flex: 1)
+        guard scope.isCurrent else { return false }
         var constraints = node.layoutConstraints ?? .unconstrained
         if axis == .horizontal {
             constraints = LayoutConstraints(
@@ -9313,6 +9401,7 @@ private func applyGridSpec(_ spec: ResolvedGridSpec, to node: ViewNode, axis: St
         // Adaptive sizes should have been resolved to fixed before application.
         break
     }
+    return scope.isCurrent
 }
 @MainActor
 public struct ZStack: View {
@@ -9403,7 +9492,17 @@ public struct GeometryReader: View {
         }
         let seedSize = context.canvasSize
         let content = self.content
-        let contentContext = context.withViewIdentityRole(.geometryContent)
+        let segmentContext: ViewBuildContext
+        if let coordinator = context.stateMountCoordinator {
+            guard let scoped = coordinator.contextForOwnedCandidateDeferredSegment(from: context) else {
+                return rejectedRetainedViewComponent()
+            }
+            segmentContext = scoped
+        } else {
+            guard context.viewIdentity.candidateConstruction == nil else { return rejectedRetainedViewComponent() }
+            segmentContext = context
+        }
+        let contentContext = segmentContext.withViewIdentityRole(.geometryContent)
         let contentPrefix = contentContext.retainedViewIdentity
         let lease =
             context.viewIdentity.installedOwner.map { owner in
@@ -9414,7 +9513,9 @@ public struct GeometryReader: View {
         if let attribution = context.viewIdentity.lazyList, !attribution.admission.isCurrent {
             return rejectedRetainedViewComponent()
         }
-        if context.viewIdentity.descriptorComponent?.canConstruct == false {
+        if context.viewIdentity.descriptorComponent?.canConstruct == false
+            || contentContext.viewIdentity.candidateConstruction?.canConstruct == false
+        {
             return rejectedRetainedViewComponent()
         }
         let views = ViewBuildContextScope.withCurrent(contentContext) {
@@ -9423,9 +9524,12 @@ public struct GeometryReader: View {
         if let attribution = context.viewIdentity.lazyList, !attribution.admission.isCurrent {
             return rejectedRetainedViewComponent()
         }
-        if context.viewIdentity.descriptorComponent?.canConstruct == false {
+        if context.viewIdentity.descriptorComponent?.canConstruct == false
+            || contentContext.viewIdentity.candidateConstruction?.canConstruct == false
+        {
             return rejectedRetainedViewComponent()
         }
+        let bodyAdmission = retainedSelectedContentModifierAdmission(context: contentContext)
         let composed = composeComponent(
             from: views,
             context: contentContext,
@@ -9434,12 +9538,14 @@ public struct GeometryReader: View {
         return Component { runtime in
             if context.viewIdentity.lazyList?.admission.isCurrent == false
                 || context.viewIdentity.descriptorComponent?.canConstruct == false
+                || contentContext.viewIdentity.candidateConstruction?.canConstruct == false
             {
                 return rejectedRetainedViewNode()
             }
             let bodyNode = composed.makeNode(runtime: runtime)
             if context.viewIdentity.lazyList?.admission.isCurrent == false
                 || context.viewIdentity.descriptorComponent?.canConstruct == false
+                || contentContext.viewIdentity.candidateConstruction?.canConstruct == false
             {
                 return rejectedRetainedViewNode()
             }
@@ -9448,7 +9554,11 @@ public struct GeometryReader: View {
             // that consume chrome narrow the canvas they hand down (see
             // `ViewBuildContext.withCanvasSize`), so the seed is already
             // right wherever a container knows what it took.
-            bodyNode.layoutFillAxes = .both
+            guard
+                let bodyScope = bodyNode.captureSelectedContentMutationScope(
+                    in: runtime, admission: bodyAdmission), bodyScope.isCurrent
+            else { return rejectedRetainedViewNode() }
+            bodyScope.selectedRoot.layoutFillAxes = .both
 
             // The reader gets a node of its own rather than collapsing into
             // its body, because a body is free to pin its own extent —
@@ -9509,7 +9619,8 @@ public struct GeometryReader: View {
                         .makeNode(runtime: runtime)
                     guard lease?.canBuild == true,
                         admittedContext.viewIdentity.lazyList?.admission.isCurrent != false,
-                        admittedContext.viewIdentity.descriptorComponent?.canConstruct != false
+                        admittedContext.viewIdentity.descriptorComponent?.canConstruct != false,
+                        admittedContext.viewIdentity.candidateConstruction?.canConstruct != false
                     else { return [] }
                 } else {
                     rebuilt = GeometryReader(content: content)
@@ -9522,6 +9633,9 @@ public struct GeometryReader: View {
                     else { return [] }
                 }
                 return [rebuilt]
+            }
+            guard contentContext.viewIdentity.candidateConstruction?.stageDeferredAnchor(on: node) != false else {
+                return rejectedRetainedViewNode()
             }
             return node
         }
@@ -13084,6 +13198,7 @@ public struct ControlGroup: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
+        let labelAdmission = retainedSelectedContentModifierAdmission(context: context)
         let labelComponents = label.map { $0.makeComponent(context: context) }
         let chrome = Self.retainedChrome(for: context.controlGroupStyle, tint: context.tint)
         let controlComponents = content.map {
@@ -13091,10 +13206,16 @@ public struct ControlGroup: View {
         }
 
         return Component { runtime in
-            var children = labelComponents.map { component in
+            var children: [ViewNode] = []
+            for component in labelComponents {
                 let node = component.makeNode(runtime: runtime)
-                node.layoutPriority = max(node.layoutPriority, 1)
-                return node
+                guard
+                    let labelScope = node.captureSelectedContentMutationScope(
+                        in: runtime, admission: labelAdmission), labelScope.isCurrent
+                else { return rejectedRetainedViewNode() }
+                labelScope.selectedRoot.layoutPriority = max(labelScope.selectedRoot.layoutPriority, 1)
+                guard labelScope.isCurrent else { return rejectedRetainedViewNode() }
+                children.append(node)
             }
             children += controlComponents.map { $0.makeNode(runtime: runtime) }
 
@@ -13638,6 +13759,7 @@ public struct TextField: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
+        let labelAdmission = retainedSelectedContentModifierAdmission(context: context)
         let allowsNewlines: Bool
         switch axis {
         case .horizontal:
@@ -13677,13 +13799,18 @@ public struct TextField: View {
         return Component { runtime in
             let fieldNode = fieldComponent.makeNode(runtime: runtime)
             let labelNode = labelComponent.makeNode(runtime: runtime)
+            guard
+                let labelScope = labelNode.captureSelectedContentMutationScope(
+                    in: runtime, admission: labelAdmission), labelScope.isCurrent
+            else { return rejectedRetainedViewNode() }
             if fieldNode.accessibilityLabel == nil {
                 fieldNode.accessibilityLabel = title
             }
             // The well spans the value column, the way an NSTextField in a
             // form does.
             fieldNode.layoutFillAxes = .horizontalOnly
-            return groupedFormRowNode(label: labelNode, content: fieldNode, isHitTestVisible: true)
+            return groupedFormRowNode(
+                label: labelNode, originalLabelScope: labelScope, content: fieldNode, isHitTestVisible: true)
         }
     }
 }
@@ -13750,6 +13877,7 @@ public struct SecureField: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
+        let labelAdmission = retainedSelectedContentModifierAdmission(context: context)
         // Same rule as `TextField`: in a grouped form the title is the row's
         // *label*, not the well's placeholder. Without this branch a settings
         // pane rendered "User [admin]" above a nameless password well — the
@@ -13782,13 +13910,18 @@ public struct SecureField: View {
         return Component { runtime in
             let fieldNode = fieldComponent.makeNode(runtime: runtime)
             let labelNode = labelComponent.makeNode(runtime: runtime)
+            guard
+                let labelScope = labelNode.captureSelectedContentMutationScope(
+                    in: runtime, admission: labelAdmission), labelScope.isCurrent
+            else { return rejectedRetainedViewNode() }
             if fieldNode.accessibilityLabel == nil {
                 fieldNode.accessibilityLabel = title
             }
             // The well spans the value column, the way an NSSecureTextField
             // in a form does.
             fieldNode.layoutFillAxes = .horizontalOnly
-            return groupedFormRowNode(label: labelNode, content: fieldNode, isHitTestVisible: true)
+            return groupedFormRowNode(
+                label: labelNode, originalLabelScope: labelScope, content: fieldNode, isHitTestVisible: true)
         }
     }
 }
@@ -14227,10 +14360,16 @@ extension View {
 
     public func searchFocused(_ isFocused: FocusState<Bool>.Binding) -> some View {
         ModifiedView(content: self) { content, context in
+            let admission = retainedSelectedContentModifierAdmission(context: context)
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
-                childNode.isFocusable = true
+                guard
+                    let childScope = childNode.captureSelectedContentMutationScope(
+                        in: runtime, admission: admission), childScope.isCurrent
+                else { return rejectedRetainedViewNode() }
+                childScope.selectedRoot.isFocusable = true
+                guard childScope.isCurrent else { return rejectedRetainedViewNode() }
                 return childNode
             }
         }
@@ -17365,6 +17504,7 @@ public struct DatePicker: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let labelContext = context.withForegroundColor(.secondary).withTextAlignment(.leading).withLineLimit(1)
+        let labelAdmission = retainedSelectedContentModifierAdmission(context: labelContext)
         // The carrier itself is not a label. Resolve it once before either
         // composition or empty-label layout/accessibility decisions.
         guard let labelViews = materializedDeferredViewList(label, context: labelContext) else {
@@ -17455,7 +17595,12 @@ public struct DatePicker: View {
             }
 
             let labelNode = labelComponent.makeNode(runtime: runtime)
-            labelNode.layoutPriority = max(labelNode.layoutPriority, 1)
+            guard
+                let labelScope = labelNode.captureSelectedContentMutationScope(
+                    in: runtime, admission: labelAdmission), labelScope.isCurrent
+            else { return rejectedRetainedViewNode() }
+            labelScope.selectedRoot.layoutPriority = max(labelScope.selectedRoot.layoutPriority, 1)
+            guard labelScope.isCurrent else { return rejectedRetainedViewNode() }
             guard !context.isInsideGroupedForm else {
                 // In a form row the stepper field is the control; the empty
                 // rest of the value column is not a click target for it.
@@ -17472,6 +17617,7 @@ public struct DatePicker: View {
                 )
                 return groupedFormRowNode(
                     label: labelNode,
+                    originalLabelScope: labelScope,
                     content: controlNode,
                     isHitTestVisible: context.isEnabled
                 )
@@ -17948,6 +18094,7 @@ public struct ColorPicker: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let labelContext = context.withTextAlignment(.leading).withLineLimit(1)
+        let labelAdmission = retainedSelectedContentModifierAdmission(context: labelContext)
         guard let labelViews = materializedDeferredViewList(label, context: labelContext) else {
             return rejectedRetainedViewComponent()
         }
@@ -18067,7 +18214,12 @@ public struct ColorPicker: View {
             }
 
             let labelNode = labelComponent.makeNode(runtime: runtime)
-            labelNode.layoutPriority = max(labelNode.layoutPriority, 1)
+            guard
+                let labelScope = labelNode.captureSelectedContentMutationScope(
+                    in: runtime, admission: labelAdmission), labelScope.isCurrent
+            else { return rejectedRetainedViewNode() }
+            labelScope.selectedRoot.layoutPriority = max(labelScope.selectedRoot.layoutPriority, 1)
+            guard labelScope.isCurrent else { return rejectedRetainedViewNode() }
             guard !context.isInsideGroupedForm else {
                 // In a form row the well is the control; the empty rest of
                 // the value column is not a click target for it.
@@ -18081,6 +18233,7 @@ public struct ColorPicker: View {
                 )
                 return groupedFormRowNode(
                     label: labelNode,
+                    originalLabelScope: labelScope,
                     content: controlNode,
                     isHitTestVisible: context.isEnabled
                 )
@@ -18427,6 +18580,7 @@ public struct Toggle: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
+        let labelAdmission = retainedSelectedContentModifierAdmission(context: context)
         let labelComponent = composeComponent(
             from: label,
             context: context,
@@ -18442,7 +18596,8 @@ public struct Toggle: View {
                     runtime: runtime,
                     context: context,
                     binding: binding,
-                    labelComponent: labelComponent
+                    labelComponent: labelComponent,
+                    labelAdmission: labelAdmission
                 )
             case .checkbox:
                 return Self.checkboxNode(
@@ -18466,7 +18621,8 @@ public struct Toggle: View {
         runtime: RetainedViewRuntime,
         context: ViewBuildContext,
         binding: Binding<Bool>,
-        labelComponent: Component
+        labelComponent: Component,
+        labelAdmission: @escaping @MainActor () -> Bool
     ) -> ViewNode {
         let palette = context.controlPalette
         let trackSize = context.controlSize.togglePreferredSize
@@ -18513,13 +18669,18 @@ public struct Toggle: View {
         }
 
         let labelNode = labelComponent.makeNode(runtime: runtime)
+        guard
+            let labelScope = labelNode.captureSelectedContentMutationScope(
+                in: runtime, admission: labelAdmission), labelScope.isCurrent
+        else { return rejectedRetainedViewNode() }
         // Default accessibility name from the label content; an explicit
         // accessibilityLabel modifier applies after this and wins. The
         // retained toggle builder already applied isButton (+ isSelected
         // when on).
         toggleNode.accessibilityLabel = firstRetainedText(in: labelNode)
         guard !context.isInsideGroupedForm else {
-            return groupedFormRowNode(label: labelNode, content: toggleNode)
+            return groupedFormRowNode(
+                label: labelNode, originalLabelScope: labelScope, content: toggleNode)
         }
         return Controls.stackPanel(
             stackLayout: .horizontal(spacing: 10, alignment: .center),
@@ -18808,6 +18969,7 @@ public struct Picker<SelectionValue: Hashable>: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         let selection = selection
         let labelContext = context.withViewIdentityRole(.label)
+        let labelAdmission = retainedSelectedContentModifierAdmission(context: labelContext)
         let currentLabelContext = context.withViewIdentityRole(.value).withTextAlignment(.trailing).withLineLimit(1)
         let contentContext = context.withViewIdentityRole(.content)
         guard let labelViews = materializedDeferredViewList(label, context: labelContext),
@@ -18905,8 +19067,13 @@ public struct Picker<SelectionValue: Hashable>: View {
 
             guard !currentValueLabelViews.isEmpty else {
                 let labelNode = labelComponent.makeNode(runtime: runtime)
+                guard
+                    let labelScope = labelNode.captureSelectedContentMutationScope(
+                        in: runtime, admission: labelAdmission), labelScope.isCurrent
+                else { return rejectedRetainedViewNode() }
                 guard !context.isInsideGroupedForm else {
-                    return groupedFormRowNode(label: labelNode, content: pickerNode)
+                    return groupedFormRowNode(
+                        label: labelNode, originalLabelScope: labelScope, content: pickerNode)
                 }
                 let node = Controls.stackPanel(
                     stackLayout: .vertical(spacing: 8, alignment: .stretch),
@@ -18920,7 +19087,12 @@ public struct Picker<SelectionValue: Hashable>: View {
             var headerChildren: [ViewNode] = []
             if !labelViews.isEmpty {
                 let labelNode = labelComponent.makeNode(runtime: runtime)
-                labelNode.layoutPriority = max(labelNode.layoutPriority, 1)
+                guard
+                    let labelScope = labelNode.captureSelectedContentMutationScope(
+                        in: runtime, admission: labelAdmission), labelScope.isCurrent
+                else { return rejectedRetainedViewNode() }
+                labelScope.selectedRoot.layoutPriority = max(labelScope.selectedRoot.layoutPriority, 1)
+                guard labelScope.isCurrent else { return rejectedRetainedViewNode() }
                 headerChildren.append(labelNode)
             }
             headerChildren.append(currentValueLabelComponent.makeNode(runtime: runtime))
@@ -19956,6 +20128,7 @@ public struct Stepper: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
+        let labelAdmission = retainedSelectedContentModifierAdmission(context: context)
         let labelComponent = composeComponent(
             from: label,
             context: context,
@@ -20037,8 +20210,13 @@ public struct Stepper: View {
             }
 
             let labelNode = labelComponent.makeNode(runtime: runtime)
+            guard
+                let labelScope = labelNode.captureSelectedContentMutationScope(
+                    in: runtime, admission: labelAdmission), labelScope.isCurrent
+            else { return rejectedRetainedViewNode() }
             guard !context.isInsideGroupedForm else {
-                return groupedFormRowNode(label: labelNode, content: stepperNode)
+                return groupedFormRowNode(
+                    label: labelNode, originalLabelScope: labelScope, content: stepperNode)
             }
             // The bezel sits flush as a joined pair; the label keeps the
             // 8pt gap the separate pills used to provide.
@@ -20478,6 +20656,7 @@ public struct Slider: View {
         let step = step
         let onEditingChanged = onEditingChanged
         let labelContext = context.withViewIdentityRole(.label)
+        let labelAdmission = retainedSelectedContentModifierAdmission(context: labelContext)
         let minimumLabelContext = context.withViewIdentityRole(.minimumValueLabel)
         let maximumLabelContext = context.withViewIdentityRole(.maximumValueLabel)
         guard let labelViews = materializedDeferredViewList(label, context: labelContext),
@@ -20619,6 +20798,10 @@ public struct Slider: View {
             }
 
             let labelNode = labelComponent.makeNode(runtime: runtime)
+            guard
+                let labelScope = labelNode.captureSelectedContentMutationScope(
+                    in: runtime, admission: labelAdmission), labelScope.isCurrent
+            else { return rejectedRetainedViewNode() }
             // Default accessibility name from the label content; an explicit
             // accessibilityLabel modifier applies after this and wins. The
             // retained slider builder already applied slider behavior + value.
@@ -20627,7 +20810,8 @@ public struct Slider: View {
                 // An NSSlider spans a form's control column; 200pt of track
                 // floating in a 400pt column is not a settings pane.
                 rowNode.layoutFillAxes = .horizontalOnly
-                return groupedFormRowNode(label: labelNode, content: rowNode)
+                return groupedFormRowNode(
+                    label: labelNode, originalLabelScope: labelScope, content: rowNode)
             }
             // In the labeled form the track row gives up vertical space before
             // the label does: a constrained parent squeezes the track (which
@@ -20822,6 +21006,7 @@ public struct ProgressView: View {
             return installation.makeComponent(configuration: configuration, context: context)
         }
         let labelContext = context.withViewIdentityRole(.label)
+        let labelAdmission = retainedSelectedContentModifierAdmission(context: labelContext)
         let currentLabelContext = context.withViewIdentityRole(.value)
         guard let labelViews = materializedDeferredViewList(label, context: labelContext),
             let currentValueLabelViews = materializedDeferredViewList(currentValueLabel, context: currentLabelContext)
@@ -20875,6 +21060,10 @@ public struct ProgressView: View {
 
             guard !currentValueLabelViews.isEmpty else {
                 let labelNode = labelComponent.makeNode(runtime: runtime)
+                guard
+                    let labelScope = labelNode.captureSelectedContentMutationScope(
+                        in: runtime, admission: labelAdmission), labelScope.isCurrent
+                else { return rejectedRetainedViewNode() }
                 // Default accessibility name from the label content; an
                 // explicit accessibilityLabel modifier wins. The retained
                 // progress builder already applied the value.
@@ -20887,7 +21076,8 @@ public struct ProgressView: View {
                     } else if case .linear = context.progressViewStyle.kind {
                         progressNode.layoutFillAxes = .horizontalOnly
                     }
-                    return groupedFormRowNode(label: labelNode, content: progressNode)
+                    return groupedFormRowNode(
+                        label: labelNode, originalLabelScope: labelScope, content: progressNode)
                 }
                 let node = Controls.stackPanel(
                     stackLayout: .vertical(spacing: 8, alignment: .stretch),
@@ -21118,6 +21308,7 @@ public struct Gauge: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         let accessoryLabelContext = context.withFont(.caption).withForegroundColor(.secondary)
         let labelContext = context.withViewIdentityRole(.label)
+        let labelAdmission = retainedSelectedContentModifierAdmission(context: labelContext)
         let currentLabelContext = context.withViewIdentityRole(.value)
         let minimumLabelContext = accessoryLabelContext.withViewIdentityRole(.minimumValueLabel)
         let maximumLabelContext = accessoryLabelContext.withViewIdentityRole(.maximumValueLabel)
@@ -21203,6 +21394,10 @@ public struct Gauge: View {
                 !hasMarkedLabels
             {
                 let labelNode = labelComponent.makeNode(runtime: runtime)
+                guard
+                    let labelScope = labelNode.captureSelectedContentMutationScope(
+                        in: runtime, admission: labelAdmission), labelScope.isCurrent
+                else { return rejectedRetainedViewNode() }
                 gaugeNode.accessibilityLabel = firstRetainedText(in: labelNode)
                 switch context.gaugeStyle.kind {
                 case .circular, .accessoryCircular, .accessoryCircularCapacity:
@@ -21210,7 +21405,8 @@ public struct Gauge: View {
                 case .automatic, .linear, .linearCapacity, .accessoryLinear, .accessoryLinearCapacity:
                     gaugeNode.layoutFillAxes = .horizontalOnly
                 }
-                return groupedFormRowNode(label: labelNode, content: gaugeNode)
+                return groupedFormRowNode(
+                    label: labelNode, originalLabelScope: labelScope, content: gaugeNode)
             }
 
             var children: [ViewNode] = []
@@ -22270,6 +22466,7 @@ public struct Button: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
+        let labelAdmission = retainedSelectedContentModifierAdmission(context: context)
         // A button centers its own label: the pill may be wider than the
         // text (a bezel, a stretch stack, a segmented track), and macOS
         // centers the title in it. The app-wide default alignment is
@@ -22291,11 +22488,18 @@ public struct Button: View {
 
         return Component { runtime in
             let labelNode = labelComponent.makeNode(runtime: runtime)
+            guard
+                let labelScope = labelNode.captureSelectedContentMutationScope(
+                    in: runtime, admission: labelAdmission), labelScope.isCurrent
+            else { return rejectedRetainedViewNode() }
             // AppKit dims the whole disabled cell, label included — before
             // this the only difference between an enabled and a disabled
             // button was its fill, with pure-white glyphs on both.
-            if !context.isEnabled {
-                labelNode.opacity = ControlPalette.disabledContentOpacity
+            let isEnabled = context.isEnabled
+            guard labelScope.isCurrent else { return rejectedRetainedViewNode() }
+            if !isEnabled {
+                labelScope.selectedRoot.opacity = ControlPalette.disabledContentOpacity
+                guard labelScope.isCurrent else { return rejectedRetainedViewNode() }
             }
             let buttonStyle = effectiveButtonStyle
             let surfaceStyle = resolvedSurfaceStyle(for: buttonStyle, context: context)

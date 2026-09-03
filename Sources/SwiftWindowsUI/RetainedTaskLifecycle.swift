@@ -69,12 +69,19 @@ fileprivate enum RetainedTaskGroupConstruction {
         }
     }
 
-    func record(_ source: ViewNode) -> RetainedLazyListSourcePayloadID? {
+    func record(
+        _ source: ViewNode, selectedContentPath: RetainedSelectedContentPath? = nil,
+        candidateConstruction: RetainedOwnedCandidateConstruction? = nil
+    ) -> RetainedLazyListSourcePayloadID? {
         switch self {
         case .lazy(let attribution, let group):
-            return attribution.recordSourceOutput(source, group: group)
+            return attribution.recordSourceOutput(
+                source, group: group, selectedContentPath: selectedContentPath,
+                candidateConstruction: candidateConstruction)
         case .descriptor(let attribution, let group):
-            return attribution.recordTaskSourceOutput(source, group: group)
+            return attribution.recordTaskSourceOutput(
+                source, group: group, selectedContentPath: selectedContentPath,
+                candidateConstruction: candidateConstruction)
         }
     }
 }
@@ -181,31 +188,48 @@ package final class RetainedTaskDeclaration {
 
     package func stage(
         groupSources: [ViewNode], in runtime: RetainedViewRuntime,
-        lazyAttribution: RetainedLazyListBuildAttribution, group: RetainedLazyListGroupID
+        lazyAttribution: RetainedLazyListBuildAttribution, group: RetainedLazyListGroupID,
+        selectedContentPaths: [RetainedSelectedContentPath]? = nil,
+        candidateConstruction: RetainedOwnedCandidateConstruction? = nil
     ) -> Bool {
-        stageGroup(groupSources, in: runtime, construction: .lazy(lazyAttribution, group))
+        stageGroup(
+            groupSources, in: runtime, construction: .lazy(lazyAttribution, group),
+            selectedContentPaths: selectedContentPaths, candidateConstruction: candidateConstruction)
     }
 
     package func stage(
         groupSources: [ViewNode], in runtime: RetainedViewRuntime,
-        descriptorAttribution: RetainedDescriptorComponentAttribution, group: RetainedDescriptorGroupID
+        descriptorAttribution: RetainedDescriptorComponentAttribution, group: RetainedDescriptorGroupID,
+        selectedContentPaths: [RetainedSelectedContentPath]? = nil,
+        candidateConstruction: RetainedOwnedCandidateConstruction? = nil
     ) -> Bool {
-        stageGroup(groupSources, in: runtime, construction: .descriptor(descriptorAttribution, group))
+        stageGroup(
+            groupSources, in: runtime, construction: .descriptor(descriptorAttribution, group),
+            selectedContentPaths: selectedContentPaths, candidateConstruction: candidateConstruction)
     }
 
     @inline(never)
     private func stageGroup(
-        _ sources: [ViewNode], in runtime: RetainedViewRuntime, construction: RetainedTaskGroupConstruction
+        _ sources: [ViewNode], in runtime: RetainedViewRuntime, construction: RetainedTaskGroupConstruction,
+        selectedContentPaths: [RetainedSelectedContentPath]? = nil,
+        candidateConstruction: RetainedOwnedCandidateConstruction? = nil
     ) -> Bool {
         guard !wasStaged else { return false }
         wasStaged = true
         transportMode = .managed(construction.identity)
         guard !sources.isEmpty, runtime.permitsRetainedActionInvocation, construction.register(declarationID)
         else { return false }
+        if let selectedContentPaths {
+            return stageSelectedContentGroup(
+                sources, in: runtime, construction: construction, selectedContentPaths: selectedContentPaths,
+                candidateConstruction: candidateConstruction)
+        }
         var seen = Set<ObjectIdentifier>()
         var outputs: [(RetainedTaskNodeState, RetainedLazyListSourcePayloadID)] = []
         for source in sources where seen.insert(ObjectIdentifier(source)).inserted {
-            guard let payload = construction.record(source) else { return false }
+            guard let payload = construction.record(source, candidateConstruction: candidateConstruction) else {
+                return false
+            }
             let state = source.retainedTaskState()
             guard state.acceptsTasks else { return false }
             outputs.append((state, payload))
@@ -215,6 +239,48 @@ package final class RetainedTaskDeclaration {
             state.stageManaged(self, group: construction.identity, payload: payload)
         }
         return true
+    }
+
+    @inline(never)
+    private func stageSelectedContentGroup(
+        _ sources: [ViewNode], in runtime: RetainedViewRuntime, construction: RetainedTaskGroupConstruction,
+        selectedContentPaths: [RetainedSelectedContentPath],
+        candidateConstruction: RetainedOwnedCandidateConstruction?
+    ) -> Bool {
+        guard sources.count == selectedContentPaths.count else { return false }
+        var selectedSources: [(source: ViewNode, activitySource: ViewNode, path: RetainedSelectedContentPath)] = []
+        for (source, path) in zip(sources, selectedContentPaths) {
+            guard path.physicalRoot === source, let activitySource = path.selectedNode, path.isCurrent else {
+                return false
+            }
+            selectedSources.append((source, activitySource, path))
+        }
+        var seen = Set<ObjectIdentifier>()
+        var outputs: [(state: RetainedTaskNodeState, payload: RetainedLazyListSourcePayloadID)] = []
+        for selected in selectedSources where seen.insert(ObjectIdentifier(selected.source)).inserted {
+            guard selected.path.physicalRoot === selected.source,
+                selected.path.selectedNode === selected.activitySource, selected.path.isCurrent,
+                let payload = construction.record(
+                    selected.source, selectedContentPath: selected.path, candidateConstruction: candidateConstruction)
+            else { return false }
+            let state = selected.activitySource.retainedTaskState()
+            guard state.acceptsTasks else { return false }
+            outputs.append((state, payload))
+        }
+        // These are the original construction paths. Staging never captures a
+        // replacement path if recording an output changed its selected child.
+        guard runtime.permitsRetainedActionInvocation,
+            selectedSources.allSatisfy({
+                $0.path.physicalRoot === $0.source && $0.path.selectedNode === $0.activitySource && $0.path.isCurrent
+            }), outputs.allSatisfy({ $0.state.acceptsTasks })
+        else { return false }
+        return withExtendedLifetime(selectedSources) {
+            self.runtime = runtime
+            for (state, payload) in outputs {
+                state.stageManaged(self, group: construction.identity, payload: payload)
+            }
+            return true
+        }
     }
 
     /// This is deliberately independent of the proposal token: the Core
@@ -805,17 +871,38 @@ fileprivate final class RetainedTaskGroupOwnerReference {
 @MainActor
 fileprivate final class RetainedTaskGroupLaunchMember {
     let actual: RetainedLazyListActualAttachment
+    let physicalActual: RetainedLazyListActualAttachment?
+    let selectedContentPath: RetainedSelectedContentPath?
     weak var originalState: RetainedTaskNodeState?
     let originalTaskAttachment: RetainedTaskAttachment
     var renderQualified: Bool
 
-    init(actual: RetainedLazyListActualAttachment, state: RetainedTaskNodeState, runtime: RetainedViewRuntime) {
-        self.actual = actual
+    init(
+        member: RetainedLazyListAcceptedTaskMember, state: RetainedTaskNodeState, runtime: RetainedViewRuntime
+    ) {
+        actual = member.actual
+        physicalActual = member.physicalActual
+        selectedContentPath = member.selectedContentPath
         originalState = state
         originalTaskAttachment = state.attachment
         renderQualified =
-            actual.node?.hasCurrentCompletedRetainedTaskAppearance(
-                in: runtime, attachment: actual) == true
+            member.actual.node?.hasCurrentCompletedRetainedTaskAppearance(
+                in: runtime, attachment: member.actual) == true
+    }
+
+    func hasCurrentSelectedContentPath(in runtime: RetainedViewRuntime) -> Bool {
+        // An omitted route retains the original task member contract. A partial
+        // route is never a legacy member and cannot gain activity authority.
+        guard physicalActual != nil || selectedContentPath != nil else { return true }
+        guard let physicalActual, let selectedContentPath,
+            let physicalNode = physicalActual.node, let selectedNode = actual.node,
+            physicalActual.runtime === runtime, actual.runtime === runtime,
+            selectedContentPath.physicalRoot === physicalNode, selectedContentPath.selectedNode === selectedNode,
+            physicalActual.isAttached, actual.isAttached
+        else { return false }
+        // Activity supplies this one accepted live path. Task lifetime checks
+        // may reject it, but cannot capture or install a successor proof.
+        return selectedContentPath.isInstalled(in: runtime)
     }
 }
 
@@ -886,16 +973,25 @@ fileprivate final class RetainedTaskGroupLaunchOwner {
                     $0.actual.target === member.actual.target && $0.actual.attachment === member.actual.attachment
                 }), let state = member.originalState,
                 other.originalState === state, other.originalTaskAttachment === member.originalTaskAttachment,
+                member.hasCurrentSelectedContentPath(in: runtime), other.hasCurrentSelectedContentPath(in: runtime),
                 state.attachment === member.originalTaskAttachment, member.actual.isAttached,
                 state.hasParticipation(self)
             else { return false }
+            if member.physicalActual != nil || other.physicalActual != nil {
+                let originalPhysical = member.physicalActual ?? member.actual
+                let incomingPhysical = other.physicalActual ?? other.actual
+                guard originalPhysical.target === incomingPhysical.target,
+                    originalPhysical.attachment === incomingPhysical.attachment
+                else { return false }
+            }
         }
         return true
     }
 
     func associate(_ declaration: RetainedTaskDeclaration, authority: RetainedTaskGroupAuthority) -> Bool {
         guard let runtime, !wasRevoked, !members.isEmpty,
-            declaration.mount === mount, declaration.runtime === runtime
+            declaration.mount === mount, declaration.runtime === runtime,
+            members.allSatisfy({ $0.hasCurrentSelectedContentPath(in: runtime) })
         else {
             return false
         }
@@ -973,6 +1069,7 @@ fileprivate final class RetainedTaskGroupLaunchOwner {
     func noteRenderedMember(_ state: RetainedTaskNodeState, in runtime: RetainedViewRuntime, revision: UInt64) {
         guard !wasRevoked, self.runtime === runtime,
             let member = members.first(where: { $0.originalState === state }),
+            member.hasCurrentSelectedContentPath(in: runtime),
             let node = member.actual.node, node.existingRetainedTaskState === state,
             state.attachment === member.originalTaskAttachment, member.actual.isAttached,
             node.isRetainedLazyTaskRenderAdmissionCurrent(in: runtime, revision: revision),
@@ -1027,7 +1124,8 @@ fileprivate final class RetainedTaskGroupLaunchOwner {
             self.runtime === runtime, runtime.permitsRetainedActionInvocation, pins.count == members.count
         else { return false }
         for pin in pins {
-            guard pin.member.actual.node === pin.node, pin.member.actual.runtime === runtime,
+            guard pin.member.hasCurrentSelectedContentPath(in: runtime),
+                pin.member.actual.node === pin.node, pin.member.actual.runtime === runtime,
                 pin.member.originalState === pin.state, pin.state.acceptsTasks,
                 pin.state.attachment === pin.member.originalTaskAttachment,
                 pin.node.existingRetainedTaskState === pin.state, pin.state.hasParticipation(self),
@@ -1620,6 +1718,9 @@ final class RetainedTaskAdoptionContext {
             guard let expected = members.first(where: { $0.sourcePayload === source.member.sourcePayload }),
                 expected.actual.target === source.member.actual.target,
                 expected.actual.attachment === source.member.actual.attachment,
+                expected.physicalActual?.target === source.member.physicalActual?.target,
+                expected.physicalActual?.attachment === source.member.physicalActual?.attachment,
+                expected.selectedContentPath === source.member.selectedContentPath,
                 seenSources.insert(ObjectIdentifier(source.member.sourcePayload)).inserted,
                 let target = source.member.actual.node, source.member.actual.runtime === runtime
             else { return false }
@@ -1630,9 +1731,10 @@ final class RetainedTaskAdoptionContext {
             // Distinct source leaves cannot both supply the same actual field
             // footprint. Independent groups may still share this target.
             guard seenTargets.insert(key).inserted else { return false }
-            launchMembers.append(
-                RetainedTaskGroupLaunchMember(
-                    actual: source.member.actual, state: target.retainedTaskState(), runtime: runtime))
+            let launchMember = RetainedTaskGroupLaunchMember(
+                member: source.member, state: target.retainedTaskState(), runtime: runtime)
+            guard launchMember.hasCurrentSelectedContentPath(in: runtime) else { return false }
+            launchMembers.append(launchMember)
         }
         var declarations: [RetainedTaskDeclaration] = []
         for identifier in declarationIDs {
@@ -1640,7 +1742,7 @@ final class RetainedTaskAdoptionContext {
             var complete = true
             for source in sources {
                 guard
-                    let staged = source.source.existingRetainedTaskState?.managedCandidate(
+                    let staged = source.activitySource.existingRetainedTaskState?.managedCandidate(
                         identifier, group: authority.identity, payload: source.member.sourcePayload)
                 else {
                     complete = false
@@ -1657,10 +1759,13 @@ final class RetainedTaskAdoptionContext {
             }
             if complete, let declaration, declaration.runtime === runtime { declarations.append(declaration) }
         }
+        // Promoting a weak source candidate may release facade captures. Keep
+        // checking the originally accepted routes before consuming that subset.
+        guard launchMembers.allSatisfy({ $0.hasCurrentSelectedContentPath(in: runtime) }) else { return false }
         // The accepted native source subset is consumed once. No ordinary
         // declaration or independent managed group is drained here.
         for source in sources {
-            source.source.existingRetainedTaskState?.consumeManagedCandidates(
+            source.activitySource.existingRetainedTaskState?.consumeManagedCandidates(
                 group: authority.identity, payload: source.member.sourcePayload, declarationIDs: identifiers)
         }
         var count = 0

@@ -1,6 +1,7 @@
 `SwiftWindowsCore/TextRangeValues.swift` provides package-only, immutable text and
-index values. It is a dependency for future accessibility work, not a TextPattern
-implementation or a change to the supported compatibility surface. It imports
+index values. The reviewed Calendar+Text candidate uses them for an internal
+plain-text copy request, not a TextPattern implementation or a change to the
+supported compatibility surface. The Core helper imports
 Foundation and reuses Swift `String.Index` and `Range<Int>`; it does not import the
 Windows host, retained editor, or renderer.
 
@@ -81,6 +82,26 @@ All twenty-five methods compiled and passed in the focused selection on
 diagnostic failure; it was not a full-suite pass.
 Those tests do not establish complete Unicode search behavior, provider
 authority, text-generation tracking, editor behavior, or native ABI correctness.
+
+The candidate's optional internal text-snapshot request returns copied stored
+text from a currently attached, projected plain-text element. It does not use
+an accessible label or value as document content, and it does not read an
+editor binding. Missing capability or denied content returns no text. The read
+does not change selection, resolve layout, scroll, or realize a deferred row.
+Ordinary disabled or offscreen plain text remains eligible; hidden, private,
+redacted, modal-excluded, editor, secure, and lazy content is refused.
+
+The source rechecks the original weak attachment and exact UTF16 content after
+temporary node and projection references have been released. Detaching and
+reinserting the same node cannot repair that request. A copied snapshot does
+not retain the view or runtime, authorize a later provider call, or supply
+selection or geometry. Selected-content projection must still expose the
+actual text child; wrapper metadata is not substitute document text.
+
+The plain-text request and its selected-content integration have not run.
+The earlier value-only results above do not validate this seam. No native
+TextPattern is advertised, and no COM, Narrator, editor, or IME qualification
+follows from the internal copy.
 
 All work required for real TextPattern remains open: retained TextEditor and
 TextField selection and composition integration; text and geometry revisions;

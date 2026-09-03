@@ -1401,10 +1401,15 @@ struct DescriptorOwnerConstructionValidation {
 private final class ManagedOwnedInstallation {
     let receipt: RetainedOwnedComponentReceipt
     let slots: [StatePropertySlot: RetainedOwnedSlotGenerationID]
+    let candidateConstruction: RetainedOwnedCandidateConstruction?
 
-    init(receipt: RetainedOwnedComponentReceipt, slots: [StatePropertySlot: RetainedOwnedSlotGenerationID]) {
+    init(
+        receipt: RetainedOwnedComponentReceipt, slots: [StatePropertySlot: RetainedOwnedSlotGenerationID],
+        candidateConstruction: RetainedOwnedCandidateConstruction? = nil
+    ) {
         self.receipt = receipt
         self.slots = slots
+        self.candidateConstruction = candidateConstruction
     }
 }
 
@@ -2495,6 +2500,31 @@ extension StateMountEpoch {
         descriptorOwnerValidation(owner, attribution: attribution).isCurrent
     }
 
+    func descriptorOwnerIsCurrent(
+        _ owner: StateMountOwner, attribution: RetainedDescriptorComponentAttribution,
+        candidateConstruction: RetainedOwnedCandidateConstruction?
+    ) -> Bool {
+        guard candidateConstruction?.canConstruct != false, descriptorOwnerIsCurrent(owner, attribution: attribution),
+            let acquisition = descriptorOwners[owner.generation], acquisition.owner === owner,
+            acquisition.attribution === attribution, acquisition.owningSlots != nil,
+            let installation = acquisition.ownedInstallation
+        else { return false }
+        return installation.candidateConstruction === candidateConstruction
+    }
+
+    /// This is the current proposed receipt, including a zero-slot installation.
+    /// The committed owner receipt is not assigned until native adoption.
+    func currentDescriptorOwnedInstallation(
+        for owner: StateMountOwner, attribution: RetainedDescriptorComponentAttribution,
+        candidateConstruction: RetainedOwnedCandidateConstruction?
+    ) -> RetainedOwnedComponentReceipt? {
+        guard
+            descriptorOwnerIsCurrent(
+                owner, attribution: attribution, candidateConstruction: candidateConstruction)
+        else { return nil }
+        return descriptorOwners[owner.generation]?.ownedInstallation?.receipt
+    }
+
     func descriptorOwnerValidation(
         _ owner: StateMountOwner, attribution: RetainedDescriptorComponentAttribution
     ) -> DescriptorOwnerConstructionValidation {
@@ -2520,108 +2550,149 @@ extension StateMountEpoch {
     }
 
     func descriptorOwner(
-        at identity: RetainedViewIdentity, attribution: RetainedDescriptorComponentAttribution
+        at identity: RetainedViewIdentity, attribution: RetainedDescriptorComponentAttribution,
+        candidateConstruction: RetainedOwnedCandidateConstruction? = nil
     ) -> StateMountOwner? {
-        guard let operation = DescriptorResolutionReceipt(epoch: self, native: attribution),
+        guard candidateConstruction?.canConstruct != false,
+            let operation = DescriptorResolutionReceipt(epoch: self, native: attribution),
             let lookup = operation.beginLookup(),
-            let attempt = registerDescriptorConstructionAttempt(at: identity, attribution: attribution, lookup: lookup),
+            let attempt = registerDescriptorConstructionAttempt(
+                at: identity, attribution: attribution, lookup: lookup, candidateConstruction: candidateConstruction),
             let registry, let declarationRevision = registry.lazyDeclarationRevision
         else { return nil }
         let receipt = attempt.receipt
-        if let boundary = descriptorBoundaryOwner(at: identity, receipt: receipt, lookup: lookup), lookup.isCurrent {
-            let result = installDescriptorOwner(boundary, receipt: receipt, lookup: lookup)
-            return lookup.isCurrent && receipt.isCurrent ? result : nil
+        if let boundary = descriptorBoundaryOwner(
+            at: identity, receipt: receipt, lookup: lookup, candidateConstruction: candidateConstruction),
+            lookup.isCurrent, candidateConstruction?.canConstruct != false
+        {
+            let result = installDescriptorOwner(
+                boundary, receipt: receipt, lookup: lookup, candidateConstruction: candidateConstruction)
+            return lookup.isCurrent && receipt.isCurrent && candidateConstruction?.canConstruct != false ? result : nil
         }
-        guard receipt.isCurrent, lookup.isCurrent else { return nil }
+        guard receipt.isCurrent, lookup.isCurrent, candidateConstruction?.canConstruct != false else { return nil }
         let result = acquireObservation(
-            at: identity, isMaterializationCurrent: { receipt.isCurrent && lookup.isCurrent }, lookup: lookup,
+            at: identity,
+            isMaterializationCurrent: {
+                receipt.isCurrent && lookup.isCurrent && candidateConstruction?.canConstruct != false
+            }, lookup: lookup,
             renewRevokedDescriptorOwner: true,
             resolve: { owner, _, _ in owner })
         guard let result, observationConstructionRevision == result.revision, receipt.isCurrent,
-            registry.lazyDeclarationRevision == declarationRevision, lookup.isCurrent
+            registry.lazyDeclarationRevision == declarationRevision, lookup.isCurrent,
+            candidateConstruction?.canConstruct != false
         else { return nil }
-        let owner = installDescriptorOwner(result.value, receipt: receipt, lookup: lookup)
-        guard lookup.isCurrent, let owner, descriptorOwnerIsCurrent(owner, attribution: attribution) else { return nil }
+        let owner = installDescriptorOwner(
+            result.value, receipt: receipt, lookup: lookup, candidateConstruction: candidateConstruction)
+        guard lookup.isCurrent, let owner, descriptorOwnerIsCurrent(owner, attribution: attribution),
+            candidateConstruction?.canConstruct != false
+        else { return nil }
         return owner
     }
 
     private func registerDescriptorConstructionAttempt(
         at identity: RetainedViewIdentity, attribution: RetainedDescriptorComponentAttribution,
-        lookup: LazyListLookupReceipt
+        lookup: LazyListLookupReceipt, candidateConstruction: RetainedOwnedCandidateConstruction?
     ) -> DescriptorComponentConstructionAttempt? {
-        guard let receipt = DescriptorResolutionReceipt(epoch: self, native: attribution) else { return nil }
+        guard candidateConstruction?.canConstruct != false,
+            let receipt = DescriptorResolutionReceipt(epoch: self, native: attribution)
+        else { return nil }
         let key = ObjectIdentifier(attribution.component)
-        if let current = descriptorConstructionAttempts[key] { return current.receipt.isCurrent ? current : nil }
+        if let current = descriptorConstructionAttempts[key] {
+            return current.receipt.isCurrent && lookup.isCurrent && candidateConstruction?.canConstruct != false
+                ? current : nil
+        }
         let attempt = DescriptorComponentConstructionAttempt(identity: identity, receipt: receipt)
         descriptorConstructionAttempts[key] = attempt
         let scopes = Array(lazyDiscardScopes.values)
         for scope in scopes where scope.isActive {
-            guard receipt.isCurrent, lookup.isCurrent else { return nil }
-            let matches = scope.scope.contains(identity, isCurrent: { receipt.isCurrent && lookup.isCurrent }) == true
+            guard receipt.isCurrent, lookup.isCurrent, candidateConstruction?.canConstruct != false else { return nil }
+            let matches =
+                scope.scope.contains(
+                    identity,
+                    isCurrent: { receipt.isCurrent && lookup.isCurrent && candidateConstruction?.canConstruct != false }
+                )
+                == true
             if matches { receipt.reject() }
-            guard receipt.isCurrent, lookup.isCurrent else { return nil }
+            guard receipt.isCurrent, lookup.isCurrent, candidateConstruction?.canConstruct != false else { return nil }
         }
         withExtendedLifetime(scopes) {}
-        return receipt.isCurrent && lookup.isCurrent ? attempt : nil
+        return receipt.isCurrent && lookup.isCurrent && candidateConstruction?.canConstruct != false ? attempt : nil
     }
 
     private func descriptorBoundaryOwner(
-        at identity: RetainedViewIdentity, receipt: DescriptorResolutionReceipt, lookup: LazyListLookupReceipt
+        at identity: RetainedViewIdentity, receipt: DescriptorResolutionReceipt, lookup: LazyListLookupReceipt,
+        candidateConstruction: RetainedOwnedCandidateConstruction?
     ) -> StateMountOwner? {
         guard let anchor, let activity = descriptorBoundaryActivity, activity.isActive,
-            anchor.generation == anchorGeneration, anchor.isLive, receipt.isCurrent, lookup.isCurrent
+            anchor.generation == anchorGeneration, anchor.isLive, receipt.isCurrent, lookup.isCurrent,
+            candidateConstruction?.canConstruct != false
         else { return nil }
         let matches =
             identity.checkedEquals(
                 anchor.identity,
-                isCurrent: { receipt.isCurrent && lookup.isCurrent && activity.isActive && anchor.isLive }) == true
-        return matches && receipt.isCurrent && lookup.isCurrent && activity.isActive && anchor.isLive ? anchor : nil
+                isCurrent: {
+                    receipt.isCurrent && lookup.isCurrent && activity.isActive && anchor.isLive
+                        && candidateConstruction?.canConstruct != false
+                }) == true
+        return matches && receipt.isCurrent && lookup.isCurrent && activity.isActive && anchor.isLive
+            && candidateConstruction?.canConstruct != false ? anchor : nil
     }
 
     @inline(never)
     private func installDescriptorOwner(
-        _ owner: StateMountOwner, receipt: DescriptorResolutionReceipt, lookup: LazyListLookupReceipt
+        _ owner: StateMountOwner, receipt: DescriptorResolutionReceipt, lookup: LazyListLookupReceipt,
+        candidateConstruction: RetainedOwnedCandidateConstruction?
     ) -> StateMountOwner? {
-        guard lookup.isCurrent else { return nil }
+        guard lookup.isCurrent, candidateConstruction?.canConstruct != false else { return nil }
         let old = descriptorOwners
         var next = old
         defer { withExtendedLifetime((old, next)) {} }
         if let existing = next[owner.generation] {
             return existing.owner === owner && existing.attribution === receipt.native && existing.isCurrent
+                && candidateConstruction?.canConstruct != false
                 ? owner : nil
         }
         next[owner.generation] = DescriptorOwnerAcquisition(owner: owner, receipt: receipt)
-        guard lookup.allowPublication(activity: 1) else { return nil }
+        guard candidateConstruction?.canConstruct != false, lookup.allowPublication(activity: 1) else { return nil }
         descriptorOwners = next
         lazyActivityMapsDidChange()
         return owner
     }
 
     func recordDescriptorOwnedSlots(
-        _ slots: Set<StatePropertySlot>, owner: StateMountOwner, attribution: RetainedDescriptorComponentAttribution
+        _ slots: Set<StatePropertySlot>, owner: StateMountOwner, attribution: RetainedDescriptorComponentAttribution,
+        candidateConstruction: RetainedOwnedCandidateConstruction? = nil
     ) -> Bool {
-        guard descriptorOwnerIsCurrent(owner, attribution: attribution),
+        guard candidateConstruction?.canConstruct != false, descriptorOwnerIsCurrent(owner, attribution: attribution),
             let acquired = descriptorOwners[owner.generation]
         else { return false }
-        if let previous = acquired.owningSlots { return previous == slots && acquired.isCurrent }
+        if let previous = acquired.owningSlots {
+            guard let installation = acquired.ownedInstallation else { return false }
+            return previous == slots && installation.candidateConstruction === candidateConstruction
+                && acquired.isCurrent
+        }
         guard let lookup = acquired.receipt.beginLookup(),
             let installation = prepareManagedOwnedInstallation(
-                owner: owner, slots: slots, lookup: lookup,
+                owner: owner, slots: slots, lookup: lookup, candidateConstruction: candidateConstruction,
                 register: {
-                    attribution.registerOwnedComponent(owner: owner.ownedComponentID, slots: $0, continuing: $1)
-                }), lookup.isCurrent, acquired.isCurrent, lookup.allowPublication(activity: 1)
+                    attribution.registerOwnedComponent(
+                        owner: owner.ownedComponentID, slots: $0, continuing: $1,
+                        candidateConstruction: candidateConstruction)
+                }), lookup.isCurrent, acquired.isCurrent, candidateConstruction?.canConstruct != false,
+            lookup.allowPublication(activity: 1)
         else { return false }
         acquired.owningSlots = slots
         acquired.ownedInstallation = installation
         lazyActivityMapsDidChange()
-        return lookup.isCurrent && acquired.isCurrent
+        return lookup.isCurrent && acquired.isCurrent && candidateConstruction?.canConstruct != false
     }
 
     fileprivate func resolveDescriptorOwnedCell<Value>(
         owner: StateMountOwner, slot: StatePropertySlot, isObjectFactory: Bool, seed: () -> Value
     ) throws -> MountedStateCell<Value> {
         guard let acquisition = descriptorOwners[owner.generation], acquisition.owner === owner,
-            acquisition.isCurrent, acquisition.owningSlots?.contains(slot) == true
+            acquisition.isCurrent, acquisition.owningSlots?.contains(slot) == true,
+            let installation = acquisition.ownedInstallation, installation.candidateConstruction?.canConstruct != false
         else { throw unavailableLazyProperty(Value.self, slot: slot) }
         if let existing = acquisition.cells[slot] as? MountedStateCell<Value> { return existing }
         if isObjectFactory, pendingObjectCreations[owner.generation]?.contains(slot) == true {
@@ -2633,7 +2704,8 @@ extension StateMountEpoch {
         let result: MountedStateCell<Value>? = resolveDescriptorCell(
             acquisition, slot: slot, isObjectFactory: isObjectFactory,
             ownership: .owned(component: acquisition.attribution.component), seed: seed)
-        guard let result, acquisition.isCurrent else { throw unavailableLazyProperty(Value.self, slot: slot) }
+        guard let result, acquisition.isCurrent, installation.candidateConstruction?.canConstruct != false
+        else { throw unavailableLazyProperty(Value.self, slot: slot) }
         return result
     }
 
@@ -2641,44 +2713,55 @@ extension StateMountEpoch {
         _ acquisition: DescriptorOwnerAcquisition, slot: StatePropertySlot,
         isObjectFactory: Bool, ownership: DescriptorCellOwnership, seed: () -> Value
     ) -> MountedStateCell<Value>? {
-        guard acquisition.isCurrent, let lookup = acquisition.receipt.beginLookup() else { return nil }
+        let candidateConstruction: RetainedOwnedCandidateConstruction?
+        switch ownership {
+        case .owned:
+            guard let installation = acquisition.ownedInstallation else { return nil }
+            candidateConstruction = installation.candidateConstruction
+        case .synthetic:
+            candidateConstruction = nil
+        }
+        guard acquisition.isCurrent, candidateConstruction?.canConstruct != false,
+            let lookup = acquisition.receipt.beginLookup()
+        else { return nil }
+        let isCurrent = {
+            acquisition.isCurrent && lookup.isCurrent && candidateConstruction?.canConstruct != false
+        }
         let owner = acquisition.owner
         let result = acquireObservation(
-            at: owner.identity, isMaterializationCurrent: { acquisition.isCurrent && lookup.isCurrent }, lookup: lookup,
+            at: owner.identity, isMaterializationCurrent: isCurrent, lookup: lookup,
             resolve: { currentOwner, maps, revision -> MountedStateCell<Value>? in
-                guard currentOwner === owner, acquisition.isCurrent && lookup.isCurrent else { return nil }
+                guard currentOwner === owner, isCurrent() else { return nil }
                 let committed = owner.cells
                 defer { withExtendedLifetime(committed) {} }
                 var claimed =
                     maps.claimedSlots[
                         owner.identity,
                         while: {
-                            self.observationConstructionRevision == revision
-                                && (acquisition.isCurrent && lookup.isCurrent)
+                            self.observationConstructionRevision == revision && isCurrent()
                         }
                     ] ?? []
-                guard self.observationConstructionRevision == revision, acquisition.isCurrent && lookup.isCurrent else {
+                guard self.observationConstructionRevision == revision, isCurrent() else {
                     return nil
                 }
                 claimed.insert(slot)
                 maps.claimedSlots[
                     owner.identity,
                     while: {
-                        self.observationConstructionRevision == revision && (acquisition.isCurrent && lookup.isCurrent)
+                        self.observationConstructionRevision == revision && isCurrent()
                     }
                 ] = claimed
-                guard self.observationConstructionRevision == revision, acquisition.isCurrent && lookup.isCurrent else {
+                guard self.observationConstructionRevision == revision, isCurrent() else {
                     return nil
                 }
                 var cells =
                     maps.provisionalCells[
                         owner.identity,
                         while: {
-                            self.observationConstructionRevision == revision
-                                && (acquisition.isCurrent && lookup.isCurrent)
+                            self.observationConstructionRevision == revision && isCurrent()
                         }
                     ] ?? [:]
-                guard self.observationConstructionRevision == revision, acquisition.isCurrent && lookup.isCurrent else {
+                guard self.observationConstructionRevision == revision, isCurrent() else {
                     return nil
                 }
                 if let existing = cells[slot] ?? committed[slot], let typed = existing as? MountedStateCell<Value> {
@@ -2703,6 +2786,7 @@ extension StateMountEpoch {
                         }
                     }
                 }
+                guard self.observationConstructionRevision == revision, isCurrent() else { return nil }
                 let value = seed()
                 let cell = MountedStateCell(value: value, owner: owner)
                 if case .owned = ownership, let installation = acquisition.ownedInstallation,
@@ -2711,34 +2795,38 @@ extension StateMountEpoch {
                     cell.bindOwnedLocation(installation.receipt, slot: generation)
                 }
                 maps.createdCells.append(cell)
-                guard self.observationConstructionRevision == revision, acquisition.isCurrent && lookup.isCurrent else {
+                guard self.observationConstructionRevision == revision, isCurrent() else {
                     return nil
                 }
                 cells[slot] = cell
                 maps.provisionalCells[
                     owner.identity,
                     while: {
-                        self.observationConstructionRevision == revision && (acquisition.isCurrent && lookup.isCurrent)
+                        self.observationConstructionRevision == revision && isCurrent()
                     }
                 ] = cells
-                guard self.observationConstructionRevision == revision, acquisition.isCurrent && lookup.isCurrent else {
+                guard self.observationConstructionRevision == revision, isCurrent() else {
                     return nil
                 }
                 return cell
             })
-        guard let result, observationConstructionRevision == result.revision, acquisition.isCurrent, lookup.isCurrent
+        guard let result, observationConstructionRevision == result.revision, isCurrent()
         else { return nil }
         let registered = registerDescriptorCell(
-            result.value, acquisition: acquisition, slot: slot, ownership: ownership, lookup: lookup)
-        return registered && lookup.isCurrent && acquisition.isCurrent ? result.value : nil
+            result.value, acquisition: acquisition, slot: slot, ownership: ownership, lookup: lookup,
+            candidateConstruction: candidateConstruction)
+        return registered && isCurrent() ? result.value : nil
     }
 
     @inline(never)
     private func registerDescriptorCell(
         _ cell: any AnyMountedStateCell, acquisition: DescriptorOwnerAcquisition,
-        slot: StatePropertySlot, ownership: DescriptorCellOwnership, lookup: LazyListLookupReceipt
+        slot: StatePropertySlot, ownership: DescriptorCellOwnership, lookup: LazyListLookupReceipt,
+        candidateConstruction: RetainedOwnedCandidateConstruction?
     ) -> Bool {
-        guard lookup.isCurrent, acquisition.isCurrent else { return false }
+        guard lookup.isCurrent, acquisition.isCurrent, candidateConstruction?.canConstruct != false else {
+            return false
+        }
         let oldCells = acquisition.cells
         let oldProposals = descriptorCellProposals
         var cells = oldCells
@@ -2747,7 +2835,7 @@ extension StateMountEpoch {
         cells[slot] = cell
         proposals[ObjectIdentifier(cell)] = DescriptorCellProposal(
             owner: acquisition.owner, slot: slot, cell: cell, acquisition: acquisition, ownership: ownership)
-        guard lookup.allowPublication(activity: 1) else { return false }
+        guard candidateConstruction?.canConstruct != false, lookup.allowPublication(activity: 1) else { return false }
         acquisition.cells = cells
         descriptorCellProposals = proposals
         lazyActivityMapsDidChange()
@@ -2809,26 +2897,33 @@ extension StateMountEpoch {
     }
 
     func preserveDescriptorDeclaredScopes(
-        _ scopes: [StateMountDeclarationScope], attribution: RetainedDescriptorComponentAttribution
+        _ scopes: [StateMountDeclarationScope], attribution: RetainedDescriptorComponentAttribution,
+        candidateConstruction: RetainedOwnedCandidateConstruction? = nil
     ) {
-        guard let receipt = DescriptorResolutionReceipt(epoch: self, native: attribution) else { return }
+        guard candidateConstruction?.canConstruct != false,
+            let receipt = DescriptorResolutionReceipt(epoch: self, native: attribution)
+        else { return }
         let previous = descriptorPreservedScopes
         descriptorPreservedScopes.append(
             contentsOf: scopes.map {
                 DescriptorPreservedDeclarationScope(scope: $0, receipt: receipt)
             })
         withExtendedLifetime(previous) {}
-        guard let lookup = receipt.beginLookup() else {
+        guard candidateConstruction?.canConstruct != false, let lookup = receipt.beginLookup() else {
             receipt.reject()
             return
         }
         let preserved = registerKnownOwnedPreservations(
             scopes, containingComponent: ObjectIdentifier(attribution.component), row: nil, lookup: lookup,
+            candidateConstruction: candidateConstruction,
             register: { owner, slots, continuing in
                 attribution.registerOwnedComponent(
-                    owner: owner, slots: slots, continuing: continuing, declarationOnly: true)
+                    owner: owner, slots: slots, continuing: continuing, declarationOnly: true,
+                    candidateConstruction: candidateConstruction)
             })
-        if !preserved || !lookup.isCurrent || !receipt.isCurrent { receipt.reject() }
+        if !preserved || !lookup.isCurrent || !receipt.isCurrent || candidateConstruction?.canConstruct == false {
+            receipt.reject()
+        }
     }
 
     /// Native descriptor selection precedes the frame's first authored row key.
@@ -3052,16 +3147,18 @@ extension StateMountEpoch {
     private func registerKnownOwnedPreservations(
         _ scopes: [StateMountDeclarationScope], containingComponent: ObjectIdentifier,
         row: LazyListLogicalRow?, lookup: LazyListLookupReceipt,
+        candidateConstruction: RetainedOwnedCandidateConstruction? = nil,
         register: (
             RetainedOwnedComponentID, [RetainedOwnedSlotGenerationID], [RetainedOwnedComponentReceipt]
         ) -> RetainedOwnedComponentReceipt?
     ) -> Bool {
-        guard lookup.isCurrent, let registry else { return false }
+        let isCurrent = { lookup.isCurrent && candidateConstruction?.canConstruct != false }
+        guard isCurrent(), let registry else { return false }
         let originalOwners = registry.owners
         let previous = managedPreservedOwners
         defer { withExtendedLifetime((originalOwners, previous)) {} }
         for owner in originalOwners.values where owner.isLive {
-            guard lookup.isCurrent else { return false }
+            guard isCurrent() else { return false }
             // A measured and then rejected candidate is not an active
             // declaration. Its old committed cells may still be preserved.
             if lazyOwners[owner.generation]?.isCurrent == true || descriptorOwners[owner.generation]?.isCurrent == true
@@ -3070,9 +3167,9 @@ extension StateMountEpoch {
             }
             var matches = false
             for scope in scopes {
-                guard lookup.isCurrent else { return false }
-                let contained = scope.contains(owner.identity, isCurrent: { lookup.isCurrent }) == true
-                guard lookup.isCurrent else { return false }
+                guard isCurrent() else { return false }
+                let contained = scope.contains(owner.identity, isCurrent: isCurrent) == true
+                guard isCurrent() else { return false }
                 if contained {
                     matches = true
                     break
@@ -3081,7 +3178,10 @@ extension StateMountEpoch {
             if !matches { continue }
             let key = ManagedPreservedOwnerKey(
                 ownerGeneration: owner.generation, containingComponent: containingComponent)
-            if managedPreservedOwners[key] != nil { continue }
+            if let existing = managedPreservedOwners[key] {
+                guard existing.installation.candidateConstruction === candidateConstruction else { return false }
+                continue
+            }
             let cells = owner.cells.filter { _, cell in
                 guard cell.ownedSlotGeneration != nil, cell.hasLiveManagedPermission else { return false }
                 if let row {
@@ -3107,17 +3207,19 @@ extension StateMountEpoch {
                 if !continuing.contains(where: { $0 === receipt }) { continuing.append(receipt) }
             }
             if generations.isEmpty && continuing.isEmpty { continue }
-            guard lookup.isCurrent,
-                let receipt = register(owner.ownedComponentID, Array(generations.values), continuing), lookup.isCurrent
+            guard isCurrent(),
+                let receipt = register(owner.ownedComponentID, Array(generations.values), continuing), isCurrent()
             else { return false }
             let preserved = ManagedPreservedOwner(
                 owner: owner, cells: cells,
-                installation: ManagedOwnedInstallation(receipt: receipt, slots: generations), logicalRow: row)
-            guard lookup.allowPublication(activity: 1) else { return false }
+                installation: ManagedOwnedInstallation(
+                    receipt: receipt, slots: generations, candidateConstruction: candidateConstruction), logicalRow: row
+            )
+            guard isCurrent(), lookup.allowPublication(activity: 1) else { return false }
             managedPreservedOwners[key] = preserved
             lazyActivityMapsDidChange()
         }
-        return lookup.isCurrent
+        return isCurrent()
     }
 
     @inline(never)
@@ -3162,9 +3264,10 @@ extension StateMountEpoch {
     @inline(never)
     private func prepareManagedOwnedInstallation(
         owner: StateMountOwner, slots: Set<StatePropertySlot>, lookup: LazyListLookupReceipt,
+        candidateConstruction: RetainedOwnedCandidateConstruction? = nil,
         register: ([RetainedOwnedSlotGenerationID], [RetainedOwnedComponentReceipt]) -> RetainedOwnedComponentReceipt?
     ) -> ManagedOwnedInstallation? {
-        guard lookup.isCurrent else { return nil }
+        guard lookup.isCurrent, candidateConstruction?.canConstruct != false else { return nil }
         let previous = owner.cells
         var continuing: [RetainedOwnedComponentReceipt] = []
         defer { withExtendedLifetime((previous, continuing)) {} }
@@ -3175,7 +3278,7 @@ extension StateMountEpoch {
         }
         var generations: [StatePropertySlot: RetainedOwnedSlotGenerationID] = [:]
         for slot in slots {
-            guard lookup.isCurrent else { return nil }
+            guard lookup.isCurrent, candidateConstruction?.canConstruct != false else { return nil }
             if let cell = previous[slot], cell.hasLiveManagedPermission, let generation = cell.ownedSlotGeneration {
                 generations[slot] = generation
                 if let receipt = cell.ownedComponentReceipt, !continuing.contains(where: { $0 === receipt }) {
@@ -3185,10 +3288,12 @@ extension StateMountEpoch {
                 generations[slot] = RetainedOwnedSlotGenerationID()
             }
         }
-        guard lookup.isCurrent,
-            let receipt = register(Array(generations.values), continuing), lookup.isCurrent
+        guard lookup.isCurrent, candidateConstruction?.canConstruct != false,
+            let receipt = register(Array(generations.values), continuing), lookup.isCurrent,
+            candidateConstruction?.canConstruct != false
         else { return nil }
-        return ManagedOwnedInstallation(receipt: receipt, slots: generations)
+        return ManagedOwnedInstallation(
+            receipt: receipt, slots: generations, candidateConstruction: candidateConstruction)
     }
 
     fileprivate func resolveLazyOwnedCell<Value>(

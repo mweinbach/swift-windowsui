@@ -232,6 +232,7 @@ private struct MultiDatePickerPrimitive: View {
 
     func makeComponent(context: ViewBuildContext) -> Component {
         let labelContext = context.withViewIdentityRole(.label).withTextAlignment(.leading).withLineLimit(1)
+        let labelAdmission = retainedSelectedContentModifierAdmission(context: labelContext)
         guard let labelViews = materializedDeferredViewList(label, context: labelContext) else {
             return rejectedRetainedViewComponent()
         }
@@ -245,6 +246,10 @@ private struct MultiDatePickerPrimitive: View {
             let browse = self.browse.limitingWrites(isCurrent)
             let metrics = MultiDatePickerMetrics(controlSize: context.controlSize)
             let labelNode = labelComponent.makeNode(runtime: runtime)
+            guard
+                let labelScope = labelNode.captureSelectedContentMutationScope(
+                    in: runtime, admission: labelAdmission), labelScope.isCurrent
+            else { return rejectedRetainedViewNode() }
             let node = calendarSurface(
                 runtime: runtime, context: context, metrics: metrics,
                 selection: selection, browse: browse, isCurrent: isCurrent)
@@ -252,10 +257,14 @@ private struct MultiDatePickerPrimitive: View {
             admission.mark(node)
             guard !context.labelsHidden, !labelViews.isEmpty else { return node }
 
-            labelNode.layoutPriority = max(labelNode.layoutPriority, 1)
+            guard labelScope.isCurrent else { return rejectedRetainedViewNode() }
+            labelScope.selectedRoot.layoutPriority = max(labelScope.selectedRoot.layoutPriority, 1)
+            guard labelScope.isCurrent else { return rejectedRetainedViewNode() }
             identify(labelNode, as: .label, context: context)
             if context.isInsideGroupedForm {
-                return groupedFormRowNode(label: labelNode, content: node, isHitTestVisible: context.isEnabled)
+                return groupedFormRowNode(
+                    label: labelNode, originalLabelScope: labelScope, content: node, isHitTestVisible: context.isEnabled
+                )
             }
             let container = Controls.stackPanel(
                 stackLayout: .vertical(

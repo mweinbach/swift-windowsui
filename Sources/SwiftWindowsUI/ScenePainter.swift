@@ -240,13 +240,26 @@ public enum ScenePainter {
         deferredDraws: inout [DeferredDrawState],
         replayCount: inout Int,
         deferredReplayCount: inout Int,
-        overlays: [ViewNode] = []
+        overlays: [ViewNode] = [],
+        selectedContentPaintDomain: RetainedSelectedContentPaintDomain? = nil,
+        selectedContentOverlayPaintDomains: [ObjectIdentifier: RetainedSelectedContentPaintDomain] = [:]
     ) -> ScenePaintSnapshot {
         let fullClip = RuntimeClipShape(
             rect: Rect(x: 0, y: 0, width: surfaceSize.width, height: surfaceSize.height), space: .painted)
         let deviceSurfaceSize = surfaceSize.scaled(by: max(displayScale, 1.0))
         let originalDeferredDraws = deferredDraws
         let previousScene = previousSnapshot?.scene
+        let selectedContentSource = SelectedContentPaintSource(
+            root: root, domain: selectedContentPaintDomain ?? root.captureSelectedContentPaintDomain(),
+            deferredDraws: originalDeferredDraws)
+        let overlaySources = overlays.map { overlay in
+            SelectedContentPaintSource(
+                root: overlay,
+                domain: selectedContentOverlayPaintDomains[ObjectIdentifier(overlay)]
+                    ?? overlay.captureSelectedContentPaintDomain(),
+                deferredDraws: [])
+        }
+        let symbolSources = SelectedContentSymbolSources()
 
         // One LRU tick per *rendered frame*, not per attempt: the loop below
         // repaints the same frame, and advancing the clock again would age
@@ -291,11 +304,11 @@ public enum ScenePainter {
             var attemptDeferredReplayCount = 0
             var usedNativeGlyphs = false
             var usedPixelGlyphs = false
-            let canvasSymbolState = CanvasSymbolPaintState()
+            let canvasSymbolState = CanvasSymbolPaintState(selectedContentSources: symbolSources)
             let replaySource = bypassReplayAfterAtlasRecovery ? nil : previousScene
 
             paintNode(
-                root,
+                root, selection: selectedContentSource.rootSelection,
                 into: &scene,
                 deferredDraws: &attemptDeferredDraws,
                 parentOrigin: .zero,
@@ -312,9 +325,9 @@ public enum ScenePainter {
                 replayCount: &attemptReplayCount,
                 canvasSymbolState: canvasSymbolState
             )
-            for overlay in overlays {
+            for overlaySource in overlaySources {
                 paintNode(
-                    overlay,
+                    overlaySource.root, selection: overlaySource.rootSelection,
                     into: &scene,
                     deferredDraws: &attemptDeferredDraws,
                     parentOrigin: .zero,
@@ -333,7 +346,7 @@ public enum ScenePainter {
                 )
             }
             appendDeferredDraws(
-                &attemptDeferredDraws,
+                &attemptDeferredDraws, selectionSource: selectedContentSource,
                 into: &scene,
                 previousScene: replaySource,
                 previousSceneIdentity: previousSnapshot?.identity,
@@ -413,13 +426,223 @@ public enum ScenePainter {
     /// frame is guaranteed to be free of recycled UVs.
     private static let glyphAtlasPaintAttempts = 3
 
+    /// One source entry owns its attachment observations through every glyph
+    /// retry and offscreen re-entry. Failed observations are retained too: a
+    /// detached/reinserted node cannot acquire a replacement proof mid-paint.
+    @MainActor
+    private final class SelectedContentPaintSource {
+        struct Capture {
+            let node: ViewNode
+            let operand: RetainedSelectedContentPaintOperand?
+            let hadSelectedContentBoundary: Bool
+        }
+
+        let root: ViewNode
+        let domain: RetainedSelectedContentPaintDomain
+        let wasCurrentAtEntry: Bool
+        let originalDeferredDraws: [DeferredDrawState]
+        private var captures: [ObjectIdentifier: Capture] = [:]
+        private var deferredCaptures: [ObjectIdentifier: Capture] = [:]
+        private var deferredBoundaryCaptures: [ObjectIdentifier: [Capture]] = [:]
+        private(set) var invalidated = false
+
+        init(root: ViewNode, domain: RetainedSelectedContentPaintDomain, deferredDraws: [DeferredDrawState]) {
+            self.root = root
+            self.domain = domain
+            wasCurrentAtEntry = domain.isCurrent
+            originalDeferredDraws = deferredDraws
+            _ = capture(root)
+            for entry in deferredDraws {
+                let owner: ViewNode?
+                switch entry.payload {
+                case .subtree(let payload): owner = payload.node
+                case .scrollIndicator(let payload): owner = payload.node
+                }
+                if let owner {
+                    deferredCaptures[ObjectIdentifier(owner)] = capture(owner)
+                    if case .subtree = entry.payload { captureDeferredBoundaries(for: owner) }
+                }
+            }
+        }
+
+        func capture(_ node: ViewNode) -> Capture {
+            let key = ObjectIdentifier(node)
+            if let original = captures[key] { return original }
+            let original = Capture(
+                node: node, operand: domain.captureOperand(for: node),
+                hadSelectedContentBoundary: domain.requiresSelectedContentValidation(for: node)
+                    || SelectedContentPaintReadSet.hasCurrentSelectedContentAncestor(node))
+            captures[key] = original
+            return original
+        }
+
+        func validateOriginalCaptures() -> Bool {
+            guard !invalidated else { return false }
+            // Range forwarding can observe selected descendants without a
+            // painter entry. Its original domain reads remain part of this
+            // source, including when the finishing node itself is ordinary.
+            guard domain.selectedContentReadsAreCurrent else {
+                invalidated = true
+                return false
+            }
+            // A later ordinary callback can invalidate an already-painted
+            // sibling. Completion must validate the entire original source
+            // read set, not only the node that happens to be finishing now.
+            for original in captures.values {
+                let requiresCheck =
+                    original.hadSelectedContentBoundary
+                    || original.operand?.hasSelectedContentBoundary == true
+                    || SelectedContentPaintReadSet.hasCurrentSelectedContentAncestor(original.node)
+                guard requiresCheck else { continue }
+                guard wasCurrentAtEntry, let operand = original.operand,
+                    domain.isCurrent, operand.isCurrent
+                else {
+                    invalidated = true
+                    return false
+                }
+            }
+            return true
+        }
+
+        var rootSelection: SelectedContentPaintReadSet {
+            SelectedContentPaintReadSet(source: self, capture: capture(root), qualifiers: [])
+        }
+
+        func deferredSelection(for node: ViewNode) -> SelectedContentPaintReadSet? {
+            guard let original = deferredCaptures[ObjectIdentifier(node)], original.node === node else {
+                invalidated = true
+                return nil
+            }
+            return SelectedContentPaintReadSet(source: self, capture: original, qualifiers: [])
+        }
+
+        private func captureDeferredBoundaries(for node: ViewNode) {
+            var boundaries: [Capture] = []
+            var current = node
+            var seen = Set<ObjectIdentifier>()
+            while current !== root, let parent = current.parent, parent.selectedContentRole == .viewThatFits {
+                guard seen.count < ViewNode.maximumTraversalDepth,
+                    seen.insert(ObjectIdentifier(parent)).inserted,
+                    parent.children.count == 1, parent.children.first === current
+                else {
+                    invalidated = true
+                    return
+                }
+                boundaries.append(capture(parent))
+                current = parent
+            }
+            deferredBoundaryCaptures[ObjectIdentifier(node)] = boundaries
+        }
+
+        func finishDeferredBoundaries(for node: ViewNode) -> Bool {
+            guard rootSelection.isCurrent else { return false }
+            for original in deferredBoundaryCaptures[ObjectIdentifier(node)] ?? [] {
+                let selected = SelectedContentPaintReadSet(source: self, capture: original, qualifiers: [])
+                guard selected.isCurrent, let operand = original.operand else { return false }
+                original.node.finishSelectedContentPaint(using: operand)
+            }
+            return !invalidated
+        }
+
+        func invalidate() { invalidated = true }
+    }
+
+    @MainActor
+    private struct SelectedContentPaintReadSet {
+        let source: SelectedContentPaintSource
+        let capture: SelectedContentPaintSource.Capture
+        let qualifiers: [RetainedSelectedContentPaintOperand]
+
+        var node: ViewNode { capture.node }
+        var operand: RetainedSelectedContentPaintOperand? { capture.operand }
+
+        var isCurrent: Bool {
+            guard source.validateOriginalCaptures() else { return false }
+            // Ordinary paths retain their existing painter behavior. A node
+            // moved under a structural boundary must still answer to its OLD
+            // observation, not evade it because it was ordinary when queued.
+            let requiresCheck =
+                capture.hadSelectedContentBoundary
+                || operand?.hasSelectedContentBoundary == true || !qualifiers.isEmpty
+                || Self.hasCurrentSelectedContentAncestor(node)
+            guard requiresCheck else { return true }
+            guard source.wasCurrentAtEntry, let operand, source.domain.isCurrent, operand.isCurrent,
+                qualifiers.allSatisfy({ $0.isCurrent })
+            else {
+                source.invalidate()
+                return false
+            }
+            return true
+        }
+
+        func child(_ node: ViewNode) -> SelectedContentPaintReadSet? {
+            guard isCurrent else { return nil }
+            var nextQualifiers = qualifiers
+            if let operand,
+                capture.hadSelectedContentBoundary || operand.hasSelectedContentBoundary
+                    || Self.hasCurrentSelectedContentAncestor(self.node),
+                !nextQualifiers.contains(where: { $0.physicalNode === operand.physicalNode })
+            {
+                nextQualifiers.append(operand)
+            }
+            return SelectedContentPaintReadSet(
+                source: source, capture: source.capture(node), qualifiers: nextQualifiers)
+        }
+
+        static func hasCurrentSelectedContentAncestor(_ node: ViewNode) -> Bool {
+            var current: ViewNode? = node
+            var seen = Set<ObjectIdentifier>()
+            while let candidate = current {
+                // This only discovers a role; Runtime's captured operand
+                // remains the bounded authority. Do not impose its path limit
+                // on a pre-existing ordinary painter traversal.
+                guard seen.insert(ObjectIdentifier(candidate)).inserted else { return true }
+                if candidate.selectedContentRole == .viewThatFits { return true }
+                current = candidate.parent
+            }
+            return false
+        }
+    }
+
+    @MainActor
+    private struct SelectedContentPaintChild {
+        let node: ViewNode
+        let selectedNode: ViewNode
+        let selection: SelectedContentPaintReadSet
+    }
+
+    /// A symbol is a separate retained source, while repeated placements and
+    /// glyph retries of that same source keep its original paint domain. The
+    /// strong symbol reference also prevents ObjectIdentifier reuse in this
+    /// entry-local memo. This is paint bookkeeping, never native authority.
+    @MainActor
+    private final class SelectedContentSymbolSources {
+        private var sources: [ObjectIdentifier: (CanvasSymbolSource, SelectedContentPaintSource)] = [:]
+
+        func source(for symbol: CanvasSymbolSource) -> SelectedContentPaintSource {
+            let key = ObjectIdentifier(symbol)
+            if let original = sources[key] { return original.1 }
+            let source = SelectedContentPaintSource(
+                root: symbol.runtime.root,
+                domain: symbol.runtime.root.captureSelectedContentPaintDomain(),
+                deferredDraws: symbol.runtime.currentPrepaintState.deferredDraws)
+            sources[key] = (symbol, source)
+            return source
+        }
+    }
+
     /// Shared across recursive paint calls and namespaces in one attempt.
     /// Reserve the pass before visiting its source, so branching or recursive
     /// Canvas declarations cannot grow an unbounded scene before validation.
     @MainActor
     private final class CanvasSymbolPaintState {
+        let selectedContentSources: SelectedContentSymbolSources
         var remainingPasses = GPUISceneLimits.maxImageRenderPassCount
         var remainingPixels = Int64(GPUISceneLimits.maxImageRenderPassTotalPixels)
+
+        init(selectedContentSources: SelectedContentSymbolSources) {
+            self.selectedContentSources = selectedContentSources
+        }
 
         func begin(depth: Int) -> Bool {
             guard depth < GPUISceneLimits.maxImageRenderPassDepth, remainingPasses > 0 else { return false }
@@ -477,6 +700,7 @@ public enum ScenePainter {
 
     private struct PaintTraversalContext {
         let node: ViewNode
+        let selection: SelectedContentPaintReadSet
         let parentOrigin: Point
         let inheritedClip: RuntimeClipShape?
         let layerIndex: Int
@@ -499,10 +723,23 @@ public enum ScenePainter {
         /// Descendants still create their own ordered effect boundaries.
         let suppressesColorEffectIsolation: Bool
         let colorEffectPassDepth: Int
+
+        func forwarding(to node: ViewNode, selection: SelectedContentPaintReadSet) -> PaintTraversalContext {
+            PaintTraversalContext(
+                node: node, selection: selection, parentOrigin: parentOrigin, inheritedClip: inheritedClip,
+                layerIndex: layerIndex, primitiveOpacity: primitiveOpacity,
+                inheritedColorEffects: inheritedColorEffects, inheritedBlendMode: inheritedBlendMode,
+                inheritedTransform: inheritedTransform, isInsideDrawingGroup: isInsideDrawingGroup,
+                backdropIsolationScope: backdropIsolationScope, skipCacheUpdates: skipCacheUpdates,
+                suppressesContentBlurIsolation: suppressesContentBlurIsolation,
+                suppressesColorEffectIsolation: suppressesColorEffectIsolation,
+                colorEffectPassDepth: colorEffectPassDepth)
+        }
     }
 
     private struct PaintNodeFinishState {
         let node: ViewNode
+        let selection: SelectedContentPaintReadSet
         let startPaintRecord: Int
         let cacheKey: ViewPaintCacheKey
         let hasChildren: Bool
@@ -541,8 +778,33 @@ public enum ScenePainter {
         case paint(PaintTraversalWork)
     }
 
+    private static func selectedContentPaintChildren(
+        of node: ViewNode, selection: SelectedContentPaintReadSet
+    ) -> [SelectedContentPaintChild]? {
+        guard selection.isCurrent else { return nil }
+        var children: [SelectedContentPaintChild] = []
+        children.reserveCapacity(node.children.count)
+        for child in node.children {
+            guard let childSelection = selection.child(child), childSelection.isCurrent else { return nil }
+            // A nil bounded operand is allowed only on the unchanged ordinary
+            // path above. A structural/current typed path already failed its
+            // mandatory original-proof check and cannot take this fallback.
+            let selectedNode = childSelection.operand?.selectedNode ?? child
+            children.append(
+                SelectedContentPaintChild(node: child, selectedNode: selectedNode, selection: childSelection))
+        }
+        guard children.contains(where: { $0.selectedNode.zIndex != 0 }) else { return children }
+        return children.enumerated().sorted { lhs, rhs in
+            if lhs.element.selectedNode.zIndex != rhs.element.selectedNode.zIndex {
+                return lhs.element.selectedNode.zIndex < rhs.element.selectedNode.zIndex
+            }
+            return lhs.offset < rhs.offset
+        }.map(\.element)
+    }
+
     private static func paintNode(
         _ node: ViewNode,
+        selection: SelectedContentPaintReadSet,
         into scene: inout GPUIScene,
         deferredDraws: inout [DeferredDrawState],
         parentOrigin: Point,
@@ -567,10 +829,11 @@ public enum ScenePainter {
         suppressesContentBlurIsolation: Bool = false,
         suppressesColorEffectIsolation: Bool = false,
         colorEffectPassDepth: Int = 0,
-        canvasSymbolState: CanvasSymbolPaintState = CanvasSymbolPaintState()
+        canvasSymbolState: CanvasSymbolPaintState
     ) {
         var traversal = makePaintTraversal(
-            node, parentOrigin: parentOrigin, inheritedClip: inheritedClip, layerIndex: layerIndex,
+            node, selection: selection, parentOrigin: parentOrigin, inheritedClip: inheritedClip,
+            layerIndex: layerIndex,
             primitiveOpacity: primitiveOpacity, inheritedColorEffects: inheritedColorEffects,
             inheritedBlendMode: inheritedBlendMode, inheritedTransform: inheritedTransform,
             isInsideDrawingGroup: isInsideDrawingGroup, backdropIsolationScope: backdropIsolationScope,
@@ -594,6 +857,7 @@ public enum ScenePainter {
     @inline(never)
     private static func makePaintTraversal(
         _ node: ViewNode,
+        selection: SelectedContentPaintReadSet,
         parentOrigin: Point,
         inheritedClip: RuntimeClipShape?,
         layerIndex: Int,
@@ -611,7 +875,7 @@ public enum ScenePainter {
         [
             .enter(
                 PaintTraversalContext(
-                    node: node,
+                    node: node, selection: selection,
                     parentOrigin: parentOrigin,
                     inheritedClip: inheritedClip,
                     layerIndex: layerIndex,
@@ -698,6 +962,23 @@ public enum ScenePainter {
         scene.paintMetrics.nodesVisited += 1
 
         let node = context.node
+        let selection = context.selection
+        guard selection.node === node, selection.isCurrent else { return }
+        if node.selectedContentRole == .viewThatFits {
+            guard let operand = selection.operand, operand.physicalNode === node,
+                let child = operand.nextPhysicalChild,
+                let childSelection = selection.child(child), childSelection.isCurrent
+            else { return }
+            // A structural hop owns no pixels, cache range or paint-attachment
+            // status. Complete it only after its original actual child finishes.
+            traversal.append(
+                .paint { @MainActor _, _, _, _, _, _ in
+                    guard selection.isCurrent else { return }
+                    node.finishSelectedContentPaint(using: operand)
+                })
+            traversal.append(.enter(context.forwarding(to: child, selection: childSelection)))
+            return
+        }
         let parentOrigin = context.parentOrigin
         let inheritedClip = context.inheritedClip
         let layerIndex = context.layerIndex
@@ -943,7 +1224,9 @@ public enum ScenePainter {
             case .success:
                 let delta = startPaintRecord - cachedScenePaintRange.lowerBound
                 node.shiftCachedSceneRangesRecursively(
-                    by: delta, from: previousSceneIdentity, to: snapshotIdentity)
+                    by: delta, from: previousSceneIdentity, to: snapshotIdentity,
+                    selectedContentPaintDomain: selection.source.domain)
+                guard selection.isCurrent else { return }
                 node.cachedSceneKey = cacheKey
                 node.cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
                 node.cachedSceneSnapshotIdentity = snapshotIdentity
@@ -965,6 +1248,7 @@ public enum ScenePainter {
         if !colorEffects.isEmpty, !context.suppressesColorEffectIsolation {
             traversal.append(
                 .paint { @MainActor scene, deferredDraws, usedNativeGlyphs, usedPixelGlyphs, _, _ in
+                    guard selection.isCurrent else { return }
                     appendIsolatedColorEffects(
                         context,
                         effects: colorEffects,
@@ -977,6 +1261,7 @@ public enum ScenePainter {
                         usedNativeGlyphs: &usedNativeGlyphs,
                         usedPixelGlyphs: &usedPixelGlyphs,
                         canvasSymbolState: canvasSymbolState)
+                    guard selection.isCurrent else { return }
                     if !skipCacheUpdates {
                         node.cachedSceneKey = cacheKey
                         node.cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
@@ -988,6 +1273,7 @@ public enum ScenePainter {
         }
 
         let paintInline: PaintTraversalWork = { @MainActor scene, _, usedNativeGlyphs, usedPixelGlyphs, _, traversal in
+            guard selection.isCurrent else { return }
             if hasPaintableExtent,
                 let hoverShadow = node.hoverEffectShadowCommand(
                     for: paintFrame,
@@ -1455,6 +1741,7 @@ public enum ScenePainter {
 
             traversal.append(
                 .paint { @MainActor scene, deferredDraws, usedNativeGlyphs, usedPixelGlyphs, replayCount, traversal in
+                    guard selection.isCurrent else { return }
                     // Children -- sort by zIndex (stable) and rely on scene draw orders
                     // rather than allocating paint-order layers.  parentOrigin is kept in
                     // untransformed local space; the accumulated screen-space transform is
@@ -1466,18 +1753,8 @@ public enum ScenePainter {
                         y: nodeLocalFrame.origin.y - scrollY
                     )
 
-                    let sortedChildren: [ViewNode]
-                    if node.children.contains(where: { $0.zIndex != 0 }) {
-                        sortedChildren = node.children.enumerated()
-                            .sorted { a, b in
-                                if a.element.zIndex != b.element.zIndex {
-                                    return a.element.zIndex < b.element.zIndex
-                                }
-                                return a.offset < b.offset
-                            }
-                            .map(\.element)
-                    } else {
-                        sortedChildren = node.children
+                    guard let sortedChildren = selectedContentPaintChildren(of: node, selection: selection) else {
+                        return
                     }
 
                     let isCompositingGroup = node.drawingGroup != nil || node.isCompositingGroup
@@ -1504,9 +1781,12 @@ public enum ScenePainter {
                     let pairedGroup =
                         context.backdropIsolationScope == .paired && !routesRotatedClip
                         && (sortedChildren.contains {
-                            !$0.paintsInDeferredPhase && $0.colorEffects.isEmpty
-                                && subtreeReadsBackdrop($0, displayScale: displayScale)
-                        } || deferredSubtreeReadsBackdrop(of: node, in: deferredDraws, displayScale: displayScale))
+                            !$0.selectedNode.paintsInDeferredPhase && $0.selectedNode.colorEffects.isEmpty
+                                && subtreeReadsBackdrop($0.selection, displayScale: displayScale)
+                        }
+                            || deferredSubtreeReadsBackdrop(
+                                of: node, in: deferredDraws, selection: selection, displayScale: displayScale))
+                    guard selection.isCurrent else { return }
                     if isCompositingGroup || routesRotatedClip,
                         !isInsideDrawingGroup || pairedGroup, hasPaintableExtent,
                         !sortedChildren.isEmpty,
@@ -1559,7 +1839,7 @@ public enum ScenePainter {
                             : nil
                         let group = CompositingGroupPaintContext(
                             finishState: PaintNodeFinishState(
-                                node: node,
+                                node: node, selection: selection,
                                 startPaintRecord: startPaintRecord,
                                 cacheKey: cacheKey,
                                 hasChildren: hasChildren,
@@ -1601,7 +1881,7 @@ public enum ScenePainter {
                         traversal.append(
                             .finish(
                                 PaintNodeFinishState(
-                                    node: node,
+                                    node: node, selection: selection,
                                     startPaintRecord: startPaintRecord,
                                     cacheKey: cacheKey,
                                     hasChildren: hasChildren,
@@ -1619,11 +1899,12 @@ public enum ScenePainter {
                                 )
                             )
                         )
-                        for child in sortedChildren.reversed() where !child.paintsInDeferredPhase {
+                        for child in sortedChildren.reversed() where !child.selectedNode.paintsInDeferredPhase {
+                            guard child.selection.isCurrent else { continue }
                             traversal.append(
                                 .enter(
                                     PaintTraversalContext(
-                                        node: child,
+                                        node: child.node, selection: child.selection,
                                         parentOrigin: childOrigin,
                                         inheritedClip: effectiveClip,
                                         layerIndex: layerIndex,
@@ -1664,11 +1945,13 @@ public enum ScenePainter {
                 let alpha = node.lazyListCanvasPaintAlpha
                 traversal.append(
                     .paint { @MainActor scene, _, usedNativeGlyphs, usedPixelGlyphs, _, _ in
+                        guard selection.isCurrent else { return }
                         var canvasContext = CanvasGraphicsContext()
                         canvasDraw(&canvasContext, quadFillRect.size.scaled(by: 1 / placement.scale))
+                        guard selection.isCurrent else { return }
                         alpha?.record(canvasContext.operations)
                         appendCanvasOperations(
-                            canvasContext.operationsScaled(by: placement.scale),
+                            canvasContext.operationsScaled(by: placement.scale), selection: selection,
                             into: &scene,
                             origin: quadFillRect.origin,
                             baseClip: effectiveClip,
@@ -1699,7 +1982,7 @@ public enum ScenePainter {
         // `.blur()` on it blurs.
         if node.contentBlurRadius > 0, !context.suppressesContentBlurIsolation, hasPaintableExtent {
             let isolation = ContentBlurIsolation(
-                node: node,
+                node: node, selection: selection,
                 parentOrigin: parentOrigin,
                 inheritedTransform: inheritedTransform,
                 inheritedColorEffects: inheritedColorEffects,
@@ -1718,6 +2001,7 @@ public enum ScenePainter {
                 previousScene: previousScene, previousSceneIdentity: previousSceneIdentity)
             traversal.append(
                 .paint { @MainActor scene, deferredDraws, usedNativeGlyphs, usedPixelGlyphs, replayCount, traversal in
+                    guard selection.isCurrent else { return }
                     if appendIsolatedContentBlur(
                         isolation,
                         into: &scene,
@@ -1752,6 +2036,7 @@ public enum ScenePainter {
         // just composited. Recorded on the node because the frame that
         // *replays* this range from a clean ancestor never comes back
         // here, and the deferred phase still has to know.
+        guard isolation.selection.isCurrent else { return }
         let node = isolation.node
         node.lastPaintedViaContentBlurIsolation = true
         if !isolation.skipCacheUpdates {
@@ -1769,7 +2054,7 @@ public enum ScenePainter {
     private final class CompositingGroupPaintContext {
         let finishState: PaintNodeFinishState
         let buffer: OffscreenPassBuffer
-        let children: [ViewNode]
+        let children: [SelectedContentPaintChild]
         let childOrigin: Point
         let subClip: RuntimeClipShape?
         let subInheritedTransform: Transform2D
@@ -1784,7 +2069,7 @@ public enum ScenePainter {
 
         init(
             finishState: PaintNodeFinishState, buffer: OffscreenPassBuffer,
-            children: [ViewNode], childOrigin: Point, subClip: RuntimeClipShape?,
+            children: [SelectedContentPaintChild], childOrigin: Point, subClip: RuntimeClipShape?,
             subInheritedTransform: Transform2D, routesRotatedClip: Bool,
             primitiveOpacity: Float, surfaceSize: Size, displayScale: Double,
             textSystem: WindowTextSystem, colorEffectPassDepth: Int,
@@ -1837,6 +2122,7 @@ public enum ScenePainter {
         // paint-record replay above uses — same key, clean subtree —
         // because the key covers everything about the group itself and
         // `subtreeDirtyFlags` covers everything about its descendants.
+        guard group.finishState.selection.isCurrent else { return nil }
         let node = group.finishState.node
         let subSize = group.buffer.size
         guard group.buffer.pass.isCacheable, !group.finishState.skipCacheUpdates, !node.hasDirtySubtree,
@@ -1858,6 +2144,7 @@ public enum ScenePainter {
         usedNativeGlyphs: inout Bool,
         usedPixelGlyphs: inout Bool
     ) -> CompositingGroupImage {
+        guard group.finishState.selection.isCurrent else { return .rejectedBackdrop }
         let claims =
             group.backdropIsolationScope == .paired
             ? claimDeferredDescendants(of: group.finishState.node, in: &deferredDraws) : []
@@ -1884,11 +2171,12 @@ public enum ScenePainter {
                     displayScale: group.displayScale))
         }
         for child in group.children {
-            if child.paintsInDeferredPhase {
+            guard child.selection.isCurrent else { return .rejectedBackdrop }
+            if child.selectedNode.paintsInDeferredPhase {
                 continue
             }
             paintNode(
-                child, into: &recording.scene, deferredDraws: &recording.deferred,
+                child.node, selection: child.selection, into: &recording.scene, deferredDraws: &recording.deferred,
                 parentOrigin: group.childOrigin, inheritedClip: group.subClip,
                 layerIndex: 0,
                 surfaceSize: group.backdropIsolationScope == .paired
@@ -1907,7 +2195,8 @@ public enum ScenePainter {
         }
         if group.backdropIsolationScope == .paired {
             appendDeferredDraws(
-                &recording.deferred, into: &recording.scene, previousScene: nil, previousSceneIdentity: nil,
+                &recording.deferred, selectionSource: group.finishState.selection.source,
+                into: &recording.scene, previousScene: nil, previousSceneIdentity: nil,
                 snapshotIdentity: PaintSnapshotIdentity(),
                 surfaceSize: Size(width: Double(group.buffer.size.width), height: Double(group.buffer.size.height)),
                 displayScale: group.displayScale, textSystem: group.textSystem,
@@ -1929,6 +2218,7 @@ public enum ScenePainter {
         usedNativeGlyphs: inout Bool,
         usedPixelGlyphs: inout Bool
     ) -> CompositingGroupImage {
+        guard group.finishState.selection.isCurrent else { return .rejectedBackdrop }
         recording.scene.finish()
         // Glyph usage inside the group is glyph usage for the frame: the
         // atlas-recovery retry and the outer snapshot both key off it.
@@ -2062,6 +2352,7 @@ public enum ScenePainter {
         group: CompositingGroupPaintContext,
         into scene: inout GPUIScene
     ) {
+        guard group.finishState.selection.isCurrent else { return }
         let textureID: Int32
         switch image {
         case .bitmap(let bitmap):
@@ -2121,6 +2412,7 @@ public enum ScenePainter {
         displayScale: Double,
         snapshotIdentity: PaintSnapshotIdentity
     ) {
+        guard state.selection.isCurrent else { return }
         let node = state.node
 
         // Border overlay for nodes with children: re-drawn after children so
@@ -2312,6 +2604,7 @@ public enum ScenePainter {
         usedPixelGlyphs: inout Bool,
         canvasSymbolState: CanvasSymbolPaintState
     ) {
+        guard context.selection.isCurrent else { return }
         let claims = claimDeferredDescendants(
             of: context.node, in: &deferredDraws, includingOwnIndicator: true)
         var source = GPUIScene(clearColor: .clear)
@@ -2325,7 +2618,7 @@ public enum ScenePainter {
             && canvasSymbolState.begin(depth: context.colorEffectPassDepth)
         if canRecord {
             paintNode(
-                context.node,
+                context.node, selection: context.selection,
                 into: &source,
                 deferredDraws: &subDeferred,
                 parentOrigin: context.parentOrigin,
@@ -2350,6 +2643,7 @@ public enum ScenePainter {
                 colorEffectPassDepth: context.colorEffectPassDepth + 1,
                 canvasSymbolState: canvasSymbolState)
 
+            guard context.selection.isCurrent else { return }
             // Deferred rows and scroll indicators are pixels of this subtree
             // too. Ancestors represented by this pass are excluded; effects
             // on intermediate descendants still apply inside the source.
@@ -2366,10 +2660,14 @@ public enum ScenePainter {
                 switch claim {
                 case .subtree(let payload):
                     guard let node = payload.node else { continue }
+                    guard let selected = context.selection.source.deferredSelection(for: node), selected.isCurrent
+                    else {
+                        return
+                    }
                     let inheritedClip = captureClip(payload.inheritedClip, within: context.inheritedClip)
                     guard context.inheritedClip == nil || inheritedClip != nil else { continue }
                     paintNode(
-                        node, into: &source, deferredDraws: &subDeferred,
+                        node, selection: selected, into: &source, deferredDraws: &subDeferred,
                         parentOrigin: payload.parentOrigin, inheritedClip: inheritedClip,
                         layerIndex: 0, surfaceSize: surfaceSize, displayScale: displayScale,
                         textSystem: textSystem, previousScene: nil,
@@ -2382,7 +2680,16 @@ public enum ScenePainter {
                         skipCacheUpdates: true,
                         colorEffectPassDepth: context.colorEffectPassDepth + 1,
                         canvasSymbolState: canvasSymbolState)
+                    guard selected.isCurrent, context.selection.source.finishDeferredBoundaries(for: node) else {
+                        return
+                    }
                 case .scrollIndicator(let payload, let originalMask):
+                    if let owner = payload.node {
+                        guard let selected = context.selection.source.deferredSelection(for: owner), selected.isCurrent
+                        else {
+                            return
+                        }
+                    }
                     let contentMask = captureClip(originalMask, within: context.inheritedClip)
                     guard context.inheritedClip == nil || contentMask != nil else { continue }
                     var command = payload.fillRectCommand(contentMask: contentMask?.rect)
@@ -2400,6 +2707,7 @@ public enum ScenePainter {
                 }
             }
         }
+        guard context.selection.isCurrent else { return }
         source.finish()
         // Bind the completed attempt's atlas later, after every sibling has
         // finished inserting glyphs. Retaining it here forces full Data COW
@@ -2440,6 +2748,7 @@ public enum ScenePainter {
     @MainActor
     private final class ContentBlurIsolation {
         let node: ViewNode
+        let selection: SelectedContentPaintReadSet
         let parentOrigin: Point
         let inheritedTransform: Transform2D
         let inheritedColorEffects: [RetainedColorEffect]
@@ -2461,7 +2770,8 @@ public enum ScenePainter {
         let previousSceneIdentity: PaintSnapshotIdentity?
 
         init(
-            node: ViewNode, parentOrigin: Point, inheritedTransform: Transform2D,
+            node: ViewNode, selection: SelectedContentPaintReadSet,
+            parentOrigin: Point, inheritedTransform: Transform2D,
             inheritedColorEffects: [RetainedColorEffect], inheritedBlendMode: BlendMode,
             paintFrame: Rect, effectiveClip: RuntimeClipShape?, cacheKey: ViewPaintCacheKey,
             primitiveOpacity: Float, layerIndex: Int, isInsideDrawingGroup: Bool,
@@ -2471,6 +2781,7 @@ public enum ScenePainter {
             previousScene: GPUIScene?, previousSceneIdentity: PaintSnapshotIdentity?
         ) {
             self.node = node
+            self.selection = selection
             self.parentOrigin = parentOrigin
             self.inheritedTransform = inheritedTransform
             self.inheritedColorEffects = inheritedColorEffects
@@ -2532,6 +2843,7 @@ public enum ScenePainter {
         usedPixelGlyphs: inout Bool,
         replayCount: inout Int
     ) -> Bool {
+        guard isolation.selection.isCurrent else { return false }
         let node = isolation.node
         // The radius the blur actually runs at, capped exactly where the
         // backdrop path caps it. The buffer is outset by the *capped* radius:
@@ -2550,8 +2862,9 @@ public enum ScenePainter {
         guard deviceRadius > 0 else { return false }
 
         if isolation.backdropIsolationScope != .independent,
-            subtreeReadsBackdrop(node, displayScale: displayScale)
-                || deferredSubtreeReadsBackdrop(of: node, in: deferredDraws, displayScale: displayScale)
+            subtreeReadsBackdrop(isolation.selection, displayScale: displayScale)
+                || deferredSubtreeReadsBackdrop(
+                    of: node, in: deferredDraws, selection: isolation.selection, displayScale: displayScale)
         {
             return appendBackdropContentBlur(
                 isolation, deviceRadius: deviceRadius, into: &scene, deferredDraws: &deferredDraws,
@@ -2560,6 +2873,7 @@ public enum ScenePainter {
                 replayCount: &replayCount)
         }
 
+        guard isolation.selection.isCurrent else { return false }
         guard
             let buffer = offscreenPassBuffer(
                 label: "contentBlur",
@@ -2634,6 +2948,7 @@ public enum ScenePainter {
         usedPixelGlyphs: inout Bool,
         replayCount: inout Int
     ) -> Bool {
+        guard isolation.selection.isCurrent else { return false }
         // Claims happen on source replay too. A cached command stream contains
         // these descendants even though their backdrop pixels are realized later.
         let claims = claimDeferredDescendants(of: isolation.node, in: &deferredDraws)
@@ -2680,6 +2995,7 @@ public enum ScenePainter {
         surfaceSize: Size,
         displayScale: Double
     ) {
+        guard isolation.selection.isCurrent else { return }
         let textureID: Int32
         let frame: Rect
         if let recording {
@@ -2709,28 +3025,45 @@ public enum ScenePainter {
     /// Independent color/Canvas captures do not make their enclosing window a
     /// backdrop. This scan only selects direct material dependencies; recording
     /// still owns their ordering, opacity, clipping and nested pass boundaries.
-    private static func subtreeReadsBackdrop(_ root: ViewNode, displayScale: Double) -> Bool {
-        var pending = [root]
-        while let node = pending.popLast() {
+    private static func subtreeReadsBackdrop(
+        _ selection: SelectedContentPaintReadSet, displayScale: Double
+    ) -> Bool {
+        var pending = [(selection, true)]
+        while let (current, isLogicalRoot) = pending.popLast() {
+            guard current.isCurrent else { return false }
+            let node = current.node
+            if node.selectedContentRole == .viewThatFits {
+                guard let child = current.operand?.nextPhysicalChild,
+                    let selected = current.child(child), selected.isCurrent
+                else { return false }
+                pending.append((selected, isLogicalRoot))
+                continue
+            }
             guard !node.isHidden, node.opacity > 0 else { continue }
-            if node !== root, node.paintsInDeferredPhase { continue }
-            if node !== root, !node.colorEffects.isEmpty { continue }
+            if !isLogicalRoot, node.paintsInDeferredPhase { continue }
+            if !isLogicalRoot, !node.colorEffects.isEmpty { continue }
             let radius = materialBlurRadius(for: node, displayScale: displayScale)
             if GPUISceneValue.int(radius) > 0 { return true }
-            pending.append(contentsOf: node.children)
+            for child in node.children {
+                guard let selected = current.child(child) else { return false }
+                pending.append((selected, false))
+            }
         }
         return false
     }
 
     private static func deferredSubtreeReadsBackdrop(
-        of root: ViewNode, in deferredDraws: [DeferredDrawState], displayScale: Double
+        of root: ViewNode, in deferredDraws: [DeferredDrawState], selection: SelectedContentPaintReadSet,
+        displayScale: Double
     ) -> Bool {
+        guard selection.isCurrent else { return false }
         for entry in deferredDraws where !entry.isDrawnInline {
             guard case .subtree(let payload) = entry.payload, let node = payload.node,
                 node !== root, isNode(node, insideSubtreeOf: root),
                 node.colorEffects.isEmpty, payload.inheritedColorEffects.isEmpty
             else { continue }
-            if subtreeReadsBackdrop(node, displayScale: displayScale) { return true }
+            guard let selected = selection.source.deferredSelection(for: node), selected.isCurrent else { return false }
+            if subtreeReadsBackdrop(selected, displayScale: displayScale) { return true }
         }
         return false
     }
@@ -2738,6 +3071,7 @@ public enum ScenePainter {
     private static func replayBackdropContentBlur(
         _ isolation: ContentBlurIsolation, deviceRadius: Int, into scene: inout GPUIScene
     ) -> Bool {
+        guard isolation.selection.isCurrent else { return false }
         let node = isolation.node
         guard !isolation.skipCacheUpdates, !node.hasDirtySubtree,
             node.cachedSceneKey == isolation.cacheKey,
@@ -2769,6 +3103,7 @@ public enum ScenePainter {
     private static func cachedContentBlurBitmap(
         _ isolation: ContentBlurIsolation, buffer: OffscreenPassBuffer
     ) -> BitmapSurface? {
+        guard isolation.selection.isCurrent else { return nil }
         let node = isolation.node
         let subSize = buffer.size
         guard buffer.pass.isCacheable, !node.hasDirtySubtree,
@@ -2791,6 +3126,7 @@ public enum ScenePainter {
         usedNativeGlyphs subNative: Bool,
         sourceAtlasGeneration: UInt64
     ) -> BitmapSurface {
+        guard isolation.selection.isCurrent else { return rasterized }
         let node = isolation.node
         let bitmap = PremultipliedImageBlur.blurred(rasterized, radius: deviceRadius)
         if subNative, NativeGlyphAtlas.shared.atlasGeneration != sourceAtlasGeneration {
@@ -2815,6 +3151,7 @@ public enum ScenePainter {
         surfaceSize: Size,
         displayScale: Double
     ) {
+        guard isolation.selection.isCurrent else { return }
         let textureID = scene.registerImageResource(bitmap)
         scene.addImage(
             contentBlurPrimitive(
@@ -2928,7 +3265,7 @@ public enum ScenePainter {
             isolation, buffer: buffer, deferredDescendants: deferredDescendants, displayScale: displayScale)
 
         paintNode(
-            isolation.node,
+            isolation.node, selection: isolation.selection,
             into: &recording.scene,
             deferredDraws: &recording.deferred,
             parentOrigin: isolation.parentOrigin,
@@ -2958,7 +3295,8 @@ public enum ScenePainter {
         )
 
         appendDeferredDraws(
-            &recording.deferred, into: &recording.scene, previousScene: nil, previousSceneIdentity: nil,
+            &recording.deferred, selectionSource: isolation.selection.source,
+            into: &recording.scene, previousScene: nil, previousSceneIdentity: nil,
             snapshotIdentity: PaintSnapshotIdentity(), surfaceSize: surfaceSize,
             displayScale: displayScale, textSystem: textSystem,
             usedNativeGlyphs: &usedNativeGlyphs, usedPixelGlyphs: &usedPixelGlyphs,
@@ -3761,6 +4099,9 @@ public enum ScenePainter {
     /// route calls `recordCanvasSymbol` directly inside its existing attempt,
     /// so a nested symbol can never reset or age the outer Canvas's atlas.
     internal static func canvasSymbolSnapshot(_ symbol: CanvasSymbolSource) -> CanvasSymbolSceneSnapshot? {
+        let symbolSources = SelectedContentSymbolSources()
+        let selectedContentSource = symbolSources.source(for: symbol)
+        guard selectedContentSource.rootSelection.isCurrent else { return nil }
         NativeGlyphAtlas.shared.beginFrame()
         defer { NativeGlyphAtlas.shared.setSuspended(false) }
         for attempt in 0..<glyphAtlasPaintAttempts {
@@ -3772,7 +4113,8 @@ public enum ScenePainter {
             var usedNative = false
             var usedPixel = false
             let snapshot = recordCanvasSymbol(
-                symbol, depth: 0, state: CanvasSymbolPaintState(),
+                symbol, selectionSource: selectedContentSource, depth: 0,
+                state: CanvasSymbolPaintState(selectedContentSources: symbolSources),
                 usedNativeGlyphs: &usedNative, usedPixelGlyphs: &usedPixel)
             if !finalAttempt, usedNative, NativeGlyphAtlas.shared.atlasGeneration != generation {
                 NativeGlyphAtlas.shared.noteReclaimedSpaceReused()
@@ -3782,7 +4124,7 @@ public enum ScenePainter {
                     continue
                 }
             }
-            guard let snapshot else { return nil }
+            guard selectedContentSource.rootSelection.isCurrent, let snapshot else { return nil }
             var source = snapshot.scene
             attachCachedGlyphAtlases(to: &source)
             return CanvasSymbolSceneSnapshot(
@@ -3809,11 +4151,13 @@ public enum ScenePainter {
     @inline(never)
     private static func recordCanvasSymbol(
         _ symbol: CanvasSymbolSource,
+        selectionSource: SelectedContentPaintSource,
         depth: Int,
         state: CanvasSymbolPaintState,
         usedNativeGlyphs: inout Bool,
         usedPixelGlyphs: inout Bool
     ) -> CanvasSymbolSceneSnapshot? {
+        guard selectionSource.rootSelection.isCurrent else { return nil }
         guard symbol.size.width > 0, symbol.size.height > 0 else { return nil }
         guard state.begin(depth: depth) else {
             return rejectedCanvasSymbolSnapshot(
@@ -3822,9 +4166,10 @@ public enum ScenePainter {
 
         // The scene and its mutable recording state outlive nested sources,
         // but their value storage must not occupy one stack frame per level.
-        let recording = CanvasSymbolRecordingState(symbol)
+        let recording = CanvasSymbolRecordingState(symbol, selectionSource: selectionSource)
         paintNode(
-            symbol.runtime.root, into: &recording.source, deferredDraws: &recording.deferred,
+            selectionSource.root, selection: selectionSource.rootSelection,
+            into: &recording.source, deferredDraws: &recording.deferred,
             parentOrigin: .zero, inheritedClip: recording.sourceClip, layerIndex: 0,
             surfaceSize: recording.surfaceSize, displayScale: recording.scale, textSystem: symbol.runtime.textSystem,
             previousScene: nil, snapshotIdentity: recording.identity,
@@ -3832,7 +4177,8 @@ public enum ScenePainter {
             backdropIsolationScope: .independent,
             skipCacheUpdates: true, colorEffectPassDepth: depth + 1, canvasSymbolState: state)
         appendDeferredDraws(
-            &recording.deferred, into: &recording.source, previousScene: nil, previousSceneIdentity: nil,
+            &recording.deferred, selectionSource: selectionSource,
+            into: &recording.source, previousScene: nil, previousSceneIdentity: nil,
             snapshotIdentity: recording.identity, surfaceSize: recording.surfaceSize, displayScale: recording.scale,
             textSystem: symbol.runtime.textSystem, usedNativeGlyphs: &recording.native,
             usedPixelGlyphs: &recording.pixel, replayCount: &recording.replay,
@@ -3844,7 +4190,8 @@ public enum ScenePainter {
         // symbol's glyph insertion copy the entire native atlas.
         usedNativeGlyphs = usedNativeGlyphs || recording.native
         usedPixelGlyphs = usedPixelGlyphs || recording.pixel
-        return finishCanvasSymbolRecording(&recording.source, symbol: symbol, state: state)
+        return finishCanvasSymbolRecording(
+            &recording.source, symbol: symbol, selectionSource: selectionSource, state: state)
     }
 
     @MainActor
@@ -3859,7 +4206,7 @@ public enum ScenePainter {
         var replay: Int
         let identity: PaintSnapshotIdentity
 
-        init(_ symbol: CanvasSymbolSource) {
+        init(_ symbol: CanvasSymbolSource, selectionSource: SelectedContentPaintSource) {
             let scale = symbol.displayScale
             self.scale = scale
             // A recording surface is only a coordinate domain, never a texture.
@@ -3873,7 +4220,7 @@ public enum ScenePainter {
                     width: extent / scale, height: extent / scale), space: .painted)
             surfaceSize = Size(width: extent / 2, height: extent / 2)
             source = GPUIScene(clearColor: .clear)
-            deferred = symbol.runtime.currentPrepaintState.deferredDraws
+            deferred = selectionSource.originalDeferredDraws
             native = false
             pixel = false
             replay = 0
@@ -3887,8 +4234,10 @@ public enum ScenePainter {
     private static func finishCanvasSymbolRecording(
         _ source: inout GPUIScene,
         symbol: CanvasSymbolSource,
+        selectionSource: SelectedContentPaintSource,
         state: CanvasSymbolPaintState
     ) -> CanvasSymbolSceneSnapshot? {
+        guard selectionSource.rootSelection.isCurrent else { return nil }
         source.finish()
         guard let bounds = source.paintedBounds, !bounds.isEmpty else { return nil }
         let left = floor(bounds.minX / 2) * 2
@@ -3933,6 +4282,7 @@ public enum ScenePainter {
 
     private static func appendCanvasOperations(
         _ operations: [CanvasGraphicsContext.Operation],
+        selection: SelectedContentPaintReadSet,
         into scene: inout GPUIScene,
         origin: Point,
         baseClip: RuntimeClipShape?,
@@ -3947,8 +4297,9 @@ public enum ScenePainter {
         colorEffectPassDepth: Int,
         canvasSymbolState: CanvasSymbolPaintState
     ) {
+        guard selection.isCurrent else { return }
         let context = CanvasOperationPaintContext(
-            origin: origin, baseClip: baseClip, placement: placement, opacity: opacity,
+            selection: selection, origin: origin, baseClip: baseClip, placement: placement, opacity: opacity,
             layerIndex: layerIndex, surfaceSize: surfaceSize, displayScale: displayScale,
             textSystem: textSystem, colorEffectPassDepth: colorEffectPassDepth,
             canvasSymbolState: canvasSymbolState)
@@ -3974,6 +4325,7 @@ public enum ScenePainter {
         // enters another retained source. Only this small coordinator and its
         // clip/source state stay live across that descent.
         for operation in operations {
+            guard selection.isCurrent else { return }
             if case .drawSymbol = operation {
                 appendCanvasSymbolOperation(
                     operation, into: &scene, context: context, currentClip: currentClip,
@@ -3993,6 +4345,7 @@ public enum ScenePainter {
     /// the coordinator still owns each Canvas's live clips and source cache.
     @MainActor
     private final class CanvasOperationPaintContext {
+        let selection: SelectedContentPaintReadSet
         let origin: Point
         let baseClip: RuntimeClipShape?
         let placement: PaintPlacement
@@ -4005,11 +4358,13 @@ public enum ScenePainter {
         let canvasSymbolState: CanvasSymbolPaintState
 
         init(
+            selection: SelectedContentPaintReadSet,
             origin: Point, baseClip: RuntimeClipShape?, placement: PaintPlacement,
             opacity: Float, layerIndex: Int, surfaceSize: Size, displayScale: Double,
             textSystem: WindowTextSystem, colorEffectPassDepth: Int,
             canvasSymbolState: CanvasSymbolPaintState
         ) {
+            self.selection = selection
             self.origin = origin
             self.baseClip = baseClip
             self.placement = placement
@@ -4353,11 +4708,13 @@ public enum ScenePainter {
                 symbolResources: symbolResources, emptySymbols: emptySymbols)
         else { return }
 
+        guard canvasSymbolPaintIsCurrent(painting) else { return }
         if painting.needsSource {
             // Store the returned value in heap-owned state instead of keeping
             // an optional scene and cache tuple in this recursive call frame.
             painting.snapshot = recordCanvasSymbol(
-                painting.symbol, depth: context.colorEffectPassDepth, state: context.canvasSymbolState,
+                painting.symbol, selectionSource: painting.selectionSource,
+                depth: context.colorEffectPassDepth, state: context.canvasSymbolState,
                 usedNativeGlyphs: &usedNativeGlyphs, usedPixelGlyphs: &usedPixelGlyphs)
             guard
                 registerCanvasSymbolOperationResource(
@@ -4375,6 +4732,7 @@ public enum ScenePainter {
         let context: CanvasOperationPaintContext
         let currentClip: Rect?
         let symbol: CanvasSymbolSource
+        let selectionSource: SelectedContentPaintSource
         let rect: Rect
         let transform: CGAffineTransform
         let effectiveOpacity: Float
@@ -4392,6 +4750,7 @@ public enum ScenePainter {
             self.context = context
             self.currentClip = currentClip
             self.symbol = symbol
+            selectionSource = context.canvasSymbolState.selectedContentSources.source(for: symbol)
             self.rect = rect
             self.transform = transform
             self.effectiveOpacity = effectiveOpacity
@@ -4419,6 +4778,7 @@ public enum ScenePainter {
         symbolResources: [ObjectIdentifier: (Int32, CanvasSymbolSceneSnapshot)],
         emptySymbols: Set<ObjectIdentifier>
     ) -> CanvasSymbolOperationPaintState? {
+        guard context.selection.isCurrent else { return nil }
         let origin = context.origin
         let opacity = context.opacity
         let layerIndex = context.layerIndex
@@ -4450,6 +4810,17 @@ public enum ScenePainter {
             effectiveOpacity: effectiveOpacity, key: key, cachedResource: symbolResources[key])
     }
 
+    private static func canvasSymbolPaintIsCurrent(_ painting: CanvasSymbolOperationPaintState) -> Bool {
+        guard painting.context.selection.isCurrent else { return false }
+        guard painting.selectionSource.rootSelection.isCurrent else {
+            // An invalidated nested source cannot become a cached empty part
+            // of an otherwise valid Canvas. Its callers must stay dirty too.
+            painting.context.selection.source.invalidate()
+            return false
+        }
+        return true
+    }
+
     /// Source registration still precedes affine crop validation and records
     /// one resource in this Canvas namespace for each nonempty source.
     @inline(never)
@@ -4458,7 +4829,8 @@ public enum ScenePainter {
         into scene: inout GPUIScene,
         symbolResources: inout [ObjectIdentifier: (Int32, CanvasSymbolSceneSnapshot)]
     ) -> Bool {
-        guard let snapshot = painting.snapshot else { return false }
+        guard canvasSymbolPaintIsCurrent(painting), let snapshot = painting.snapshot
+        else { return false }
         let resource = (
             scene.registerImageRenderPass(snapshot.scene, size: snapshot.pixelSize), snapshot
         )
@@ -4474,7 +4846,8 @@ public enum ScenePainter {
     ) {
         // Both cached sources and successful registration supply this value.
         // An empty recording returns before the emission helper is called.
-        guard let snapshot = painting.snapshot else { return }
+        guard canvasSymbolPaintIsCurrent(painting), let snapshot = painting.snapshot
+        else { return }
         let resource = (painting.textureID, snapshot)
         let context = painting.context
         let currentClip = painting.currentClip
@@ -4648,6 +5021,7 @@ public enum ScenePainter {
 
     private static func appendDeferredDraws(
         _ deferredDraws: inout [DeferredDrawState],
+        selectionSource: SelectedContentPaintSource,
         into scene: inout GPUIScene,
         previousScene: GPUIScene?,
         previousSceneIdentity: PaintSnapshotIdentity?,
@@ -4678,6 +5052,17 @@ public enum ScenePainter {
             // Drawing it again here would put a sharp copy on top of the
             // blurred one.
             guard !deferredDraws[deferredDrawIndex].isDrawnInline else { continue }
+            let owner: ViewNode?
+            switch deferredDraws[deferredDrawIndex].payload {
+            case .subtree(let payload): owner = payload.node
+            case .scrollIndicator(let payload): owner = payload.node
+            }
+            let selected = owner.flatMap { selectionSource.deferredSelection(for: $0) }
+            if !selectionSource.rootSelection.isCurrent || (owner != nil && selected?.isCurrent != true) {
+                deferredDraws[deferredDrawIndex].cachedScenePaintRange = nil
+                deferredDraws[deferredDrawIndex].cachedSceneSnapshotIdentity = nil
+                continue
+            }
             // …and the pass may have run on an *earlier* frame, with a clean
             // ancestor replaying its cached range this one: the bitmap is in
             // the scene, the blurred node was never visited, and nothing
@@ -4720,7 +5105,13 @@ public enum ScenePainter {
                     if case .subtree(let payload) = deferredDraws[deferredDrawIndex].payload {
                         payload.node?.shiftCachedSceneRangesRecursively(
                             by: startPaintRecord - cachedScenePaintRange.lowerBound,
-                            from: previousSceneIdentity, to: snapshotIdentity)
+                            from: previousSceneIdentity, to: snapshotIdentity,
+                            selectedContentPaintDomain: selectionSource.domain)
+                        if let node = payload.node, !selectionSource.finishDeferredBoundaries(for: node) {
+                            deferredDraws[deferredDrawIndex].cachedScenePaintRange = nil
+                            deferredDraws[deferredDrawIndex].cachedSceneSnapshotIdentity = nil
+                            continue
+                        }
                     }
                     deferredDraws[deferredDrawIndex].cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
                     deferredDraws[deferredDrawIndex].cachedSceneSnapshotIdentity = snapshotIdentity
@@ -4759,8 +5150,9 @@ public enum ScenePainter {
                 }
                 let inheritedClip = captureClip(payload.inheritedClip, within: sourceCaptureClip)
                 guard sourceCaptureClip == nil || inheritedClip != nil else { continue }
+                guard let selected else { continue }
                 paintNode(
-                    node,
+                    node, selection: selected,
                     into: &scene,
                     deferredDraws: &deferredDraws,
                     parentOrigin: payload.parentOrigin,
@@ -4786,6 +5178,18 @@ public enum ScenePainter {
                 )
             }
 
+            if case .subtree(let payload) = deferredDraws[deferredDrawIndex].payload,
+                let node = payload.node, !selectionSource.finishDeferredBoundaries(for: node)
+            {
+                deferredDraws[deferredDrawIndex].cachedScenePaintRange = nil
+                deferredDraws[deferredDrawIndex].cachedSceneSnapshotIdentity = nil
+                continue
+            }
+            guard selectionSource.rootSelection.isCurrent, selected?.isCurrent != false else {
+                deferredDraws[deferredDrawIndex].cachedScenePaintRange = nil
+                deferredDraws[deferredDrawIndex].cachedSceneSnapshotIdentity = nil
+                continue
+            }
             deferredDraws[deferredDrawIndex].cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
             deferredDraws[deferredDrawIndex].cachedSceneSnapshotIdentity = snapshotIdentity
         }

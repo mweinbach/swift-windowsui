@@ -601,6 +601,10 @@ public final class ComponentHost {
             }
             descriptorScope = scope
             let journal = RetainedLazyListAdoptionJournal(descriptorScope: scope, transaction: taskTransaction)
+            guard journal.seedOwnedCandidateOrigins(at: runtime.root) else {
+                scope.revoke()
+                return false
+            }
             journal.seedExistingContributions(from: runtime.root.children)
             lazyBuild?.journal = journal
         } else {
@@ -1226,6 +1230,7 @@ public final class ComponentHost {
             admission, source: source, target: target, lazyJournal: lazyJournal, taskAdoption: taskAdoption,
             buttonActions: buttonActions, uiaAuthority: uiaAuthority)
         guard check.isCurrent, admission?.permitsMutation(of: target) != false else { return false }
+        guard source.selectedContentRole == target.selectedContentRole else { return false }
         if lazyJournal != nil, source.containsRejectedRetainedSource { return false }
         if source === target, admission != nil || check.uiaAuthority != nil {
             lazyJournal?.recordUnchangedNode(target)
@@ -1268,6 +1273,9 @@ public final class ComponentHost {
         taskAdoption?.associate(source: source, target: target)
         guard check.isCurrent, plan?.isCurrent != false, plan?.stillOwnsOldChildren != false else { return false }
         guard check.markMutationStarted(), check.prepareTaskTransport(from: source, to: target) else { return false }
+        guard lazyJournal?.applyOriginalOwnedCandidateDeferredCatalogForDirectAdoption(at: target) != false else {
+            return false
+        }
         target.invalidateRenderLifecycleCandidates()
         guard
             revokeDepartingTextInputOwnership(
@@ -1905,6 +1913,7 @@ public final class ComponentHost {
             guard admission.claimDepartingEmptyRows(journal: lazyJournal), check.isCurrent else { return false }
         }
         guard check.markMutationStarted() else { return false }
+        guard lazyJournal?.applyOwnedCandidateDeferredCatalog(at: parent) != false else { return false }
         parent.invalidateRenderLifecycleCandidates()
         // Mark every departure before any branch starts its callbacks. A
         // callback in an earlier branch can otherwise replay a later editor
@@ -2029,27 +2038,31 @@ public final class ComponentHost {
         var matches = [ViewNode?](repeating: nil, count: newNodes.count)
         var isClaimed = [Bool](repeating: false, count: oldChildren.count)
 
-        var oldIndicesByIdentity: [RetainedViewIdentity: [Int]] = [:]
-        var oldIndicesByTag: [String: [Int]] = [:]
+        let incomingRoles = Set(newNodes.map(\.selectedContentRole))
+        let previousRoles = Set(oldChildren.map(\.selectedContentRole))
+        var oldIndicesByIdentity: [RetainedSelectedContentRole?: [RetainedViewIdentity: [Int]]] = [:]
+        var oldIndicesByTag: [RetainedSelectedContentRole?: [String: [Int]]] = [:]
         for (index, oldNode) in oldChildren.enumerated() {
             guard check.isCurrent else { return nil }
+            guard incomingRoles.contains(oldNode.selectedContentRole) else { continue }
             if let identity = oldNode.retainedViewIdentity {
-                oldIndicesByIdentity[identity, default: []].append(index)
+                oldIndicesByIdentity[oldNode.selectedContentRole, default: [:]][identity, default: []].append(index)
                 guard check.isCurrent else { return nil }
             } else if let tag = oldNode.nodeTag {
-                oldIndicesByTag[tag, default: []].append(index)
+                oldIndicesByTag[oldNode.selectedContentRole, default: [:]][tag, default: []].append(index)
             }
         }
 
         if !oldIndicesByIdentity.isEmpty {
             for (newIndex, newNode) in newNodes.enumerated() {
                 guard check.isCurrent else { return nil }
+                guard previousRoles.contains(newNode.selectedContentRole) else { continue }
                 guard let identity = newNode.retainedViewIdentity else { continue }
-                let found = oldIndicesByIdentity[identity]
+                let found = oldIndicesByIdentity[newNode.selectedContentRole]?[identity]
                 guard check.isCurrent else { return nil }
                 guard var candidates = found, !candidates.isEmpty else { continue }
                 let oldIndex = candidates.removeFirst()
-                oldIndicesByIdentity[identity] = candidates
+                oldIndicesByIdentity[newNode.selectedContentRole]?[identity] = candidates
                 guard check.isCurrent else { return nil }
                 matches[newIndex] = oldChildren[oldIndex]
                 isClaimed[oldIndex] = true
@@ -2060,10 +2073,10 @@ public final class ComponentHost {
             for (newIndex, newNode) in newNodes.enumerated() {
                 guard check.isCurrent else { return nil }
                 guard newNode.retainedViewIdentity == nil, let tag = newNode.nodeTag,
-                    var candidates = oldIndicesByTag[tag], !candidates.isEmpty
+                    var candidates = oldIndicesByTag[newNode.selectedContentRole]?[tag], !candidates.isEmpty
                 else { continue }
                 let oldIndex = candidates.removeFirst()
-                oldIndicesByTag[tag] = candidates
+                oldIndicesByTag[newNode.selectedContentRole]?[tag] = candidates
                 matches[newIndex] = oldChildren[oldIndex]
                 isClaimed[oldIndex] = true
             }
@@ -2108,24 +2121,31 @@ public final class ComponentHost {
 
         var matches = [ViewNode?](repeating: nil, count: newNodes.count)
         var isClaimed = [Bool](repeating: false, count: oldChildren.count)
-        var oldIndicesByIdentityHash: [Int: [Int]] = [:]
-        var oldIndicesByTag: [String: [Int]] = [:]
+        let incomingRoles = Set(newNodes.map(\.selectedContentRole))
+        let previousRoles = Set(oldChildren.map(\.selectedContentRole))
+        var oldIndicesByIdentityHash: [RetainedSelectedContentRole?: [Int: [Int]]] = [:]
+        var oldIndicesByTag: [RetainedSelectedContentRole?: [String: [Int]]] = [:]
         for (index, oldNode) in oldChildren.enumerated() {
             guard check.isCurrent else { return nil }
+            guard incomingRoles.contains(oldNode.selectedContentRole) else { continue }
             if let identity = oldNode.retainedViewIdentity {
                 guard let hash = checkedIdentityHash(identity, check: check), check.isCurrent else { return nil }
-                oldIndicesByIdentityHash[hash, default: []].append(index)
+                oldIndicesByIdentityHash[oldNode.selectedContentRole, default: [:]][hash, default: []].append(index)
             } else if let tag = oldNode.nodeTag {
-                oldIndicesByTag[tag, default: []].append(index)
+                oldIndicesByTag[oldNode.selectedContentRole, default: [:]][tag, default: []].append(index)
             }
         }
 
         if !oldIndicesByIdentityHash.isEmpty {
             for (newIndex, newNode) in newNodes.enumerated() {
                 guard check.isCurrent else { return nil }
+                guard previousRoles.contains(newNode.selectedContentRole) else { continue }
                 guard let identity = newNode.retainedViewIdentity else { continue }
                 guard let hash = checkedIdentityHash(identity, check: check), check.isCurrent else { return nil }
-                guard var candidates = oldIndicesByIdentityHash[hash], !candidates.isEmpty else { continue }
+                guard var candidates = oldIndicesByIdentityHash[newNode.selectedContentRole]?[hash], !candidates.isEmpty
+                else {
+                    continue
+                }
                 var matchedPosition: Int?
                 for position in candidates.indices {
                     guard check.isCurrent, let previous = oldChildren[candidates[position]].retainedViewIdentity,
@@ -2139,7 +2159,7 @@ public final class ComponentHost {
                 guard check.isCurrent else { return nil }
                 guard let matchedPosition else { continue }
                 let oldIndex = candidates.remove(at: matchedPosition)
-                oldIndicesByIdentityHash[hash] = candidates
+                oldIndicesByIdentityHash[newNode.selectedContentRole]?[hash] = candidates
                 matches[newIndex] = oldChildren[oldIndex]
                 isClaimed[oldIndex] = true
             }
@@ -2149,10 +2169,10 @@ public final class ComponentHost {
             for (newIndex, newNode) in newNodes.enumerated() {
                 guard check.isCurrent else { return nil }
                 guard newNode.retainedViewIdentity == nil, let tag = newNode.nodeTag,
-                    var candidates = oldIndicesByTag[tag], !candidates.isEmpty
+                    var candidates = oldIndicesByTag[newNode.selectedContentRole]?[tag], !candidates.isEmpty
                 else { continue }
                 let oldIndex = candidates.removeFirst()
-                oldIndicesByTag[tag] = candidates
+                oldIndicesByTag[newNode.selectedContentRole]?[tag] = candidates
                 matches[newIndex] = oldChildren[oldIndex]
                 isClaimed[oldIndex] = true
             }
@@ -2192,6 +2212,7 @@ public final class ComponentHost {
         _ previous: ViewNode, _ incoming: ViewNode, check: MatchingChildrenAdmission
     ) -> Bool? {
         guard check.isCurrent else { return nil }
+        guard previous.selectedContentRole == incoming.selectedContentRole else { return false }
         let previousIdentity = previous.retainedViewIdentity
         let incomingIdentity = incoming.retainedViewIdentity
         if previousIdentity != nil || incomingIdentity != nil {
@@ -2214,6 +2235,9 @@ public final class ComponentHost {
         guard check.isCurrent, plan?.isCurrent != false else { return false }
         guard target.canAdoptStagedLazyListAdapter(from: source) else { return false }
         if source === target, admission != nil || check.uiaAuthority != nil { return true }
+        guard lazyJournal?.applyOwnedCandidateCatalog(from: source, to: target) != false, check.isCurrent else {
+            return false
+        }
         target.listNavigationOwner?.prepareForAdoption(of: source.listNavigationOwner)
         guard check.isCurrent else { return false }
         target.revokeFileDialogPresentation(ifAbsentFrom: source)
@@ -2417,6 +2441,7 @@ public final class ComponentHost {
     /// Typed identities must agree on both nodes. Otherwise the legacy path
     /// compares tags when both have one, then falls back to layout category.
     private static func nodesMatch(_ a: ViewNode, _ b: ViewNode) -> Bool {
+        guard a.selectedContentRole == b.selectedContentRole else { return false }
         if a.retainedViewIdentity != nil || b.retainedViewIdentity != nil {
             return a.retainedViewIdentity == b.retainedViewIdentity
         }

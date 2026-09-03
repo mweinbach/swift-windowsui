@@ -9457,6 +9457,7 @@ public struct ViewBuildContext {
         identity.installedEpoch = nil
         identity.lazyList = nil
         identity.descriptorComponent = nil
+        identity.candidateConstruction = nil
         return ViewBuildContext(
             viewIdentity: identity,
             nativeDialogSession: nativeDialogSession,
@@ -18394,6 +18395,20 @@ public struct SectionStyle: Sendable {
         return style
     }()
 }
+/// Keep the original declaration admission through selected-content mutation.
+/// A later invocation must never refresh this receipt after authored reentry.
+@MainActor
+func retainedSelectedContentModifierAdmission(context: ViewBuildContext) -> (@MainActor () -> Bool) {
+    let candidateConstruction = context.viewIdentity.candidateConstruction
+    if let attribution = context.viewIdentity.lazyList {
+        let admission = attribution.admission
+        return { admission.isCurrent && (candidateConstruction?.canConstruct != false) }
+    }
+    if let attribution = context.viewIdentity.descriptorComponent {
+        return { attribution.canConstruct && (candidateConstruction?.canConstruct != false) }
+    }
+    return { candidateConstruction?.canConstruct != false }
+}
 @MainActor
 struct ModifiedView<Content: View>: View, TaggedViewMetadata {
     typealias Body = Never
@@ -18641,7 +18656,8 @@ private func makeCompositionComponent(
     guard
         let views = viewIdentityOccurrences(
             expandedViews, lazyAttribution: context.viewIdentity.lazyList,
-            descriptorAttribution: context.viewIdentity.descriptorComponent, coordinator: context.stateMountCoordinator),
+            descriptorAttribution: context.viewIdentity.descriptorComponent, coordinator: context.stateMountCoordinator,
+            candidateConstruction: context.viewIdentity.candidateConstruction),
         context.viewIdentity.lazyList?.admission.isCurrent != false,
         context.viewIdentity.descriptorComponent?.canConstruct != false
     else { return rejectedRetainedViewComponent() }

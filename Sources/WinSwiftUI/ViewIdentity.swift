@@ -12,6 +12,7 @@ struct ViewIdentityContext {
     weak var installedEpoch: StateMountEpoch?
     var lazyList: LazyListViewAttribution?
     var descriptorComponent: RetainedDescriptorComponentAttribution?
+    var candidateConstruction: RetainedOwnedCandidateConstruction?
 }
 
 extension ViewBuildContext {
@@ -140,7 +141,8 @@ extension Array: StateMountDeclarationView where Element == AnyView {
             let occurrences = viewIdentityOccurrences(
                 self, lazyAttribution: context.viewIdentity.lazyList,
                 descriptorAttribution: context.viewIdentity.descriptorComponent,
-                coordinator: context.stateMountCoordinator)
+                coordinator: context.stateMountCoordinator,
+                candidateConstruction: context.viewIdentity.candidateConstruction)
         else { return [] }
         return [StateMountDeclarationScope(prefix: context.retainedViewIdentity, excluding: .arrayOccurrences)]
             + occurrences.flatMap { $0.declaredStateMountScopes(context: context) }
@@ -173,6 +175,9 @@ func withInstalledViewValue<Value>(
     build: (Value, ViewBuildContext) -> Component
 ) -> Component {
     var scopedContext = context.withViewIdentityType(Value.self)
+    guard scopedContext.viewIdentity.candidateConstruction?.canConstruct != false else {
+        return unavailableLazyViewComponent()
+    }
     if let attribution = context.viewIdentity.lazyList {
         guard context.viewIdentity.descriptorComponent == nil, attribution.isCurrent else {
             return unavailableLazyViewComponent()
@@ -186,6 +191,7 @@ func withInstalledViewValue<Value>(
             scopedContext.viewIdentity.lazyList = child
         }
         scopedContext.viewIdentity.descriptorComponent = nil
+        scopedContext.viewIdentity.candidateConstruction = nil
     } else if !(Value.self is any TransparentStateMountView.Type), let coordinator = context.stateMountCoordinator {
         guard
             let described = coordinator.contextForDescriptorComponent(
@@ -212,11 +218,17 @@ func withInstalledViewValue<Value>(
     if let attribution = scopedContext.viewIdentity.descriptorComponent, !attribution.canConstruct {
         return unavailableLazyViewComponent()
     }
+    guard scopedContext.viewIdentity.candidateConstruction?.canConstruct != false else {
+        return unavailableLazyViewComponent()
+    }
     let component = ViewBuildContextScope.withCurrent(scopedContext) { build(installed, scopedContext) }
     if let attribution = scopedContext.viewIdentity.lazyList, !attribution.isCurrent {
         return unavailableLazyViewComponent()
     }
     if let attribution = scopedContext.viewIdentity.descriptorComponent, !attribution.canConstruct {
+        return unavailableLazyViewComponent()
+    }
+    guard scopedContext.viewIdentity.candidateConstruction?.canConstruct != false else {
         return unavailableLazyViewComponent()
     }
     return preservingViewIdentity(of: component, context: scopedContext)
@@ -235,7 +247,9 @@ func preservingViewIdentity(of component: Component, context: ViewBuildContext) 
         return preservingAttributedViewIdentity(of: component, context: context, activity: .lazy(attribution))
     }
     if let attribution = context.viewIdentity.descriptorComponent {
-        return preservingAttributedViewIdentity(of: component, context: context, activity: .descriptor(attribution))
+        return preservingAttributedViewIdentity(
+            of: component, context: context,
+            activity: .descriptor(attribution, candidateConstruction: context.viewIdentity.candidateConstruction))
     }
     let makeNode: @MainActor (RetainedViewRuntime) -> ViewNode = { runtime in
         let node = ViewBuildContextScope.withCurrent(context) { component.makeNode(runtime: runtime) }
@@ -279,7 +293,7 @@ private func preservingAttributedViewIdentity(
         let node = ViewBuildContextScope.withCurrent(context) { component.makeNode(runtime: runtime) }
         guard activity.isCurrent else { return activity.rejectedNode() }
         if node.retainedViewIdentity == nil { node.retainedViewIdentity = context.retainedViewIdentity }
-        guard activity.recordSourceOutput(node, group: group), activity.isCurrent,
+        guard activity.isCurrent, activity.recordSourceOutput(node, group: group), activity.isCurrent,
             activity.closeGroup(group), activity.isCurrent
         else { return activity.rejectedNode() }
         return node
@@ -312,12 +326,12 @@ private func preservingAttributedViewIdentity(
                 }
             }
             for node in produced {
-                guard activity.recordSourceOutput(node, group: group), activity.isCurrent else {
+                guard activity.isCurrent, activity.recordSourceOutput(node, group: group), activity.isCurrent else {
                     nodes.append(activity.rejectedNode())
                     return
                 }
             }
-            guard activity.closeGroup(group), activity.isCurrent else {
+            guard activity.isCurrent, activity.closeGroup(group), activity.isCurrent else {
                 nodes.append(activity.rejectedNode())
                 return
             }
@@ -329,12 +343,14 @@ private func preservingAttributedViewIdentity(
 @MainActor
 private enum ViewIdentitySourceActivity {
     case lazy(LazyListViewAttribution)
-    case descriptor(RetainedDescriptorComponentAttribution)
+    case descriptor(
+        RetainedDescriptorComponentAttribution, candidateConstruction: RetainedOwnedCandidateConstruction?)
 
     var isCurrent: Bool {
         switch self {
         case .lazy(let attribution): return attribution.isCurrent
-        case .descriptor(let attribution): return attribution.canConstruct
+        case .descriptor(let attribution, let construction):
+            return attribution.canConstruct && construction?.canConstruct != false
         }
     }
 
@@ -348,7 +364,7 @@ private enum ViewIdentitySourceActivity {
         case .lazy(let attribution):
             attribution.admission.reject()
             attribution.native.rejectComponent()
-        case .descriptor(let attribution): attribution.rejectComponent()
+        case .descriptor(let attribution, _): attribution.rejectComponent()
         }
     }
 
@@ -356,7 +372,7 @@ private enum ViewIdentitySourceActivity {
         switch self {
         case .lazy(let attribution):
             return attribution.native.registerGroup(kind: .structure).map(ViewIdentitySourceGroup.lazy)
-        case .descriptor(let attribution):
+        case .descriptor(let attribution, _):
             return attribution.registerGroup(kind: .structure).map(ViewIdentitySourceGroup.descriptor)
         }
     }
@@ -365,7 +381,7 @@ private enum ViewIdentitySourceActivity {
         switch (self, group) {
         case (.lazy(let attribution), .lazy(let group)):
             return attribution.native.recordSourceOutput(node, group: group) != nil
-        case (.descriptor(let attribution), .descriptor(let group)):
+        case (.descriptor(let attribution, _), .descriptor(let group)):
             return attribution.recordSourceOutput(node, group: group)
         default: return false
         }
@@ -374,7 +390,7 @@ private enum ViewIdentitySourceActivity {
     func closeGroup(_ group: ViewIdentitySourceGroup) -> Bool {
         switch (self, group) {
         case (.lazy(let attribution), .lazy(let group)): return attribution.native.closeGroup(group) != nil
-        case (.descriptor(let attribution), .descriptor(let group)): return attribution.closeGroup(group) != nil
+        case (.descriptor(let attribution, _), .descriptor(let group)): return attribution.closeGroup(group) != nil
         default: return false
         }
     }
@@ -432,11 +448,13 @@ func viewIdentityOccurrences(_ views: [AnyView]) -> [AnyView] {
     // rather than entering an unguarded dictionary from inside a guarded walk.
     if let context = ViewBuildContextScope.current,
         context.viewIdentity.lazyList != nil || context.viewIdentity.descriptorComponent != nil
+            || context.viewIdentity.candidateConstruction != nil
     {
         return viewIdentityOccurrences(
             views, lazyAttribution: context.viewIdentity.lazyList,
             descriptorAttribution: context.viewIdentity.descriptorComponent,
-            coordinator: context.stateMountCoordinator) ?? []
+            coordinator: context.stateMountCoordinator,
+            candidateConstruction: context.viewIdentity.candidateConstruction) ?? []
     }
     return ordinaryViewIdentityOccurrences(views)
 }
@@ -459,12 +477,13 @@ private func ordinaryViewIdentityOccurrences(_ views: [AnyView]) -> [AnyView] {
 @MainActor
 func viewIdentityOccurrences(
     _ views: [AnyView], lazyAttribution: LazyListViewAttribution?,
-    descriptorAttribution: RetainedDescriptorComponentAttribution? = nil, coordinator: StateMountCoordinator? = nil
+    descriptorAttribution: RetainedDescriptorComponentAttribution? = nil, coordinator: StateMountCoordinator? = nil,
+    candidateConstruction: RetainedOwnedCandidateConstruction? = nil
 ) -> [AnyView]? {
     let activity: ViewIdentitySourceActivity
     let lookup: LazyListLookupReceipt
     if let attribution = lazyAttribution {
-        guard descriptorAttribution == nil else {
+        guard descriptorAttribution == nil, candidateConstruction == nil else {
             attribution.admission.reject()
             descriptorAttribution?.rejectConstruction()
             return nil
@@ -476,16 +495,17 @@ func viewIdentityOccurrences(
         }
         lookup = original
     } else if let attribution = descriptorAttribution {
-        activity = .descriptor(attribution)
-        guard attribution.canConstruct, let original = coordinator?.descriptorLookupReceipt(for: attribution) else {
+        activity = .descriptor(attribution, candidateConstruction: candidateConstruction)
+        guard activity.isCurrent, let original = coordinator?.descriptorLookupReceipt(for: attribution) else {
             activity.reject()
             return nil
         }
         lookup = original
     } else {
+        guard candidateConstruction == nil else { return nil }
         return ordinaryViewIdentityOccurrences(views)
     }
-    let result = makeAttributedViewIdentityOccurrences(views, lookup: lookup)
+    let result = makeAttributedViewIdentityOccurrences(views, lookup: lookup, activity: activity)
     guard let result, lookup.isCurrent, activity.isCurrent else {
         activity.reject()
         return nil
@@ -496,20 +516,20 @@ func viewIdentityOccurrences(
 @MainActor
 @inline(never)
 private func makeAttributedViewIdentityOccurrences(
-    _ views: [AnyView], lookup: LazyListLookupReceipt
+    _ views: [AnyView], lookup: LazyListLookupReceipt, activity: ViewIdentitySourceActivity
 ) -> [AnyView]? {
     var occurrences: ManagedKeyedMap<RetainedViewIdentity, Int> = [:]
     var result: [AnyView] = []
     result.reserveCapacity(views.count)
     defer { withExtendedLifetime((views, occurrences)) {} }
     for (index, source) in views.enumerated() {
-        guard lookup.isCurrent else { return nil }
+        guard lookup.isCurrent, activity.isCurrent else { return nil }
         let view = source.ensuringViewIdentitySlot(index)
         let identity = RetainedViewIdentity(segments: view.structuralIdentity)
-        let occurrence = occurrences[identity, while: { lookup.isCurrent }] ?? 0
-        guard lookup.isCurrent else { return nil }
-        occurrences[identity, while: { lookup.isCurrent }] = occurrence + 1
-        guard lookup.isCurrent else { return nil }
+        let occurrence = occurrences[identity, while: { lookup.isCurrent && activity.isCurrent }] ?? 0
+        guard lookup.isCurrent, activity.isCurrent else { return nil }
+        occurrences[identity, while: { lookup.isCurrent && activity.isCurrent }] = occurrence + 1
+        guard lookup.isCurrent, activity.isCurrent else { return nil }
         result.append(view.prefixedViewIdentity([.occurrence(occurrence)]))
     }
     return result

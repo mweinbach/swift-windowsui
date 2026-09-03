@@ -166,6 +166,7 @@ package final class RetainedLazyListDescriptorBuildScope {
     private let containing: RetainedLazyListDescriptorContainingAdmission
     fileprivate let ordinaryLedger: RetainedDescriptorConstructionLedger
     fileprivate let ownedLedger: RetainedOwnedComponentConstructionLedger
+    fileprivate var ownedCandidateQualification: RetainedOwnedCandidateScopeQualification?
 
     init(
         origin: RetainedLazyListDescriptorBuildOrigin,
@@ -294,9 +295,14 @@ package final class RetainedLazyListDescriptorBuildScope {
             originalActivity.isActive, originalAttachment.isAttached,
             originalActivity.nativeHostLifetime === hostLifetime
         else { return nil }
-        return RetainedLazyListDescriptorBuildScope(
+        let admitted = RetainedLazyListDescriptorBuildScope(
             enclosing: self, containing: .ordinaryDeferred(originalActivity, originalAttachment),
             originalOwner: originalActivity.nativeOwnerLifetime)
+        guard
+            ownedLedger.qualifyOwnedCandidateSubtree(
+                scope: admitted, contribution: originalActivity, actual: originalAttachment)
+        else { return nil }
+        return admitted
     }
 
     var logicalHostLifetimeForScopeConstruction: RetainedLazyListLogicalHostLifetime? {
@@ -979,6 +985,20 @@ struct RetainedLazyListAcceptedTaskMember {
     let sourcePayload: RetainedLazyListSourcePayloadID
     let requiredFacets: [RetainedLazyListSourceFacetID]
     let actual: RetainedLazyListActualAttachment
+    let physicalActual: RetainedLazyListActualAttachment?
+    let selectedContentPath: RetainedSelectedContentPath?
+
+    init(
+        sourcePayload: RetainedLazyListSourcePayloadID, requiredFacets: [RetainedLazyListSourceFacetID],
+        actual: RetainedLazyListActualAttachment, physicalActual: RetainedLazyListActualAttachment? = nil,
+        selectedContentPath: RetainedSelectedContentPath? = nil
+    ) {
+        self.sourcePayload = sourcePayload
+        self.requiredFacets = requiredFacets
+        self.actual = actual
+        self.physicalActual = physicalActual
+        self.selectedContentPath = selectedContentPath
+    }
 }
 
 @MainActor
@@ -994,6 +1014,335 @@ struct RetainedLazyListAcceptedTaskGroup {
 struct RetainedLazyListAcceptedTaskSource {
     let member: RetainedLazyListAcceptedTaskMember
     let source: ViewNode
+    let activitySource: ViewNode
+
+    init(member: RetainedLazyListAcceptedTaskMember, source: ViewNode, activitySource: ViewNode? = nil) {
+        self.member = member
+        self.source = source
+        self.activitySource = activitySource ?? source
+    }
+}
+
+@MainActor
+fileprivate struct RetainedTaskRouteNativeFact {
+    let id: RetainedLazyListSourceFacetID
+    let field: RetainedLazyListNativeFacet
+    let actual: RetainedLazyListActualAttachment
+}
+
+@MainActor
+fileprivate final class RetainedTaskRouteSourceSlot {
+    weak var source: ViewNode?
+    let attachmentFacet: RetainedLazyListSourceFacetID?
+    var mapping: RetainedSelectedContentTaskMapping?
+
+    init(source: ViewNode, attachmentFacet: RetainedLazyListSourceFacetID?) {
+        self.source = source
+        self.attachmentFacet = attachmentFacet
+    }
+}
+
+/// The physical output remains the source of its contribution. These separate
+/// links name only its originally selected Task fields and native mappings.
+@MainActor
+fileprivate final class RetainedTaskSelectedContentRoute {
+    let original: RetainedSelectedContentTaskSource
+    private let qualification: RetainedOwnedCandidateTaskQualification
+    private let physicalFacet: RetainedLazyListSourceFacetID
+    private let slots: [RetainedTaskRouteSourceSlot]
+    private var wasRefused = false
+    private(set) var acceptedPath: RetainedSelectedContentPath?
+
+    init?(
+        physicalSource: ViewNode, path: RetainedSelectedContentPath,
+        physicalFacet: RetainedLazyListSourceFacetID, middleFacets: [RetainedLazyListSourceFacetID],
+        qualification: RetainedOwnedCandidateTaskQualification
+    ) {
+        guard path.physicalRoot === physicalSource, let selected = path.selectedNode,
+            let boundaries = path.boundaryNodes,
+            middleFacets.count == max(0, boundaries.count - 1),
+            boundaries.first === physicalSource || (boundaries.isEmpty && selected === physicalSource),
+            let selection = path.captureConstructionSelection(),
+            let original = selection.captureTaskSource(canPublish: {
+                qualification.canObserveOriginalConstruction || qualification.canPublish
+            })
+        else { return nil }
+        self.original = original
+        self.qualification = qualification
+        self.physicalFacet = physicalFacet
+        var slots: [RetainedTaskRouteSourceSlot] = []
+        for (index, boundary) in boundaries.enumerated() {
+            slots.append(
+                RetainedTaskRouteSourceSlot(
+                    source: boundary, attachmentFacet: index == 0 ? physicalFacet : middleFacets[index - 1]))
+        }
+        slots.append(
+            RetainedTaskRouteSourceSlot(
+                source: selected, attachmentFacet: boundaries.isEmpty ? physicalFacet : nil))
+        self.slots = slots
+    }
+
+    var physicalSource: ViewNode? { slots.first?.source }
+    var activitySource: ViewNode? { slots.last?.source }
+
+    var sourcePins: [ViewNode]? {
+        let result = slots.compactMap(\.source)
+        return result.count == slots.count ? result : nil
+    }
+
+    func contains(_ source: ViewNode) -> Bool { slots.contains { $0.source === source } }
+
+    @discardableResult
+    func prepareMapping(
+        from source: ViewNode, to target: ViewNode,
+        targetID: RetainedLazyListTargetID, attachmentID: RetainedLazyListAttachmentID
+    ) -> Bool {
+        guard !wasRefused, acceptedPath == nil, let slot = slots.first(where: { $0.source === source }),
+            let mapping = original.prepareMapping(
+                from: source, to: target, targetID: targetID, attachmentID: attachmentID)
+        else {
+            wasRefused = true
+            return false
+        }
+        if let previous = slot.mapping, previous !== mapping {
+            wasRefused = true
+            return false
+        }
+        slot.mapping = mapping
+        return true
+    }
+
+    private func slot(
+        for id: RetainedLazyListSourceFacetID, field: RetainedLazyListNativeFacet
+    ) -> RetainedTaskRouteSourceSlot? {
+        switch field {
+        case .childAttachment:
+            return slots.first { $0.attachmentFacet === id }
+        case .nodeProperty(let keyPath):
+            guard keyPath == \ViewNode.onAppearWithNode || keyPath == \ViewNode.onDisappearWithNode else { return nil }
+            return slots.last
+        case .scopedTaskDeclaration:
+            return slots.last
+        case .nodeCompletion, .listDescriptor:
+            return nil
+        }
+    }
+
+    func owns(_ id: RetainedLazyListSourceFacetID, field: RetainedLazyListNativeFacet, on source: ViewNode) -> Bool {
+        slot(for: id, field: field)?.source === source
+    }
+
+    func permitsNativeFacet(
+        _ id: RetainedLazyListSourceFacetID, field: RetainedLazyListNativeFacet,
+        on actual: RetainedLazyListActualAttachment
+    ) -> Bool {
+        guard !wasRefused, acceptedPath == nil, qualification.canPublish, let slot = slot(for: id, field: field),
+            slot.source != nil, let mapping = slot.mapping
+        else { return false }
+        return mapping.permitsNativeFacet(on: actual)
+    }
+
+    private func matchesOriginalMapping(
+        _ id: RetainedLazyListSourceFacetID, field: RetainedLazyListNativeFacet,
+        actual: RetainedLazyListActualAttachment
+    ) -> Bool {
+        guard let slot = slot(for: id, field: field), let source = slot.source, let mapping = slot.mapping else {
+            return false
+        }
+        return mapping.source === source && mapping.target === actual.node
+            && mapping.targetID === actual.target && mapping.attachmentID === actual.attachment && actual.isAttached
+    }
+
+    func prepareAcceptance(facts: [RetainedTaskRouteNativeFact]) -> RetainedSelectedContentTaskNativeAcceptance? {
+        guard !wasRefused, acceptedPath == nil, qualification.canPublish, original.canPublish,
+            sourcePins != nil, let physical = facts.first(where: { $0.id === physicalFacet })?.actual,
+            let selected = facts.first(where: { slot(for: $0.id, field: $0.field) === slots.last })?.actual,
+            facts.allSatisfy({ permitsNativeFacet($0.id, field: $0.field, on: $0.actual) })
+        else { return nil }
+        let mappings = slots.compactMap(\.mapping)
+        guard mappings.count == slots.count else { return nil }
+        var boundaries: [RetainedLazyListActualAttachment] = []
+        for slot in slots.dropLast() {
+            guard let source = slot.source, let facet = slot.attachmentFacet,
+                let actual = facts.first(where: { $0.id === facet })?.actual,
+                qualification.permitsBoundary(source: source, actual: actual)
+            else { return nil }
+            boundaries.append(actual)
+        }
+        guard let runtime = physical.runtime, selected.runtime === runtime,
+            boundaries.allSatisfy({ $0.runtime === runtime })
+        else { return nil }
+        return RetainedSelectedContentTaskNativeAcceptance(
+            source: original, mappings: mappings, physical: physical, boundaries: boundaries, selected: selected)
+    }
+
+    func permitsInitialPath(
+        _ path: RetainedSelectedContentPath, acceptance: RetainedSelectedContentTaskNativeAcceptance,
+        facts: [RetainedTaskRouteNativeFact]
+    ) -> Bool {
+        guard !wasRefused, acceptedPath == nil, qualification.canPublish,
+            acceptance.source === original, let runtime = acceptance.physical.runtime,
+            path.physicalRoot === acceptance.physical.node, path.selectedNode === acceptance.selected.node,
+            path.isInstalled(in: runtime), let actualBoundaries = path.boundaryNodes,
+            actualBoundaries.count == acceptance.boundaries.count,
+            zip(actualBoundaries, acceptance.boundaries).allSatisfy({ $0.0 === $0.1.node }),
+            facts.allSatisfy({ matchesOriginalMapping($0.id, field: $0.field, actual: $0.actual) })
+        else { return false }
+        for (slot, actual) in zip(slots.dropLast(), acceptance.boundaries) {
+            guard let source = slot.source, qualification.permitsBoundary(source: source, actual: actual) else {
+                return false
+            }
+        }
+        return true
+    }
+
+    func retainInitialPath(_ path: RetainedSelectedContentPath) -> Bool {
+        guard !wasRefused, acceptedPath == nil else { return false }
+        acceptedPath = path
+        return true
+    }
+
+    func permitsAcceptedMember(_ member: RetainedLazyListAcceptedTaskMember) -> Bool {
+        guard let physical = member.physicalActual, let path = member.selectedContentPath,
+            path === acceptedPath, let runtime = physical.runtime,
+            path.physicalRoot === physical.node, path.selectedNode === member.actual.node,
+            physical.isAttached, member.actual.isAttached, member.actual.runtime === runtime,
+            path.isInstalled(in: runtime), let boundaries = path.boundaryNodes,
+            boundaries.count == slots.count - 1,
+            zip(boundaries, slots.dropLast()).allSatisfy({ $0.0 === $0.1.mapping?.target }),
+            let first = slots.first?.mapping, let last = slots.last?.mapping
+        else { return false }
+        return first.target === physical.node && first.targetID === physical.target
+            && first.attachmentID === physical.attachment && last.target === member.actual.node
+            && last.targetID === member.actual.target && last.attachmentID === member.actual.attachment
+    }
+
+    func matchesAcceptedFact(_ fact: RetainedTaskRouteNativeFact, member: RetainedLazyListAcceptedTaskMember) -> Bool {
+        permitsAcceptedMember(member) && matchesOriginalMapping(fact.id, field: fact.field, actual: fact.actual)
+    }
+}
+
+@MainActor
+fileprivate struct RetainedTaskRouteJoinInput {
+    let payload: RetainedLazyListSourcePayloadID
+    let source: ViewNode
+    let route: RetainedTaskSelectedContentRoute?
+    let requiredFacets: [RetainedLazyListSourceFacetID]
+    let facts: [RetainedTaskRouteNativeFact]
+}
+
+@MainActor
+fileprivate struct RetainedTaskRouteJoinedMembers {
+    let members: [RetainedLazyListAcceptedTaskMember]
+    let actuals: [RetainedLazyListActualAttachment]
+}
+
+/// All outputs, including ordinary members of a mixed group, are checked before
+/// Runtime consumes any original route. A pending edge or namespace fact can
+/// retry; Runtime makes a consumed or refused original permanently unusable.
+@MainActor
+fileprivate func joinRetainedTaskRoutes(_ inputs: [RetainedTaskRouteJoinInput]) -> RetainedTaskRouteJoinedMembers? {
+    var acceptances: [RetainedSelectedContentTaskNativeAcceptance] = []
+    var routeIndices: [Int] = []
+    var selectedActuals: [RetainedLazyListActualAttachment] = []
+    var pins = inputs.map(\.source)
+    for (index, input) in inputs.enumerated() {
+        guard !input.requiredFacets.isEmpty,
+            input.requiredFacets.allSatisfy({ id in input.facts.contains { $0.id === id } })
+        else { return nil }
+        let selected: RetainedLazyListActualAttachment
+        if let route = input.route {
+            guard route.physicalSource === input.source, let sources = route.sourcePins,
+                let acceptance = route.prepareAcceptance(facts: input.facts)
+            else { return nil }
+            pins.append(contentsOf: sources)
+            acceptances.append(acceptance)
+            routeIndices.append(index)
+            selected = acceptance.selected
+        } else {
+            guard let first = input.facts.first,
+                input.facts.allSatisfy({
+                    $0.actual.isAttached && $0.actual.target === first.actual.target
+                        && $0.actual.attachment === first.actual.attachment
+                })
+            else { return nil }
+            selected = first.actual
+        }
+        guard
+            !selectedActuals.contains(where: {
+                $0.target === selected.target && $0.attachment === selected.attachment
+            })
+        else { return nil }
+        selectedActuals.append(selected)
+        for fact in input.facts {
+            guard let node = fact.actual.node else { return nil }
+            pins.append(node)
+        }
+    }
+    guard !acceptances.isEmpty else { return nil }
+    return withExtendedLifetime(pins) {
+        // Repeat every strict native qualification before the all-route consume.
+        for index in routeIndices {
+            guard inputs[index].route?.prepareAcceptance(facts: inputs[index].facts) != nil else { return nil }
+        }
+        guard inputs.allSatisfy({ $0.facts.allSatisfy { $0.actual.isAttached } }),
+            let paths = RetainedSelectedContentTaskSource.consumeInitialPaths(for: acceptances),
+            paths.count == routeIndices.count
+        else { return nil }
+        for (offset, index) in routeIndices.enumerated() {
+            guard
+                inputs[index].route?.permitsInitialPath(
+                    paths[offset], acceptance: acceptances[offset], facts: inputs[index].facts) == true
+            else { return nil }
+        }
+        guard inputs.allSatisfy({ $0.facts.allSatisfy { $0.actual.isAttached } }) else { return nil }
+        var members: [RetainedLazyListAcceptedTaskMember] = []
+        var actuals: [RetainedLazyListActualAttachment] = []
+        for (index, input) in inputs.enumerated() {
+            let offset = routeIndices.firstIndex(of: index)
+            members.append(
+                RetainedLazyListAcceptedTaskMember(
+                    sourcePayload: input.payload, requiredFacets: input.requiredFacets, actual: selectedActuals[index],
+                    physicalActual: offset.map { acceptances[$0].physical },
+                    selectedContentPath: offset.map { paths[$0] }))
+            for fact in input.facts
+            where !actuals.contains(where: {
+                $0.target === fact.actual.target && $0.attachment === fact.actual.attachment
+            }) {
+                actuals.append(fact.actual)
+            }
+        }
+        for (offset, index) in routeIndices.enumerated() {
+            guard inputs[index].route?.retainInitialPath(paths[offset]) == true else { return nil }
+        }
+        return RetainedTaskRouteJoinedMembers(members: members, actuals: actuals)
+    }
+}
+
+@MainActor
+fileprivate func prepareRetainedTaskSourceChildren(
+    routes: [RetainedTaskSelectedContentRoute], sourceParent: ViewNode?, targetParent: ViewNode,
+    proposedChildren: [ViewNode], incomingNodes: [ViewNode]
+) -> RetainedSelectedContentSourceAdoption? {
+    var seen: Set<ObjectIdentifier> = []
+    let routes = routes.filter { $0.acceptedPath == nil && seen.insert(ObjectIdentifier($0)).inserted }
+    guard !routes.isEmpty else { return nil }
+    for route in routes {
+        if let sourceParent, route.contains(sourceParent) {
+            let storage = targetParent.lazyListActivityStorage()
+            route.prepareMapping(
+                from: sourceParent, to: targetParent, targetID: storage.targetID, attachmentID: storage.attachmentID)
+        }
+        // Only the original native incoming forest supplies source == target.
+        // Retained survivors never enter this list.
+        for node in incomingNodes where route.contains(node) {
+            let storage = node.lazyListActivityStorage()
+            route.prepareMapping(from: node, to: node, targetID: storage.targetID, attachmentID: storage.attachmentID)
+        }
+    }
+    return RetainedSelectedContentSourceAdoption(
+        sourceParent: sourceParent, targetParent: targetParent, proposedChildren: proposedChildren,
+        incomingNodes: incomingNodes, sources: routes.map(\.original))
 }
 
 @MainActor
@@ -1305,10 +1654,16 @@ package final class RetainedLazyListBuildAttribution {
         journal?.registerGroup(attribution: self, kind: kind)
     }
 
-    package func recordSourceOutput(_ source: ViewNode, group: RetainedLazyListGroupID)
+    package func recordSourceOutput(
+        _ source: ViewNode, group: RetainedLazyListGroupID,
+        selectedContentPath: RetainedSelectedContentPath? = nil,
+        candidateConstruction: RetainedOwnedCandidateConstruction? = nil
+    )
         -> RetainedLazyListSourcePayloadID?
     {
-        journal?.recordSourceOutput(source, attribution: self, group: group)
+        journal?.recordSourceOutput(
+            source, attribution: self, group: group, selectedContentPath: selectedContentPath,
+            candidateConstruction: candidateConstruction)
     }
 
     package func closeGroup(_ group: RetainedLazyListGroupID) -> RetainedLazyListGroupProposal? {
@@ -1391,6 +1746,9 @@ private final class RetainedLazyListSourceOutput {
     let constructionComponent: RetainedLazyListComponentID
     var facets: [RetainedLazyListFacetKey: RetainedLazyListSourceFacet] = [:]
     var retirementProperties: Set<RetainedLazyListFacetKey> = []
+    var selectedTaskRouteWasRequested = false
+    var selectedTaskRoute: RetainedTaskSelectedContentRoute?
+    var selectedTaskMiddleFacets: [RetainedLazyListSourceFacet] = []
 
     init(
         node: ViewNode, component: RetainedLazyListComponentID, group: RetainedLazyListGroupID,
@@ -1455,6 +1813,7 @@ private struct RetainedLazyListPendingPropertyCopy {
     let targetID: RetainedLazyListTargetID
     let attachmentID: RetainedLazyListAttachmentID
     let previous: [RetainedLazyListContributionReceipt]
+    let taskFacets: [RetainedLazyListSourceFacet]
 }
 
 @MainActor
@@ -1621,9 +1980,14 @@ fileprivate final class RetainedOwnedWeakRetirementDebt {
 fileprivate final class RetainedOwnedPhysicalReferenceIndex {
     var references: [ObjectIdentifier: RetainedOwnedWeakPhysicalReference] = [:]
     var debts: [ObjectIdentifier: RetainedOwnedWeakRetirementDebt] = [:]
+    var candidateReferences: [ObjectIdentifier: RetainedOwnedWeakCandidateReference] = [:]
 
     var hasCurrentReference: Bool {
-        references.values.contains { $0.reference?.isCurrent == true }
+        references.values.contains { $0.reference?.isCurrent == true } || hasCurrentCandidateReference
+    }
+
+    var hasCurrentCandidateReference: Bool {
+        candidateReferences.values.contains { $0.reference?.isCurrent == true }
     }
 
     var hasPendingRetirement: Bool {
@@ -1799,6 +2163,10 @@ final class RetainedLazyListNodeActivityStorage {
     var committedDescriptorContributions: [ObjectIdentifier: RetainedDescriptorContributionReceipt] = [:]
     fileprivate var wasRejectedSource = false
     fileprivate weak var ownedPhysicalReferences: RetainedOwnedPhysicalReferenceHolder?
+    fileprivate var ownedCandidateField: RetainedOwnedCandidateField?
+    fileprivate var ownedCandidateBoundarySource: RetainedOwnedCandidateConstruction?
+    fileprivate var ownedCandidateDeferredSource: RetainedOwnedCandidateConstruction?
+    fileprivate var ownedCandidateDeferredAnchor: RetainedOwnedCandidateDeferredAnchor?
     private weak var ownedMapObservation: RetainedOwnedPhysicalMapObservation?
     private weak var ownedBindingObservation: RetainedOwnedPhysicalMapObservation?
     fileprivate var ownedPayloadPermissions: [AnyKeyPath: [RetainedOwnedSlotPermission]] = [:] {
@@ -1912,6 +2280,7 @@ final class RetainedLazyListNodeActivityStorage {
     }
 
     func withdrawOwnedPhysicalReferences() {
+        withdrawOwnedCandidateField()
         ownedMapObservation = nil
         ownedBindingObservation = nil
         ownedPhysicalReferences?.invalidateBinding(retiringOwnedReferences: true)
@@ -1961,6 +2330,7 @@ final class RetainedLazyListNodeActivityStorage {
         descriptorOwnerLifetime = RetainedLazyListDescriptorOwnerLifetime(target: targetID, attachment: replacement)
         deferredSubtreeAnchor = nil
         descriptorDeferredSubtreeAnchor = nil
+        ownedCandidateDeferredAnchor = nil
         // Native receipts only: logical membership survives physical eviction.
         committedContributions.removeAll()
     }
@@ -2055,6 +2425,7 @@ final class RetainedLazyListAdoptionJournal {
     private var insertedDescriptors: [ObjectIdentifier: RetainedLazyListPendingInsertedDescriptor] = [:]
     private var insertedNodes: [ObjectIdentifier: RetainedLazyListPendingInsertedNode] = [:]
     private var propertyCopies: [RetainedLazyListPropertyCopyKey: RetainedLazyListPendingPropertyCopy] = [:]
+    private var selectedTaskOutputs: [ObjectIdentifier: [RetainedLazyListSourceOutput]] = [:]
     private var acceptedFacetByID: [ObjectIdentifier: RetainedLazyListAcceptedFacet] = [:]
     private var acceptedFacetFacts: [RetainedLazyListAcceptedFacet] = []
     private var completedGroups: [RetainedLazyListAcceptedGroup] = []
@@ -2238,7 +2609,9 @@ final class RetainedLazyListAdoptionJournal {
     }
 
     fileprivate func recordSourceOutput(
-        _ source: ViewNode, attribution: RetainedLazyListBuildAttribution, group: RetainedLazyListGroupID
+        _ source: ViewNode, attribution: RetainedLazyListBuildAttribution, group: RetainedLazyListGroupID,
+        selectedContentPath: RetainedSelectedContentPath? = nil,
+        candidateConstruction: RetainedOwnedCandidateConstruction? = nil
     ) -> RetainedLazyListSourcePayloadID? {
         guard canRegisterSource, !source.containsRejectedRetainedSource,
             attribution.journal === self, attribution.constructionState == .admittedForConstruction,
@@ -2253,6 +2626,28 @@ final class RetainedLazyListAdoptionJournal {
                 isDescendant(attribution.component, of: inherited.attribution.component)
             else { continue }
             _ = addOutput(source, to: inherited, constructedBy: attribution.component)
+        }
+        if selectedContentPath != nil || candidateConstruction != nil {
+            guard requested.kind == .scopedTask, !result.selectedTaskRouteWasRequested else { return nil }
+            result.selectedTaskRouteWasRequested = true
+            guard let path = selectedContentPath, let boundaries = path.boundaryNodes,
+                let qualification = captureOwnedCandidateTaskQualification(
+                    context: candidateConstruction, sourceBoundaries: boundaries, attribution: attribution)
+            else { return nil }
+            let middleFacets = boundaries.dropFirst().map { _ in
+                RetainedLazyListSourceFacet(
+                    source: result.payload, component: result.component, group: result.group,
+                    nativeField: .childAttachment)
+            }
+            guard
+                let route = RetainedTaskSelectedContentRoute(
+                    physicalSource: source, path: path, physicalFacet: result.facet(.childAttachment).id,
+                    middleFacets: middleFacets.map(\.id), qualification: qualification), let sources = route.sourcePins
+            else { return nil }
+            result.selectedTaskRoute = route
+            result.selectedTaskMiddleFacets = middleFacets
+            for facet in middleFacets { requested.require(facet) }
+            for node in sources { selectedTaskOutputs[ObjectIdentifier(node), default: []].append(result) }
         }
         return result.payload
     }
@@ -2664,6 +3059,63 @@ final class RetainedLazyListAdoptionJournal {
         } ?? []
     }
 
+    private func selectedTaskOutputs(of source: ViewNode) -> [RetainedLazyListSourceOutput] {
+        selectedTaskOutputs[ObjectIdentifier(source)]?.filter { output in
+            output.selectedTaskRoute?.contains(source) == true
+                && groups[ObjectIdentifier(output.group)]?.outputs.contains(where: { $0 === output }) == true
+        } ?? []
+    }
+
+    private func prepareSelectedTaskMappings(
+        from source: ViewNode, to target: ViewNode,
+        targetID: RetainedLazyListTargetID, attachmentID: RetainedLazyListAttachmentID
+    ) {
+        for output in selectedTaskOutputs(of: source) {
+            output.selectedTaskRoute?.prepareMapping(
+                from: source, to: target, targetID: targetID, attachmentID: attachmentID)
+        }
+    }
+
+    private func selectedTaskFacets(
+        of source: ViewNode, field: RetainedLazyListNativeFacet? = nil
+    ) -> [RetainedLazyListSourceFacet] {
+        selectedTaskOutputs(of: source).flatMap { output in
+            (Array(output.facets.values) + output.selectedTaskMiddleFacets).filter { facet in
+                (field == nil || facet.nativeField.key == field?.key)
+                    && output.selectedTaskRoute?.owns(facet.id, field: facet.nativeField, on: source) == true
+            }
+        }
+    }
+
+    private func permitsSelectedTaskFacet(
+        _ facet: RetainedLazyListSourceFacet, actual: RetainedLazyListActualAttachment
+    ) -> Bool {
+        guard let output = groups[ObjectIdentifier(facet.group)]?.outputs.first(where: { $0.payload === facet.source }),
+            output.selectedTaskRouteWasRequested
+        else { return true }
+        return output.selectedTaskRoute?.permitsNativeFacet(facet.id, field: facet.nativeField, on: actual) == true
+    }
+
+    func prepareSelectedTaskSourceChildren(
+        from sourceParent: ViewNode?, to targetParent: ViewNode,
+        proposedChildren: [ViewNode], incomingNodes: [ViewNode]
+    ) -> RetainedSelectedContentSourceAdoption? {
+        guard canContinueAdoption else { return nil }
+        var routes: [RetainedTaskSelectedContentRoute] = []
+        if let sourceParent {
+            routes.append(contentsOf: selectedTaskOutputs(of: sourceParent).compactMap(\.selectedTaskRoute))
+        }
+        for node in incomingNodes {
+            routes.append(contentsOf: selectedTaskOutputs(of: node).compactMap(\.selectedTaskRoute))
+        }
+        routes.append(
+            contentsOf: ordinaryLedger?.selectedTaskRoutes(
+                from: sourceParent, incomingNodes: incomingNodes) ?? [])
+        return prepareRetainedTaskSourceChildren(
+            routes: routes, sourceParent: sourceParent, targetParent: targetParent,
+            proposedChildren: proposedChildren, incomingNodes: incomingNodes)
+    }
+
     private func recordInsertionPublication(
         from source: ViewNode, to target: ViewNode, actual: RetainedLazyListActualAttachment,
         copiedConfiguration: Bool = false, inserted: Bool = false
@@ -2686,8 +3138,11 @@ final class RetainedLazyListAdoptionJournal {
         // the field write. No application field getter or final-child scan occurs.
         let field = RetainedLazyListNativeFacet.nodeProperty(keyPath)
         let outputs = ownedOutputs(of: source)
+        prepareSelectedTaskMappings(
+            from: source, to: target, targetID: actual.target, attachmentID: actual.attachment)
+        let taskFacets = selectedTaskFacets(of: source, field: field)
         let hasPayload = source.retainedSourcePayloadFields.contains(keyPath)
-        for output in outputs {
+        for output in outputs where !output.selectedTaskRouteWasRequested {
             _ = output.facet(field)
             if hasPayload { output.retirementProperties.insert(field.key) }
         }
@@ -2704,7 +3159,7 @@ final class RetainedLazyListAdoptionJournal {
             source: ObjectIdentifier(source), target: ObjectIdentifier(target), field: keyPath)
         propertyCopies[key] = RetainedLazyListPendingPropertyCopy(
             source: source, target: target, targetID: actual.target, attachmentID: actual.attachment,
-            previous: Array(previous))
+            previous: Array(previous), taskFacets: taskFacets)
         return true
     }
 
@@ -2727,11 +3182,15 @@ final class RetainedLazyListAdoptionJournal {
         ownedLedger?.recordAcceptedProperty(
             from: source, to: target, keyPath: keyPath,
             ordinaryPublication: { self.usesRegionlessOrdinaryOwnedPublication })
-        _ = ordinaryLedger?.recordAcceptedProperty(from: source, to: target, keyPath: keyPath)
+        let selfPublication = ownedLedger?.preparedCandidateSelfPublication(from: source, to: target)
+        _ = ordinaryLedger?.recordAcceptedProperty(
+            from: source, to: target, keyPath: keyPath, selfPublication: selfPublication)
         for absence in ordinaryLedger?.takePropertyAbsences() ?? [] {
             boundDescriptorScope?.recordAcceptedOriginalRetirement(absence.previous)
             claimDescriptorTaskAbsence(absence)
+            selfPublication?.recordDrainedOwnAbsence(absence)
         }
+        if let selfPublication { ownedLedger?.finishCandidateSelfPublication(selfPublication) }
         for previous in pending.previous {
             let removed = previous.acceptedNativeFacets.filter {
                 $0.source.nativeField.key == RetainedLazyListNativeFacet.nodeProperty(keyPath).key
@@ -2743,8 +3202,11 @@ final class RetainedLazyListAdoptionJournal {
                     previous: previous, actual: actual, removalFacets: removed, cleanup: RetainedLazyListCleanupID()),
                 permitsOriginalCompletion: true)
         }
-        for output in ownedOutputs(of: source) {
+        for output in ownedOutputs(of: source) where !output.selectedTaskRouteWasRequested {
             guard let facet = output.facets[RetainedLazyListNativeFacet.nodeProperty(keyPath).key] else { continue }
+            recordAcceptedFacet(facet, actual: actual)
+        }
+        for facet in pending.taskFacets where permitsSelectedTaskFacet(facet, actual: actual) {
             recordAcceptedFacet(facet, actual: actual)
         }
         return completeGroups()
@@ -2756,8 +3218,15 @@ final class RetainedLazyListAdoptionJournal {
         recordInsertionPublication(from: source, to: target, actual: actual)
         boundDescriptorScope?.recordAcceptedDescriptor()
         _ = ordinaryLedger?.recordAcceptedAttachment(from: source, to: target)
-        for output in ownedOutputs(of: source) {
+        if let selfPublication = ownedLedger?.preparedCandidateSelfPublication(from: source, to: target) {
+            ownedLedger?.finishCandidateSelfPublication(selfPublication)
+        }
+        for output in ownedOutputs(of: source) where !output.selectedTaskRouteWasRequested {
             if let facet = output.facets[.attachment] { recordAcceptedFacet(facet, actual: actual) }
+        }
+        for facet in selectedTaskFacets(of: source, field: .childAttachment)
+        where permitsSelectedTaskFacet(facet, actual: actual) {
+            recordAcceptedFacet(facet, actual: actual)
         }
         return completeGroups()
     }
@@ -2787,11 +3256,14 @@ final class RetainedLazyListAdoptionJournal {
         ownedLedger?.recordCompletedNode(
             from: source, to: target,
             ordinaryPublication: { self.usesRegionlessOrdinaryOwnedPublication })
-        _ = ordinaryLedger?.recordCompletedNode(from: source, to: target)
+        let selfPublication = ownedLedger?.preparedCandidateSelfPublication(from: source, to: target)
+        _ = ordinaryLedger?.recordCompletedNode(from: source, to: target, selfPublication: selfPublication)
         for absence in ordinaryLedger?.takePropertyAbsences() ?? [] {
             boundDescriptorScope?.recordAcceptedOriginalRetirement(absence.previous)
             claimDescriptorTaskAbsence(absence)
+            selfPublication?.recordDrainedOwnAbsence(absence)
         }
+        if let selfPublication { ownedLedger?.finishCandidateSelfPublication(selfPublication) }
         for output in outputs {
             if let facet = output.facets[.completion] { recordAcceptedFacet(facet, actual: actual) }
         }
@@ -2828,14 +3300,22 @@ final class RetainedLazyListAdoptionJournal {
         from source: ViewNode, to target: ViewNode, declarationIDs: [RetainedTaskDeclarationID]
     ) -> [RetainedLazyListAcceptedTaskGroup] {
         guard let actual = actualAttachment(for: target) else { return [] }
+        prepareSelectedTaskMappings(
+            from: source, to: target, targetID: actual.target, attachmentID: actual.attachment)
         let acceptedIDs = Set(declarationIDs.map { ObjectIdentifier($0) })
-        for output in ownedOutputs(of: source) {
+        for output in ownedOutputs(of: source) where !output.selectedTaskRouteWasRequested {
             for facet in output.facets.values {
                 guard case .scopedTaskDeclaration(let id) = facet.nativeField,
                     acceptedIDs.contains(ObjectIdentifier(id))
                 else { continue }
                 recordAcceptedFacet(facet, actual: actual)
             }
+        }
+        for facet in selectedTaskFacets(of: source) {
+            guard case .scopedTaskDeclaration(let id) = facet.nativeField,
+                acceptedIDs.contains(ObjectIdentifier(id)), permitsSelectedTaskFacet(facet, actual: actual)
+            else { continue }
+            recordAcceptedFacet(facet, actual: actual)
         }
         return completeGroups()
     }
@@ -2864,7 +3344,8 @@ final class RetainedLazyListAdoptionJournal {
         let accepted = ordinaryLedger?.recordAcceptedEmptyGroups(anchor: structuralAnchor, groups: groups) ?? []
         for fact in accepted {
             ownedLedger?.recordAcceptedEmpty(
-                origin: .descriptor(component: fact.proposal.component), anchor: structuralAnchor)
+                origin: .descriptor(component: fact.proposal.component), anchor: structuralAnchor,
+                acceptedDescriptorEmpty: fact)
         }
         return accepted
     }
@@ -2900,25 +3381,48 @@ final class RetainedLazyListAdoptionJournal {
             let facts = record.required.compactMap { acceptedFacetByID[ObjectIdentifier($0.id)] }
             var actuals: [RetainedLazyListActualAttachment] = []
             var coherent = true
-            for output in record.outputs {
-                let outputFacts = facts.filter { $0.source.source === output.payload }
-                guard let first = outputFacts.first,
-                    outputFacts.allSatisfy({
-                        $0.actual.target === first.actual.target && $0.actual.attachment === first.actual.attachment
-                    })
-                else {
-                    coherent = false
-                    break
+            var routedTaskMembers: [RetainedLazyListAcceptedTaskMember]?
+            if record.kind == .scopedTask, record.outputs.contains(where: \.selectedTaskRouteWasRequested) {
+                guard !record.declarations.isEmpty else { continue }
+                let inputs = record.outputs.compactMap { output -> RetainedTaskRouteJoinInput? in
+                    guard let source = output.node,
+                        !output.selectedTaskRouteWasRequested || output.selectedTaskRoute != nil
+                    else { return nil }
+                    let outputFacts = facts.filter { $0.source.source === output.payload }
+                    return RetainedTaskRouteJoinInput(
+                        payload: output.payload, source: source, route: output.selectedTaskRoute,
+                        requiredFacets: outputFacts.map { $0.source.id },
+                        facts: outputFacts.map {
+                            RetainedTaskRouteNativeFact(
+                                id: $0.source.id, field: $0.source.nativeField, actual: $0.actual)
+                        })
                 }
-                if record.kind == .scopedTask
-                    && actuals.contains(where: {
-                        $0.target === first.actual.target && $0.attachment === first.actual.attachment
-                    })
-                {
-                    coherent = false
-                    break
+                guard inputs.count == record.outputs.count, let joined = joinRetainedTaskRoutes(inputs) else {
+                    continue
                 }
-                actuals.append(first.actual)
+                actuals = joined.actuals
+                routedTaskMembers = joined.members
+            } else {
+                for output in record.outputs {
+                    let outputFacts = facts.filter { $0.source.source === output.payload }
+                    guard let first = outputFacts.first,
+                        outputFacts.allSatisfy({
+                            $0.actual.target === first.actual.target && $0.actual.attachment === first.actual.attachment
+                        })
+                    else {
+                        coherent = false
+                        break
+                    }
+                    if record.kind == .scopedTask
+                        && actuals.contains(where: {
+                            $0.target === first.actual.target && $0.attachment === first.actual.attachment
+                        })
+                    {
+                        coherent = false
+                        break
+                    }
+                    actuals.append(first.actual)
+                }
             }
             guard coherent, record.receipt.activate(on: actuals) else { continue }
             let accepted = RetainedLazyListAcceptedGroup(
@@ -2958,12 +3462,15 @@ final class RetainedLazyListAdoptionJournal {
                 }
             }
             if record.kind == .scopedTask {
-                let members = record.outputs.compactMap { output -> RetainedLazyListAcceptedTaskMember? in
-                    let outputFacts = facts.filter { $0.source.source === output.payload }
-                    guard let actual = outputFacts.first?.actual else { return nil }
-                    return RetainedLazyListAcceptedTaskMember(
-                        sourcePayload: output.payload, requiredFacets: outputFacts.map { $0.source.id }, actual: actual)
-                }
+                let members =
+                    routedTaskMembers
+                    ?? record.outputs.compactMap { output -> RetainedLazyListAcceptedTaskMember? in
+                        let outputFacts = facts.filter { $0.source.source === output.payload }
+                        guard let actual = outputFacts.first?.actual else { return nil }
+                        return RetainedLazyListAcceptedTaskMember(
+                            sourcePayload: output.payload, requiredFacets: outputFacts.map { $0.source.id },
+                            actual: actual)
+                    }
                 guard !record.declarations.isEmpty, members.count == record.outputs.count else { continue }
                 taskGroups.append(
                     RetainedLazyListAcceptedTaskGroup(
@@ -2998,12 +3505,24 @@ final class RetainedLazyListAdoptionJournal {
                 zip(required, member.requiredFacets).allSatisfy({ $0.0 === $0.1 }),
                 required.allSatisfy({ id in
                     guard let fact = acceptedFacetByID[ObjectIdentifier(id)] else { return false }
-                    return fact.source.source === member.sourcePayload
-                        && fact.actual.target === member.actual.target
+                    guard fact.source.source === member.sourcePayload else { return false }
+                    if let route = output.selectedTaskRoute {
+                        return route.matchesAcceptedFact(
+                            RetainedTaskRouteNativeFact(id: id, field: fact.source.nativeField, actual: fact.actual),
+                            member: member)
+                    }
+                    return !output.selectedTaskRouteWasRequested && member.physicalActual == nil
+                        && member.selectedContentPath == nil && fact.actual.target === member.actual.target
                         && fact.actual.attachment === member.actual.attachment
                 })
             else { return nil }
-            pins.append(RetainedLazyListAcceptedTaskSource(member: member, source: source))
+            if let route = output.selectedTaskRoute {
+                guard route.physicalSource === source, let activitySource = route.activitySource else { return nil }
+                pins.append(
+                    RetainedLazyListAcceptedTaskSource(member: member, source: source, activitySource: activitySource))
+            } else {
+                pins.append(RetainedLazyListAcceptedTaskSource(member: member, source: source))
+            }
         }
         return pins
     }
@@ -3163,8 +3682,10 @@ final class RetainedLazyListAdoptionJournal {
         else { return false }
         let storage = source.lazyListActivityStorage()
         let candidates = source.existingRetainedTaskState?.lazyCandidateDeclarations() ?? []
+        prepareSelectedTaskMappings(
+            from: source, to: source, targetID: storage.targetID, attachmentID: storage.attachmentID)
         var facets: [RetainedLazyListSourceFacet] = []
-        for output in ownedOutputs(of: source) {
+        for output in ownedOutputs(of: source) where !output.selectedTaskRouteWasRequested {
             guard let record = groups[ObjectIdentifier(output.group)] else { return false }
             if record.kind != .scopedTask {
                 for keyPath in source.retainedSourcePayloadFields {
@@ -3192,6 +3713,16 @@ final class RetainedLazyListAdoptionJournal {
                 }
             }
         }
+        for facet in selectedTaskFacets(of: source) {
+            if case .scopedTaskDeclaration(let declaration) = facet.nativeField,
+                !candidates.contains(where: {
+                    $0.group === facet.group && $0.declarations.contains(where: { $0 === declaration })
+                })
+            {
+                continue
+            }
+            facets.append(facet)
+        }
         insertedNodes[ObjectIdentifier(storage.targetID)] = RetainedLazyListPendingInsertedNode(
             node: source, target: storage.targetID, attachment: storage.attachmentID, nativeFacets: facets)
         return true
@@ -3209,7 +3740,9 @@ final class RetainedLazyListAdoptionJournal {
         ownedLedger?.recordAcceptedInsertedNode(
             on: node, ordinaryPublication: { self.usesRegionlessOrdinaryOwnedPublication })
         _ = ordinaryLedger?.recordAcceptedInsertedNode(on: node)
-        for facet in pending.nativeFacets { recordAcceptedFacet(facet, actual: actual) }
+        for facet in pending.nativeFacets where permitsSelectedTaskFacet(facet, actual: actual) {
+            recordAcceptedFacet(facet, actual: actual)
+        }
         // Completion is a separate checked-subtree fact, after attach callbacks.
         return completeGroups()
     }
@@ -3314,6 +3847,7 @@ final class RetainedLazyListAdoptionJournal {
     func recordPhysicalDeparture(
         of node: ViewNode, cause: RetainedLazyListDepartureCause, retireOwned: Bool = true
     ) -> RetainedLazyListAcceptedDeparture? {
+        node.retainedLazyListActivityStorage?.withdrawOwnedCandidateField()
         _ = recordLogicalDescriptorDeparture(of: node, cause: cause)
         if retireOwned {
             ownedLedger?.recordPhysicalDeparture(of: node, cause: cause)
@@ -3340,6 +3874,7 @@ final class RetainedLazyListAdoptionJournal {
             _ = recordPhysicalDeparture(of: node, cause: cause)
             return nil
         }
+        node.retainedLazyListActivityStorage?.withdrawOwnedCandidateField()
         _ = recordLogicalDescriptorDeparture(of: node, cause: cause)
         var ticket: RetainedOrdinaryOwnedDeparture?
         if let ledger = ownedLedger, let original = ledger.capturePhysicalDeparture(of: node, cause: cause) {
@@ -3991,9 +4526,13 @@ package final class RetainedDescriptorComponentAttribution {
     }
 
     package func recordTaskSourceOutput(
-        _ source: ViewNode, group: RetainedDescriptorGroupID
+        _ source: ViewNode, group: RetainedDescriptorGroupID,
+        selectedContentPath: RetainedSelectedContentPath? = nil,
+        candidateConstruction: RetainedOwnedCandidateConstruction? = nil
     ) -> RetainedLazyListSourcePayloadID? {
-        ledger?.recordTaskSourceOutput(source, attribution: self, group: group)
+        ledger?.recordTaskSourceOutput(
+            source, attribution: self, group: group, selectedContentPath: selectedContentPath,
+            candidateConstruction: candidateConstruction)
     }
 }
 
@@ -4023,6 +4562,9 @@ fileprivate final class RetainedDescriptorSourceOutput {
     let payload = RetainedLazyListSourcePayloadID()
     fileprivate var facets: [RetainedLazyListFacetKey: RetainedDescriptorSourceFacet] = [:]
     fileprivate var retirementProperties: Set<RetainedLazyListFacetKey> = []
+    fileprivate var selectedTaskRouteWasRequested = false
+    fileprivate var selectedTaskRoute: RetainedTaskSelectedContentRoute?
+    fileprivate var selectedTaskMiddleFacets: [RetainedDescriptorSourceFacet] = []
 
     init(
         node: ViewNode, component: RetainedDescriptorComponentID, group: RetainedDescriptorGroupID,
@@ -4176,6 +4718,7 @@ final class RetainedDescriptorConstructionLedger {
     private var sealed: RetainedDescriptorSealedActivity?
     private var preparedComponents: [RetainedDescriptorComponentProposal]?
     private var propertyCopies: [RetainedDescriptorPropertyCopyKey: RetainedDescriptorPendingPropertyCopy] = [:]
+    private var selectedTaskOutputs: [ObjectIdentifier: [RetainedDescriptorSourceOutput]] = [:]
     private var insertions: [ObjectIdentifier: RetainedDescriptorPendingInsertion] = [:]
     private var acceptedByFacet: [ObjectIdentifier: RetainedDescriptorAcceptedFacet] = [:]
     private var completedIDs: Set<ObjectIdentifier> = []
@@ -4317,12 +4860,36 @@ final class RetainedDescriptorConstructionLedger {
 
     fileprivate func recordTaskSourceOutput(
         _ source: ViewNode, attribution: RetainedDescriptorComponentAttribution,
-        group: RetainedDescriptorGroupID
+        group: RetainedDescriptorGroupID, selectedContentPath: RetainedSelectedContentPath? = nil,
+        candidateConstruction: RetainedOwnedCandidateConstruction? = nil
     ) -> RetainedLazyListSourcePayloadID? {
         guard let record = groups[ObjectIdentifier(group)], record.kind == .scopedTask,
-            recordSourceOutput(source, attribution: attribution, group: group)
+            recordSourceOutput(source, attribution: attribution, group: group),
+            let output = record.output(for: source)
         else { return nil }
-        return record.output(for: source)?.payload
+        if selectedContentPath != nil || candidateConstruction != nil {
+            guard !output.selectedTaskRouteWasRequested else { return nil }
+            output.selectedTaskRouteWasRequested = true
+            guard let path = selectedContentPath, let boundaries = path.boundaryNodes,
+                let qualification = captureOwnedCandidateTaskQualification(
+                    context: candidateConstruction, sourceBoundaries: boundaries, attribution: attribution)
+            else { return nil }
+            let middleFacets = boundaries.dropFirst().map { _ in
+                RetainedDescriptorSourceFacet(
+                    component: output.component, group: output.group, source: output.payload,
+                    nativeField: .childAttachment)
+            }
+            guard
+                let route = RetainedTaskSelectedContentRoute(
+                    physicalSource: source, path: path, physicalFacet: output.facet(.childAttachment).id,
+                    middleFacets: middleFacets.map(\.id), qualification: qualification), let sources = route.sourcePins
+            else { return nil }
+            output.selectedTaskRoute = route
+            output.selectedTaskMiddleFacets = middleFacets
+            for facet in middleFacets { record.require(facet) }
+            for node in sources { selectedTaskOutputs[ObjectIdentifier(node), default: []].append(output) }
+        }
+        return output.payload
     }
 
     fileprivate func contribution(
@@ -4332,6 +4899,23 @@ final class RetainedDescriptorConstructionLedger {
             let record = groups[ObjectIdentifier(group)], record.component === attribution.component
         else { return nil }
         return record.receipt
+    }
+
+    fileprivate func frozenOwnedCandidateDeferredGroup(
+        component: RetainedDescriptorComponentID, source: ViewNode
+    ) -> RetainedDescriptorContributionReceipt? {
+        guard isFrozen, !rejectedComponentIDs.contains(ObjectIdentifier(component)),
+            let outputs = ownedOutputs(of: source)
+        else { return nil }
+        let matches = groups.values.filter { record in
+            record.component === component && record.kind == .deferredSubtree && record.isClosed
+                && !invalidIDs.contains(ObjectIdentifier(record.id)) && !record.required.isEmpty
+                && record.outputs.contains(where: { output in
+                    output.node === source && outputs.contains(where: { $0 === output })
+                })
+        }
+        guard matches.count == 1 else { return nil }
+        return matches.first?.receipt
     }
 
     fileprivate func recordSourceOutput(
@@ -4432,6 +5016,47 @@ final class RetainedDescriptorConstructionLedger {
         return outputs
     }
 
+    private func selectedTaskOutputs(of source: ViewNode) -> [RetainedDescriptorSourceOutput] {
+        selectedTaskOutputs[ObjectIdentifier(source)]?.filter { output in
+            output.selectedTaskRoute?.contains(source) == true
+                && groups[ObjectIdentifier(output.group)]?.outputs.contains(where: { $0 === output }) == true
+        } ?? []
+    }
+
+    fileprivate func selectedTaskRoutes(
+        from sourceParent: ViewNode?, incomingNodes: [ViewNode]
+    ) -> [RetainedTaskSelectedContentRoute] {
+        var result: [RetainedTaskSelectedContentRoute] = []
+        if let sourceParent {
+            result.append(contentsOf: selectedTaskOutputs(of: sourceParent).compactMap(\.selectedTaskRoute))
+        }
+        for node in incomingNodes {
+            result.append(contentsOf: selectedTaskOutputs(of: node).compactMap(\.selectedTaskRoute))
+        }
+        return result
+    }
+
+    private func prepareSelectedTaskMappings(
+        from source: ViewNode, to target: ViewNode,
+        targetID: RetainedLazyListTargetID, attachmentID: RetainedLazyListAttachmentID
+    ) {
+        for output in selectedTaskOutputs(of: source) {
+            output.selectedTaskRoute?.prepareMapping(
+                from: source, to: target, targetID: targetID, attachmentID: attachmentID)
+        }
+    }
+
+    private func selectedTaskFacets(
+        of source: ViewNode, field: RetainedLazyListNativeFacet? = nil
+    ) -> [RetainedDescriptorSourceFacet] {
+        selectedTaskOutputs(of: source).flatMap { output in
+            (Array(output.facets.values) + output.selectedTaskMiddleFacets).filter { facet in
+                (field == nil || facet.nativeField.key == field?.key)
+                    && output.selectedTaskRoute?.owns(facet.id, field: facet.nativeField, on: source) == true
+            }
+        }
+    }
+
     private func canPrepare(_ outputs: [RetainedDescriptorSourceOutput]) -> Bool {
         guard isFrozen, sealed == nil, !hasUnsupportedTaskDeclarations,
             hostLifetime?.isOpen == true, ownerLifetime.isCurrent
@@ -4449,6 +5074,8 @@ final class RetainedDescriptorConstructionLedger {
         let key = RetainedDescriptorPropertyCopyKey(
             source: ObjectIdentifier(source), target: ObjectIdentifier(target), field: keyPath)
         guard propertyCopies[key] == nil else { return false }
+        prepareSelectedTaskMappings(
+            from: source, to: target, targetID: actual.target, attachmentID: actual.attachment)
         let nativeKey = RetainedLazyListNativeFacet.nodeProperty(keyPath).key
         let incoming = outputs.compactMap { groups[ObjectIdentifier($0.group)]?.receipt }
         let hasPayload = source.retainedSourcePayloadFields.contains(keyPath)
@@ -4463,13 +5090,22 @@ final class RetainedDescriptorConstructionLedger {
             } ?? []
         propertyCopies[key] = RetainedDescriptorPendingPropertyCopy(
             source: source, target: target, targetID: actual.target, attachmentID: actual.attachment,
-            facets: outputs.map { $0.facet(.nodeProperty(keyPath)) }, previous: Array(previous))
+            facets: outputs.filter { !$0.selectedTaskRouteWasRequested }.map { $0.facet(.nodeProperty(keyPath)) }
+                + selectedTaskFacets(of: source, field: .nodeProperty(keyPath)), previous: Array(previous))
         return true
     }
 
     @discardableResult
     func recordAcceptedProperty(
         from source: ViewNode, to target: ViewNode, keyPath: PartialKeyPath<ViewNode>
+    ) -> [RetainedDescriptorAcceptedGroup] {
+        recordAcceptedProperty(from: source, to: target, keyPath: keyPath, selfPublication: nil)
+    }
+
+    @discardableResult
+    fileprivate func recordAcceptedProperty(
+        from source: ViewNode, to target: ViewNode, keyPath: PartialKeyPath<ViewNode>,
+        selfPublication: RetainedOwnedCandidateSelfPublication?
     ) -> [RetainedDescriptorAcceptedGroup] {
         let key = RetainedDescriptorPropertyCopyKey(
             source: ObjectIdentifier(source), target: ObjectIdentifier(target), field: keyPath)
@@ -4485,7 +5121,9 @@ final class RetainedDescriptorConstructionLedger {
                 $0.nativeField.key == nativeKey && $0.actual.target === actual.target
                     && $0.actual.attachment === actual.attachment
             }.map(\.facet)
-            if let fact = recordAcceptedAbsence(previous: previous, actual: actual, removalFacets: removed) {
+            if let fact = recordAcceptedAbsence(
+                previous: previous, actual: actual, removalFacets: removed, selfPublication: selfPublication)
+            {
                 propertyAbsences.append(fact)
             }
         }
@@ -4496,14 +5134,24 @@ final class RetainedDescriptorConstructionLedger {
     @discardableResult
     func recordAcceptedAttachment(from source: ViewNode, to target: ViewNode) -> [RetainedDescriptorAcceptedGroup] {
         guard let outputs = ownedOutputs(of: source), let actual = actualAttachment(for: target) else { return [] }
-        for output in outputs {
+        for output in outputs where !output.selectedTaskRouteWasRequested {
             if let facet = output.facets[.attachment] { recordAcceptedFacet(facet, actual: actual) }
+        }
+        for facet in selectedTaskFacets(of: source, field: .childAttachment) {
+            recordAcceptedFacet(facet, actual: actual)
         }
         return completeGroups()
     }
 
     @discardableResult
     func recordCompletedNode(from source: ViewNode, to target: ViewNode) -> [RetainedDescriptorAcceptedGroup] {
+        recordCompletedNode(from: source, to: target, selfPublication: nil)
+    }
+
+    @discardableResult
+    fileprivate func recordCompletedNode(
+        from source: ViewNode, to target: ViewNode, selfPublication: RetainedOwnedCandidateSelfPublication?
+    ) -> [RetainedDescriptorAcceptedGroup] {
         guard let outputs = ownedOutputs(of: source), let actual = actualAttachment(for: target) else { return [] }
         let incoming = outputs.compactMap { groups[ObjectIdentifier($0.group)]?.receipt }
         let previous = target.retainedLazyListActivityStorage?.committedDescriptorContributions.values.map { $0 } ?? []
@@ -4513,7 +5161,8 @@ final class RetainedDescriptorConstructionLedger {
                     && $0.actual.attachment === actual.attachment
             }.map(\.facet)
             if !removed.isEmpty,
-                let fact = recordAcceptedAbsence(previous: receipt, actual: actual, removalFacets: removed)
+                let fact = recordAcceptedAbsence(
+                    previous: receipt, actual: actual, removalFacets: removed, selfPublication: selfPublication)
             {
                 propertyAbsences.append(fact)
             }
@@ -4535,8 +5184,10 @@ final class RetainedDescriptorConstructionLedger {
         from source: ViewNode, to target: ViewNode, declarationIDs: [RetainedTaskDeclarationID]
     ) -> [RetainedDescriptorAcceptedGroup] {
         guard let outputs = ownedOutputs(of: source), let actual = actualAttachment(for: target) else { return [] }
+        prepareSelectedTaskMappings(
+            from: source, to: target, targetID: actual.target, attachmentID: actual.attachment)
         let transported = Set(declarationIDs.map { ObjectIdentifier($0) })
-        for output in outputs {
+        for output in outputs where !output.selectedTaskRouteWasRequested {
             guard groups[ObjectIdentifier(output.group)]?.kind == .scopedTask else { continue }
             for facet in output.facets.values {
                 guard case .scopedTaskDeclaration(let declaration) = facet.nativeField,
@@ -4544,6 +5195,12 @@ final class RetainedDescriptorConstructionLedger {
                 else { continue }
                 recordAcceptedFacet(facet, actual: actual)
             }
+        }
+        for facet in selectedTaskFacets(of: source) {
+            guard case .scopedTaskDeclaration(let declaration) = facet.nativeField,
+                transported.contains(ObjectIdentifier(declaration))
+            else { continue }
+            recordAcceptedFacet(facet, actual: actual)
         }
         return completeGroups()
     }
@@ -4553,9 +5210,11 @@ final class RetainedDescriptorConstructionLedger {
         let storage = source.lazyListActivityStorage()
         let key = ObjectIdentifier(storage.targetID)
         guard insertions[key] == nil else { return false }
+        prepareSelectedTaskMappings(
+            from: source, to: source, targetID: storage.targetID, attachmentID: storage.attachmentID)
         let candidates = source.existingRetainedTaskState?.descriptorCandidateDeclarations() ?? []
         var facets: [RetainedDescriptorSourceFacet] = []
-        for output in outputs {
+        for output in outputs where !output.selectedTaskRouteWasRequested {
             guard let record = groups[ObjectIdentifier(output.group)] else { return false }
             if record.kind != .scopedTask {
                 for keyPath in source.retainedSourcePayloadFields {
@@ -4583,6 +5242,16 @@ final class RetainedDescriptorConstructionLedger {
                 }
             }
         }
+        for facet in selectedTaskFacets(of: source) {
+            if case .scopedTaskDeclaration(let declaration) = facet.nativeField,
+                !candidates.contains(where: {
+                    $0.group === facet.group && $0.declarations.contains(where: { $0 === declaration })
+                })
+            {
+                continue
+            }
+            facets.append(facet)
+        }
         insertions[key] = RetainedDescriptorPendingInsertion(
             node: source, target: storage.targetID, attachment: storage.attachmentID, facets: facets)
         return true
@@ -4603,6 +5272,12 @@ final class RetainedDescriptorConstructionLedger {
     private func recordAcceptedFacet(
         _ facet: RetainedDescriptorSourceFacet, actual: RetainedLazyListActualAttachment
     ) {
+        if let output = groups[ObjectIdentifier(facet.group)]?.outputs.first(where: { $0.payload === facet.source }),
+            output.selectedTaskRouteWasRequested,
+            output.selectedTaskRoute?.permitsNativeFacet(facet.id, field: facet.nativeField, on: actual) != true
+        {
+            return
+        }
         let fact = RetainedDescriptorAcceptedFacet(
             component: facet.component, group: facet.group, source: facet.source,
             facet: facet.id, actual: actual, nativeField: facet.nativeField)
@@ -4635,28 +5310,48 @@ final class RetainedDescriptorConstructionLedger {
             let facts = acceptedFacets.filter { $0.group === id }
             var actuals: [RetainedLazyListActualAttachment] = []
             var coherent = true
-            for output in record.outputs {
-                let outputFacts = facts.filter { $0.source === output.payload }
-                guard let first = outputFacts.first,
-                    outputFacts.allSatisfy({
-                        $0.actual.target === first.actual.target && $0.actual.attachment === first.actual.attachment
-                    })
-                else {
-                    coherent = false
-                    break
+            var routedTaskMembers: [RetainedLazyListAcceptedTaskMember]?
+            if record.kind == .scopedTask, record.outputs.contains(where: \.selectedTaskRouteWasRequested) {
+                let inputs = record.outputs.compactMap { output -> RetainedTaskRouteJoinInput? in
+                    guard let source = output.node,
+                        !output.selectedTaskRouteWasRequested || output.selectedTaskRoute != nil
+                    else { return nil }
+                    return RetainedTaskRouteJoinInput(
+                        payload: output.payload, source: source, route: output.selectedTaskRoute,
+                        requiredFacets: record.required.filter { $0.source === output.payload }.map(\.id),
+                        facts: facts.filter { $0.source === output.payload }.map {
+                            RetainedTaskRouteNativeFact(id: $0.facet, field: $0.nativeField, actual: $0.actual)
+                        })
                 }
-                if record.kind == .scopedTask
-                    && actuals.contains(where: {
+                guard inputs.count == record.outputs.count, let joined = joinRetainedTaskRoutes(inputs) else {
+                    continue
+                }
+                actuals = joined.actuals
+                routedTaskMembers = joined.members
+            } else {
+                for output in record.outputs {
+                    let outputFacts = facts.filter { $0.source === output.payload }
+                    guard let first = outputFacts.first,
+                        outputFacts.allSatisfy({
+                            $0.actual.target === first.actual.target && $0.actual.attachment === first.actual.attachment
+                        })
+                    else {
+                        coherent = false
+                        break
+                    }
+                    if record.kind == .scopedTask
+                        && actuals.contains(where: {
+                            $0.target === first.actual.target && $0.attachment === first.actual.attachment
+                        })
+                    {
+                        coherent = false
+                        break
+                    }
+                    if !actuals.contains(where: {
                         $0.target === first.actual.target && $0.attachment === first.actual.attachment
-                    })
-                {
-                    coherent = false
-                    break
-                }
-                if !actuals.contains(where: {
-                    $0.target === first.actual.target && $0.attachment === first.actual.attachment
-                }) {
-                    actuals.append(first.actual)
+                    }) {
+                        actuals.append(first.actual)
+                    }
                 }
             }
             let durableFacts =
@@ -4681,16 +5376,31 @@ final class RetainedDescriptorConstructionLedger {
                 if record.kind == .deferredSubtree {
                     actual.node?.lazyListActivityStorage().descriptorDeferredSubtreeAnchor =
                         RetainedDescriptorDeferredSubtreeAnchor(contribution: record.receipt, actual: actual)
+                    for output in record.outputs {
+                        guard let source = output.node,
+                            facts.contains(where: {
+                                $0.source === output.payload && $0.actual.target === actual.target
+                                    && $0.actual.attachment === actual.attachment
+                            })
+                        else { continue }
+                        components[ObjectIdentifier(record.component)]?.scope?.ownedLedger
+                            .recordCandidateDeferredAcceptance(
+                                source: source, actual: actual, contribution: record.receipt)
+                    }
                 }
             }
             if record.kind == .scopedTask {
-                let members = record.outputs.compactMap { output -> RetainedLazyListAcceptedTaskMember? in
-                    guard let actual = facts.first(where: { $0.source === output.payload })?.actual else { return nil }
-                    return RetainedLazyListAcceptedTaskMember(
-                        sourcePayload: output.payload,
-                        requiredFacets: record.required.filter { $0.source === output.payload }.map(\.id),
-                        actual: actual)
-                }
+                let members =
+                    routedTaskMembers
+                    ?? record.outputs.compactMap { output -> RetainedLazyListAcceptedTaskMember? in
+                        guard let actual = facts.first(where: { $0.source === output.payload })?.actual else {
+                            return nil
+                        }
+                        return RetainedLazyListAcceptedTaskMember(
+                            sourcePayload: output.payload,
+                            requiredFacets: record.required.filter { $0.source === output.payload }.map(\.id),
+                            actual: actual)
+                    }
                 acceptedTaskGroups.append(
                     RetainedDescriptorAcceptedTaskGroup(
                         contribution: accepted, declarationIDs: record.declarations, members: members))
@@ -4729,12 +5439,24 @@ final class RetainedDescriptorConstructionLedger {
                 zip(required, member.requiredFacets).allSatisfy({ $0.0 === $0.1 }),
                 required.allSatisfy({ id in
                     guard let fact = acceptedByFacet[ObjectIdentifier(id)] else { return false }
-                    return fact.source === member.sourcePayload
-                        && fact.actual.target === member.actual.target
+                    guard fact.source === member.sourcePayload else { return false }
+                    if let route = output.selectedTaskRoute {
+                        return route.matchesAcceptedFact(
+                            RetainedTaskRouteNativeFact(id: id, field: fact.nativeField, actual: fact.actual),
+                            member: member)
+                    }
+                    return !output.selectedTaskRouteWasRequested && member.physicalActual == nil
+                        && member.selectedContentPath == nil && fact.actual.target === member.actual.target
                         && fact.actual.attachment === member.actual.attachment
                 })
             else { return nil }
-            pins.append(RetainedLazyListAcceptedTaskSource(member: member, source: source))
+            if let route = output.selectedTaskRoute {
+                guard route.physicalSource === source, let activitySource = route.activitySource else { return nil }
+                pins.append(
+                    RetainedLazyListAcceptedTaskSource(member: member, source: source, activitySource: activitySource))
+            } else {
+                pins.append(RetainedLazyListAcceptedTaskSource(member: member, source: source))
+            }
         }
         return pins
     }
@@ -4807,6 +5529,14 @@ final class RetainedDescriptorConstructionLedger {
         actual: RetainedLazyListActualAttachment,
         removalFacets: [RetainedLazyListSourceFacetID]
     ) -> RetainedDescriptorAcceptedAbsence? {
+        recordAcceptedAbsence(previous: previous, actual: actual, removalFacets: removalFacets, selfPublication: nil)
+    }
+
+    @discardableResult
+    fileprivate func recordAcceptedAbsence(
+        previous: RetainedDescriptorContributionReceipt, actual: RetainedLazyListActualAttachment,
+        removalFacets: [RetainedLazyListSourceFacetID], selfPublication: RetainedOwnedCandidateSelfPublication?
+    ) -> RetainedDescriptorAcceptedAbsence? {
         let key = ObjectIdentifier(previous)
         guard !absentIDs.contains(key),
             previous.actualAttachments.contains(where: {
@@ -4822,6 +5552,7 @@ final class RetainedDescriptorConstructionLedger {
         let fact = RetainedDescriptorAcceptedAbsence(
             previous: previous, actual: actual, removalFacets: removalFacets,
             cleanup: RetainedLazyListCleanupID())
+        selfPublication?.recordFirstOwnAbsence(fact)
         previous.revoke()
         removeRetiredContribution(previous)
         absentIDs.insert(key)
@@ -5024,6 +5755,7 @@ fileprivate final class RetainedOwnedComponentPresence {
     var ownedReferenceIndex: RetainedOwnedPhysicalReferenceIndex?
     var deferredRegion: RetainedOwnedStructuralRegion?
     var declaredRegions: [ObjectIdentifier: RetainedOwnedStructuralRegion] = [:]
+    fileprivate weak var ownedCandidateField: RetainedOwnedCandidateField?
 
     init(
         owner: RetainedOwnedComponentID, lifetime: RetainedOwnedNativeLifetime,
@@ -5053,6 +5785,7 @@ fileprivate final class RetainedOwnedComponentPresence {
     func revoke() {
         wasRevoked = true
         owner.wasRevoked = true
+        ownedCandidateField?.withdraw()
     }
 }
 
@@ -5483,17 +6216,19 @@ private final class RetainedOwnedComponentRegistration {
     let previous: [RetainedOwnedComponentReceipt]
     let declarationOnly: Bool
     let isDeferredConstruction: Bool
+    let candidateConstruction: RetainedOwnedCandidateConstruction?
 
     init(
         origin: RetainedOwnedComponentDeclarationOrigin, receipt: RetainedOwnedComponentReceipt,
         previous: [RetainedOwnedComponentReceipt], declarationOnly: Bool,
-        isDeferredConstruction: Bool
+        isDeferredConstruction: Bool, candidateConstruction: RetainedOwnedCandidateConstruction? = nil
     ) {
         self.origin = origin
         self.receipt = receipt
         self.previous = previous
         self.declarationOnly = declarationOnly
         self.isDeferredConstruction = isDeferredConstruction
+        self.candidateConstruction = candidateConstruction
     }
 }
 
@@ -5638,6 +6373,7 @@ private struct RetainedOwnedInsertionPublication {
     let declarations: [RetainedOwnedComponentDeclarationPlan]
     let regions: [RetainedOwnedRegionPublication]
     let expectedStructuralRevision: UInt64
+    let candidateReader: RetainedOwnedCandidateChildSource?
 }
 
 @MainActor
@@ -6010,6 +6746,31 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
     private(set) var retiredSlots: [RetainedOwnedSlotGenerationID] = []
     private(set) var retiredComponents: [RetainedOwnedComponentID] = []
     private var wasFinished = false
+    private var didSeedOwnedCandidateRoot = false
+    private var candidateQualifications: [ObjectIdentifier: RetainedOwnedCandidateScopeQualification] = [:]
+    private var candidateBoundaries: [ObjectIdentifier: RetainedOwnedCandidateConstruction] = [:]
+    private var candidateSegments: [RetainedOwnedCandidateSegmentKey: RetainedOwnedCandidateConstruction] = [:]
+    private var candidateAcceptedFacts: [RetainedOwnedCandidateAcceptedFact] = []
+    private var candidateDeferredFacts: [RetainedOwnedCandidateDeferredFact] = []
+    private var candidateAcceptedSegments: [ObjectIdentifier: RetainedOwnedCandidateSegmentAcceptance] = [:]
+    private var isDrainingCandidateFacts = false
+    // Child catalog records can only refuse or remove. They are deliberately
+    // absent from the general field, reference, task and construction maps.
+    private var candidateChildCatalogSources: [ObjectIdentifier: RetainedOwnedCandidateChildSource] = [:]
+    private var candidateChildCatalogOriginalTargets: [ObjectIdentifier: RetainedOwnedCandidateCatalogNode] = [:]
+    private var candidateChildCatalogPublications: [ObjectIdentifier: RetainedOwnedCandidateChildPublication] = [:]
+    private var candidateChildCatalogSuccessors: [ObjectIdentifier: RetainedOwnedCandidateChildSuccessor] = [:]
+    private var candidateSelfSources: [ObjectIdentifier: RetainedOwnedCandidateSelfSource] = [:]
+    private var candidateSelfRegistrations: [ObjectIdentifier: RetainedOwnedCandidateSelfSource] = [:]
+    private var candidateSelfPublications: [ObjectIdentifier: RetainedOwnedCandidateSelfPublication] = [:]
+    private var candidateSelfBodyAcceptances: [ObjectIdentifier: RetainedOwnedCandidateSelfBodyAcceptance] = [:]
+    private var candidatePublications: [RetainedOwnedCandidateWriteKey: RetainedOwnedCandidateCatalogPublication] = [:]
+    private var candidatePreparedWrites: Set<RetainedOwnedCandidateWriteKey> = []
+    private var candidateDepartureCustody: [RetainedOwnedCandidateDepartureCustody] = []
+    private var candidateAcceptedCustody: [RetainedOwnedCandidateAcceptedCustody] = []
+    private var candidateReferenceSuccessors: [ObjectIdentifier: RetainedOwnedCandidateReferenceSuccessor] = [:]
+    private var candidateFieldSuccessors: [ObjectIdentifier: RetainedOwnedCandidateFieldSuccessor] = [:]
+    private var candidateBoundaryActivationAttempts: Set<ObjectIdentifier> = []
 
     init(attempt: RetainedLazyListAttemptID) { self.attempt = attempt }
 
@@ -6198,10 +6959,11 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
     func register(
         owner: RetainedOwnedComponentID, slots: [RetainedOwnedSlotGenerationID],
         continuing: [RetainedOwnedComponentReceipt], attribution: RetainedDescriptorComponentAttribution,
-        declarationOnly: Bool
+        declarationOnly: Bool, candidateConstruction: RetainedOwnedCandidateConstruction? = nil
     ) -> RetainedOwnedComponentReceipt? {
         let origin = RetainedOwnedComponentDeclarationOrigin.descriptor(component: attribution.component)
         guard frozenPlans == nil, !wasFinished, attribution.descriptorBuildAttempt === attempt,
+            candidateConstruction.map({ acceptsOwnedCandidateConstruction($0, attribution: attribution) }) != false,
             registrations[origin.key]?.contains(where: { $0.receipt.owner === owner }) != true,
             !declarationOnly || admitsDeclaredContinuation(owner: owner, slots: slots, continuing: continuing),
             let receipt = RetainedOwnedComponentReceipt.register(
@@ -6209,7 +6971,8 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         else { return nil }
         return record(
             origin: origin, receipt: receipt, previous: continuing,
-            declarationOnly: declarationOnly, isDeferredConstruction: false)
+            declarationOnly: declarationOnly, isDeferredConstruction: false,
+            candidateConstruction: candidateConstruction)
     }
 
     private func admitsDeclaredContinuation(
@@ -6224,7 +6987,8 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
 
     private func record(
         origin: RetainedOwnedComponentDeclarationOrigin, receipt: RetainedOwnedComponentReceipt,
-        previous: [RetainedOwnedComponentReceipt], declarationOnly: Bool, isDeferredConstruction: Bool
+        previous: [RetainedOwnedComponentReceipt], declarationOnly: Bool, isDeferredConstruction: Bool,
+        candidateConstruction: RetainedOwnedCandidateConstruction? = nil
     ) -> RetainedOwnedComponentReceipt? {
         guard registrations[origin.key]?.contains(where: { $0.receipt.owner === receipt.owner }) != true else {
             return nil
@@ -6232,7 +6996,7 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         registrations[origin.key, default: []].append(
             RetainedOwnedComponentRegistration(
                 origin: origin, receipt: receipt, previous: previous, declarationOnly: declarationOnly,
-                isDeferredConstruction: isDeferredConstruction))
+                isDeferredConstruction: isDeferredConstruction, candidateConstruction: candidateConstruction))
         return receipt
     }
 
@@ -6495,7 +7259,7 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         else { return false }
         selectedPlans = proposed
         didPrepare = true
-        return true
+        return freezeCandidateChildCatalogSources() && freezeCandidateSelfSources()
     }
 
     private func plans(for source: ViewNode) -> [RetainedOwnedComponentDeclarationPlan]? {
@@ -6592,13 +7356,14 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
                 replaceComponents(
                     on: storage, actual: actual, field: keyPath,
                     with: declarations.map { $0.receipt.componentPresence }, hasPayload: publication.hasPayload)
+                recordCandidateAcceptedFacts(declarations, source: source, actual: actual)
                 fulfillDeclaredMarkerRetirements(declarations, source: source, storage: storage, actual: actual)
                 return
             }
         }
         // Incoming exact generations become authoritative before retiring the
         // last outgoing payload reference and before its capture can deinit.
-        publish(
+        let accepted = publish(
             publication.declarations, actual: actual, source: source, facet: publication.facet, kind: .sourceField)
         // Publish only this accepted source/target declaration marker. Other
         // outputs retain their own structural references through a partial stop.
@@ -6610,6 +7375,9 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
             on: storage, actual: actual, field: keyPath,
             with: publication.declarations.map { $0.receipt.componentPresence },
             hasPayload: publication.hasPayload)
+        if case .published(let successful) = accepted {
+            recordCandidateAcceptedFacts(successful, source: source, actual: actual)
+        }
         fulfillDeclaredMarkerRetirements(
             publication.declarations, source: source, storage: storage, actual: actual)
     }
@@ -6624,7 +7392,8 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         insertions[ObjectIdentifier(storage.targetID)] = RetainedOwnedInsertionPublication(
             source: source, targetID: storage.targetID, attachmentID: storage.attachmentID,
             permissions: permissions, declarations: declarations, regions: regions,
-            expectedStructuralRevision: storage.ownedDeclaredStructuralRevision)
+            expectedStructuralRevision: storage.ownedDeclaredStructuralRevision,
+            candidateReader: prepareCandidateReaderInsertion(from: source))
         return true
     }
 
@@ -6665,12 +7434,15 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
                 replaceStructural(on: storage, actual: actual, with: permissions)
                 replaceComponentStructural(
                     on: storage, actual: actual, with: declarations.map { $0.receipt.componentPresence })
+                recordCandidateAcceptedFacts(
+                    declarations, source: node, actual: actual, insertedReader: publication.candidateReader)
                 fulfillDeclaredMarkerRetirements(declarations, source: node, storage: storage, actual: actual)
                 // Original regionless provenance makes the region queue empty.
                 return
             }
         }
-        publish(publication.declarations, actual: actual, source: node, facet: nil, kind: .structuralEntry)
+        let accepted = publish(
+            publication.declarations, actual: actual, source: node, facet: nil, kind: .structuralEntry)
         // Refused activation cannot supply a physical owned footprint. Recheck
         // after publish's weak-source scan before assigning the prepared members.
         guard
@@ -6690,6 +7462,10 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         replaceStructural(on: storage, actual: actual, with: publication.permissions)
         replaceComponentStructural(
             on: storage, actual: actual, with: publication.declarations.map { $0.receipt.componentPresence })
+        if case .published(let successful) = accepted {
+            recordCandidateAcceptedFacts(
+                successful, source: node, actual: actual, insertedReader: publication.candidateReader)
+        }
         fulfillDeclaredMarkerRetirements(
             publication.declarations, source: node, storage: storage, actual: actual)
         if !publication.regions.isEmpty {
@@ -6712,7 +7488,7 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         let storage = target.lazyListActivityStorage()
         let actual = storage.captureActualAttachment(of: target, in: runtime)
         let declarations = allDeclarations.filter { !$0.declarationOnly }
-        publish(declarations, actual: actual, source: source, facet: nil, kind: .structuralEntry)
+        let accepted = publish(declarations, actual: actual, source: source, facet: nil, kind: .structuralEntry)
         guard
             declarations.allSatisfy({
                 !$0.receipt.owner.wasRevoked && $0.receipt.nativeLifetime.permitsConstruction
@@ -6722,6 +7498,9 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         replaceStructural(on: storage, actual: actual, with: permissions)
         replaceComponentStructural(
             on: storage, actual: actual, with: declarations.map { $0.receipt.componentPresence })
+        if case .published(let successful) = accepted {
+            recordCandidateAcceptedFacts(successful, source: source, actual: actual)
+        }
         fulfillDeclaredMarkerRetirements(declarations, source: source, storage: storage, actual: actual)
         publishCompletedRegions(from: source, to: target, storage: storage, actual: actual)
     }
@@ -6757,6 +7536,7 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
             replaceStructural(on: storage, actual: actual, with: permissions)
             replaceComponentStructural(
                 on: storage, actual: actual, with: accepted.map { $0.receipt.componentPresence })
+            recordCandidateAcceptedFacts(accepted, source: source, actual: actual)
             fulfillDeclaredMarkerRetirements(accepted, source: source, storage: storage, actual: actual)
             publishCompletedRegions(from: source, to: target, storage: storage, actual: actual)
             return true
@@ -7014,7 +7794,8 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
     }
 
     func recordAcceptedEmpty(
-        origin: RetainedOwnedComponentDeclarationOrigin, anchor: RetainedLazyListActualAttachment
+        origin: RetainedOwnedComponentDeclarationOrigin, anchor: RetainedLazyListActualAttachment,
+        acceptedDescriptorEmpty: RetainedDescriptorAcceptedEmptyGroup? = nil
     ) {
         guard didPrepare, !wasFinished, anchor.isAttached,
             let storage = anchor.node?.lazyListActivityStorage()
@@ -7029,7 +7810,7 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
                 memberships[identifier] = logical.id
             }
         }
-        publish(exact, actual: anchor, source: nil, facet: nil, kind: .emptyStructuralEntry)
+        let accepted = publish(exact, actual: anchor, source: nil, facet: nil, kind: .emptyStructuralEntry)
         for plan in exact {
             let owner = ObjectIdentifier(plan.receipt.owner)
             let previous = storage.ownedEmptyStructuralPermissions[owner] ?? []
@@ -7050,6 +7831,10 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
             storage.ownedEmptyStructuralNamespaces[owner, default: RetainedOwnedMarkerNamespaces()].include(
                 plan.structuralRegions)
             presence.structuralFacets[key] = anchor
+        }
+        if let acceptedDescriptorEmpty, case .published(let successful) = accepted {
+            recordCandidateAcceptedFacts(
+                successful, source: nil, actual: anchor, acceptedEmpty: acceptedDescriptorEmpty)
         }
         for membership in memberships.values { advanceEmptyRowRevision(on: storage, membership: membership) }
     }
@@ -7332,7 +8117,9 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         let previous = storage.ownedScopeDeclaredSlots
         storage.ownedScopeDeclaredSlots = permissions.mapValues { RetainedOwnedWeakSlotPermission($0) }
         for (id, old) in previous where permissions[id] == nil {
-            if let permission = old.permission { retire(permission) }
+            if let permission = old.permission, permission.ownedReferenceIndex?.hasCurrentCandidateReference != true {
+                retire(permission)
+            }
         }
         storage.ownedScopeDeclaredComponents = replacingComponentTable(
             plans, previous: storage.ownedScopeDeclaredComponents)
@@ -7583,7 +8370,9 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
             next[ObjectIdentifier(presence.owner)] = RetainedOwnedWeakComponentPresence(presence)
         }
         for (id, old) in previous where next[id] == nil {
-            if let presence = old.presence { retire(presence) }
+            if let presence = old.presence, presence.ownedReferenceIndex?.hasCurrentCandidateReference != true {
+                retire(presence)
+            }
         }
         return next
     }
@@ -7742,6 +8531,27 @@ fileprivate final class RetainedOwnedComponentConstructionLedger {
         regionSources.removeAll()
         deferredRegionBuilds.removeAll()
         planRegistrations.removeAll()
+        candidateAcceptedFacts.removeAll()
+        candidateDeferredFacts.removeAll()
+        candidateAcceptedSegments.removeAll()
+        candidateChildCatalogSources.removeAll()
+        candidateChildCatalogOriginalTargets.removeAll()
+        candidateChildCatalogPublications.removeAll()
+        candidateChildCatalogSuccessors.removeAll()
+        candidateSelfSources.removeAll()
+        candidateSelfRegistrations.removeAll()
+        candidateSelfPublications.removeAll()
+        candidateSelfBodyAcceptances.removeAll()
+        candidatePreparedWrites.removeAll()
+        candidateDepartureCustody.removeAll()
+        candidateAcceptedCustody.removeAll()
+        candidateReferenceSuccessors.removeAll()
+        candidateFieldSuccessors.removeAll()
+        candidateBoundaryActivationAttempts.removeAll()
+        candidatePublications.removeAll()
+        candidateBoundaries.removeAll()
+        candidateSegments.removeAll()
+        candidateQualifications.removeAll()
     }
 }
 
@@ -7766,17 +8576,3641 @@ extension RetainedLazyListBuildAttribution {
 extension RetainedDescriptorComponentAttribution {
     package func registerOwnedComponent(
         owner: RetainedOwnedComponentID, slots: [RetainedOwnedSlotGenerationID],
-        continuing: RetainedOwnedComponentReceipt? = nil, declarationOnly: Bool = false
+        continuing: RetainedOwnedComponentReceipt? = nil, declarationOnly: Bool = false,
+        candidateConstruction: RetainedOwnedCandidateConstruction? = nil
     ) -> RetainedOwnedComponentReceipt? {
         registerOwnedComponent(
-            owner: owner, slots: slots, continuing: continuing.map { [$0] } ?? [], declarationOnly: declarationOnly)
+            owner: owner, slots: slots, continuing: continuing.map { [$0] } ?? [], declarationOnly: declarationOnly,
+            candidateConstruction: candidateConstruction)
     }
 
     package func registerOwnedComponent(
         owner: RetainedOwnedComponentID, slots: [RetainedOwnedSlotGenerationID],
-        continuing: [RetainedOwnedComponentReceipt], declarationOnly: Bool = false
+        continuing: [RetainedOwnedComponentReceipt], declarationOnly: Bool = false,
+        candidateConstruction: RetainedOwnedCandidateConstruction? = nil
     ) -> RetainedOwnedComponentReceipt? {
         descriptorScope?.ownedLedger.register(
-            owner: owner, slots: slots, continuing: continuing, attribution: self, declarationOnly: declarationOnly)
+            owner: owner, slots: slots, continuing: continuing, attribution: self, declarationOnly: declarationOnly,
+            candidateConstruction: candidateConstruction)
+    }
+
+    package func beginOwnedCandidateConstruction(
+        owner: RetainedOwnedComponentReceipt
+    ) -> RetainedOwnedCandidateConstruction? {
+        descriptorScope?.ownedLedger.beginOwnedCandidateConstruction(owner: owner, attribution: self)
+    }
+
+    package func ownedCandidateContinuation() -> RetainedOwnedCandidateContinuation {
+        guard canConstruct, let scope = descriptorScope else { return .rejected }
+        return scope.ownedLedger.ownedCandidateContinuation(attribution: self)
+    }
+}
+
+// These records implement an explicit preserving container. They never enter
+// physical facet maps, lazy row regions, task admission, or action admission.
+@MainActor
+package enum RetainedOwnedCandidateContinuation {
+    case unscoped
+    case admitted(RetainedOwnedCandidateConstruction)
+    case rejected
+}
+
+@MainActor
+package final class RetainedOwnedCandidateConstruction {
+    fileprivate weak var ledger: RetainedOwnedComponentConstructionLedger?
+    fileprivate weak var attribution: RetainedDescriptorComponentAttribution?
+    fileprivate let qualification: RetainedOwnedCandidateScopeQualification
+    fileprivate let owner: RetainedOwnedComponentReceipt
+    fileprivate let segmentOwner: RetainedOwnedComponentReceipt
+    fileprivate let parent: RetainedOwnedCandidateConstruction?
+    fileprivate let isDeferredSegment: Bool
+    fileprivate weak var boundarySource: ViewNode?
+    fileprivate weak var deferredSource: ViewNode?
+    fileprivate var segmentConstruction: RetainedOwnedCandidateSegmentConstruction?
+    fileprivate var selfConstruction: RetainedOwnedCandidateSelfConstruction?
+
+    fileprivate init(
+        ledger: RetainedOwnedComponentConstructionLedger, attribution: RetainedDescriptorComponentAttribution,
+        qualification: RetainedOwnedCandidateScopeQualification, owner: RetainedOwnedComponentReceipt,
+        segmentOwner: RetainedOwnedComponentReceipt, parent: RetainedOwnedCandidateConstruction?,
+        isDeferredSegment: Bool
+    ) {
+        self.ledger = ledger
+        self.attribution = attribution
+        self.qualification = qualification
+        self.owner = owner
+        self.segmentOwner = segmentOwner
+        self.parent = parent
+        self.isDeferredSegment = isDeferredSegment
+    }
+
+    package var canConstruct: Bool {
+        guard let ledger, let attribution, attribution.canConstruct,
+            attribution.descriptorScope?.ownedLedger === ledger, qualification.canConstruct,
+            owner.nativeLifetime.permitsConstruction, !owner.owner.wasRevoked,
+            segmentOwner.nativeLifetime.permitsConstruction, !segmentOwner.owner.wasRevoked
+        else { return false }
+        return ledger.ownsCandidateConstruction(self)
+            && qualification.fields[ObjectIdentifier(owner.owner)]?.isCurrent != false
+            && parent?.canConstruct != false
+    }
+
+    package func stageBoundary(on node: ViewNode) -> Bool {
+        guard canConstruct, !isDeferredSegment, node.selectedContentRole == .viewThatFits,
+            !node.containsRejectedRetainedSource, boundarySource == nil,
+            node.retainedLazyListActivityStorage?.ownedCandidateBoundarySource == nil
+        else { return false }
+        boundarySource = node
+        node.lazyListActivityStorage().ownedCandidateBoundarySource = self
+        return true
+    }
+
+    package func deferredSegment(
+        owner: RetainedOwnedComponentReceipt, attribution: RetainedDescriptorComponentAttribution
+    ) -> RetainedOwnedCandidateConstruction? {
+        guard canConstruct else { return nil }
+        return ledger?.beginOwnedCandidateSegment(owner: owner, attribution: attribution, parent: self)
+    }
+
+    package func stageDeferredAnchor(on node: ViewNode) -> Bool {
+        guard canConstruct, isDeferredSegment, node.geometryReaderBuild != nil,
+            !node.containsRejectedRetainedSource, deferredSource == nil,
+            node.retainedLazyListActivityStorage?.ownedCandidateDeferredSource == nil
+        else { return false }
+        deferredSource = node
+        node.lazyListActivityStorage().ownedCandidateDeferredSource = self
+        return true
+    }
+
+    fileprivate var segmentKey: RetainedOwnedCandidateSegmentKey {
+        RetainedOwnedCandidateSegmentKey(namespace: owner.owner, segment: segmentOwner.owner)
+    }
+
+    fileprivate func belongs(to namespace: RetainedOwnedComponentID) -> Bool {
+        var current: RetainedOwnedCandidateConstruction? = self
+        var seen: Set<ObjectIdentifier> = []
+        while let value = current, seen.count < ViewNode.maximumTraversalDepth {
+            guard seen.insert(ObjectIdentifier(value)).inserted else { return false }
+            if value.owner.owner === namespace { return true }
+            current = value.parent
+        }
+        return false
+    }
+}
+
+fileprivate struct RetainedOwnedCandidateSegmentKey: Hashable {
+    let namespace: ObjectIdentifier
+    let segment: ObjectIdentifier
+
+    init(namespace: RetainedOwnedComponentID, segment: RetainedOwnedComponentID) {
+        self.namespace = ObjectIdentifier(namespace)
+        self.segment = ObjectIdentifier(segment)
+    }
+}
+
+/// Arithmetic only: this helper neither reads nor mutates a native field.
+enum RetainedOwnedCandidateRevisionCapacity {
+    static func permits(current: UInt64, additional: UInt64) -> Bool {
+        !current.addingReportingOverflow(additional).overflow
+    }
+}
+
+fileprivate struct RetainedOwnedCandidateReferenceKey: Hashable {
+    let holder: RetainedOwnedCandidateSegmentKey
+    let member: ObjectIdentifier
+}
+
+@MainActor
+fileprivate struct RetainedOwnedCandidateReferenceIntent {
+    let member: RetainedOwnedPhysicalReferenceMember
+    let holder: RetainedOwnedCandidateSegmentKey
+    let destination: RetainedOwnedCandidateSegmentKey
+    let original: RetainedOwnedCandidateReference?
+    let lineage: [RetainedOwnedCandidateDeclarationEdge]
+    let returnPath: [RetainedOwnedCandidateSegmentKey]
+
+    init(
+        member: RetainedOwnedPhysicalReferenceMember, holder: RetainedOwnedCandidateSegmentKey,
+        destination: RetainedOwnedCandidateSegmentKey, original: RetainedOwnedCandidateReference? = nil,
+        lineage: [RetainedOwnedCandidateDeclarationEdge] = [], returnPath: [RetainedOwnedCandidateSegmentKey]? = nil
+    ) {
+        self.member = member
+        self.holder = holder
+        self.destination = destination
+        self.original = original
+        self.lineage = lineage
+        self.returnPath = returnPath ?? [holder]
+    }
+
+    var key: RetainedOwnedCandidateReferenceKey { .init(holder: holder, member: member.identity) }
+}
+
+@MainActor
+fileprivate struct RetainedOwnedCandidateReferenceBatch {
+    let field: RetainedOwnedCandidateField
+    let entries: [RetainedOwnedCandidateReferenceKey: RetainedOwnedCandidateReferenceIntent]
+    let existing: [RetainedOwnedCandidateReferenceKey: RetainedOwnedCandidateReference]
+}
+
+@MainActor
+fileprivate struct RetainedOwnedCandidateReferenceBatchResult {
+    let replacements: [(original: RetainedOwnedCandidateReference, accepted: RetainedOwnedCandidateReference)]
+    let accepted: [RetainedOwnedCandidateReferenceKey: RetainedOwnedCandidateReference]
+}
+
+@MainActor
+fileprivate final class RetainedOwnedCandidateIncarnation {}
+
+@MainActor
+fileprivate final class RetainedOwnedWeakCandidateReference {
+    weak var reference: RetainedOwnedCandidateReference?
+    init(_ reference: RetainedOwnedCandidateReference) { self.reference = reference }
+}
+
+/// Membership lineage is not a mutation permit. Only a completed native batch
+/// may continue this exact edge; an earlier operation uses its own recorded
+/// reference-successor receipt rather than reading currentReference to renew.
+@MainActor
+fileprivate final class RetainedOwnedCandidateDeclarationEdge {
+    let declaringSegment: RetainedOwnedCandidateSegmentKey
+    weak var currentReference: RetainedOwnedCandidateReference?
+    var dependents: [ObjectIdentifier: RetainedOwnedWeakCandidateReference] = [:]
+    var isClosed = false
+    weak var acceptedReader: RetainedOwnedCandidateAcceptedReader?
+
+    init(declaringSegment: RetainedOwnedCandidateSegmentKey) { self.declaringSegment = declaringSegment }
+}
+
+@MainActor
+fileprivate final class RetainedOwnedCandidateReference {
+    let member: RetainedOwnedPhysicalReferenceMember
+    let holderSegment: RetainedOwnedCandidateSegmentKey
+    let destination: RetainedOwnedCandidateSegmentKey
+    let declarationEdge: RetainedOwnedCandidateDeclarationEdge
+    let lineage: [RetainedOwnedCandidateDeclarationEdge]
+    let returnPath: [RetainedOwnedCandidateSegmentKey]
+    let fieldIncarnation: RetainedOwnedCandidateIncarnation
+    weak var field: RetainedOwnedCandidateField?
+    var wasWithdrawn = false
+
+    init(
+        member: RetainedOwnedPhysicalReferenceMember, destination: RetainedOwnedCandidateSegmentKey,
+        holderSegment: RetainedOwnedCandidateSegmentKey, field: RetainedOwnedCandidateField,
+        original: RetainedOwnedCandidateReference?, lineage: [RetainedOwnedCandidateDeclarationEdge],
+        returnPath: [RetainedOwnedCandidateSegmentKey]
+    ) {
+        self.member = member
+        self.holderSegment = holderSegment
+        self.destination = destination
+        self.field = field
+        fieldIncarnation = field.incarnation
+        declarationEdge =
+            original?.declarationEdge ?? RetainedOwnedCandidateDeclarationEdge(declaringSegment: holderSegment)
+        self.lineage = lineage
+        self.returnPath = returnPath
+    }
+
+    private var isStoredCurrent: Bool {
+        !wasWithdrawn && !declarationEdge.isClosed && declarationEdge.currentReference === self
+            && member.isCurrentCandidateMember && field?.incarnation === fieldIncarnation
+            && field?.contains(self) == true
+    }
+
+    var isCurrent: Bool { hasCurrentLineage(excluding: nil) }
+
+    func hasCurrentLineage(excluding forbidden: RetainedOwnedCandidateDeclarationEdge?) -> Bool {
+        var pending: [(reference: RetainedOwnedCandidateReference, leaving: Bool)] = [(self, false)]
+        var active: Set<ObjectIdentifier> = []
+        var complete: Set<ObjectIdentifier> = []
+        while let step = pending.popLast() {
+            let identity = ObjectIdentifier(step.reference)
+            if step.leaving {
+                active.remove(identity)
+                complete.insert(identity)
+                continue
+            }
+            if complete.contains(identity) { continue }
+            guard complete.count + active.count < ViewNode.maximumTraversalDepth,
+                step.reference.isStoredCurrent, step.reference.declarationEdge !== forbidden,
+                active.insert(identity).inserted
+            else { return false }
+            pending.append((step.reference, true))
+            for edge in step.reference.lineage {
+                guard !edge.isClosed, edge !== forbidden, let current = edge.currentReference,
+                    !active.contains(ObjectIdentifier(current))
+                else { return false }
+                pending.append((current, false))
+            }
+        }
+        return true
+    }
+}
+
+/// Pins the entire original dependency wave. Every table, index, edge and
+/// revision is withdrawn before the caller may retire any member. A continued
+/// edge belongs to its accepted replacement, never to the departing donor.
+@MainActor
+fileprivate struct RetainedOwnedCandidateWithdrawal {
+    let references: [RetainedOwnedCandidateReference]
+    let fields: [RetainedOwnedCandidateField]
+
+    init(_ originals: [RetainedOwnedCandidateReference]) {
+        var pending = originals
+        var captured: [RetainedOwnedCandidateReference] = []
+        var capturedFields: [ObjectIdentifier: RetainedOwnedCandidateField] = [:]
+        var seen: Set<ObjectIdentifier> = []
+        while let reference = pending.popLast() {
+            guard !reference.wasWithdrawn, seen.insert(ObjectIdentifier(reference)).inserted else { continue }
+            captured.append(reference)
+            if let field = reference.field { capturedFields[ObjectIdentifier(field)] = field }
+            if reference.declarationEdge.currentReference === reference {
+                for dependent in reference.declarationEdge.dependents.values {
+                    if let exact = dependent.reference,
+                        exact.lineage.contains(where: { $0 === reference.declarationEdge })
+                    {
+                        pending.append(exact)
+                    }
+                }
+            }
+        }
+        references = captured
+        fields = Array(capturedFields.values)
+    }
+
+    func withdraw() {
+        var changed: [ObjectIdentifier: RetainedOwnedCandidateSegment] = [:]
+        for reference in references where !reference.wasWithdrawn {
+            reference.wasWithdrawn = true
+            reference.member.index.candidateReferences.removeValue(forKey: ObjectIdentifier(reference))
+            for edge in reference.lineage { edge.dependents.removeValue(forKey: ObjectIdentifier(reference)) }
+            if let field = reference.field, field.incarnation === reference.fieldIncarnation,
+                let segment = field.segments[reference.holderSegment],
+                segment.references[reference.member.identity] === reference
+            {
+                segment.references.removeValue(forKey: reference.member.identity)
+                changed[ObjectIdentifier(segment)] = segment
+            }
+            if reference.declarationEdge.currentReference === reference {
+                reference.declarationEdge.acceptedReader?.removeOriginalDeclaration(reference)
+                reference.declarationEdge.isClosed = true
+                reference.declarationEdge.currentReference = nil
+                reference.declarationEdge.dependents.removeAll()
+            }
+        }
+        for segment in changed.values {
+            // Exhaustion denies every later addition. Mandatory removal still
+            // removes exact entries; a prior snapshot cannot survive that loss.
+            if segment.revision < .max { segment.revision += 1 }
+        }
+    }
+
+    func retireUnreferencedMembers() {
+        for reference in references { reference.member.retireAfterRawWithdrawalIfUnreferenced() }
+    }
+}
+
+extension RetainedOwnedPhysicalReferenceMember {
+    fileprivate var candidateOwner: RetainedOwnedComponentID {
+        switch self {
+        case .slot(let permission): return permission.owner
+        case .component(let presence): return presence.owner
+        }
+    }
+
+    fileprivate var isCurrentCandidateMember: Bool {
+        switch self {
+        case .slot(let permission):
+            return permission.isDeclared && !permission.wasRevoked && !permission.owner.wasRevoked
+                && permission.lifetime.permitsDeclaredWrite
+        case .component(let presence):
+            return presence.owner.nativePresence === presence && presence.hasDeclaredComponent
+        }
+    }
+}
+
+@MainActor
+fileprivate final class RetainedOwnedCandidateSegment {
+    let key: RetainedOwnedCandidateSegmentKey
+    var revision: UInt64 = 0
+    var references: [ObjectIdentifier: RetainedOwnedCandidateReference] = [:]
+    var acceptedReader: RetainedOwnedCandidateAcceptedReader?
+    init(key: RetainedOwnedCandidateSegmentKey) { self.key = key }
+}
+
+/// Accepted field identity survives a proof-only attachment rotation. Its
+/// currentness is deliberately nonrecursive: no reference index is consulted.
+@MainActor
+fileprivate final class RetainedOwnedCandidateField {
+    let incarnation = RetainedOwnedCandidateIncarnation()
+    let owner: RetainedOwnedComponentPresence
+    weak var node: ViewNode?
+    weak var storage: RetainedLazyListNodeActivityStorage?
+    weak var runtime: RetainedViewRuntime?
+    var catalogRevision: UInt64 = 0
+    var segments: [RetainedOwnedCandidateSegmentKey: RetainedOwnedCandidateSegment] = [:]
+    var readerRoots: [ObjectIdentifier: RetainedOwnedWeakCandidateReader] = [:]
+    weak var departureCustody: RetainedOwnedCandidateDepartureCustody?
+    private(set) var wasWithdrawn = false
+
+    init(owner: RetainedOwnedComponentPresence, actual: RetainedLazyListActualAttachment) {
+        self.owner = owner
+        node = actual.node
+        storage = actual.node?.retainedLazyListActivityStorage
+        runtime = actual.runtime
+    }
+
+    var isCurrent: Bool {
+        guard !wasWithdrawn, owner.owner.nativePresence === owner, owner.hasDeclaredComponent,
+            owner.ownedCandidateField === self, let node, let storage, let runtime,
+            node.retainedLazyListActivityStorage === storage, storage.ownedCandidateField === self,
+            node.retainedLazyListRuntime === runtime
+        else { return false }
+        return node.isRetainedLazyListAttached(in: runtime)
+    }
+
+    func contains(_ reference: RetainedOwnedCandidateReference) -> Bool {
+        isCurrent && segments[reference.holderSegment]?.references[reference.member.identity] === reference
+    }
+
+    func takeOriginalReferencesForWithdrawal() -> [RetainedOwnedCandidateReference] {
+        guard !wasWithdrawn else { return [] }
+        wasWithdrawn = true
+        departureCustody = nil
+        let original = segments.values.flatMap { Array($0.references.values) }
+        segments.removeAll()
+        readerRoots.removeAll()
+        if storage?.ownedCandidateField === self { storage?.ownedCandidateField = nil }
+        if owner.ownedCandidateField === self { owner.ownedCandidateField = nil }
+        return original
+    }
+
+    func withdraw() {
+        let withdrawal = RetainedOwnedCandidateWithdrawal(takeOriginalReferencesForWithdrawal())
+        withdrawal.withdraw()
+        withdrawal.retireUnreferencedMembers()
+    }
+}
+
+@MainActor
+fileprivate final class RetainedOwnedCandidateSegmentSnapshot {
+    let segment: RetainedOwnedCandidateSegment
+    let revision: UInt64
+    let references: [ObjectIdentifier: RetainedOwnedCandidateReference]
+
+    init(_ segment: RetainedOwnedCandidateSegment) {
+        self.segment = segment
+        revision = segment.revision
+        references = segment.references
+    }
+
+    var isCurrent: Bool {
+        segment.revision == revision && segment.references.count == references.count
+            && references.allSatisfy { segment.references[$0.key] === $0.value && !$0.value.wasWithdrawn }
+    }
+}
+
+/// Construction provenance only. The parent and normal reader registration are
+/// fixed before the child reader evaluates authored content.
+@MainActor
+fileprivate final class RetainedOwnedCandidateSegmentConstruction {
+    let parent: RetainedOwnedCandidateConstruction
+    let registration: RetainedOwnedComponentRegistration
+    weak var token: RetainedOwnedCandidateConstruction?
+
+    init(
+        parent: RetainedOwnedCandidateConstruction, registration: RetainedOwnedComponentRegistration,
+        token: RetainedOwnedCandidateConstruction
+    ) {
+        self.parent = parent
+        self.registration = registration
+        self.token = token
+    }
+}
+
+@MainActor
+fileprivate final class RetainedOwnedWeakCandidateReader {
+    weak var reader: RetainedOwnedCandidateAcceptedReader?
+    init(_ reader: RetainedOwnedCandidateAcceptedReader) { self.reader = reader }
+}
+
+/// A successful normal reader and its successful descriptor group establish
+/// this native graph edge. Neither a slot nor a planned segment creates one.
+@MainActor
+fileprivate final class RetainedOwnedCandidateReaderPublication {
+    let reader: RetainedOwnedComponentReceipt
+    let contribution: RetainedDescriptorContributionReceipt
+    let actual: RetainedLazyListActualAttachment
+
+    init(
+        reader: RetainedOwnedComponentReceipt, contribution: RetainedDescriptorContributionReceipt,
+        actual: RetainedLazyListActualAttachment
+    ) {
+        self.reader = reader
+        self.contribution = contribution
+        self.actual = actual
+    }
+}
+
+@MainActor
+fileprivate final class RetainedOwnedCandidateAcceptedReader {
+    weak var field: RetainedOwnedCandidateField?
+    let incarnation: RetainedOwnedCandidateIncarnation
+    weak var segment: RetainedOwnedCandidateSegment?
+    let normalReference: RetainedOwnedCandidateReference
+    weak var parent: RetainedOwnedCandidateAcceptedReader?
+    let isRoot: Bool
+    var publication: RetainedOwnedCandidateReaderPublication
+    var children: [ObjectIdentifier: RetainedOwnedWeakCandidateReader] = [:]
+    private(set) var wasRemoved = false
+
+    init(
+        field: RetainedOwnedCandidateField, segment: RetainedOwnedCandidateSegment,
+        normalReference: RetainedOwnedCandidateReference, parent: RetainedOwnedCandidateAcceptedReader?,
+        publication: RetainedOwnedCandidateReaderPublication
+    ) {
+        self.field = field
+        incarnation = field.incarnation
+        self.segment = segment
+        self.normalReference = normalReference
+        self.parent = parent
+        isRoot = parent == nil
+        self.publication = publication
+    }
+
+    var isDeclared: Bool {
+        guard !wasRemoved, let field, let segment, field.isCurrent, field.incarnation === incarnation,
+            field.segments[segment.key] === segment, segment.acceptedReader === self,
+            normalReference.isCurrent, normalReference.declarationEdge.acceptedReader === self
+        else { return false }
+        if isRoot {
+            return field.readerRoots[ObjectIdentifier(self)]?.reader === self
+        }
+        guard let parent, parent.children[ObjectIdentifier(self)]?.reader === self,
+            parent.normalReference.isCurrent,
+            normalReference.lineage.contains(where: { $0 === parent.normalReference.declarationEdge })
+        else { return false }
+        return true
+    }
+
+    func removeOriginalDeclaration(_ reference: RetainedOwnedCandidateReference) {
+        guard !wasRemoved, normalReference === reference else { return }
+        wasRemoved = true
+        if reference.declarationEdge.acceptedReader === self { reference.declarationEdge.acceptedReader = nil }
+        if let segment, segment.acceptedReader === self { segment.acceptedReader = nil }
+        if isRoot {
+            if field?.readerRoots[ObjectIdentifier(self)]?.reader === self {
+                field?.readerRoots.removeValue(forKey: ObjectIdentifier(self))
+            }
+        } else if parent?.children[ObjectIdentifier(self)]?.reader === self {
+            parent?.children.removeValue(forKey: ObjectIdentifier(self))
+        }
+    }
+}
+
+/// Original per-reader catalog evidence, never a field mutation or construction
+/// qualification. The optional actual is captured now; a cold reader cannot
+/// obtain one by a later lookup of the same owner or authored identity.
+@MainActor
+fileprivate final class RetainedOwnedCandidateCatalogNode {
+    let reader: RetainedOwnedCandidateAcceptedReader
+    let publication: RetainedOwnedCandidateReaderPublication
+    let field: RetainedOwnedCandidateFieldSnapshot
+    let normalReference: RetainedOwnedCandidateReference
+    let actual: RetainedLazyListActualAttachment?
+    let dependencies: RetainedOwnedCandidateCatalogDependencies
+    var children: [RetainedOwnedCandidateCatalogNode] = []
+
+    init?(reader: RetainedOwnedCandidateAcceptedReader, fieldActual: RetainedLazyListActualAttachment) {
+        guard reader.isDeclared, let owner = reader.field, let segment = reader.segment,
+            owner.segments[segment.key] === segment,
+            let snapshot = RetainedOwnedCandidateFieldSnapshot(
+                field: owner, actual: fieldActual, selectedSegment: segment.key)
+        else { return nil }
+        self.reader = reader
+        publication = reader.publication
+        field = snapshot
+        normalReference = reader.normalReference
+        guard let dependencies = RetainedOwnedCandidateCatalogDependencies(snapshot.references) else { return nil }
+        self.dependencies = dependencies
+        let original = reader.publication.actual
+        if original.isAttached, reader.publication.contribution.isActive,
+            let installed = original.node?.retainedLazyListActivityStorage?.ownedCandidateDeferredAnchor,
+            installed.readerRecord === reader, installed.readerPublication === reader.publication,
+            installed.isCurrent
+        {
+            actual = original
+        } else {
+            actual = nil
+        }
+    }
+
+    var isCurrent: Bool {
+        reader.isDeclared && reader.publication === publication && reader.normalReference === normalReference
+            && normalReference.isCurrent && field.isCurrent && dependencies.isCurrent
+    }
+
+    /// The caller has performed this ledger's callback-free removal. Copy its
+    /// original physical/reader binding; do not capture a replacement anchor.
+    init?(afterOwnWrite original: RetainedOwnedCandidateCatalogNode) {
+        guard original.reader.isDeclared, original.reader.publication === original.publication,
+            original.reader.normalReference === original.normalReference, original.normalReference.isCurrent,
+            let segment = original.reader.segment, original.field.field.segments[segment.key] === segment,
+            let snapshot = RetainedOwnedCandidateFieldSnapshot(
+                field: original.field.field, actual: original.field.actual,
+                selectedSegment: segment.key),
+            let dependencies = RetainedOwnedCandidateCatalogDependencies(snapshot.references),
+            dependencies.references.allSatisfy({ current in
+                original.dependencies.references.contains(where: { $0 === current })
+            })
+        else { return nil }
+        reader = original.reader
+        publication = original.publication
+        normalReference = original.normalReference
+        actual = original.actual
+        field = snapshot
+        self.dependencies = dependencies
+        children = original.children
+    }
+}
+
+@MainActor
+fileprivate final class RetainedOwnedCandidateCatalogDependencies {
+    struct Segment {
+        let field: RetainedOwnedCandidateField
+        let incarnation: RetainedOwnedCandidateIncarnation
+        let catalogRevision: UInt64
+        let snapshot: RetainedOwnedCandidateSegmentSnapshot
+    }
+
+    struct Edge {
+        let original: RetainedOwnedCandidateReference
+        let dependents: [ObjectIdentifier: RetainedOwnedCandidateReference]
+    }
+
+    let references: [RetainedOwnedCandidateReference]
+    let segments: [Segment]
+    let edges: [Edge]
+
+    init?(_ originals: [RetainedOwnedCandidateReference]) {
+        references = RetainedOwnedCandidateWithdrawal(originals).references
+        var segments: [Segment] = []
+        var edges: [Edge] = []
+        var seen: Set<ObjectIdentifier> = []
+        for reference in references {
+            guard reference.isCurrent, let field = reference.field,
+                let segment = field.segments[reference.holderSegment],
+                segment.references[reference.member.identity] === reference
+            else { return nil }
+            if seen.insert(ObjectIdentifier(segment)).inserted {
+                segments.append(
+                    Segment(
+                        field: field, incarnation: field.incarnation, catalogRevision: field.catalogRevision,
+                        snapshot: RetainedOwnedCandidateSegmentSnapshot(segment)))
+            }
+            var dependents: [ObjectIdentifier: RetainedOwnedCandidateReference] = [:]
+            for (id, weakDependent) in reference.declarationEdge.dependents {
+                guard let dependent = weakDependent.reference else { continue }
+                guard dependent.lineage.contains(where: { $0 === reference.declarationEdge }) else { return nil }
+                dependents[id] = dependent
+            }
+            edges.append(Edge(original: reference, dependents: dependents))
+        }
+        self.segments = segments
+        self.edges = edges
+    }
+
+    var isCurrent: Bool {
+        guard references.allSatisfy(\.isCurrent),
+            segments.allSatisfy({ item in
+                item.field.isCurrent && item.field.incarnation === item.incarnation
+                    && item.field.catalogRevision == item.catalogRevision
+                    && item.field.segments[item.snapshot.segment.key] === item.snapshot.segment
+                    && item.snapshot.isCurrent
+            })
+        else { return false }
+        for edge in edges {
+            guard edge.original.declarationEdge.currentReference === edge.original,
+                !edge.original.declarationEdge.isClosed
+            else { return false }
+            let current = edge.original.declarationEdge.dependents.compactMapValues(\.reference)
+            guard current.count == edge.dependents.count,
+                edge.dependents.allSatisfy({ current[$0.key] === $0.value })
+            else { return false }
+        }
+        return true
+    }
+}
+
+@MainActor
+fileprivate final class RetainedOwnedCandidateCatalogGraph {
+    let field: RetainedOwnedCandidateField
+    let nodes: [RetainedOwnedCandidateCatalogNode]
+
+    init?(
+        original: RetainedOwnedCandidateFieldSnapshot, root: RetainedOwnedCandidateAcceptedReader? = nil
+    ) {
+        guard original.isCurrent else { return nil }
+        field = original.field
+        let roots: [RetainedOwnedCandidateAcceptedReader]
+        if let root {
+            guard root.field === field, root.isDeclared else { return nil }
+            roots = [root]
+        } else {
+            roots = field.readerRoots.values.compactMap(\.reader)
+        }
+        var pending = roots.map { (reader: $0, parent: Optional<RetainedOwnedCandidateCatalogNode>.none, depth: 0) }
+        var captured: [RetainedOwnedCandidateCatalogNode] = []
+        var seen: Set<ObjectIdentifier> = []
+        while let step = pending.popLast() {
+            guard step.depth < ViewNode.maximumTraversalDepth,
+                seen.insert(ObjectIdentifier(step.reader)).inserted,
+                let node = RetainedOwnedCandidateCatalogNode(reader: step.reader, fieldActual: original.actual)
+            else { return nil }
+            step.parent?.children.append(node)
+            captured.append(node)
+            for weakChild in step.reader.children.values {
+                guard let child = weakChild.reader else { continue }
+                guard child.parent === step.reader, child.field === field,
+                    child.normalReference.lineage.contains(where: { $0 === step.reader.normalReference.declarationEdge }
+                    )
+                else { return nil }
+                pending.append((child, node, step.depth + 1))
+            }
+        }
+        nodes = captured
+    }
+}
+
+@MainActor
+fileprivate final class RetainedOwnedCandidateChildSource {
+    enum Origin {
+        case fresh
+        case existing(RetainedOwnedCandidateCatalogNode)
+        case refused
+    }
+
+    let construction: RetainedOwnedCandidateSegmentConstruction
+    weak var source: ViewNode?
+    let sourceAttachment: RetainedLazyListAttachmentProof
+    let sourceIdentity: RetainedLazyListViewIdentityProof
+    let normalPlan: RetainedOwnedComponentDeclarationPlan
+    let expectedGroup: RetainedDescriptorContributionReceipt
+    let plans: [RetainedOwnedComponentDeclarationPlan]
+    let origin: Origin
+    var wasConsumed = false
+    var wasRefused = false
+
+    init(
+        construction: RetainedOwnedCandidateSegmentConstruction, source: ViewNode,
+        normalPlan: RetainedOwnedComponentDeclarationPlan, expectedGroup: RetainedDescriptorContributionReceipt,
+        plans: [RetainedOwnedComponentDeclarationPlan], origin: Origin
+    ) {
+        self.construction = construction
+        self.source = source
+        sourceAttachment = source.captureLazyListAttachmentProof()
+        sourceIdentity = source.captureLazyListIdentityProof()
+        self.normalPlan = normalPlan
+        self.expectedGroup = expectedGroup
+        self.plans = plans
+        self.origin = origin
+    }
+
+    var sourceBindingsAreCurrent: Bool {
+        guard !wasRefused, let source, let token = construction.token,
+            token.segmentConstruction === construction, token.deferredSource === source,
+            source.retainedLazyListActivityStorage?.ownedCandidateDeferredSource === token,
+            !source.containsRejectedRetainedSource, sourceIdentity.isCurrent,
+            construction.registration.receipt === normalPlan.receipt,
+            !normalPlan.receipt.owner.wasRevoked, normalPlan.receipt.nativeLifetime.permitsDeclaredWrite
+        else { return false }
+        return normalPlan.receipt.slotPermissions.allSatisfy { !$0.wasRevoked }
+    }
+
+    var sourceIsCurrent: Bool {
+        sourceBindingsAreCurrent && sourceAttachment.isCurrent && construction.token?.qualification.canPublish == true
+    }
+}
+
+/// A child afterimage is catalog history only. No general publication or
+/// continuation accepts this type, even when the write kept every member.
+@MainActor
+fileprivate final class RetainedOwnedCandidateChildPublication {
+    let source: RetainedOwnedCandidateChildSource
+    let original: RetainedOwnedCandidateCatalogNode
+    let afterimage: RetainedOwnedCandidateCatalogNode
+    let affected: [RetainedOwnedCandidateCatalogNode]
+    let wasWrite: Bool
+
+    init(
+        source: RetainedOwnedCandidateChildSource, original: RetainedOwnedCandidateCatalogNode,
+        afterimage: RetainedOwnedCandidateCatalogNode, affected: [RetainedOwnedCandidateCatalogNode], wasWrite: Bool
+    ) {
+        self.source = source
+        self.original = original
+        self.afterimage = afterimage
+        self.affected = affected
+        self.wasWrite = wasWrite
+    }
+}
+
+@MainActor
+fileprivate final class RetainedOwnedCandidateChildSuccessor {
+    let original: RetainedOwnedCandidateCatalogNode
+    let publication: RetainedOwnedCandidateChildPublication
+    let afterimage: RetainedOwnedCandidateCatalogNode?
+    let wasOmitted: Bool
+
+    init(
+        original: RetainedOwnedCandidateCatalogNode, publication: RetainedOwnedCandidateChildPublication,
+        afterimage: RetainedOwnedCandidateCatalogNode?, wasOmitted: Bool
+    ) {
+        self.original = original
+        self.publication = publication
+        self.afterimage = afterimage
+        self.wasOmitted = wasOmitted
+    }
+}
+
+/// Unlike a catalog receipt, this joins two successful native writers. It is
+/// scoped to this original construction and can only publish its actual facts.
+@MainActor
+fileprivate final class RetainedOwnedCandidateSegmentAcceptance {
+    let construction: RetainedOwnedCandidateSegmentConstruction
+    let normal: RetainedOwnedCandidateAcceptedFact
+    let descriptor: RetainedOwnedCandidateDeferredFact
+    let reader: RetainedOwnedCandidateAcceptedReader
+    let publication: RetainedOwnedCandidateReaderPublication
+    var field: RetainedOwnedCandidateFieldSnapshot
+    var anchor: RetainedOwnedCandidateDeferredAnchor
+    let selfParent: RetainedOwnedCandidateSelfBodyAcceptance?
+    var selfWasRefused = false
+
+    init(
+        construction: RetainedOwnedCandidateSegmentConstruction, normal: RetainedOwnedCandidateAcceptedFact,
+        descriptor: RetainedOwnedCandidateDeferredFact, reader: RetainedOwnedCandidateAcceptedReader,
+        publication: RetainedOwnedCandidateReaderPublication, field: RetainedOwnedCandidateFieldSnapshot,
+        anchor: RetainedOwnedCandidateDeferredAnchor, selfParent: RetainedOwnedCandidateSelfBodyAcceptance? = nil
+    ) {
+        self.construction = construction
+        self.normal = normal
+        self.descriptor = descriptor
+        self.reader = reader
+        self.publication = publication
+        self.field = field
+        self.anchor = anchor
+        self.selfParent = selfParent
+    }
+
+    var isCurrent: Bool {
+        if let selfParent {
+            return selfParent.ledger?.canPublishSelfAcceptedChild(self) == true
+        }
+        return construction.token?.qualification.canPublish == true && normal.actual.isAttached
+            && descriptor.descriptorFactIsCurrent && reader.isDeclared && reader.publication === publication
+            && field.isCurrent && anchor.isCurrent
+    }
+}
+
+/// Permission for one successful normal member fact. Catalog-only child
+/// observations cannot construct this proof or supply either authority arm.
+@MainActor
+fileprivate struct RetainedOwnedCandidateNormalMemberProof {
+    let fact: RetainedOwnedCandidateAcceptedFact
+    let token: RetainedOwnedCandidateConstruction
+    let field: RetainedOwnedCandidateFieldSnapshot
+    let publication: RetainedOwnedCandidateCatalogPublication?
+    let acceptance: RetainedOwnedCandidateSegmentAcceptance?
+    let selfAcceptance: RetainedOwnedCandidateSelfBodyAcceptance?
+    let reader: RetainedOwnedCandidateAcceptedReader?
+
+    var isCurrent: Bool {
+        guard fact.actual.isAttached, !fact.plan.declarationOnly, field.isCurrent,
+            token.owner.hasDeclaredComponent,
+            fact.plan.receipt.hasDeclaredComponent,
+            fact.plan.receipt.slotPermissions.allSatisfy({ $0.isDeclared && !$0.wasRevoked })
+        else { return false }
+        if let selfAcceptance {
+            return publication == nil && acceptance == nil && selfAcceptance.field === field
+                && selfAcceptance.token === token && reader === selfAcceptance.reader
+                && selfAcceptance.ledger?.permitsSelfAcceptedNormal(fact, with: selfAcceptance) == true
+        }
+        if let acceptance {
+            guard publication == nil, acceptance.isCurrent, acceptance.field === field,
+                acceptance.construction.token === token, reader === acceptance.reader
+            else { return false }
+            if let selfParent = acceptance.selfParent {
+                return selfParent.ledger?.permitsSelfAcceptedChildNormal(fact, with: acceptance) == true
+            }
+            return token.qualification.canPublish
+        }
+        guard token.qualification.canPublish, let publication, publication.afterimage === field,
+            publication.write.token?.qualification === token.qualification,
+            publication.write.plans.contains(where: { $0 === fact.plan })
+        else { return false }
+        if token.isDeferredSegment {
+            guard token.segmentConstruction == nil, let continuation = token.qualification.currentContinuation,
+                continuation.isCurrent, continuation.segment == token.segmentKey,
+                reader === continuation.readerRecord, field.selectedSegment == token.segmentKey
+            else { return false }
+        } else if reader != nil {
+            return false
+        }
+        return true
+    }
+}
+
+@MainActor
+fileprivate final class RetainedOwnedCandidateFieldSnapshot {
+    let field: RetainedOwnedCandidateField
+    let incarnation: RetainedOwnedCandidateIncarnation
+    let actual: RetainedLazyListActualAttachment
+    let catalogRevision: UInt64
+    let segments: [RetainedOwnedCandidateSegmentKey: RetainedOwnedCandidateSegmentSnapshot]
+    let selectedSegment: RetainedOwnedCandidateSegmentKey?
+
+    init?(
+        field: RetainedOwnedCandidateField, actual: RetainedLazyListActualAttachment,
+        selectedSegment: RetainedOwnedCandidateSegmentKey? = nil
+    ) {
+        guard field.isCurrent, actual.isAttached, actual.node === field.node,
+            let storage = field.storage, storage.targetID === actual.target,
+            storage.attachmentID === actual.attachment
+        else { return nil }
+        self.field = field
+        incarnation = field.incarnation
+        self.actual = actual
+        catalogRevision = field.catalogRevision
+        self.selectedSegment = selectedSegment
+        var result: [RetainedOwnedCandidateSegmentKey: RetainedOwnedCandidateSegmentSnapshot] = [:]
+        for (key, segment) in field.segments where selectedSegment == nil || selectedSegment == key {
+            result[key] = RetainedOwnedCandidateSegmentSnapshot(segment)
+        }
+        segments = result
+    }
+
+    var isCurrent: Bool {
+        guard field.isCurrent, field.incarnation === incarnation, actual.isAttached,
+            field.catalogRevision == catalogRevision
+        else { return false }
+        if let selectedSegment {
+            guard (field.segments[selectedSegment] == nil) == (segments[selectedSegment] == nil) else { return false }
+        } else if field.segments.count != segments.count {
+            return false
+        }
+        return segments.allSatisfy { field.segments[$0.key] === $0.value.segment && $0.value.isCurrent }
+    }
+
+    var references: [RetainedOwnedCandidateReference] {
+        segments.values.flatMap { Array($0.references.values) }
+    }
+}
+
+/// Original operation qualification is separate from membership. It is captured
+/// once before construction and cannot be recreated by an earlier attempt.
+@MainActor
+fileprivate final class RetainedOwnedCandidateScopeQualification {
+    weak var scope: RetainedLazyListDescriptorBuildScope?
+    let actual: RetainedLazyListActualAttachment
+    let contribution: RetainedDescriptorContributionReceipt?
+    let continuation: RetainedOwnedCandidateDeferredAnchor?
+    var continuationAfterimage: RetainedOwnedCandidateDeferredAnchor?
+    let fields: [ObjectIdentifier: RetainedOwnedCandidateFieldSnapshot]
+    let childCatalogGraphs: [RetainedOwnedCandidateCatalogGraph]
+
+    init(
+        scope: RetainedLazyListDescriptorBuildScope, actual: RetainedLazyListActualAttachment,
+        contribution: RetainedDescriptorContributionReceipt?, continuation: RetainedOwnedCandidateDeferredAnchor?,
+        fields: [ObjectIdentifier: RetainedOwnedCandidateFieldSnapshot],
+        childCatalogGraphs: [RetainedOwnedCandidateCatalogGraph]
+    ) {
+        self.scope = scope
+        self.actual = actual
+        self.contribution = contribution
+        self.continuation = continuation
+        self.fields = fields
+        self.childCatalogGraphs = childCatalogGraphs
+    }
+
+    var canConstruct: Bool {
+        guard scope?.canConstructDescriptors == true, actual.isAttached,
+            contribution?.isActive != false, continuation?.isCurrent != false
+        else { return false }
+        return true
+    }
+
+    var canPublish: Bool {
+        scope?.canPublishDescriptors == true && actual.isAttached
+            && contribution?.isActive != false && currentContinuation?.isCurrent != false
+    }
+
+    var currentContinuation: RetainedOwnedCandidateDeferredAnchor? { continuationAfterimage ?? continuation }
+}
+
+fileprivate enum RetainedOwnedCandidateDirectOriginal {
+    case absent
+    case unique(RetainedOwnedCandidateScopeQualification)
+    case ambiguous
+}
+
+@MainActor
+fileprivate final class RetainedOwnedCandidateSelfConstruction {
+    weak var token: RetainedOwnedCandidateConstruction?
+    weak var registration: RetainedOwnedComponentRegistration?
+    let original: RetainedOwnedCandidateDeferredAnchor
+
+    init(
+        token: RetainedOwnedCandidateConstruction, registration: RetainedOwnedComponentRegistration,
+        original: RetainedOwnedCandidateDeferredAnchor
+    ) {
+        self.token = token
+        self.registration = registration
+        self.original = original
+    }
+}
+
+@MainActor
+fileprivate final class RetainedOwnedCandidateSelfSource {
+    let construction: RetainedOwnedCandidateSelfConstruction
+    weak var source: ViewNode?
+    let sourceAttachment: RetainedLazyListAttachmentProof
+    let sourceIdentity: RetainedLazyListViewIdentityProof
+    let plan: RetainedOwnedComponentDeclarationPlan
+    let expectedGroup: RetainedDescriptorContributionReceipt
+
+    init(
+        construction: RetainedOwnedCandidateSelfConstruction, source: ViewNode,
+        plan: RetainedOwnedComponentDeclarationPlan, expectedGroup: RetainedDescriptorContributionReceipt
+    ) {
+        self.construction = construction
+        self.source = source
+        sourceAttachment = source.captureLazyListAttachmentProof()
+        sourceIdentity = source.captureLazyListIdentityProof()
+        self.plan = plan
+        self.expectedGroup = expectedGroup
+    }
+}
+
+/// This attempt is bound while its original contribution is still active. The
+/// exact first own absence may discharge only that contribution's activity test.
+@MainActor
+fileprivate final class RetainedOwnedCandidateSelfPublication {
+    weak var ledger: RetainedOwnedComponentConstructionLedger?
+    let input: RetainedOwnedCandidateSelfSource
+    let originalAnchor: RetainedOwnedCandidateDeferredAnchor
+    let originalField: RetainedOwnedCandidateFieldSnapshot
+    var ownAbsence: RetainedDescriptorAcceptedAbsence?
+    var didDrainOwnAbsence = false
+    var normal: RetainedOwnedCandidateAcceptedFact?
+    var descriptor: RetainedOwnedCandidateDeferredFact?
+    var didFinish = false
+    var wasRefused = false
+
+    init(
+        ledger: RetainedOwnedComponentConstructionLedger, input: RetainedOwnedCandidateSelfSource,
+        originalAnchor: RetainedOwnedCandidateDeferredAnchor, originalField: RetainedOwnedCandidateFieldSnapshot
+    ) {
+        self.ledger = ledger
+        self.input = input
+        self.originalAnchor = originalAnchor
+        self.originalField = originalField
+    }
+
+    func recordFirstOwnAbsence(_ absence: RetainedDescriptorAcceptedAbsence) {
+        guard !didFinish, !wasRefused, ownAbsence == nil, !absence.removalFacets.isEmpty,
+            absence.previous === input.construction.original.contribution, absence.previous.isActive,
+            absence.actual.node === originalAnchor.actual.node,
+            absence.actual.target === originalAnchor.actual.target,
+            absence.actual.attachment === originalAnchor.actual.attachment,
+            ledger?.canFinishCandidateSelf(self, requireActiveOriginal: true) == true
+        else { return }
+        ownAbsence = absence
+    }
+
+    func recordDrainedOwnAbsence(_ absence: RetainedDescriptorAcceptedAbsence) {
+        guard let original = ownAbsence, original.cleanup === absence.cleanup,
+            original.previous === absence.previous, original.actual === absence.actual
+        else { return }
+        didDrainOwnAbsence = true
+    }
+}
+
+/// Actual SELF completion permits only the original successful body facts. It
+/// never changes the original construction qualification or general receipts.
+@MainActor
+fileprivate final class RetainedOwnedCandidateSelfBodyAcceptance {
+    weak var ledger: RetainedOwnedComponentConstructionLedger?
+    let publication: RetainedOwnedCandidateSelfPublication
+    let token: RetainedOwnedCandidateConstruction
+    let normal: RetainedOwnedCandidateAcceptedFact
+    let descriptor: RetainedOwnedCandidateDeferredFact
+    let reader: RetainedOwnedCandidateAcceptedReader
+    let normalReference: RetainedOwnedCandidateReference
+    let readerPublication: RetainedOwnedCandidateReaderPublication
+    var field: RetainedOwnedCandidateFieldSnapshot
+    var anchor: RetainedOwnedCandidateDeferredAnchor
+    var wasRefused = false
+
+    init(
+        ledger: RetainedOwnedComponentConstructionLedger, publication: RetainedOwnedCandidateSelfPublication,
+        token: RetainedOwnedCandidateConstruction, normal: RetainedOwnedCandidateAcceptedFact,
+        descriptor: RetainedOwnedCandidateDeferredFact, reader: RetainedOwnedCandidateAcceptedReader,
+        readerPublication: RetainedOwnedCandidateReaderPublication, field: RetainedOwnedCandidateFieldSnapshot,
+        anchor: RetainedOwnedCandidateDeferredAnchor
+    ) {
+        self.ledger = ledger
+        self.publication = publication
+        self.token = token
+        self.normal = normal
+        self.descriptor = descriptor
+        self.reader = reader
+        normalReference = reader.normalReference
+        self.readerPublication = readerPublication
+        self.field = field
+        self.anchor = anchor
+    }
+}
+
+@MainActor
+fileprivate final class RetainedOwnedCandidateDeferredAnchor {
+    let owner: RetainedOwnedComponentReceipt
+    let reader: RetainedOwnedComponentReceipt
+    let contribution: RetainedDescriptorContributionReceipt
+    let actual: RetainedLazyListActualAttachment
+    let field: RetainedOwnedCandidateFieldSnapshot
+    let segment: RetainedOwnedCandidateSegmentKey
+    let readerRecord: RetainedOwnedCandidateAcceptedReader
+    let readerPublication: RetainedOwnedCandidateReaderPublication
+
+    init(
+        owner: RetainedOwnedComponentReceipt, reader: RetainedOwnedComponentReceipt,
+        contribution: RetainedDescriptorContributionReceipt, actual: RetainedLazyListActualAttachment,
+        field: RetainedOwnedCandidateFieldSnapshot, segment: RetainedOwnedCandidateSegmentKey,
+        readerRecord: RetainedOwnedCandidateAcceptedReader,
+        readerPublication: RetainedOwnedCandidateReaderPublication
+    ) {
+        self.owner = owner
+        self.reader = reader
+        self.contribution = contribution
+        self.actual = actual
+        self.field = field
+        self.segment = segment
+        self.readerRecord = readerRecord
+        self.readerPublication = readerPublication
+    }
+
+    var isCurrent: Bool {
+        actual.isAttached && contribution.isActive && field.isCurrent
+            && owner.hasDeclaredComponent && reader.hasDeclaredComponent
+            && readerRecord.isDeclared && readerRecord.publication === readerPublication
+            && readerPublication.reader === reader && readerPublication.contribution === contribution
+            && actual.node?.retainedLazyListActivityStorage?.ownedCandidateDeferredAnchor === self
+    }
+}
+
+@MainActor
+fileprivate final class RetainedOwnedCandidateAcceptedFact {
+    let plan: RetainedOwnedComponentDeclarationPlan
+    let actual: RetainedLazyListActualAttachment
+    weak var source: ViewNode?
+    let wasAcceptedEmpty: Bool
+    let insertedReader: RetainedOwnedCandidateChildSource?
+    var acceptedReferences: [ObjectIdentifier: RetainedOwnedCandidateReference]?
+    weak var acceptedParentReader: RetainedOwnedCandidateAcceptedReader?
+
+    init(
+        plan: RetainedOwnedComponentDeclarationPlan, actual: RetainedLazyListActualAttachment,
+        source: ViewNode?, wasAcceptedEmpty: Bool, insertedReader: RetainedOwnedCandidateChildSource?
+    ) {
+        self.plan = plan
+        self.actual = actual
+        self.source = source
+        self.wasAcceptedEmpty = wasAcceptedEmpty
+        self.insertedReader = insertedReader
+    }
+}
+
+/// This fact is recorded only by the successful descriptor-group writer. A
+/// later lookup of the node's descriptor anchor cannot manufacture it.
+@MainActor
+fileprivate final class RetainedOwnedCandidateDeferredFact {
+    weak var source: ViewNode?
+    let token: RetainedOwnedCandidateConstruction
+    let actual: RetainedLazyListActualAttachment
+    let contribution: RetainedDescriptorContributionReceipt
+    let previousAnchor: RetainedOwnedCandidateDeferredAnchor?
+    var acceptedAnchor: RetainedOwnedCandidateDeferredAnchor?
+
+    init(
+        source: ViewNode, token: RetainedOwnedCandidateConstruction, actual: RetainedLazyListActualAttachment,
+        contribution: RetainedDescriptorContributionReceipt, previousAnchor: RetainedOwnedCandidateDeferredAnchor?
+    ) {
+        self.source = source
+        self.token = token
+        self.actual = actual
+        self.contribution = contribution
+        self.previousAnchor = previousAnchor
+    }
+
+    var descriptorFactIsCurrent: Bool {
+        guard actual.isAttached, contribution.isActive,
+            let installed = actual.node?.retainedLazyListActivityStorage?.descriptorDeferredSubtreeAnchor
+        else { return false }
+        return installed.contribution === contribution && installed.actual === actual
+    }
+}
+
+fileprivate struct RetainedOwnedCandidateWriteKey: Hashable {
+    let source: ObjectIdentifier
+    let target: ObjectIdentifier
+    let segment: RetainedOwnedCandidateSegmentKey?
+}
+
+@MainActor
+final class RetainedOwnedCandidateCatalogWrite {
+    fileprivate weak var ledger: RetainedOwnedComponentConstructionLedger?
+    fileprivate weak var source: ViewNode?
+    fileprivate weak var target: ViewNode?
+    fileprivate let sourceAttachment: RetainedLazyListAttachmentProof
+    fileprivate let sourceIdentity: RetainedLazyListViewIdentityProof
+    fileprivate let targetActual: RetainedLazyListActualAttachment
+    fileprivate let token: RetainedOwnedCandidateConstruction?
+    fileprivate let original: RetainedOwnedCandidateFieldSnapshot?
+    fileprivate let plans: [RetainedOwnedComponentDeclarationPlan]
+    fileprivate let key: RetainedOwnedCandidateWriteKey
+    fileprivate var wasConsumed = false
+
+    fileprivate init(
+        ledger: RetainedOwnedComponentConstructionLedger, source: ViewNode, target: ViewNode,
+        targetActual: RetainedLazyListActualAttachment, token: RetainedOwnedCandidateConstruction?,
+        original: RetainedOwnedCandidateFieldSnapshot?, plans: [RetainedOwnedComponentDeclarationPlan],
+        segment: RetainedOwnedCandidateSegmentKey? = nil
+    ) {
+        self.ledger = ledger
+        self.source = source
+        self.target = target
+        sourceAttachment = source.captureLazyListAttachmentProof()
+        sourceIdentity = source.captureLazyListIdentityProof()
+        self.targetActual = targetActual
+        self.token = token
+        self.original = original
+        self.plans = plans
+        key = RetainedOwnedCandidateWriteKey(
+            source: ObjectIdentifier(source), target: ObjectIdentifier(target), segment: segment)
+    }
+}
+
+/// Only this attempt's completed native field writes may advance this afterimage.
+/// It is not a way to refresh a source, attachment, or deferred proof.
+@MainActor
+fileprivate final class RetainedOwnedCandidateCatalogPublication {
+    let write: RetainedOwnedCandidateCatalogWrite
+    var afterimage: RetainedOwnedCandidateFieldSnapshot
+
+    init(write: RetainedOwnedCandidateCatalogWrite, afterimage: RetainedOwnedCandidateFieldSnapshot) {
+        self.write = write
+        self.afterimage = afterimage
+    }
+}
+
+@MainActor
+fileprivate struct RetainedOwnedCandidateCustodySource {
+    let original: RetainedOwnedCandidateFieldSnapshot
+    let holder: RetainedOwnedCandidateSegmentKey
+    let references: [RetainedOwnedCandidateReference]
+    let links: [RetainedOwnedCandidateReference]
+    let linkFields: [RetainedOwnedCandidateFieldSnapshot]
+}
+
+/// Pending data has no reference-index entry. Only the original true native
+/// withdrawal cut may consume it, after both accepted endpoints are checked.
+@MainActor
+fileprivate final class RetainedOwnedCandidateDepartureCustody {
+    weak var ledger: RetainedOwnedComponentConstructionLedger?
+    let source: RetainedOwnedCandidateCustodySource
+    let receiver: RetainedOwnedCandidateCatalogPublication
+    var wasConsumed = false
+
+    init(
+        ledger: RetainedOwnedComponentConstructionLedger, source: RetainedOwnedCandidateCustodySource,
+        receiver: RetainedOwnedCandidateCatalogPublication
+    ) {
+        self.ledger = ledger
+        self.source = source
+        self.receiver = receiver
+    }
+}
+
+@MainActor
+fileprivate final class RetainedOwnedCandidateAcceptedCustody {
+    let source: RetainedOwnedCandidateFieldSnapshot
+    let receiver: RetainedOwnedCandidateCatalogPublication
+    let mapping: [(original: RetainedOwnedCandidateReference, accepted: RetainedOwnedCandidateReference)]
+    var returnWasConsumed = false
+
+    init(
+        source: RetainedOwnedCandidateFieldSnapshot, receiver: RetainedOwnedCandidateCatalogPublication,
+        mapping: [(original: RetainedOwnedCandidateReference, accepted: RetainedOwnedCandidateReference)]
+    ) {
+        self.source = source
+        self.receiver = receiver
+        self.mapping = mapping
+    }
+}
+
+/// This is the accepted native afterimage of one exact reference transfer. It
+/// may qualify a later step of this ledger, but never a foreign attempt.
+@MainActor
+fileprivate final class RetainedOwnedCandidateReferenceSuccessor {
+    let original: RetainedOwnedCandidateReference
+    let accepted: RetainedOwnedCandidateReference
+    let publication: RetainedOwnedCandidateCatalogPublication
+
+    init(
+        original: RetainedOwnedCandidateReference, accepted: RetainedOwnedCandidateReference,
+        publication: RetainedOwnedCandidateCatalogPublication
+    ) {
+        self.original = original
+        self.accepted = accepted
+        self.publication = publication
+    }
+}
+
+@MainActor
+fileprivate final class RetainedOwnedCandidateFieldSuccessor {
+    let original: RetainedOwnedCandidateFieldSnapshot
+    let publication: RetainedOwnedCandidateCatalogPublication
+
+    init(original: RetainedOwnedCandidateFieldSnapshot, publication: RetainedOwnedCandidateCatalogPublication) {
+        self.original = original
+        self.publication = publication
+    }
+}
+
+@MainActor
+fileprivate final class RetainedOwnedCandidateTaskBoundary {
+    weak var source: ViewNode?
+    let construction: RetainedOwnedCandidateConstruction?
+
+    init(source: ViewNode, construction: RetainedOwnedCandidateConstruction?) {
+        self.source = source
+        self.construction = construction
+    }
+}
+
+/// Initial task-route qualification is captured with the original construction
+/// path. A live namespace field, role, or later owner lookup cannot create it.
+@MainActor
+fileprivate final class RetainedOwnedCandidateTaskQualification {
+    private let descriptor: RetainedDescriptorComponentAttribution?
+    private let lazy: RetainedLazyListBuildAttribution?
+    private let constructions: [RetainedOwnedCandidateConstruction]
+    private let boundaries: [RetainedOwnedCandidateTaskBoundary]
+
+    init(
+        descriptor: RetainedDescriptorComponentAttribution?, lazy: RetainedLazyListBuildAttribution?,
+        constructions: [RetainedOwnedCandidateConstruction], boundaries: [RetainedOwnedCandidateTaskBoundary]
+    ) {
+        self.descriptor = descriptor
+        self.lazy = lazy
+        self.constructions = constructions
+        self.boundaries = boundaries
+    }
+
+    var canObserveOriginalConstruction: Bool {
+        let admitted: Bool
+        if let descriptor {
+            admitted = descriptor.canConstruct
+        } else {
+            admitted = lazy?.constructionState == .admittedForConstruction
+        }
+        return admitted && constructions.allSatisfy { $0.canConstruct }
+    }
+
+    var canPublish: Bool {
+        if let descriptor {
+            guard descriptor.descriptorScope?.canPublishDescriptors == true else { return false }
+        } else {
+            guard lazy?.canPublishNestedDescriptor == true else { return false }
+        }
+        return constructions.allSatisfy { $0.ledger?.canPublishCandidateTaskConstruction($0) == true }
+    }
+
+    func permitsBoundary(source: ViewNode, actual: RetainedLazyListActualAttachment) -> Bool {
+        guard canPublish, actual.isAttached,
+            let original = boundaries.first(where: { $0.source === source }),
+            source.selectedContentRole == .viewThatFits, actual.node?.selectedContentRole == .viewThatFits
+        else { return false }
+        guard let construction = original.construction else {
+            // A purely structural wrapper has no namespace authority. It must
+            // not be adopted as a namespace-bearing boundary by this route.
+            return actual.node?.retainedLazyListActivityStorage?.ownedCandidateField == nil
+        }
+        return construction.ledger?.hasAcceptedCandidateTaskBoundary(
+            construction, source: source, actual: actual) == true
+    }
+}
+
+@MainActor
+fileprivate func captureOwnedCandidateTaskQualification(
+    context: RetainedOwnedCandidateConstruction?, sourceBoundaries: [ViewNode],
+    attribution: RetainedDescriptorComponentAttribution
+) -> RetainedOwnedCandidateTaskQualification? {
+    guard attribution.canConstruct, let scope = attribution.descriptorScope else { return nil }
+    var constructions: [RetainedOwnedCandidateConstruction] = []
+    var seen: Set<ObjectIdentifier> = []
+    func capture(_ construction: RetainedOwnedCandidateConstruction) -> Bool {
+        var next: RetainedOwnedCandidateConstruction? = construction
+        while let value = next {
+            guard value.canConstruct, value.qualification.scope === scope else { return false }
+            if !seen.insert(ObjectIdentifier(value)).inserted { return true }
+            guard seen.count <= ViewNode.maximumTraversalDepth else { return false }
+            constructions.append(value)
+            next = value.parent
+        }
+        return true
+    }
+    if let context {
+        guard scope.ownedLedger.acceptsOwnedCandidateConstruction(context, attribution: attribution), capture(context)
+        else { return nil }
+    }
+    var boundaries: [RetainedOwnedCandidateTaskBoundary] = []
+    for source in sourceBoundaries {
+        guard source.selectedContentRole == .viewThatFits else { return nil }
+        let construction = source.retainedLazyListActivityStorage?.ownedCandidateBoundarySource
+        if let construction {
+            guard let original = construction.attribution, construction.boundarySource === source,
+                original.ledger === attribution.ledger,
+                attribution.ledger?.candidateComponent(original.component, descendsFrom: attribution.component) == true,
+                capture(construction)
+            else { return nil }
+        }
+        boundaries.append(RetainedOwnedCandidateTaskBoundary(source: source, construction: construction))
+    }
+    return RetainedOwnedCandidateTaskQualification(
+        descriptor: attribution, lazy: nil, constructions: constructions, boundaries: boundaries)
+}
+
+@MainActor
+fileprivate func captureOwnedCandidateTaskQualification(
+    context: RetainedOwnedCandidateConstruction?, sourceBoundaries: [ViewNode],
+    attribution: RetainedLazyListBuildAttribution
+) -> RetainedOwnedCandidateTaskQualification? {
+    guard attribution.constructionState == .admittedForConstruction, context == nil else { return nil }
+    var boundaries: [RetainedOwnedCandidateTaskBoundary] = []
+    for source in sourceBoundaries {
+        guard source.selectedContentRole == .viewThatFits,
+            source.retainedLazyListActivityStorage?.ownedCandidateBoundarySource == nil
+        else { return nil }
+        boundaries.append(RetainedOwnedCandidateTaskBoundary(source: source, construction: nil))
+    }
+    return RetainedOwnedCandidateTaskQualification(
+        descriptor: nil, lazy: attribution, constructions: [], boundaries: boundaries)
+}
+
+extension RetainedLazyListNodeActivityStorage {
+    fileprivate func withdrawOwnedCandidateField() {
+        // Called at an actual native withdrawal cut. Capturing the current
+        // incarnation here cannot make a stale earlier receipt current again.
+        let originalField = ownedCandidateField
+        let originalAnchor = ownedCandidateDeferredAnchor
+        if let originalField, let pending = originalField.departureCustody {
+            pending.ledger?.consumeCandidateDepartureCustody(pending, from: originalField)
+        }
+        // Failure to preserve custody never suppresses the actual O withdrawal.
+        originalField?.withdraw()
+        if ownedCandidateDeferredAnchor === originalAnchor { ownedCandidateDeferredAnchor = nil }
+    }
+}
+
+extension RetainedDescriptorConstructionLedger {
+    fileprivate var canSeedOwnedCandidateOrigins: Bool {
+        !isFrozen && sealed == nil && componentOrder.isEmpty
+    }
+
+    fileprivate func candidateComponent(
+        _ component: RetainedDescriptorComponentID, descendsFrom ancestor: RetainedDescriptorComponentID
+    ) -> Bool {
+        var current: RetainedDescriptorComponentID? = component
+        var visited: Set<ObjectIdentifier> = []
+        while let id = current, visited.count < ViewNode.maximumTraversalDepth {
+            guard visited.insert(ObjectIdentifier(id)).inserted, let record = components[ObjectIdentifier(id)],
+                !rejectedComponentIDs.contains(ObjectIdentifier(id))
+            else { return false }
+            if id === ancestor { return true }
+            current = record.parent
+        }
+        return false
+    }
+}
+
+extension RetainedOwnedComponentConstructionLedger {
+    fileprivate func canPublishCandidateTaskConstruction(_ token: RetainedOwnedCandidateConstruction) -> Bool {
+        guard ownsCandidateConstruction(token), token.qualification.canPublish,
+            !token.owner.owner.wasRevoked, token.owner.nativeLifetime.permitsDeclaredWrite,
+            token.owner.owner.nativePresence === token.owner.componentPresence,
+            !token.segmentOwner.owner.wasRevoked, token.segmentOwner.nativeLifetime.permitsDeclaredWrite
+        else { return false }
+        if let original = token.qualification.fields[ObjectIdentifier(token.owner.owner)],
+            resolvedCandidateOriginal(original) != nil
+        {
+            return true
+        }
+        return candidatePublications.values.contains {
+            $0.write.token === token && $0.afterimage.isCurrent
+                && $0.afterimage.field.owner === token.owner.componentPresence
+        }
+    }
+
+    fileprivate func hasAcceptedCandidateTaskBoundary(
+        _ token: RetainedOwnedCandidateConstruction, source: ViewNode, actual: RetainedLazyListActualAttachment
+    ) -> Bool {
+        guard canPublishCandidateTaskConstruction(token), token.boundarySource === source,
+            let field = actual.node?.retainedLazyListActivityStorage?.ownedCandidateField,
+            field.isCurrent, field.owner === token.owner.componentPresence
+        else { return false }
+        return candidateAcceptedFacts.contains {
+            !$0.wasAcceptedEmpty && !$0.plan.declarationOnly && $0.plan.receipt === token.owner && $0.source === source
+                && $0.actual.target === actual.target && $0.actual.attachment === actual.attachment
+                && $0.actual.isAttached
+        }
+    }
+
+    fileprivate func captureCandidateFields(
+        below root: ViewNode, in runtime: RetainedViewRuntime
+    ) -> [ObjectIdentifier: RetainedOwnedCandidateFieldSnapshot]? {
+        var result: [ObjectIdentifier: RetainedOwnedCandidateFieldSnapshot] = [:]
+        var pending: [(ViewNode, Int)] = [(root, 0)]
+        var seen: Set<ObjectIdentifier> = []
+        while let (node, depth) = pending.popLast() {
+            guard depth < ViewNode.maximumTraversalDepth, seen.insert(ObjectIdentifier(node)).inserted,
+                node.retainedLazyListRuntime === runtime
+            else { return nil }
+            if let storage = node.retainedLazyListActivityStorage, let field = storage.ownedCandidateField {
+                let actual = storage.captureActualAttachment(of: node, in: runtime)
+                guard let snapshot = RetainedOwnedCandidateFieldSnapshot(field: field, actual: actual),
+                    result[ObjectIdentifier(field.owner.owner)] == nil
+                else { return nil }
+                result[ObjectIdentifier(field.owner.owner)] = snapshot
+            }
+            for child in node.children {
+                guard child.parent === node else { return nil }
+                pending.append((child, depth + 1))
+            }
+        }
+        return result
+    }
+
+    private func captureCandidateCatalogGraphs(
+        fields: [ObjectIdentifier: RetainedOwnedCandidateFieldSnapshot],
+        continuation: RetainedOwnedCandidateDeferredAnchor?
+    ) -> [RetainedOwnedCandidateCatalogGraph]? {
+        var graphs: [RetainedOwnedCandidateCatalogGraph] = []
+        for original in fields.values {
+            let root = continuation?.field.field === original.field ? continuation?.readerRecord : nil
+            guard let graph = RetainedOwnedCandidateCatalogGraph(original: original, root: root) else { return nil }
+            graphs.append(graph)
+        }
+        return graphs
+    }
+
+    fileprivate func seedOwnedCandidateOrigins(
+        at root: ViewNode, scope: RetainedLazyListDescriptorBuildScope
+    ) -> Bool {
+        guard !didSeedOwnedCandidateRoot else { return false }
+        didSeedOwnedCandidateRoot = true
+        guard scope.origin == .componentHostRoot, scope.ownedLedger === self, scope.canConstructDescriptors,
+            scope.ordinaryLedger.canSeedOwnedCandidateOrigins, registrations.isEmpty, frozenPlans == nil,
+            let runtime = root.retainedLazyListRuntime, runtime.root === root,
+            runtime.lazyListLogicalHostLifetime === scope.nativeHostLifetime,
+            let storage = root.retainedLazyListActivityStorage,
+            storage.descriptorOwnerLifetime === scope.nativeOwnerLifetime,
+            let fields = captureCandidateFields(below: root, in: runtime)
+        else { return false }
+        let actual = storage.captureActualAttachment(of: root, in: runtime)
+        guard actual.isAttached,
+            let graphs = captureCandidateCatalogGraphs(fields: fields, continuation: nil)
+        else { return false }
+        let qualification = RetainedOwnedCandidateScopeQualification(
+            scope: scope, actual: actual, contribution: nil, continuation: nil, fields: fields,
+            childCatalogGraphs: graphs)
+        scope.ownedCandidateQualification = qualification
+        candidateQualifications[ObjectIdentifier(scope)] = qualification
+        return true
+    }
+
+    fileprivate func qualifyOwnedCandidateSubtree(
+        scope: RetainedLazyListDescriptorBuildScope, contribution: RetainedDescriptorContributionReceipt,
+        actual: RetainedLazyListActualAttachment
+    ) -> Bool {
+        guard scope.ownedLedger === self, scope.canConstructDescriptors, scope.origin == .managedSubtree,
+            candidateQualifications[ObjectIdentifier(scope)] == nil, contribution.isActive, actual.isAttached,
+            let root = actual.node, let runtime = actual.runtime,
+            contribution.nativeHostLifetime === scope.nativeHostLifetime,
+            let fields = captureCandidateFields(below: root, in: runtime)
+        else { return false }
+        let continuation = root.retainedLazyListActivityStorage?.ownedCandidateDeferredAnchor
+        if let continuation {
+            guard continuation.contribution === contribution, continuation.actual.target === actual.target,
+                continuation.actual.attachment === actual.attachment, continuation.isCurrent
+            else { return false }
+        }
+        var originals = fields
+        if let continuation {
+            // This field may be above the reader. Its exact admitted segment is
+            // independent of other reader segments in the same namespace.
+            originals[ObjectIdentifier(continuation.owner.owner)] = continuation.field
+        }
+        guard let graphs = captureCandidateCatalogGraphs(fields: originals, continuation: continuation) else {
+            return false
+        }
+        let qualification = RetainedOwnedCandidateScopeQualification(
+            scope: scope, actual: actual, contribution: contribution, continuation: continuation, fields: originals,
+            childCatalogGraphs: graphs)
+        scope.ownedCandidateQualification = qualification
+        candidateQualifications[ObjectIdentifier(scope)] = qualification
+        return true
+    }
+
+    fileprivate func candidateRegistration(
+        receipt: RetainedOwnedComponentReceipt, attribution: RetainedDescriptorComponentAttribution
+    ) -> RetainedOwnedComponentRegistration? {
+        guard attribution.descriptorScope?.ownedLedger === self, attribution.descriptorBuildAttempt === attempt,
+            let entries = registrations[.descriptor(ObjectIdentifier(attribution.component))]
+        else { return nil }
+        return entries.first { $0.receipt === receipt }
+    }
+
+    fileprivate func ownsCandidateConstruction(_ token: RetainedOwnedCandidateConstruction) -> Bool {
+        guard token.ledger === self, !wasFinished else { return false }
+        if token.isDeferredSegment { return candidateSegments[token.segmentKey] === token }
+        return candidateBoundaries[ObjectIdentifier(token.owner.owner)] === token
+    }
+
+    fileprivate func acceptsOwnedCandidateConstruction(
+        _ token: RetainedOwnedCandidateConstruction, attribution: RetainedDescriptorComponentAttribution
+    ) -> Bool {
+        guard token.canConstruct, token.ledger === self, attribution.canConstruct,
+            let original = token.attribution, original.ledger === attribution.ledger,
+            original.descriptorScope === attribution.descriptorScope,
+            token.qualification === attribution.descriptorScope?.ownedCandidateQualification
+        else { return false }
+        return attribution.ledger?.candidateComponent(
+            attribution.component, descendsFrom: original.component) == true
+    }
+
+    fileprivate func beginOwnedCandidateConstruction(
+        owner: RetainedOwnedComponentReceipt, attribution: RetainedDescriptorComponentAttribution
+    ) -> RetainedOwnedCandidateConstruction? {
+        guard frozenPlans == nil, !wasFinished, attribution.canConstruct,
+            let registration = candidateRegistration(receipt: owner, attribution: attribution),
+            !registration.declarationOnly,
+            let scope = attribution.descriptorScope, let qualification = scope.ownedCandidateQualification,
+            candidateQualifications[ObjectIdentifier(scope)] === qualification,
+            qualification.canConstruct, candidateBoundaries[ObjectIdentifier(owner.owner)] == nil
+        else { return nil }
+        let token = RetainedOwnedCandidateConstruction(
+            ledger: self, attribution: attribution, qualification: qualification, owner: owner,
+            segmentOwner: owner, parent: registration.candidateConstruction, isDeferredSegment: false)
+        candidateBoundaries[ObjectIdentifier(owner.owner)] = token
+        return token
+    }
+
+    fileprivate func beginOwnedCandidateSegment(
+        owner: RetainedOwnedComponentReceipt, attribution: RetainedDescriptorComponentAttribution,
+        parent: RetainedOwnedCandidateConstruction
+    ) -> RetainedOwnedCandidateConstruction? {
+        guard acceptsOwnedCandidateConstruction(parent, attribution: attribution),
+            let registration = candidateRegistration(receipt: owner, attribution: attribution),
+            !registration.declarationOnly, registration.candidateConstruction === parent
+        else { return nil }
+        let key = RetainedOwnedCandidateSegmentKey(namespace: parent.owner.owner, segment: owner.owner)
+        if let existing = candidateSegments[key] {
+            guard existing === parent, parent.parent == nil, parent.isDeferredSegment,
+                parent.segmentConstruction == nil, parent.selfConstruction == nil,
+                let original = parent.qualification.continuation, original.isCurrent,
+                parent.segmentOwner === original.reader, owner !== original.reader,
+                owner.owner === original.reader.owner,
+                owner.componentPresence === original.reader.componentPresence,
+                registration.previous.contains(where: { $0 === original.reader }),
+                original.readerRecord.isDeclared,
+                original.readerRecord.normalReference.member.identity == ObjectIdentifier(owner.componentPresence)
+            else { return nil }
+            parent.selfConstruction = RetainedOwnedCandidateSelfConstruction(
+                token: parent, registration: registration, original: original)
+            return parent
+        }
+        guard candidateSegments[key] == nil else { return nil }
+        let token = RetainedOwnedCandidateConstruction(
+            ledger: self, attribution: attribution, qualification: parent.qualification, owner: parent.owner,
+            segmentOwner: owner, parent: parent, isDeferredSegment: true)
+        token.segmentConstruction = RetainedOwnedCandidateSegmentConstruction(
+            parent: parent, registration: registration, token: token)
+        candidateSegments[key] = token
+        return token
+    }
+
+    fileprivate func ownedCandidateContinuation(
+        attribution: RetainedDescriptorComponentAttribution
+    ) -> RetainedOwnedCandidateContinuation {
+        guard attribution.canConstruct, let scope = attribution.descriptorScope,
+            let qualification = scope.ownedCandidateQualification,
+            candidateQualifications[ObjectIdentifier(scope)] === qualification, qualification.canConstruct
+        else { return .rejected }
+        guard let continuation = qualification.continuation else { return .unscoped }
+        guard continuation.isCurrent else { return .rejected }
+        if let existing = candidateSegments[continuation.segment] {
+            return existing.attribution === attribution && existing.canConstruct ? .admitted(existing) : .rejected
+        }
+        let token = RetainedOwnedCandidateConstruction(
+            ledger: self, attribution: attribution, qualification: qualification, owner: continuation.owner,
+            segmentOwner: continuation.reader, parent: nil, isDeferredSegment: true)
+        candidateSegments[continuation.segment] = token
+        return .admitted(token)
+    }
+
+    private func freezeCandidateSelfSources() -> Bool {
+        guard candidateSelfSources.isEmpty, candidateSelfRegistrations.isEmpty else { return false }
+        for token in candidateSegments.values {
+            guard let construction = token.selfConstruction else { continue }
+            guard let registration = construction.registration,
+                construction.token === token, token.segmentConstruction == nil,
+                registration.candidateConstruction === token,
+                registrations[registration.origin.key]?.contains(where: { $0 === registration }) == true,
+                let scope = token.qualification.scope, let source = token.deferredSource,
+                source.retainedLazyListActivityStorage?.ownedCandidateDeferredSource === token,
+                case .descriptor(let component) = registration.origin,
+                let expected = scope.ordinaryLedger.frozenOwnedCandidateDeferredGroup(
+                    component: component, source: source),
+                let plan = selectedOrdinaryPlans(for: source)?.first(where: {
+                    !$0.declarationOnly && $0.receipt === registration.receipt
+                        && planRegistrations[ObjectIdentifier($0)] === registration
+                }), candidateSelfSources[ObjectIdentifier(source)] == nil
+            else { return false }
+            let input = RetainedOwnedCandidateSelfSource(
+                construction: construction, source: source, plan: plan, expectedGroup: expected)
+            candidateSelfSources[ObjectIdentifier(source)] = input
+            candidateSelfRegistrations[ObjectIdentifier(registration)] = input
+        }
+        return true
+    }
+
+    fileprivate func hasOwnedCandidateSelfSource(_ source: ViewNode) -> Bool {
+        candidateSelfSources[ObjectIdentifier(source)] != nil
+            || source.retainedLazyListActivityStorage?.ownedCandidateDeferredSource?.selfConstruction != nil
+    }
+
+    fileprivate func applyOwnedCandidateSelfSource(from source: ViewNode, to target: ViewNode) -> Bool {
+        guard didPrepare, !wasFinished, let input = candidateSelfSources[ObjectIdentifier(source)],
+            input.source === source, let token = input.construction.token,
+            let scope = token.qualification.scope,
+            candidateQualifications[ObjectIdentifier(scope)] === token.qualification,
+            input.construction.original.actual.node === target
+        else { return false }
+        if let existing = candidateSelfPublications[ObjectIdentifier(input)] {
+            return canFinishCandidateSelf(existing, requireActiveOriginal: true)
+        }
+        guard token.qualification.canPublish,
+            let current = token.qualification.currentContinuation,
+            current.readerRecord === input.construction.original.readerRecord,
+            current.readerPublication === input.construction.original.readerPublication,
+            let field = resolvedCandidateOriginal(input.construction.original.field),
+            field === current.field, field.selectedSegment == token.segmentKey
+        else { return false }
+        let publication = RetainedOwnedCandidateSelfPublication(
+            ledger: self, input: input, originalAnchor: current, originalField: field)
+        guard canFinishCandidateSelf(publication, requireActiveOriginal: true) else { return false }
+        candidateSelfPublications[ObjectIdentifier(input)] = publication
+        return true
+    }
+
+    fileprivate func preparedCandidateSelfPublication(
+        from source: ViewNode, to target: ViewNode
+    ) -> RetainedOwnedCandidateSelfPublication? {
+        guard let input = candidateSelfSources[ObjectIdentifier(source)], input.source === source,
+            let publication = candidateSelfPublications[ObjectIdentifier(input)],
+            publication.input === input, publication.originalAnchor.actual.node === target
+        else { return nil }
+        return publication
+    }
+
+    fileprivate func canFinishCandidateSelf(
+        _ publication: RetainedOwnedCandidateSelfPublication, requireActiveOriginal: Bool = false
+    ) -> Bool {
+        let input = publication.input
+        let original = input.construction.original
+        guard !wasFinished, !publication.wasRefused, !publication.didFinish,
+            let token = input.construction.token, token.selfConstruction === input.construction,
+            let registration = input.construction.registration,
+            registration.candidateConstruction === token,
+            registrations[registration.origin.key]?.contains(where: { $0 === registration }) == true,
+            planRegistrations[ObjectIdentifier(input.plan)] === registration,
+            input.plan.receipt === registration.receipt, !input.plan.declarationOnly,
+            ownsCandidateConstruction(token), let scope = token.qualification.scope,
+            candidateQualifications[ObjectIdentifier(scope)] === token.qualification,
+            scope.canPublishDescriptors, token.qualification.actual.isAttached,
+            token.qualification.contribution === original.contribution,
+            token.qualification.continuation === original,
+            let source = input.source, input.sourceAttachment.isCurrent, input.sourceIdentity.isCurrent,
+            candidateSelfSources[ObjectIdentifier(source)] === input,
+            candidateSelfRegistrations[ObjectIdentifier(registration)] === input,
+            token.deferredSource === source,
+            source.retainedLazyListActivityStorage?.ownedCandidateDeferredSource === token,
+            !source.containsRejectedRetainedSource, original.actual.isAttached,
+            original.owner.hasDeclaredComponent, original.reader.hasDeclaredComponent,
+            registration.receipt.hasDeclaredComponent,
+            registration.receipt.slotPermissions.allSatisfy({ !$0.wasRevoked }),
+            original.readerRecord.isDeclared, original.readerRecord.publication === original.readerPublication,
+            original.readerRecord.normalReference.isCurrent,
+            let field = resolvedCandidateOriginal(original.field), field.isCurrent,
+            let cutField = resolvedCandidateOriginal(publication.originalField), cutField === field,
+            field.field === original.field.field, field.incarnation === original.field.incarnation,
+            field.actual === original.field.actual, field.selectedSegment == original.segment,
+            let anchor = token.qualification.currentContinuation,
+            anchor === original || anchor === token.qualification.continuationAfterimage,
+            anchor.readerRecord === original.readerRecord, anchor.readerPublication === original.readerPublication,
+            anchor.field === field, anchor.actual.node === original.actual.node,
+            anchor.actual.target === original.actual.target, anchor.actual.attachment === original.actual.attachment,
+            original.actual.node?.retainedLazyListActivityStorage?.ownedCandidateDeferredAnchor === anchor
+        else { return false }
+        if original.contribution.isActive { return true }
+        guard !requireActiveOriginal, publication.didDrainOwnAbsence,
+            let absence = publication.ownAbsence, absence.previous === original.contribution,
+            absence.actual.target === original.actual.target, absence.actual.attachment === original.actual.attachment
+        else { return false }
+        return true
+    }
+
+    fileprivate func finishCandidateSelfPublication(_ publication: RetainedOwnedCandidateSelfPublication) {
+        guard canFinishCandidateSelf(publication), let normal = publication.normal,
+            let descriptor = publication.descriptor, descriptor.descriptorFactIsCurrent,
+            descriptor.contribution === publication.input.expectedGroup,
+            let registration = publication.input.construction.registration,
+            let token = publication.input.construction.token,
+            let source = publication.input.source, normal.source === source, descriptor.source === source,
+            normal.plan === publication.input.plan,
+            normal.plan.receipt === registration.receipt,
+            normal.actual.isAttached, normal.actual.node === publication.originalAnchor.actual.node,
+            normal.actual.target === descriptor.actual.target,
+            normal.actual.attachment === descriptor.actual.attachment,
+            let field = resolvedCandidateOriginal(publication.input.construction.original.field), field.isCurrent,
+            let target = descriptor.actual.node
+        else { return }
+        let reader = publication.input.construction.original.readerRecord
+        guard reader.isDeclared, reader.normalReference.isCurrent,
+            case .component(let presence) = reader.normalReference.member,
+            presence === normal.plan.receipt.componentPresence
+        else { return }
+        let nextPublication = RetainedOwnedCandidateReaderPublication(
+            reader: normal.plan.receipt, contribution: descriptor.contribution, actual: descriptor.actual)
+        let next = RetainedOwnedCandidateDeferredAnchor(
+            owner: token.owner, reader: normal.plan.receipt, contribution: descriptor.contribution,
+            actual: descriptor.actual, field: field, segment: token.segmentKey,
+            readerRecord: reader, readerPublication: nextPublication)
+        // Only the next independent admission sees this new receipt. The old
+        // qualification, construction token and general publications stay stale.
+        publication.didFinish = true
+        reader.publication = nextPublication
+        target.lazyListActivityStorage().ownedCandidateDeferredAnchor = next
+        descriptor.acceptedAnchor = next
+        if publication.didDrainOwnAbsence, let absence = publication.ownAbsence,
+            absence.previous === publication.input.construction.original.contribution,
+            absence.actual.target === publication.originalAnchor.actual.target,
+            absence.actual.attachment === publication.originalAnchor.actual.attachment,
+            candidateSelfBodyAcceptances[ObjectIdentifier(token)] == nil
+        {
+            candidateSelfBodyAcceptances[ObjectIdentifier(token)] = RetainedOwnedCandidateSelfBodyAcceptance(
+                ledger: self, publication: publication, token: token, normal: normal, descriptor: descriptor,
+                reader: reader, readerPublication: nextPublication, field: field, anchor: next)
+            flushCandidateAcceptedFacts()
+        }
+    }
+
+    /// This checks the original operation and both actual facts. The selected
+    /// field revision is checked separately so only an adjacent native batch can
+    /// validate its own result without renewing the original qualification.
+    private func selfAcceptedLifetimeAndFactsAreCurrent(
+        _ accepted: RetainedOwnedCandidateSelfBodyAcceptance
+    ) -> Bool {
+        let publication = accepted.publication
+        let input = publication.input
+        let original = input.construction.original
+        let token = accepted.token
+        guard !wasFinished, !accepted.wasRefused, accepted.ledger === self,
+            publication.ledger === self, publication.didFinish, !publication.wasRefused,
+            publication.didDrainOwnAbsence, let absence = publication.ownAbsence,
+            absence.previous === original.contribution,
+            absence.actual.target === original.actual.target, absence.actual.attachment === original.actual.attachment,
+            input.construction.token === token, token.selfConstruction === input.construction,
+            let registration = input.construction.registration,
+            registration.candidateConstruction === token,
+            registrations[registration.origin.key]?.contains(where: { $0 === registration }) == true,
+            planRegistrations[ObjectIdentifier(input.plan)] === registration,
+            input.plan.receipt === registration.receipt, !input.plan.declarationOnly,
+            candidateSelfBodyAcceptances[ObjectIdentifier(token)] === accepted,
+            candidateSelfPublications[ObjectIdentifier(input)] === publication,
+            candidateSelfRegistrations[ObjectIdentifier(registration)] === input,
+            ownsCandidateConstruction(token), let scope = token.qualification.scope,
+            candidateQualifications[ObjectIdentifier(scope)] === token.qualification,
+            scope.canPublishDescriptors, token.qualification.actual.isAttached,
+            token.qualification.contribution === original.contribution,
+            token.qualification.continuation === original,
+            let source = input.source, input.sourceAttachment.isCurrent, input.sourceIdentity.isCurrent,
+            candidateSelfSources[ObjectIdentifier(source)] === input,
+            token.deferredSource === source,
+            source.retainedLazyListActivityStorage?.ownedCandidateDeferredSource === token,
+            !source.containsRejectedRetainedSource, original.actual.isAttached,
+            original.owner.hasDeclaredComponent, original.reader.hasDeclaredComponent,
+            registration.receipt.hasDeclaredComponent,
+            registration.receipt.slotPermissions.allSatisfy({ !$0.wasRevoked }),
+            publication.normal === accepted.normal, publication.descriptor === accepted.descriptor,
+            accepted.normal.plan === input.plan, accepted.normal.source === source,
+            accepted.normal.actual.isAttached, accepted.descriptor.source === source,
+            accepted.descriptor.contribution === input.expectedGroup, accepted.descriptor.descriptorFactIsCurrent,
+            accepted.normal.actual.target === accepted.descriptor.actual.target,
+            accepted.normal.actual.attachment === accepted.descriptor.actual.attachment,
+            accepted.normal.actual.target === publication.originalAnchor.actual.target,
+            accepted.normal.actual.attachment === publication.originalAnchor.actual.attachment,
+            accepted.reader === original.readerRecord, accepted.reader.isDeclared,
+            accepted.reader.normalReference === accepted.normalReference, accepted.normalReference.isCurrent,
+            accepted.reader.publication === accepted.readerPublication,
+            accepted.readerPublication.reader === registration.receipt,
+            accepted.readerPublication.contribution === input.expectedGroup,
+            accepted.readerPublication.actual === accepted.descriptor.actual,
+            accepted.field.field === publication.originalField.field,
+            accepted.field.field === original.field.field, accepted.field.incarnation === original.field.incarnation,
+            accepted.field.actual === original.field.actual, accepted.field.actual.isAttached,
+            accepted.field.field.isCurrent, accepted.field.selectedSegment == token.segmentKey,
+            accepted.anchor.field === accepted.field, accepted.anchor.owner === token.owner,
+            accepted.anchor.reader === registration.receipt, accepted.anchor.readerRecord === accepted.reader,
+            accepted.anchor.readerPublication === accepted.readerPublication,
+            accepted.anchor.contribution === input.expectedGroup, accepted.anchor.actual === accepted.descriptor.actual,
+            accepted.descriptor.acceptedAnchor === accepted.anchor,
+            accepted.anchor.actual.node?.retainedLazyListActivityStorage?.ownedCandidateDeferredAnchor
+                === accepted.anchor
+        else { return false }
+        return true
+    }
+
+    private func candidateSelfBodyAcceptance(
+        for token: RetainedOwnedCandidateConstruction
+    ) -> RetainedOwnedCandidateSelfBodyAcceptance? {
+        guard let accepted = candidateSelfBodyAcceptances[ObjectIdentifier(token)], accepted.token === token,
+            selfAcceptedLifetimeAndFactsAreCurrent(accepted), accepted.field.isCurrent, accepted.anchor.isCurrent
+        else { return nil }
+        return accepted
+    }
+
+    fileprivate func permitsSelfAcceptedNormal(
+        _ fact: RetainedOwnedCandidateAcceptedFact, with accepted: RetainedOwnedCandidateSelfBodyAcceptance
+    ) -> Bool {
+        guard candidateSelfBodyAcceptance(for: accepted.token) === accepted,
+            candidateAcceptedFacts.contains(where: { $0 === fact }), fact.actual.isAttached,
+            !fact.plan.declarationOnly, selectedPlans.contains(ObjectIdentifier(fact.plan)),
+            let registration = planRegistrations[ObjectIdentifier(fact.plan)],
+            registration.receipt === fact.plan.receipt, registration.candidateConstruction === accepted.token,
+            registrations[registration.origin.key]?.contains(where: { $0 === registration }) == true,
+            registration !== accepted.publication.input.construction.registration,
+            fact.plan.receipt.hasDeclaredComponent,
+            fact.plan.receipt.slotPermissions.allSatisfy({ $0.isDeclared && !$0.wasRevoked })
+        else { return false }
+        if let source = fact.source {
+            return selectedOrdinaryPlans(for: source)?.contains(where: { $0 === fact.plan }) == true
+        }
+        return fact.wasAcceptedEmpty && fact.plan.sourcePayloads.isEmpty
+    }
+
+    /// A fresh child's original construction input may wait for its parent's
+    /// actual SELF group. This transports data only; no reference is created.
+    private func originalSelfParent(
+        of input: RetainedOwnedCandidateChildSource
+    ) -> RetainedOwnedCandidateConstruction? {
+        let construction = input.construction
+        let parent = construction.parent
+        let registration = construction.registration
+        guard !wasFinished, didPrepare, case .fresh = input.origin, input.sourceBindingsAreCurrent,
+            let source = input.source, candidateChildCatalogSources[ObjectIdentifier(source)] === input,
+            let token = construction.token, ownsCandidateConstruction(token), ownsCandidateConstruction(parent),
+            token.parent === parent, token.qualification === parent.qualification,
+            parent.selfConstruction != nil, registration.candidateConstruction === parent,
+            registration.receipt === input.normalPlan.receipt, !input.normalPlan.declarationOnly,
+            selectedPlans.contains(ObjectIdentifier(input.normalPlan)),
+            planRegistrations[ObjectIdentifier(input.normalPlan)] === registration,
+            registrations[registration.origin.key]?.contains(where: { $0 === registration }) == true
+        else { return nil }
+        return parent
+    }
+
+    private func canHoldPendingSelfChild(_ input: RetainedOwnedCandidateChildSource) -> Bool {
+        guard let parent = originalSelfParent(of: input) else { return false }
+        if candidateSelfBodyAcceptance(for: parent) != nil { return true }
+        guard let source = parent.deferredSource, let selfInput = candidateSelfSources[ObjectIdentifier(source)],
+            selfInput.construction === parent.selfConstruction,
+            let publication = candidateSelfPublications[ObjectIdentifier(selfInput)], publication.input === selfInput
+        else { return false }
+        // canFinish requires the complete drained own absence once the original
+        // contribution is inactive. A pre-revoke witness alone is insufficient.
+        return canFinishCandidateSelf(publication)
+    }
+
+    private func selfAcceptedChildLifetimeAndFactsAreCurrent(
+        _ accepted: RetainedOwnedCandidateSegmentAcceptance
+    ) -> Bool {
+        guard !accepted.selfWasRefused, let selfParent = accepted.selfParent,
+            candidateSelfBodyAcceptance(for: selfParent.token) === selfParent,
+            let token = accepted.construction.token, ownsCandidateConstruction(token),
+            candidateAcceptedSegments[ObjectIdentifier(token)] === accepted,
+            let source = accepted.descriptor.source,
+            let input = candidateChildCatalogSources[ObjectIdentifier(source)],
+            input.construction === accepted.construction, originalSelfParent(of: input) === selfParent.token,
+            accepted.normal.insertedReader === input, accepted.normal.plan === input.normalPlan,
+            accepted.normal.source === source, accepted.normal.actual.node === source,
+            accepted.normal.actual.isAttached, accepted.descriptor.descriptorFactIsCurrent,
+            accepted.descriptor.contribution === input.expectedGroup,
+            candidateAcceptedFacts.contains(where: { $0 === accepted.normal }),
+            candidateDeferredFacts.contains(where: { $0 === accepted.descriptor }),
+            accepted.normal.actual.target === accepted.descriptor.actual.target,
+            accepted.normal.actual.attachment === accepted.descriptor.actual.attachment,
+            accepted.normal.acceptedParentReader === selfParent.reader,
+            let normal = accepted.normal.acceptedReferences?[
+                ObjectIdentifier(input.normalPlan.receipt.componentPresence)],
+            normal === accepted.reader.normalReference, normal.isCurrent,
+            normal.lineage.contains(where: { $0 === selfParent.normalReference.declarationEdge }),
+            accepted.reader.isDeclared, accepted.reader.parent === selfParent.reader,
+            accepted.reader.publication === accepted.publication,
+            accepted.publication.reader === input.normalPlan.receipt,
+            accepted.publication.contribution === input.expectedGroup,
+            accepted.publication.actual === accepted.descriptor.actual,
+            input.normalPlan.receipt.hasDeclaredComponent,
+            input.normalPlan.receipt.slotPermissions.allSatisfy({ $0.isDeclared && !$0.wasRevoked }),
+            accepted.field.field === selfParent.field.field,
+            accepted.field.incarnation === selfParent.field.incarnation,
+            accepted.field.actual === selfParent.field.actual, accepted.field.actual.isAttached,
+            accepted.field.field.isCurrent, accepted.field.selectedSegment == token.segmentKey,
+            accepted.anchor.field === accepted.field, accepted.anchor.readerRecord === accepted.reader,
+            accepted.anchor.readerPublication === accepted.publication,
+            accepted.anchor.actual === accepted.descriptor.actual,
+            accepted.descriptor.acceptedAnchor === accepted.anchor,
+            accepted.anchor.actual.node?.retainedLazyListActivityStorage?.ownedCandidateDeferredAnchor
+                === accepted.anchor
+        else { return false }
+        return true
+    }
+
+    fileprivate func canPublishSelfAcceptedChild(_ accepted: RetainedOwnedCandidateSegmentAcceptance) -> Bool {
+        selfAcceptedChildLifetimeAndFactsAreCurrent(accepted) && accepted.field.isCurrent && accepted.anchor.isCurrent
+    }
+
+    fileprivate func permitsSelfAcceptedChildNormal(
+        _ fact: RetainedOwnedCandidateAcceptedFact, with accepted: RetainedOwnedCandidateSegmentAcceptance
+    ) -> Bool {
+        guard canPublishSelfAcceptedChild(accepted), let token = accepted.construction.token,
+            candidateAcceptedFacts.contains(where: { $0 === fact }), fact.actual.isAttached,
+            !fact.plan.declarationOnly, selectedPlans.contains(ObjectIdentifier(fact.plan)),
+            let registration = planRegistrations[ObjectIdentifier(fact.plan)],
+            registration.receipt === fact.plan.receipt, registration.candidateConstruction === token,
+            registrations[registration.origin.key]?.contains(where: { $0 === registration }) == true,
+            fact.plan.receipt.hasDeclaredComponent,
+            fact.plan.receipt.slotPermissions.allSatisfy({ $0.isDeclared && !$0.wasRevoked })
+        else { return false }
+        if let source = fact.source {
+            // This arm covers B's ordinary body members, not a further reader C.
+            if candidateChildCatalogSources[ObjectIdentifier(source)]?.normalPlan === fact.plan { return false }
+            return selectedOrdinaryPlans(for: source)?.contains(where: { $0 === fact.plan }) == true
+        }
+        return fact.wasAcceptedEmpty && fact.plan.sourcePayloads.isEmpty
+    }
+
+    /// Validate only the stores made by the immediately preceding normal batch.
+    /// The original snapshot and exact prepared/result maps are never replaced
+    /// by a lookup of a later current field.
+    private func selfFieldAfterNormalBatch(
+        from original: RetainedOwnedCandidateFieldSnapshot,
+        prepared batch: RetainedOwnedCandidateReferenceBatch,
+        result: RetainedOwnedCandidateReferenceBatchResult
+    ) -> RetainedOwnedCandidateFieldSnapshot? {
+        guard let holder = original.selectedSegment, let previous = original.segments[holder],
+            batch.field === original.field, batch.field.isCurrent,
+            batch.field.incarnation === original.incarnation, original.actual.isAttached,
+            batch.field.catalogRevision == original.catalogRevision,
+            batch.field.segments[holder] === previous.segment, result.replacements.isEmpty,
+            Set(result.accepted.keys) == Set(batch.entries.keys),
+            Set(batch.existing.keys).isSubset(of: Set(batch.entries.keys)),
+            batch.entries.allSatisfy({ key, intent in
+                key.holder == holder && intent.holder == holder && intent.destination == holder
+                    && intent.original == nil
+            }),
+            batch.existing.allSatisfy({ key, reference in previous.references[key.member] === reference }),
+            previous.references.allSatisfy({ key, reference in
+                previous.segment.references[key] === reference && reference.isCurrent
+            }),
+            result.accepted.allSatisfy({ key, reference in
+                previous.segment.references[key.member] === reference && reference.isCurrent
+                    && reference.holderSegment == holder && reference.destination == holder
+                    && reference.member.identity == key.member && reference.field === batch.field
+                    && (batch.existing[key] == nil || batch.existing[key] === reference)
+            })
+        else { return nil }
+        let additions = batch.entries.keys.filter { batch.existing[$0] == nil }
+        guard additions.allSatisfy({ previous.references[$0.member] == nil }),
+            previous.segment.references.count == previous.references.count + additions.count
+        else { return nil }
+        if additions.isEmpty {
+            return original.isCurrent ? original : nil
+        }
+        let (revision, overflow) = previous.revision.addingReportingOverflow(1)
+        guard !overflow, previous.segment.revision == revision else { return nil }
+        return RetainedOwnedCandidateFieldSnapshot(
+            field: batch.field, actual: original.actual, selectedSegment: holder)
+    }
+
+    private func advanceSelfAcceptedBody(
+        _ accepted: RetainedOwnedCandidateSelfBodyAcceptance, from original: RetainedOwnedCandidateFieldSnapshot,
+        prepared batch: RetainedOwnedCandidateReferenceBatch, result: RetainedOwnedCandidateReferenceBatchResult
+    ) -> Bool {
+        guard accepted.field === original, selfAcceptedLifetimeAndFactsAreCurrent(accepted),
+            let snapshot = selfFieldAfterNormalBatch(from: original, prepared: batch, result: result)
+        else { return false }
+        if snapshot === original { return true }
+        let previous = accepted.anchor
+        let next = RetainedOwnedCandidateDeferredAnchor(
+            owner: previous.owner, reader: previous.reader, contribution: previous.contribution,
+            actual: previous.actual, field: snapshot, segment: previous.segment,
+            readerRecord: accepted.reader, readerPublication: accepted.readerPublication)
+        previous.actual.node?.lazyListActivityStorage().ownedCandidateDeferredAnchor = next
+        accepted.field = snapshot
+        accepted.anchor = next
+        accepted.descriptor.acceptedAnchor = next
+        return true
+    }
+
+    private func advanceSelfAcceptedChildBody(
+        _ accepted: RetainedOwnedCandidateSegmentAcceptance, from original: RetainedOwnedCandidateFieldSnapshot,
+        prepared batch: RetainedOwnedCandidateReferenceBatch, result: RetainedOwnedCandidateReferenceBatchResult
+    ) -> Bool {
+        guard accepted.field === original, selfAcceptedChildLifetimeAndFactsAreCurrent(accepted),
+            let snapshot = selfFieldAfterNormalBatch(from: original, prepared: batch, result: result)
+        else { return false }
+        if snapshot === original { return true }
+        let previous = accepted.anchor
+        let next = RetainedOwnedCandidateDeferredAnchor(
+            owner: previous.owner, reader: previous.reader, contribution: previous.contribution,
+            actual: previous.actual, field: snapshot, segment: previous.segment,
+            readerRecord: accepted.reader, readerPublication: accepted.publication)
+        previous.actual.node?.lazyListActivityStorage().ownedCandidateDeferredAnchor = next
+        accepted.field = snapshot
+        accepted.anchor = next
+        accepted.descriptor.acceptedAnchor = next
+        return true
+    }
+
+    private func candidateConstruction(
+        _ construction: RetainedOwnedCandidateConstruction, isWithin root: RetainedOwnedCandidateConstruction
+    ) -> Bool {
+        var current: RetainedOwnedCandidateConstruction? = construction
+        var seen: Set<ObjectIdentifier> = []
+        while let token = current, seen.count < ViewNode.maximumTraversalDepth {
+            guard token.owner.owner === root.owner.owner, token.qualification === root.qualification,
+                seen.insert(ObjectIdentifier(token)).inserted
+            else { return false }
+            if token === root { return true }
+            current = token.parent
+        }
+        return false
+    }
+
+    private func candidateChildPlans(
+        for token: RetainedOwnedCandidateConstruction
+    ) -> [RetainedOwnedComponentDeclarationPlan]? {
+        let plans = (frozenPlans ?? []).filter { plan in
+            guard selectedPlans.contains(ObjectIdentifier(plan)),
+                let registration = planRegistrations[ObjectIdentifier(plan)],
+                registration.receipt === plan.receipt, let construction = registration.candidateConstruction
+            else { return false }
+            return candidateConstruction(construction, isWithin: token)
+        }
+        guard
+            plans.allSatisfy({ plan in
+                !plan.receipt.owner.wasRevoked && plan.receipt.nativeLifetime.permitsDeclaredWrite
+                    && plan.receipt.slotPermissions.allSatisfy { !$0.wasRevoked }
+            })
+        else { return nil }
+        return plans
+    }
+
+    private func freezeCandidateChildCatalogSources() -> Bool {
+        guard candidateChildCatalogSources.isEmpty, candidateChildCatalogOriginalTargets.isEmpty else { return false }
+        let originals = candidateQualifications.values.flatMap { $0.childCatalogGraphs.flatMap(\.nodes) }
+        for node in originals {
+            guard let actual = node.actual, let target = actual.node else { continue }
+            let key = ObjectIdentifier(target)
+            if let previous = candidateChildCatalogOriginalTargets[key], previous !== node { return false }
+            candidateChildCatalogOriginalTargets[key] = node
+        }
+        var frozen: [ObjectIdentifier: RetainedOwnedCandidateChildSource] = [:]
+        var active: Set<ObjectIdentifier> = []
+        func freeze(_ token: RetainedOwnedCandidateConstruction) -> RetainedOwnedCandidateChildSource? {
+            let key = ObjectIdentifier(token)
+            if let previous = frozen[key] { return previous }
+            guard active.count < ViewNode.maximumTraversalDepth, active.insert(key).inserted,
+                let construction = token.segmentConstruction, construction.token === token,
+                let source = token.deferredSource, source.geometryReaderBuild != nil,
+                source.retainedLazyListActivityStorage?.ownedCandidateDeferredSource === token,
+                let plans = candidateChildPlans(for: token),
+                let normalPlan = selectedOrdinaryPlans(for: source)?.first(where: {
+                    !$0.declarationOnly && $0.receipt === construction.registration.receipt
+                        && planRegistrations[ObjectIdentifier($0)] === construction.registration
+                }), case .descriptor(let component) = normalPlan.origin,
+                let scope = token.qualification.scope,
+                let expectedGroup = scope.ordinaryLedger.frozenOwnedCandidateDeferredGroup(
+                    component: component, source: source)
+            else { return nil }
+            defer { active.remove(key) }
+            let known = token.qualification.childCatalogGraphs.flatMap(\.nodes).filter {
+                $0.reader.field?.owner === token.owner.componentPresence
+                    && $0.normalReference.member.identity == ObjectIdentifier(normalPlan.receipt.componentPresence)
+            }
+            var parentOriginal: RetainedOwnedCandidateAcceptedReader?
+            var parentWasRefused = false
+            if construction.parent.isDeferredSegment {
+                if construction.parent.segmentConstruction != nil {
+                    guard let parentSource = freeze(construction.parent) else { return nil }
+                    switch parentSource.origin {
+                    case .existing(let original): parentOriginal = original.reader
+                    case .fresh: break
+                    case .refused: parentWasRefused = true
+                    }
+                } else if let original = construction.parent.qualification.continuation,
+                    construction.parent.parent == nil,
+                    construction.parent.segmentOwner === original.reader
+                {
+                    parentOriginal = original.readerRecord
+                } else {
+                    parentWasRefused = true
+                }
+            }
+            let origin: RetainedOwnedCandidateChildSource.Origin
+            if parentWasRefused || known.count > 1 {
+                origin = .refused
+            } else if let original = known.first {
+                let hasOriginalReceipt = construction.registration.previous.contains {
+                    $0 === original.publication.reader
+                }
+                let hasOriginalParent =
+                    original.reader.isRoot
+                    ? !construction.parent.isDeferredSegment && parentOriginal == nil
+                    : original.reader.parent === parentOriginal && parentOriginal != nil
+                origin = hasOriginalReceipt && hasOriginalParent ? .existing(original) : .refused
+            } else if construction.registration.previous.contains(where: { $0.hasAcceptedDeclaration }) {
+                // An already accepted reader without this original graph edge is
+                // not a fresh reader. In particular, cold insertion is held.
+                origin = .refused
+            } else {
+                origin = .fresh
+            }
+            let result = RetainedOwnedCandidateChildSource(
+                construction: construction, source: source, normalPlan: normalPlan,
+                expectedGroup: expectedGroup, plans: plans, origin: origin)
+            frozen[key] = result
+            return result
+        }
+        for token in candidateSegments.values where token.segmentConstruction != nil {
+            guard freeze(token) != nil else { return false }
+        }
+        for source in frozen.values {
+            guard let node = source.source, candidateChildCatalogSources[ObjectIdentifier(node)] == nil else {
+                return false
+            }
+            candidateChildCatalogSources[ObjectIdentifier(node)] = source
+        }
+        return true
+    }
+
+    fileprivate func hasOwnedCandidateChildCatalogInput(from source: ViewNode, to target: ViewNode) -> Bool {
+        candidateChildCatalogSources[ObjectIdentifier(source)] != nil
+            || candidateChildCatalogOriginalTargets[ObjectIdentifier(target)] != nil
+            || source.retainedLazyListActivityStorage?.ownedCandidateDeferredSource?.segmentConstruction != nil
+    }
+
+    private func currentCandidateChildNode(
+        _ original: RetainedOwnedCandidateCatalogNode
+    ) -> RetainedOwnedCandidateCatalogNode? {
+        var current = original
+        var seen: Set<ObjectIdentifier> = []
+        while seen.count < ViewNode.maximumTraversalDepth {
+            guard seen.insert(ObjectIdentifier(current)).inserted else { return nil }
+            if current.isCurrent { return current }
+            guard let successor = candidateChildCatalogSuccessors[ObjectIdentifier(current)],
+                successor.original === current, !successor.wasOmitted, let accepted = successor.afterimage,
+                candidateChildCatalogPublications[ObjectIdentifier(successor.publication.source)]
+                    === successor.publication
+            else { return nil }
+            current = accepted
+        }
+        return nil
+    }
+
+    private func candidateChildOriginalSubtree(
+        _ root: RetainedOwnedCandidateCatalogNode
+    ) -> [RetainedOwnedCandidateCatalogNode]? {
+        var pending = [root]
+        var result: [RetainedOwnedCandidateCatalogNode] = []
+        var seen: Set<ObjectIdentifier> = []
+        while let original = pending.popLast() {
+            guard seen.count < ViewNode.maximumTraversalDepth,
+                seen.insert(ObjectIdentifier(original)).inserted,
+                let current = currentCandidateChildNode(original)
+            else { return nil }
+            result.append(current)
+            pending.append(contentsOf: original.children)
+        }
+        return result
+    }
+
+    private func candidateChildPublicationIsCurrent(_ publication: RetainedOwnedCandidateChildPublication) -> Bool {
+        guard publication.source.sourceIsCurrent, let actual = publication.original.actual,
+            actual.isAttached,
+            currentCandidateChildNode(publication.afterimage) != nil
+        else { return false }
+        for original in publication.affected {
+            if let successor = candidateChildCatalogSuccessors[ObjectIdentifier(original)],
+                successor.publication === publication, successor.wasOmitted
+            {
+                // An omission has no live afterimage and cannot make an anchor.
+                guard original.normalReference.wasWithdrawn else { return false }
+                continue
+            }
+            guard currentCandidateChildNode(original) != nil else { return false }
+        }
+        return true
+    }
+
+    private func prepareCandidateReaderInsertion(from source: ViewNode) -> RetainedOwnedCandidateChildSource? {
+        guard let input = candidateChildCatalogSources[ObjectIdentifier(source)], input.source === source,
+            case .fresh = input.origin,
+            candidateChildCatalogOriginalTargets[ObjectIdentifier(source)] == nil
+        else { return nil }
+        guard
+            input.sourceIsCurrent
+                || (input.sourceAttachment.isCurrent && canHoldPendingSelfChild(input))
+        else { return nil }
+        // This value carries provenance inside the already prepared insertion.
+        // Only that insertion's successful normal writer may deliver it.
+        return input
+    }
+
+    fileprivate func applyOwnedCandidateChildCatalog(from source: ViewNode, to target: ViewNode) -> Bool {
+        guard didPrepare, !wasFinished, let input = candidateChildCatalogSources[ObjectIdentifier(source)],
+            input.source === source, input.sourceIsCurrent
+        else { return false }
+        switch input.origin {
+        case .refused:
+            input.wasRefused = true
+            return false
+        case .fresh:
+            // This route is pending construction, not an accepted no-op. Its
+            // first actual insertion still owes normal and descriptor facts.
+            guard source === target, candidateChildCatalogOriginalTargets[ObjectIdentifier(target)] == nil else {
+                input.wasRefused = true
+                return false
+            }
+            return true
+        case .existing(let original):
+            guard let actual = original.actual, actual.node === target, actual.isAttached,
+                candidateChildCatalogOriginalTargets[ObjectIdentifier(target)] === original
+            else {
+                input.wasRefused = true
+                return false
+            }
+            if let accepted = candidateChildCatalogPublications[ObjectIdentifier(input)] {
+                return accepted.source === input && accepted.original === original
+                    && candidateChildPublicationIsCurrent(accepted)
+            }
+            guard !input.wasConsumed else { return false }
+            input.wasConsumed = true
+            guard original.publication.contribution.isActive,
+                let affected = candidateChildOriginalSubtree(original),
+                let current = currentCandidateChildNode(original),
+                current.field.field === original.field.field, current.field.actual === original.field.actual,
+                let readerSegment = current.reader.segment,
+                current.field.field.segments[readerSegment.key] === readerSegment
+            else { return false }
+            // Validate every original descendant, including an empty C, before
+            // observing the dependency wave that this write is allowed to remove.
+            let wanted = candidateMembers(in: input.plans)
+            let retired = current.field.references.filter { wanted[$0.member.identity] == nil }
+            let withdrawal = RetainedOwnedCandidateWithdrawal(retired)
+            guard
+                withdrawal.references.allSatisfy({ reference in
+                    current.dependencies.references.contains(where: { $0 === reference })
+                })
+            else { return false }
+            let willChange = !retired.isEmpty
+            guard
+                !willChange
+                    || RetainedOwnedCandidateRevisionCapacity.permits(
+                        current: readerSegment.revision, additional: 1)
+            else { return false }
+            guard
+                withdrawal.references.allSatisfy({ reference in
+                    guard let holder = reference.field, let segment = holder.segments[reference.holderSegment],
+                        segment.references[reference.member.identity] === reference
+                    else { return false }
+                    return RetainedOwnedCandidateRevisionCapacity.permits(current: segment.revision, additional: 1)
+                })
+            else { return false }
+            // Pin other catalog observations affected by this exact own wave.
+            // Never refresh an already stale/foreign observation.
+            var observations = affected
+            var observed = Set(affected.map(ObjectIdentifier.init))
+            for graph in input.construction.parent.qualification.childCatalogGraphs {
+                for node in graph.nodes {
+                    guard let currentNode = currentCandidateChildNode(node),
+                        currentNode.dependencies.references.contains(where: { reference in
+                            withdrawal.references.contains(where: { $0 === reference })
+                        }), observed.insert(ObjectIdentifier(currentNode)).inserted
+                    else { continue }
+                    observations.append(currentNode)
+                }
+            }
+            if willChange { withdrawal.withdraw() }
+            // Removal changes all original tables/edges/revisions before any
+            // retirement or caller callback can observe another dependency.
+            guard let afterimage = willChange ? RetainedOwnedCandidateCatalogNode(afterOwnWrite: current) : current
+            else {
+                withdrawal.retireUnreferencedMembers()
+                return false
+            }
+            let publication = RetainedOwnedCandidateChildPublication(
+                source: input, original: original, afterimage: afterimage, affected: affected, wasWrite: willChange)
+            candidateChildCatalogPublications[ObjectIdentifier(input)] = publication
+            if willChange {
+                candidateChildCatalogSuccessors[ObjectIdentifier(current)] = RetainedOwnedCandidateChildSuccessor(
+                    original: current, publication: publication, afterimage: afterimage, wasOmitted: false)
+                for node in observations where node !== current {
+                    let omitted = node.normalReference.wasWithdrawn
+                    let next = omitted ? nil : RetainedOwnedCandidateCatalogNode(afterOwnWrite: node)
+                    candidateChildCatalogSuccessors[ObjectIdentifier(node)] = RetainedOwnedCandidateChildSuccessor(
+                        original: node, publication: publication, afterimage: next, wasOmitted: omitted)
+                }
+            }
+            withdrawal.retireUnreferencedMembers()
+            return true
+        }
+    }
+
+    private func candidatePlans(for token: RetainedOwnedCandidateConstruction)
+        -> [RetainedOwnedComponentDeclarationPlan]?
+    {
+        guard didPrepare, !wasFinished, ownsCandidateConstruction(token), token.qualification.canPublish else {
+            return nil
+        }
+        let plans = (frozenPlans ?? []).filter { plan in
+            guard selectedPlans.contains(ObjectIdentifier(plan)),
+                let registration = planRegistrations[ObjectIdentifier(plan)], registration.receipt === plan.receipt,
+                candidateSelfRegistrations[ObjectIdentifier(registration)] == nil,
+                let construction = registration.candidateConstruction
+            else { return false }
+            if token.isDeferredSegment, token.qualification.continuation != nil {
+                return construction.segmentKey == token.segmentKey
+                    || construction.belongs(to: token.owner.owner)
+                        && construction.qualification === token.qualification
+            }
+            return construction.belongs(to: token.owner.owner)
+        }
+        guard
+            plans.allSatisfy({ plan in
+                !plan.receipt.owner.wasRevoked && plan.receipt.nativeLifetime.permitsDeclaredWrite
+                    && plan.receipt.slotPermissions.allSatisfy { !$0.wasRevoked }
+            })
+        else { return nil }
+        return plans
+    }
+
+    private func candidateBoundaryPlan(
+        for token: RetainedOwnedCandidateConstruction, source: ViewNode
+    ) -> RetainedOwnedComponentDeclarationPlan? {
+        guard token.boundarySource === source, source.selectedContentRole == .viewThatFits,
+            source.retainedLazyListActivityStorage?.ownedCandidateBoundarySource === token,
+            let exact = selectedOrdinaryPlans(for: source)
+        else { return nil }
+        return exact.first { !$0.declarationOnly && $0.receipt === token.owner }
+    }
+
+    private func resolvedCandidateOriginal(
+        _ original: RetainedOwnedCandidateFieldSnapshot
+    ) -> RetainedOwnedCandidateFieldSnapshot? {
+        if original.isCurrent { return original }
+        // Only a native publication that consumed THIS original in this same
+        // ledger can supply its afterimage. No current-field lookup is a retry.
+        guard let successor = candidateFieldSuccessors[ObjectIdentifier(original)],
+            successor.original === original, successor.publication.afterimage.isCurrent,
+            candidatePublications[successor.publication.write.key] === successor.publication
+        else { return nil }
+        return successor.publication.afterimage
+    }
+
+    private func resolvedCandidateReference(
+        _ original: RetainedOwnedCandidateReference
+    ) -> RetainedOwnedCandidateReference? {
+        var current = original
+        var seen: Set<ObjectIdentifier> = []
+        while seen.count < ViewNode.maximumTraversalDepth {
+            guard seen.insert(ObjectIdentifier(current)).inserted else { return nil }
+            if current.isCurrent { return current }
+            guard let successor = candidateReferenceSuccessors[ObjectIdentifier(current)],
+                successor.original === current, successor.publication.afterimage.isCurrent,
+                candidatePublications[successor.publication.write.key] === successor.publication,
+                successor.accepted.declarationEdge === current.declarationEdge
+            else { return nil }
+            current = successor.accepted
+        }
+        return nil
+    }
+
+    private func incomingCandidateBoundary(
+        for owner: RetainedOwnedComponentID
+    ) -> RetainedOwnedCandidateConstruction? {
+        guard let token = candidateBoundaries[ObjectIdentifier(owner)], let source = token.boundarySource,
+            candidateBoundaryPlan(for: token, source: source) != nil
+        else { return nil }
+        return token
+    }
+
+    private func candidateColdSources(
+        for token: RetainedOwnedCandidateConstruction, plans: [RetainedOwnedComponentDeclarationPlan]
+    ) -> [RetainedOwnedCandidateCustodySource]? {
+        let wanted = candidateMembers(in: plans)
+        guard let originalRecipient = token.qualification.fields[ObjectIdentifier(token.owner.owner)] else { return [] }
+        guard let recipient = resolvedCandidateOriginal(originalRecipient) else { return nil }
+        var result: [RetainedOwnedCandidateCustodySource] = []
+        var seen: Set<ObjectIdentifier> = [ObjectIdentifier(recipient.field)]
+        var pending:
+            [(
+                field: RetainedOwnedCandidateFieldSnapshot, links: [RetainedOwnedCandidateReference],
+                linkFields: [RetainedOwnedCandidateFieldSnapshot]
+            )] = [
+                (recipient, [], [])
+            ]
+        // Every hop is an original accepted component-reference object. The
+        // outermost accepted receiver retains the complete intermediate lineage;
+        // finding a namespace ID or a physical descendant does not supply a hop.
+        while let frame = pending.popLast() {
+            guard frame.links.count < ViewNode.maximumTraversalDepth else { return nil }
+            for link in frame.field.references {
+                guard wanted[link.member.identity] != nil, case .component(let owner) = link.member,
+                    owner.owner !== token.owner.owner,
+                    let original = token.qualification.fields[ObjectIdentifier(owner.owner)]
+                else { continue }
+                guard link.isCurrent, original.field.owner === owner,
+                    seen.insert(ObjectIdentifier(original.field)).inserted,
+                    let current = resolvedCandidateOriginal(original), current.selectedSegment == nil
+                else { return nil }
+                let links = frame.links + [link]
+                let linkFields = frame.linkFields + [frame.field]
+                let references = current.references.filter { wanted[$0.member.identity] != nil }
+                guard references.allSatisfy(\.isCurrent) else { return nil }
+                if !references.isEmpty {
+                    result.append(
+                        RetainedOwnedCandidateCustodySource(
+                            original: current, holder: links[0].holderSegment, references: references, links: links,
+                            linkFields: linkFields))
+                }
+                pending.append((current, links, linkFields))
+            }
+        }
+        return result
+    }
+
+    fileprivate func prepareOwnedCandidateCatalog(
+        from source: ViewNode, to target: ViewNode
+    ) -> RetainedOwnedCandidateCatalogWrite? {
+        guard didPrepare, !wasFinished, !source.containsRejectedRetainedSource,
+            let runtime = target.retainedLazyListRuntime,
+            target.isRetainedLazyListAttached(in: runtime)
+        else { return nil }
+        let storage = target.lazyListActivityStorage()
+        let actual = storage.captureActualAttachment(of: target, in: runtime)
+        let token = source.retainedLazyListActivityStorage?.ownedCandidateBoundarySource
+        let key = RetainedOwnedCandidateWriteKey(
+            source: ObjectIdentifier(source), target: ObjectIdentifier(target), segment: nil)
+        guard !candidatePreparedWrites.contains(key), candidatePublications[key] == nil else { return nil }
+        guard let token else {
+            guard storage.ownedCandidateField == nil else { return nil }
+            return RetainedOwnedCandidateCatalogWrite(
+                ledger: self, source: source, target: target, targetActual: actual,
+                token: nil, original: nil, plans: [])
+        }
+        guard ownsCandidateConstruction(token), token.qualification.canPublish,
+            candidateBoundaryPlan(for: token, source: source) != nil,
+            source.selectedContentRole == target.selectedContentRole,
+            let plans = candidatePlans(for: token), candidateColdSources(for: token, plans: plans) != nil
+        else { return nil }
+        let original = token.qualification.fields[ObjectIdentifier(token.owner.owner)]
+        if let field = storage.ownedCandidateField {
+            guard let original, original.field === field, original.actual.node === target, original.isCurrent,
+                original.selectedSegment == nil, field.owner === token.owner.componentPresence,
+                token.owner.hasDeclaredComponent
+            else { return nil }
+        } else {
+            // A fresh boundary acquires its field at its actual normal owner
+            // publication, never merely because this preparation can name it.
+            guard original == nil || original?.field.node !== target else { return nil }
+        }
+        if storage.ownedCandidateField != nil { candidatePreparedWrites.insert(key) }
+        return RetainedOwnedCandidateCatalogWrite(
+            ledger: self, source: source, target: target, targetActual: actual,
+            token: token, original: original, plans: plans)
+    }
+
+    private func candidateWriteIsCurrent(_ write: RetainedOwnedCandidateCatalogWrite) -> Bool {
+        guard write.ledger === self, !wasFinished, didPrepare, write.targetActual.isAttached,
+            write.sourceAttachment.isCurrent, write.sourceIdentity.isCurrent,
+            let source = write.source, let target = write.target, !source.containsRejectedRetainedSource,
+            write.targetActual.node === target
+        else { return false }
+        guard let token = write.token else { return target.retainedLazyListActivityStorage?.ownedCandidateField == nil }
+        guard ownsCandidateConstruction(token), token.qualification.canPublish,
+            token.owner.nativeLifetime.permitsDeclaredWrite, !token.owner.owner.wasRevoked,
+            write.plans.allSatisfy({
+                selectedPlans.contains(ObjectIdentifier($0))
+                    && planRegistrations[ObjectIdentifier($0)]?.receipt === $0.receipt
+                    && !$0.receipt.owner.wasRevoked && $0.receipt.nativeLifetime.permitsDeclaredWrite
+                    && $0.receipt.slotPermissions.allSatisfy { !$0.wasRevoked }
+            })
+        else { return false }
+        if write.key.segment == nil {
+            guard candidateBoundaryPlan(for: token, source: source) != nil,
+                source.selectedContentRole == target.selectedContentRole
+            else { return false }
+        }
+        if let original = write.original {
+            return original.isCurrent && original.field.owner === token.owner.componentPresence
+        }
+        return target.retainedLazyListActivityStorage?.ownedCandidateField == nil
+    }
+
+    private func candidateMembers(
+        in plans: [RetainedOwnedComponentDeclarationPlan]
+    ) -> [ObjectIdentifier: RetainedOwnedPhysicalReferenceMember] {
+        var result: [ObjectIdentifier: RetainedOwnedPhysicalReferenceMember] = [:]
+        for plan in plans {
+            let presence = RetainedOwnedPhysicalReferenceMember.component(plan.receipt.componentPresence)
+            result[presence.identity] = presence
+            for permission in plan.receipt.slotPermissions {
+                let member = RetainedOwnedPhysicalReferenceMember.slot(permission)
+                result[member.identity] = member
+            }
+        }
+        return result
+    }
+
+    @discardableResult
+    fileprivate func publishOwnedCandidateCatalog(_ write: RetainedOwnedCandidateCatalogWrite) -> Bool {
+        guard !write.wasConsumed else { return false }
+        write.wasConsumed = true
+        guard candidateWriteIsCurrent(write) else { return false }
+        guard let token = write.token else { return true }
+        guard write.target?.retainedLazyListActivityStorage?.ownedCandidateField != nil,
+            let original = write.original
+        else {
+            // No field has been accepted yet. The normal boundary publication
+            // will consume exact successful member facts, including earlier ones.
+            return true
+        }
+        let field = original.field
+        guard original.actual.node === write.target, field.isCurrent else { return false }
+        let selectedSegment = write.key.segment
+        if selectedSegment == nil {
+            guard field.catalogRevision < .max else { return false }
+        }
+        let oldSegments = original.segments
+        guard oldSegments.values.allSatisfy({ $0.segment.revision < .max }) else { return false }
+        guard let coldSources = candidateColdSources(for: token, plans: write.plans) else { return false }
+        let wanted = candidateMembers(in: write.plans)
+        let retired = oldSegments.values.flatMap { $0.references.values }.filter {
+            wanted[$0.member.identity] == nil || !$0.isCurrent
+        }
+        let withdrawal = RetainedOwnedCandidateWithdrawal(retired)
+        let affected = withdrawal.fields.flatMap { currentCandidatePublications(for: $0) }
+        // This actual field write may only retain original accepted references.
+        // New normal declarations have no authority until their own publication.
+        if selectedSegment == nil { field.catalogRevision += 1 }
+        for (key, snapshot) in oldSegments {
+            var next: [ObjectIdentifier: RetainedOwnedCandidateReference] = [:]
+            for (id, reference) in snapshot.references {
+                if wanted[id] != nil, reference.isCurrent { next[id] = reference }
+            }
+            snapshot.segment.references = next
+            snapshot.segment.revision += 1
+            field.segments[key] = snapshot.segment
+        }
+        withdrawal.withdraw()
+        guard
+            let afterimage = RetainedOwnedCandidateFieldSnapshot(
+                field: field, actual: write.targetActual, selectedSegment: selectedSegment)
+        else {
+            withdrawal.retireUnreferencedMembers()
+            return false
+        }
+        let publication = RetainedOwnedCandidateCatalogPublication(write: write, afterimage: afterimage)
+        candidatePublications[write.key] = publication
+        candidateFieldSuccessors[ObjectIdentifier(original)] = RetainedOwnedCandidateFieldSuccessor(
+            original: original, publication: publication)
+        advanceCandidateContinuation(for: publication, replacing: original)
+        for previous in affected where candidatePublications[previous.write.key] === previous {
+            refreshCandidateAfterimage(previous)
+        }
+        stageCandidateDepartureCustody(for: publication, sources: coldSources)
+        withdrawal.retireUnreferencedMembers()
+        flushCandidateAcceptedFacts()
+        refreshCandidateDeferredAnchors()
+        return true
+    }
+
+    fileprivate func applyOwnedCandidateCatalog(from source: ViewNode, to target: ViewNode) -> Bool {
+        let key = RetainedOwnedCandidateWriteKey(
+            source: ObjectIdentifier(source), target: ObjectIdentifier(target), segment: nil)
+        if let completed = candidatePublications[key] {
+            // A recursive reconciliation pass observes the same accepted write.
+            // It does not obtain or consume another field mutation permit.
+            return completed.write.source === source && completed.write.target === target
+                && completed.afterimage.isCurrent && completed.write.targetActual.isAttached
+                && completed.write.sourceAttachment.isCurrent && completed.write.sourceIdentity.isCurrent
+                && !source.containsRejectedRetainedSource
+                && completed.write.token?.qualification.canPublish == true
+        }
+        guard let write = prepareOwnedCandidateCatalog(from: source, to: target) else { return false }
+        return publishOwnedCandidateCatalog(write)
+    }
+
+    fileprivate func applyOwnedCandidateDeferredCatalog(at parent: ViewNode) -> Bool {
+        guard let qualification = candidateQualifications.values.first(where: { $0.actual.node === parent }),
+            let continuation = qualification.continuation, let fieldNode = continuation.field.field.node
+        else { return true }
+        return applyOwnedCandidateDeferredCatalog(
+            qualification: qualification, continuation: continuation, fieldNode: fieldNode, at: parent)
+    }
+
+    fileprivate func originalOwnedCandidateForDirectAdoption(at parent: ViewNode)
+        -> RetainedOwnedCandidateDirectOriginal
+    {
+        // Identity is read even after proof loss. A stale captured original must
+        // never turn into the ordinary unscoped path.
+        let originals = candidateQualifications.values.filter {
+            $0.actual.node === parent && $0.continuation != nil
+        }
+        if originals.isEmpty { return .absent }
+        guard originals.count == 1, let original = originals.first else { return .ambiguous }
+        return .unique(original)
+    }
+
+    fileprivate func applyOriginalOwnedCandidateDeferredCatalog(
+        _ qualification: RetainedOwnedCandidateScopeQualification, at parent: ViewNode
+    ) -> Bool {
+        guard let scope = qualification.scope, candidateQualifications[ObjectIdentifier(scope)] === qualification,
+            qualification.actual.node === parent, let continuation = qualification.continuation,
+            let fieldNode = continuation.field.field.node
+        else { return false }
+        return applyOwnedCandidateDeferredCatalog(
+            qualification: qualification, continuation: continuation, fieldNode: fieldNode, at: parent)
+    }
+
+    private func applyOwnedCandidateDeferredCatalog(
+        qualification: RetainedOwnedCandidateScopeQualification, continuation: RetainedOwnedCandidateDeferredAnchor,
+        fieldNode: ViewNode, at parent: ViewNode
+    ) -> Bool {
+        let key = RetainedOwnedCandidateWriteKey(
+            source: ObjectIdentifier(parent), target: ObjectIdentifier(fieldNode), segment: continuation.segment)
+        if let completed = candidatePublications[key] {
+            return completed.afterimage.isCurrent && completed.write.targetActual.isAttached && qualification.canPublish
+        }
+        guard qualification.canPublish, let token = candidateSegments[continuation.segment],
+            let plans = candidatePlans(for: token), continuation.field.isCurrent
+        else { return false }
+        let write = RetainedOwnedCandidateCatalogWrite(
+            ledger: self, source: parent, target: fieldNode, targetActual: continuation.field.actual,
+            token: token, original: continuation.field, plans: plans, segment: continuation.segment)
+        guard !candidatePreparedWrites.contains(write.key) else { return false }
+        candidatePreparedWrites.insert(write.key)
+        return publishOwnedCandidateCatalog(write)
+    }
+
+    private func refreshCandidateAfterimage(_ publication: RetainedOwnedCandidateCatalogPublication) {
+        let previous = publication.afterimage
+        guard
+            let next = RetainedOwnedCandidateFieldSnapshot(
+                field: previous.field, actual: previous.actual, selectedSegment: previous.selectedSegment)
+        else { return }
+        publication.afterimage = next
+        candidateFieldSuccessors[ObjectIdentifier(previous)] = RetainedOwnedCandidateFieldSuccessor(
+            original: previous, publication: publication)
+        advanceCandidateContinuation(for: publication, replacing: previous)
+    }
+
+    private func advanceCandidateContinuation(
+        for publication: RetainedOwnedCandidateCatalogPublication,
+        replacing previous: RetainedOwnedCandidateFieldSnapshot
+    ) {
+        guard let qualification = publication.write.token?.qualification,
+            let original = qualification.currentContinuation, original.field === previous,
+            publication.afterimage.selectedSegment == original.segment, publication.afterimage.isCurrent,
+            original.actual.isAttached, original.contribution.isActive,
+            original.owner.hasDeclaredComponent, original.reader.hasDeclaredComponent,
+            let node = original.actual.node,
+            node.retainedLazyListActivityStorage?.ownedCandidateDeferredAnchor === original
+        else { return }
+        let successor = RetainedOwnedCandidateDeferredAnchor(
+            owner: original.owner, reader: original.reader, contribution: original.contribution,
+            actual: original.actual, field: publication.afterimage, segment: original.segment,
+            readerRecord: original.readerRecord, readerPublication: original.readerPublication)
+        node.lazyListActivityStorage().ownedCandidateDeferredAnchor = successor
+        qualification.continuationAfterimage = successor
+    }
+
+    private func currentCandidatePublications(
+        for field: RetainedOwnedCandidateField
+    ) -> [RetainedOwnedCandidateCatalogPublication] {
+        candidatePublications.values.filter { $0.afterimage.field === field && $0.afterimage.isCurrent }
+    }
+
+    private func prepareCandidateReferenceBatch(
+        _ intents: [RetainedOwnedCandidateReferenceIntent], on field: RetainedOwnedCandidateField,
+        normal: RetainedOwnedCandidateNormalMemberProof? = nil
+    ) -> RetainedOwnedCandidateReferenceBatch? {
+        if let normal {
+            guard normal.isCurrent, normal.field.field === field,
+                planRegistrations[ObjectIdentifier(normal.fact.plan)]?.candidateConstruction === normal.token,
+                selectedPlans.contains(ObjectIdentifier(normal.fact.plan)), ownsCandidateConstruction(normal.token)
+            else { return nil }
+        }
+        var entries: [RetainedOwnedCandidateReferenceKey: RetainedOwnedCandidateReferenceIntent] = [:]
+        var existing: [RetainedOwnedCandidateReferenceKey: RetainedOwnedCandidateReference] = [:]
+        var changedSegments: Set<RetainedOwnedCandidateSegmentKey> = []
+        var memberHolders: [ObjectIdentifier: RetainedOwnedCandidateSegmentKey] = [:]
+        for intent in intents {
+            guard intent.member.isCurrentCandidateMember, intent.returnPath.first == intent.holder,
+                intent.returnPath.last == intent.destination,
+                Set(intent.returnPath.map(\.namespace)).count == intent.returnPath.count,
+                Set(intent.lineage.map(ObjectIdentifier.init)).count == intent.lineage.count
+            else { return nil }
+            if let original = intent.original {
+                guard original.member.identity == intent.member.identity, original.isCurrent,
+                    intent.lineage.allSatisfy({ edge in
+                        !edge.isClosed && edge !== original.declarationEdge
+                            && edge.currentReference?.hasCurrentLineage(excluding: original.declarationEdge) == true
+                    })
+                else { return nil }
+            } else {
+                guard intent.returnPath == [intent.holder] else { return nil }
+                if !intent.lineage.isEmpty {
+                    guard let normal, let reader = normal.reader, reader.isDeclared,
+                        intent.holder == normal.token.segmentKey, intent.destination == intent.holder,
+                        intent.lineage.count == 1, intent.lineage[0] === reader.normalReference.declarationEdge,
+                        intent.member.identity != reader.normalReference.member.identity,
+                        candidateMembers(in: [normal.fact.plan])[intent.member.identity] != nil
+                    else { return nil }
+                }
+            }
+            if let previous = entries[intent.key] {
+                guard previous.destination == intent.destination, previous.original === intent.original,
+                    previous.returnPath == intent.returnPath,
+                    previous.lineage.elementsEqual(intent.lineage, by: { $0 === $1 })
+                else { return nil }
+            }
+            if let holder = memberHolders[intent.member.identity], holder != intent.holder { return nil }
+            memberHolders[intent.member.identity] = intent.holder
+            for (key, segment) in field.segments where key != intent.holder {
+                if segment.references[intent.member.identity] != nil { return nil }
+            }
+            entries[intent.key] = intent
+            if let reference = field.segments[intent.holder]?.references[intent.member.identity] {
+                guard reference.isCurrent, reference.destination == intent.destination,
+                    reference.returnPath == intent.returnPath,
+                    reference.lineage.elementsEqual(intent.lineage, by: { $0 === $1 }),
+                    intent.original == nil || intent.original === reference
+                else { return nil }
+                existing[intent.key] = reference
+            } else {
+                changedSegments.insert(intent.holder)
+            }
+        }
+        var proposedLineage: [ObjectIdentifier: [RetainedOwnedCandidateDeclarationEdge]] = [:]
+        for intent in entries.values {
+            if let original = intent.original {
+                proposedLineage[ObjectIdentifier(original.declarationEdge)] = intent.lineage
+            }
+        }
+        for intent in entries.values {
+            guard let original = intent.original else { continue }
+            var pending: [(edge: RetainedOwnedCandidateDeclarationEdge, leaving: Bool)] = [
+                (original.declarationEdge, false)
+            ]
+            var active: Set<ObjectIdentifier> = []
+            var complete: Set<ObjectIdentifier> = []
+            while let step = pending.popLast() {
+                let identity = ObjectIdentifier(step.edge)
+                if step.leaving {
+                    active.remove(identity)
+                    complete.insert(identity)
+                    continue
+                }
+                if complete.contains(identity) { continue }
+                guard !step.edge.isClosed, complete.count + active.count < ViewNode.maximumTraversalDepth,
+                    active.insert(identity).inserted, let current = step.edge.currentReference
+                else { return nil }
+                pending.append((step.edge, true))
+                for edge in proposedLineage[identity] ?? current.lineage {
+                    guard !active.contains(ObjectIdentifier(edge)) else { return nil }
+                    pending.append((edge, false))
+                }
+            }
+        }
+        guard
+            changedSegments.allSatisfy({
+                RetainedOwnedCandidateRevisionCapacity.permits(
+                    current: field.segments[$0]?.revision ?? 0, additional: 1)
+            })
+        else { return nil }
+        return RetainedOwnedCandidateReferenceBatch(field: field, entries: entries, existing: existing)
+    }
+
+    /// Called immediately after full native preflight, with no intervening
+    /// callback. Every reference is installed before any donor is withdrawn.
+    private func publishCandidateReferenceBatch(
+        _ batch: RetainedOwnedCandidateReferenceBatch
+    ) -> RetainedOwnedCandidateReferenceBatchResult {
+        var accepted: [(intent: RetainedOwnedCandidateReferenceIntent, reference: RetainedOwnedCandidateReference)] = []
+        var changed: [RetainedOwnedCandidateSegmentKey: RetainedOwnedCandidateSegment] = [:]
+        for (key, intent) in batch.entries where batch.existing[key] == nil {
+            let segment =
+                changed[intent.holder] ?? batch.field.segments[intent.holder]
+                ?? RetainedOwnedCandidateSegment(key: intent.holder)
+            let reference = RetainedOwnedCandidateReference(
+                member: intent.member, destination: intent.destination, holderSegment: intent.holder,
+                field: batch.field,
+                original: intent.original, lineage: intent.lineage, returnPath: intent.returnPath)
+            segment.references[intent.member.identity] = reference
+            changed[intent.holder] = segment
+            accepted.append((intent, reference))
+        }
+        for (key, segment) in changed {
+            segment.revision += 1
+            batch.field.segments[key] = segment
+        }
+        var replacements: [(original: RetainedOwnedCandidateReference, accepted: RetainedOwnedCandidateReference)] = []
+        for entry in accepted {
+            if let original = entry.intent.original,
+                entry.reference.declarationEdge === original.declarationEdge,
+                original.declarationEdge.currentReference === original
+            {
+                // The continued edge survives, but its original reader record
+                // cannot follow a different reference into a new custodian.
+                original.declarationEdge.acceptedReader?.removeOriginalDeclaration(original)
+            }
+            entry.reference.declarationEdge.currentReference = entry.reference
+            entry.reference.member.index.candidateReferences[ObjectIdentifier(entry.reference)] =
+                RetainedOwnedWeakCandidateReference(entry.reference)
+            for edge in entry.reference.lineage {
+                edge.dependents[ObjectIdentifier(entry.reference)] = RetainedOwnedWeakCandidateReference(
+                    entry.reference)
+            }
+            if let original = entry.intent.original { replacements.append((original, entry.reference)) }
+        }
+        var references = batch.existing
+        for entry in accepted { references[entry.intent.key] = entry.reference }
+        return RetainedOwnedCandidateReferenceBatchResult(replacements: replacements, accepted: references)
+    }
+
+    private func recordCandidateReferenceSuccessors(
+        _ result: RetainedOwnedCandidateReferenceBatchResult, publication: RetainedOwnedCandidateCatalogPublication
+    ) {
+        for pair in result.replacements {
+            candidateReferenceSuccessors[ObjectIdentifier(pair.original)] = RetainedOwnedCandidateReferenceSuccessor(
+                original: pair.original, accepted: pair.accepted, publication: publication)
+        }
+    }
+
+    private func candidateCustodyIntent(
+        for reference: RetainedOwnedCandidateReference, source: RetainedOwnedCandidateCustodySource,
+        links: [RetainedOwnedCandidateReference]
+    ) -> RetainedOwnedCandidateReferenceIntent {
+        var lineage: [RetainedOwnedCandidateDeclarationEdge] = []
+        var seen: Set<ObjectIdentifier> = []
+        for edge in links.flatMap({ $0.lineage + [$0.declarationEdge] }) + reference.lineage
+        where seen.insert(ObjectIdentifier(edge)).inserted { lineage.append(edge) }
+        return RetainedOwnedCandidateReferenceIntent(
+            member: reference.member, holder: source.holder, destination: reference.destination, original: reference,
+            lineage: lineage, returnPath: source.links.flatMap(\.returnPath) + reference.returnPath)
+    }
+
+    private func candidateReturnIntent(
+        for reference: RetainedOwnedCandidateReference, namespace: RetainedOwnedComponentID
+    ) -> RetainedOwnedCandidateReferenceIntent? {
+        guard let index = reference.returnPath.firstIndex(where: { $0.namespace == ObjectIdentifier(namespace) })
+        else { return nil }
+        let path = Array(reference.returnPath[index...])
+        let namespaces = Set(path.map(\.namespace))
+        return RetainedOwnedCandidateReferenceIntent(
+            member: reference.member, holder: path[0], destination: reference.destination, original: reference,
+            lineage: reference.lineage.filter { namespaces.contains($0.declaringSegment.namespace) }, returnPath: path)
+    }
+
+    private func stageCandidateDepartureCustody(
+        for publication: RetainedOwnedCandidateCatalogPublication, sources: [RetainedOwnedCandidateCustodySource]
+    ) {
+        for source in sources {
+            guard source.original.isCurrent, source.links.allSatisfy(\.isCurrent),
+                publication.afterimage.isCurrent, source.original.field !== publication.afterimage.field
+            else { continue }
+            // This attempt cannot replace its earlier captured receiver. A new
+            // independently qualified catalog may replace an older attempt.
+            if source.original.field.departureCustody?.ledger === self { continue }
+            let pending = RetainedOwnedCandidateDepartureCustody(ledger: self, source: source, receiver: publication)
+            candidateDepartureCustody.append(pending)
+            source.original.field.departureCustody = pending
+        }
+    }
+
+    fileprivate func consumeCandidateDepartureCustody(
+        _ pending: RetainedOwnedCandidateDepartureCustody, from originalField: RetainedOwnedCandidateField
+    ) {
+        guard !pending.wasConsumed else { return }
+        pending.wasConsumed = true
+        guard originalField.departureCustody === pending else { return }
+        originalField.departureCustody = nil
+        let receiver = pending.receiver
+        let source = pending.source
+        guard pending.ledger === self, !wasFinished, didPrepare,
+            candidateDepartureCustody.contains(where: { $0 === pending }),
+            source.original.field === originalField,
+            resolvedCandidateOriginal(source.original)?.field === originalField,
+            source.references.allSatisfy(\.isCurrent),
+            receiver.afterimage.isCurrent, receiver.afterimage.field !== originalField,
+            let token = receiver.write.token, ownsCandidateConstruction(token), token.qualification.canPublish,
+            candidatePublications[receiver.write.key] === receiver
+        else { return }
+        guard source.links.count == source.linkFields.count else { return }
+        var links: [RetainedOwnedCandidateReference] = []
+        for (link, original) in zip(source.links, source.linkFields) {
+            if candidateReferenceSuccessors[ObjectIdentifier(link)] == nil {
+                guard let current = resolvedCandidateOriginal(original),
+                    current.references.contains(where: { $0 === link })
+                else { return }
+            }
+            guard let current = resolvedCandidateReference(link) else { return }
+            links.append(current)
+        }
+        let intents = source.references.map { candidateCustodyIntent(for: $0, source: source, links: links) }
+        guard let batch = prepareCandidateReferenceBatch(intents, on: receiver.afterimage.field) else { return }
+        let accepted = publishCandidateReferenceBatch(batch)
+        refreshCandidateAfterimage(receiver)
+        recordCandidateReferenceSuccessors(accepted, publication: receiver)
+        candidateAcceptedCustody.append(
+            RetainedOwnedCandidateAcceptedCustody(
+                source: source.original, receiver: receiver, mapping: accepted.replacements))
+    }
+
+    private func establishCandidateField(
+        token: RetainedOwnedCandidateConstruction, plan: RetainedOwnedComponentDeclarationPlan,
+        source: ViewNode, actual: RetainedLazyListActualAttachment
+    ) {
+        guard plan.receipt === token.owner, !plan.declarationOnly, token.boundarySource === source,
+            candidateBoundaryPlan(for: token, source: source) === plan, token.qualification.canPublish,
+            actual.isAttached, let target = actual.node, let storage = target.retainedLazyListActivityStorage,
+            target.selectedContentRole == .viewThatFits, token.owner.hasDeclaredComponent,
+            token.owner.owner.nativePresence === token.owner.componentPresence,
+            let plans = candidatePlans(for: token)
+        else { return }
+        if let current = storage.ownedCandidateField {
+            guard current.owner === token.owner.componentPresence, current.isCurrent else { return }
+            return
+        }
+        guard candidateBoundaryActivationAttempts.insert(ObjectIdentifier(token)).inserted else { return }
+
+        var donor: RetainedOwnedCandidateFieldSnapshot?
+        if let previous = token.owner.componentPresence.ownedCandidateField {
+            guard let original = token.qualification.fields[ObjectIdentifier(token.owner.owner)],
+                let current = resolvedCandidateOriginal(original), current.field === previous,
+                current.selectedSegment == nil
+            else { return }
+            donor = current
+        }
+        // Returning from cold custody has no live old inner field. Retain the
+        // exact accepted outer references until this actual inner publication.
+        let wanted = candidateMembers(in: plans)
+        var custody: [RetainedOwnedCandidateReference] = []
+        var seenCustody: Set<ObjectIdentifier> = []
+        for original in token.qualification.fields.values where original.field.owner.owner !== token.owner.owner {
+            let captured = original.references.filter {
+                $0.returnPath.contains(where: { $0.namespace == ObjectIdentifier(token.owner.owner) })
+            }
+            guard !captured.isEmpty else { continue }
+            let current = resolvedCandidateOriginal(original)
+            for old in captured {
+                if candidateReferenceSuccessors[ObjectIdentifier(old)] == nil {
+                    guard let current else { return }
+                    // Only this original or its own native field successor can
+                    // prove an omission. No matching member ID is rediscovered.
+                    if !current.references.contains(where: { $0 === old }) { continue }
+                }
+                guard let reference = resolvedCandidateReference(old),
+                    reference.returnPath.contains(where: { $0.namespace == ObjectIdentifier(token.owner.owner) })
+                else { return }
+                if seenCustody.insert(ObjectIdentifier(reference)).inserted { custody.append(reference) }
+            }
+        }
+        let returned = candidateAcceptedCustody.filter {
+            !$0.returnWasConsumed && $0.source.field.owner === token.owner.componentPresence
+                && $0.receiver.write.token?.qualification === token.qualification
+        }
+        for receipt in returned { receipt.returnWasConsumed = true }
+        guard donor?.isCurrent != false, returned.allSatisfy({ $0.receiver.afterimage.isCurrent })
+        else { return }
+        for receipt in returned {
+            for mapping in receipt.mapping {
+                if candidateReferenceSuccessors[ObjectIdentifier(mapping.accepted)] == nil,
+                    !receipt.receiver.afterimage.references.contains(where: { $0 === mapping.accepted })
+                {
+                    continue
+                }
+                guard let reference = resolvedCandidateReference(mapping.accepted),
+                    reference.returnPath.contains(where: { $0.namespace == ObjectIdentifier(token.owner.owner) })
+                else { return }
+                if seenCustody.insert(ObjectIdentifier(reference)).inserted { custody.append(reference) }
+            }
+        }
+
+        let field = RetainedOwnedCandidateField(owner: token.owner.componentPresence, actual: actual)
+        var intents: [RetainedOwnedCandidateReferenceIntent] = []
+        if let donor {
+            for reference in donor.references where wanted[reference.member.identity] != nil {
+                intents.append(
+                    RetainedOwnedCandidateReferenceIntent(
+                        member: reference.member, holder: reference.holderSegment, destination: reference.destination,
+                        original: reference, lineage: reference.lineage, returnPath: reference.returnPath))
+            }
+        }
+        var removals: [(field: RetainedOwnedCandidateField, reference: RetainedOwnedCandidateReference)] = []
+        for reference in custody {
+            guard let holder = reference.field, reference.isCurrent else { return }
+            if wanted[reference.member.identity] != nil {
+                guard let intent = candidateReturnIntent(for: reference, namespace: token.owner.owner) else { return }
+                intents.append(intent)
+            }
+            removals.append((holder, reference))
+        }
+        guard let batch = prepareCandidateReferenceBatch(intents, on: field) else { return }
+        for (holder, reference) in removals {
+            guard holder.isCurrent, reference.isCurrent,
+                let segment = holder.segments[reference.holderSegment],
+                segment.references[reference.member.identity] === reference,
+                RetainedOwnedCandidateRevisionCapacity.permits(current: segment.revision, additional: 1)
+            else { return }
+        }
+
+        // Both receiver additions and every captured donor removal passed
+        // preflight. No callback or fallible member installation intervenes.
+        storage.ownedCandidateField = field
+        token.owner.componentPresence.ownedCandidateField = field
+        field.segments[token.segmentKey] = RetainedOwnedCandidateSegment(key: token.segmentKey)
+        let accepted = publishCandidateReferenceBatch(batch)
+        let departing = (donor?.field.takeOriginalReferencesForWithdrawal() ?? []) + removals.map(\.reference)
+        let withdrawal = RetainedOwnedCandidateWithdrawal(departing)
+        let affected = withdrawal.fields.flatMap { currentCandidatePublications(for: $0) }
+        withdrawal.withdraw()
+        let write = RetainedOwnedCandidateCatalogWrite(
+            ledger: self, source: source, target: target, targetActual: actual,
+            token: token, original: donor, plans: plans)
+        write.wasConsumed = true
+        guard let afterimage = RetainedOwnedCandidateFieldSnapshot(field: field, actual: actual) else {
+            withdrawal.retireUnreferencedMembers()
+            return
+        }
+        let publication = RetainedOwnedCandidateCatalogPublication(write: write, afterimage: afterimage)
+        candidatePublications[write.key] = publication
+        if let donor {
+            candidateFieldSuccessors[ObjectIdentifier(donor)] = RetainedOwnedCandidateFieldSuccessor(
+                original: donor, publication: publication)
+        }
+        recordCandidateReferenceSuccessors(accepted, publication: publication)
+        for existing in affected where candidatePublications[existing.write.key] === existing {
+            refreshCandidateAfterimage(existing)
+        }
+        withdrawal.retireUnreferencedMembers()
+    }
+
+    fileprivate func recordCandidateAcceptedFacts(
+        _ plans: [RetainedOwnedComponentDeclarationPlan], source: ViewNode?,
+        actual: RetainedLazyListActualAttachment, acceptedEmpty: RetainedDescriptorAcceptedEmptyGroup? = nil,
+        insertedReader: RetainedOwnedCandidateChildSource? = nil
+    ) {
+        guard !wasFinished, didPrepare, actual.isAttached else { return }
+        for plan in plans where !plan.declarationOnly && selectedPlans.contains(ObjectIdentifier(plan)) {
+            guard let registration = planRegistrations[ObjectIdentifier(plan)], registration.receipt === plan.receipt,
+                plan.receipt.hasDeclaredComponent,
+                plan.receipt.slotPermissions.allSatisfy({ $0.isDeclared && !$0.wasRevoked })
+            else { continue }
+            if let acceptedEmpty {
+                guard case .descriptor(let component) = plan.origin,
+                    component === acceptedEmpty.proposal.component,
+                    acceptedEmpty.structuralAnchor === actual, plan.sourcePayloads.isEmpty,
+                    registration.candidateConstruction != nil
+                else { continue }
+            } else {
+                guard let source, !source.containsRejectedRetainedSource,
+                    let sourcePlans = selectedOrdinaryPlans(for: source), sourcePlans.contains(where: { $0 === plan })
+                else { continue }
+            }
+            if let input = candidateSelfRegistrations[ObjectIdentifier(registration)] {
+                // The reader's own normal receipt belongs to its original parent
+                // segment. Never insert an A component reference into A's body.
+                guard let source, let target = actual.node, input.source === source, input.plan === plan,
+                    let publication = preparedCandidateSelfPublication(from: source, to: target),
+                    publication.input === input, canFinishCandidateSelf(publication),
+                    actual.target === publication.originalAnchor.actual.target,
+                    actual.attachment === publication.originalAnchor.actual.attachment
+                else { continue }
+                if publication.normal == nil {
+                    publication.normal = RetainedOwnedCandidateAcceptedFact(
+                        plan: plan, actual: actual, source: source, wasAcceptedEmpty: false, insertedReader: nil)
+                }
+                continue
+            }
+            if candidateAcceptedFacts.contains(where: {
+                $0.plan === plan && $0.source === source && $0.actual.target === actual.target
+                    && $0.actual.attachment === actual.attachment && $0.wasAcceptedEmpty == (acceptedEmpty != nil)
+            }) {
+                continue
+            }
+            if let source, let child = candidateChildCatalogSources[ObjectIdentifier(source)],
+                child.normalPlan === plan
+            {
+                guard !candidateChildCatalogDenies(child, actual: actual) else { continue }
+                if case .fresh = child.origin {
+                    guard insertedReader === child, actual.node === source else { continue }
+                }
+            }
+            candidateAcceptedFacts.append(
+                RetainedOwnedCandidateAcceptedFact(
+                    plan: plan, actual: actual, source: source, wasAcceptedEmpty: acceptedEmpty != nil,
+                    insertedReader: insertedReader?.normalPlan === plan ? insertedReader : nil))
+            if let source, let token = source.retainedLazyListActivityStorage?.ownedCandidateBoundarySource,
+                token.owner === plan.receipt
+            {
+                establishCandidateField(token: token, plan: plan, source: source, actual: actual)
+            }
+        }
+        flushCandidateAcceptedFacts()
+        refreshCandidateDeferredAnchors()
+    }
+
+    private func flushCandidateAcceptedFacts() {
+        guard !isDrainingCandidateFacts, !wasFinished else { return }
+        isDrainingCandidateFacts = true
+        defer { isDrainingCandidateFacts = false }
+        // Native facts may arrive children-first. Every successful pass consumes
+        // a normal fact or joins a reader once; no polling or callback is used.
+        var progressed = true
+        var remaining = candidateAcceptedFacts.count + candidateDeferredFacts.count + 1
+        while progressed && remaining > 0 {
+            progressed = false
+            remaining -= 1
+            for fact in candidateAcceptedFacts where fact.acceptedReferences == nil {
+                guard let proof = candidateNormalMemberProof(for: fact) else { continue }
+                let field = proof.field.field
+                let members = candidateMembers(in: [fact.plan])
+                let lineage = proof.reader.map { [$0.normalReference.declarationEdge] } ?? []
+                let intents = members.values.map {
+                    RetainedOwnedCandidateReferenceIntent(
+                        member: $0, holder: proof.token.segmentKey, destination: proof.token.segmentKey,
+                        lineage: lineage)
+                }
+                guard let batch = prepareCandidateReferenceBatch(intents, on: field, normal: proof) else { continue }
+                let usesSelfAcceptance = proof.selfAcceptance != nil || proof.acceptance?.selfParent != nil
+                let publications = usesSelfAcceptance ? [] : currentCandidatePublications(for: field)
+                let readers =
+                    usesSelfAcceptance
+                    ? [] : candidateAcceptedSegments.values.filter { $0.field.field === field && $0.isCurrent }
+                let accepted = publishCandidateReferenceBatch(batch)
+                fact.acceptedReferences = Dictionary(
+                    uniqueKeysWithValues: accepted.accepted.map { ($0.key.member, $0.value) })
+                fact.acceptedParentReader = proof.reader
+                if let selfAcceptance = proof.selfAcceptance {
+                    if !advanceSelfAcceptedBody(selfAcceptance, from: proof.field, prepared: batch, result: accepted) {
+                        // The actual accepted references remain accepted. Only
+                        // this narrow record is refused; no retry or repair.
+                        selfAcceptance.wasRefused = true
+                    }
+                } else if let reader = proof.acceptance, reader.selfParent != nil {
+                    if !advanceSelfAcceptedChildBody(reader, from: proof.field, prepared: batch, result: accepted) {
+                        reader.selfWasRefused = true
+                    }
+                } else {
+                    for publication in publications where !publication.afterimage.isCurrent {
+                        refreshCandidateAfterimage(publication)
+                    }
+                    for reader in readers where !reader.field.isCurrent { advanceAcceptedCandidateReader(reader) }
+                }
+                progressed = true
+            }
+            for fact in candidateDeferredFacts where fact.acceptedAnchor == nil {
+                if acceptCandidateDeferredFact(fact) { progressed = true }
+            }
+        }
+    }
+
+    private func candidateNormalMemberProof(
+        for fact: RetainedOwnedCandidateAcceptedFact
+    ) -> RetainedOwnedCandidateNormalMemberProof? {
+        let plan = fact.plan
+        guard fact.actual.isAttached, let registration = planRegistrations[ObjectIdentifier(plan)],
+            registration.receipt === plan.receipt, let token = registration.candidateConstruction,
+            ownsCandidateConstruction(token),
+            let field = token.owner.componentPresence.ownedCandidateField,
+            field.isCurrent, field.owner === token.owner.componentPresence
+        else { return nil }
+        if let source = fact.source, let child = candidateChildCatalogSources[ObjectIdentifier(source)],
+            child.normalPlan === plan, candidateChildCatalogDenies(child, actual: fact.actual)
+        {
+            return nil
+        }
+        if let accepted = candidateSelfBodyAcceptance(for: token) {
+            let proof = RetainedOwnedCandidateNormalMemberProof(
+                fact: fact, token: token, field: accepted.field, publication: nil,
+                acceptance: nil, selfAcceptance: accepted, reader: accepted.reader)
+            return proof.isCurrent ? proof : nil
+        }
+        if let accepted = candidateAcceptedSegments[ObjectIdentifier(token)] {
+            let proof = RetainedOwnedCandidateNormalMemberProof(
+                fact: fact, token: token, field: accepted.field, publication: nil,
+                acceptance: accepted, selfAcceptance: nil, reader: accepted.reader)
+            return proof.isCurrent ? proof : nil
+        }
+        // Body members of a newly constructed B wait for B's independent normal
+        // component-reference and descriptor-group facts. Child catalog history
+        // never makes this branch eligible.
+        guard token.qualification.canPublish, token.segmentConstruction == nil, token.selfConstruction == nil else {
+            return nil
+        }
+        let publications = currentCandidatePublications(for: field)
+        guard
+            let publication = publications.first(where: {
+                $0.write.token?.qualification === token.qualification
+                    && $0.write.plans.contains(where: { $0 === plan })
+                    && ($0.afterimage.selectedSegment == nil || $0.afterimage.selectedSegment == token.segmentKey)
+            })
+        else { return nil }
+        let reader = token.isDeferredSegment ? token.qualification.currentContinuation?.readerRecord : nil
+        let proof = RetainedOwnedCandidateNormalMemberProof(
+            fact: fact, token: token, field: publication.afterimage, publication: publication,
+            acceptance: nil, selfAcceptance: nil, reader: reader)
+        return proof.isCurrent ? proof : nil
+    }
+
+    /// This is solely a negative check. It neither returns a child afterimage nor
+    /// supplies a normal reference, group, field-birth or task permission.
+    private func candidateChildCatalogDenies(
+        _ input: RetainedOwnedCandidateChildSource, actual: RetainedLazyListActualAttachment
+    ) -> Bool {
+        guard input.sourceBindingsAreCurrent, let source = input.source, actual.isAttached,
+            let token = input.construction.token, ownsCandidateConstruction(token)
+        else {
+            input.wasRefused = true
+            return true
+        }
+        guard token.qualification.canPublish || canHoldPendingSelfChild(input) else {
+            input.wasRefused = true
+            return true
+        }
+        switch input.origin {
+        case .refused:
+            input.wasRefused = true
+            return true
+        case .fresh:
+            // The successful insertion fact, checked separately, is mandatory.
+            // A missing original detached proof cannot be recaptured here.
+            guard actual.node === source else {
+                input.wasRefused = true
+                return true
+            }
+            return false
+        case .existing(let original):
+            guard let originalActual = original.actual, actual.node === originalActual.node,
+                actual.target === originalActual.target, actual.attachment === originalActual.attachment,
+                let publication = candidateChildCatalogPublications[ObjectIdentifier(input)],
+                publication.source === input, publication.original === original,
+                candidateChildPublicationIsCurrent(publication)
+            else {
+                input.wasRefused = true
+                return true
+            }
+            return false
+        }
+    }
+
+    fileprivate func recordCandidateDeferredAcceptance(
+        source: ViewNode, actual: RetainedLazyListActualAttachment,
+        contribution: RetainedDescriptorContributionReceipt
+    ) {
+        if let input = candidateSelfSources[ObjectIdentifier(source)] {
+            guard input.source === source, contribution === input.expectedGroup,
+                let target = actual.node,
+                let publication = preparedCandidateSelfPublication(from: source, to: target),
+                publication.input === input, actual.isAttached,
+                actual.target === publication.originalAnchor.actual.target,
+                actual.attachment === publication.originalAnchor.actual.attachment,
+                let token = input.construction.token, contribution.isActive,
+                let installed = target.retainedLazyListActivityStorage?.descriptorDeferredSubtreeAnchor,
+                installed.contribution === contribution, installed.actual === actual
+            else { return }
+            if publication.descriptor == nil {
+                publication.descriptor = RetainedOwnedCandidateDeferredFact(
+                    source: source, token: token, actual: actual, contribution: contribution,
+                    previousAnchor: target.retainedLazyListActivityStorage?.ownedCandidateDeferredAnchor)
+            }
+            // The ordinary group writer may run before this journal drains the
+            // original absence. Only the later fixed drain tail may finish SELF.
+            return
+        }
+        if source.retainedLazyListActivityStorage?.ownedCandidateDeferredSource?.selfConstruction != nil { return }
+        if let input = candidateChildCatalogSources[ObjectIdentifier(source)] {
+            guard input.source === source, input.expectedGroup === contribution else { return }
+        }
+        guard let token = source.retainedLazyListActivityStorage?.ownedCandidateDeferredSource,
+            ownsCandidateConstruction(token), token.deferredSource === source,
+            actual.isAttached, contribution.isActive, let target = actual.node,
+            let descriptorAnchor = target.retainedLazyListActivityStorage?.descriptorDeferredSubtreeAnchor,
+            descriptorAnchor.contribution === contribution, descriptorAnchor.actual === actual
+        else { return }
+        if candidateDeferredFacts.contains(where: {
+            $0.source === source && $0.actual === actual && $0.contribution === contribution
+        }) {
+            return
+        }
+        let fact = RetainedOwnedCandidateDeferredFact(
+            source: source, token: token, actual: actual, contribution: contribution,
+            previousAnchor: target.retainedLazyListActivityStorage?.ownedCandidateDeferredAnchor)
+        candidateDeferredFacts.append(fact)
+        if let input = candidateChildCatalogSources[ObjectIdentifier(source)],
+            candidateChildCatalogDenies(input, actual: actual)
+        {
+            return
+        }
+        flushCandidateAcceptedFacts()
+    }
+
+    @discardableResult
+    private func acceptCandidateDeferredFact(_ fact: RetainedOwnedCandidateDeferredFact) -> Bool {
+        let token = fact.token
+        guard fact.acceptedAnchor == nil, fact.descriptorFactIsCurrent,
+            let source = fact.source, ownsCandidateConstruction(token), token.deferredSource === source,
+            let construction = token.segmentConstruction,
+            let input = candidateChildCatalogSources[ObjectIdentifier(source)], input.construction === construction,
+            fact.contribution === input.expectedGroup,
+            let target = fact.actual.node,
+            target.retainedLazyListActivityStorage?.ownedCandidateDeferredAnchor === fact.previousAnchor,
+            let field = token.owner.componentPresence.ownedCandidateField,
+            field.isCurrent, token.segmentOwner.hasDeclaredComponent,
+            let normal = candidateAcceptedFacts.first(where: {
+                $0.plan === input.normalPlan && $0.plan.receipt === construction.registration.receipt
+                    && $0.source === source
+                    && $0.actual.target === fact.actual.target && $0.actual.attachment === fact.actual.attachment
+                    && $0.actual.isAttached && $0.acceptedReferences != nil
+            }),
+            let normalReference = normal.acceptedReferences?[
+                ObjectIdentifier(construction.registration.receipt.componentPresence)],
+            case .component(let presence) = normalReference.member,
+            presence === construction.registration.receipt.componentPresence, normalReference.isCurrent,
+            !candidateChildCatalogDenies(input, actual: fact.actual)
+        else { return false }
+        let selfParent: RetainedOwnedCandidateSelfBodyAcceptance?
+        if construction.parent.selfConstruction != nil {
+            guard originalSelfParent(of: input) === construction.parent,
+                let accepted = candidateSelfBodyAcceptance(for: construction.parent)
+            else { return false }
+            selfParent = accepted
+        } else {
+            guard token.qualification.canPublish else { return false }
+            selfParent = nil
+        }
+        let parent = normal.acceptedParentReader
+        if construction.parent.isDeferredSegment {
+            guard let parent, parent.isDeclared, parent.field === field,
+                let parentSegment = parent.segment, field.segments[parentSegment.key] === parentSegment,
+                parentSegment.key == construction.parent.segmentKey,
+                normalReference.lineage.contains(where: { $0 === parent.normalReference.declarationEdge })
+            else { return false }
+        } else if parent != nil || !normalReference.lineage.isEmpty {
+            return false
+        }
+        let originalReader: RetainedOwnedCandidateAcceptedReader?
+        switch input.origin {
+        case .fresh:
+            guard normal.insertedReader === input, normal.actual.node === source,
+                normalReference.declarationEdge.acceptedReader == nil,
+                field.segments[token.segmentKey]?.acceptedReader == nil
+            else { return false }
+            originalReader = nil
+        case .existing(let original):
+            guard original.reader.isDeclared, original.reader.normalReference === normalReference,
+                original.reader.parent === parent, original.reader.field === field,
+                original.reader.publication === original.publication,
+                construction.registration.previous.contains(where: { $0 === original.publication.reader })
+            else { return false }
+            originalReader = original.reader
+        case .refused:
+            return false
+        }
+        // Revalidate after pending facts have been joined. None of the following
+        // callback-free stores can turn a catalog-only result into permission.
+        guard !candidateChildCatalogDenies(input, actual: fact.actual), fact.descriptorFactIsCurrent,
+            normal.actual.isAttached, normalReference.isCurrent
+        else { return false }
+        if let selfParent {
+            guard candidateSelfBodyAcceptance(for: construction.parent) === selfParent,
+                parent === selfParent.reader
+            else { return false }
+        } else if !token.qualification.canPublish {
+            return false
+        }
+        let key = token.segmentKey
+        let publications = selfParent == nil ? currentCandidatePublications(for: field) : []
+        let segment = field.segments[key] ?? RetainedOwnedCandidateSegment(key: key)
+        let fieldActual: RetainedLazyListActualAttachment
+        if let selfParent {
+            fieldActual = selfParent.field.actual
+        } else if let acceptedParent = candidateAcceptedSegments[ObjectIdentifier(construction.parent)],
+            acceptedParent.isCurrent
+        {
+            fieldActual = acceptedParent.field.actual
+        } else if let original = construction.parent.qualification.currentContinuation,
+            construction.parent.isDeferredSegment, original.isCurrent
+        {
+            fieldActual = original.field.actual
+        } else if let publication = publications.first(where: {
+            $0.write.token?.qualification === token.qualification
+                && $0.write.plans.contains(where: { $0 === normal.plan })
+        }) {
+            fieldActual = publication.afterimage.actual
+        } else {
+            return false
+        }
+        field.segments[key] = segment
+        let publication = RetainedOwnedCandidateReaderPublication(
+            reader: construction.registration.receipt, contribution: fact.contribution, actual: fact.actual)
+        let reader =
+            originalReader
+            ?? RetainedOwnedCandidateAcceptedReader(
+                field: field, segment: segment, normalReference: normalReference, parent: parent,
+                publication: publication)
+        reader.publication = publication
+        segment.acceptedReader = reader
+        normalReference.declarationEdge.acceptedReader = reader
+        if let parent {
+            parent.children[ObjectIdentifier(reader)] = RetainedOwnedWeakCandidateReader(reader)
+        } else {
+            field.readerRoots[ObjectIdentifier(reader)] = RetainedOwnedWeakCandidateReader(reader)
+        }
+        guard
+            let snapshot = RetainedOwnedCandidateFieldSnapshot(
+                field: field, actual: fieldActual, selectedSegment: key)
+        else { return false }
+        let accepted = RetainedOwnedCandidateDeferredAnchor(
+            owner: token.owner, reader: construction.registration.receipt, contribution: fact.contribution,
+            actual: fact.actual, field: snapshot, segment: key, readerRecord: reader, readerPublication: publication)
+        target.lazyListActivityStorage().ownedCandidateDeferredAnchor = accepted
+        fact.acceptedAnchor = accepted
+        candidateAcceptedSegments[ObjectIdentifier(token)] = RetainedOwnedCandidateSegmentAcceptance(
+            construction: construction, normal: normal, descriptor: fact, reader: reader,
+            publication: publication, field: snapshot, anchor: accepted, selfParent: selfParent)
+        for previous in publications where !previous.afterimage.isCurrent { refreshCandidateAfterimage(previous) }
+        return true
+    }
+
+    private func advanceAcceptedCandidateReader(_ accepted: RetainedOwnedCandidateSegmentAcceptance) {
+        let previous = accepted.anchor
+        guard accepted.reader.isDeclared, accepted.reader.publication === accepted.publication,
+            accepted.descriptor.descriptorFactIsCurrent, accepted.normal.actual.isAttached,
+            accepted.construction.token?.qualification.canPublish == true,
+            previous.actual.node?.retainedLazyListActivityStorage?.ownedCandidateDeferredAnchor === previous,
+            let snapshot = RetainedOwnedCandidateFieldSnapshot(
+                field: accepted.field.field, actual: accepted.field.actual, selectedSegment: previous.segment)
+        else { return }
+        let next = RetainedOwnedCandidateDeferredAnchor(
+            owner: previous.owner, reader: previous.reader, contribution: previous.contribution,
+            actual: previous.actual, field: snapshot, segment: previous.segment,
+            readerRecord: accepted.reader, readerPublication: accepted.publication)
+        previous.actual.node?.lazyListActivityStorage().ownedCandidateDeferredAnchor = next
+        accepted.field = snapshot
+        accepted.anchor = next
+        accepted.descriptor.acceptedAnchor = next
+    }
+
+    private func refreshCandidateDeferredAnchors() {
+        // Initial readers may publish before their enclosing boundary. Only
+        // exact accepted reader facts and the actual accepted descriptor anchor
+        // may complete that pending association.
+        flushCandidateAcceptedFacts()
+    }
+}
+
+extension RetainedLazyListAdoptionJournal {
+    @discardableResult
+    func seedOwnedCandidateOrigins(at root: ViewNode) -> Bool {
+        guard canContinueConstruction, let scope = boundDescriptorScope else { return false }
+        return scope.ownedLedger.seedOwnedCandidateOrigins(at: root, scope: scope)
+    }
+
+    func prepareOwnedCandidateCatalog(from source: ViewNode, to target: ViewNode) -> RetainedOwnedCandidateCatalogWrite?
+    {
+        guard canContinueAdoption else { return nil }
+        return ownedLedger?.prepareOwnedCandidateCatalog(from: source, to: target)
+    }
+
+    @discardableResult
+    func publishOwnedCandidateCatalog(_ write: RetainedOwnedCandidateCatalogWrite) -> Bool {
+        guard canContinueAdoption else { return false }
+        return ownedLedger?.publishOwnedCandidateCatalog(write) == true
+    }
+
+    func applyOwnedCandidateCatalog(from source: ViewNode, to target: ViewNode) -> Bool {
+        if source.retainedLazyListActivityStorage?.ownedCandidateDeferredSource?.selfConstruction != nil
+            || ownedLedger?.hasOwnedCandidateSelfSource(source) == true
+        {
+            guard canContinueAdoption, let ownedLedger else { return false }
+            return ownedLedger.applyOwnedCandidateSelfSource(from: source, to: target)
+        }
+        if source.retainedLazyListActivityStorage?.ownedCandidateDeferredSource?.segmentConstruction != nil
+            || ownedLedger?.hasOwnedCandidateChildCatalogInput(from: source, to: target) == true
+        {
+            guard canContinueAdoption, let ownedLedger else { return false }
+            return ownedLedger.applyOwnedCandidateChildCatalog(from: source, to: target)
+        }
+        guard
+            source.retainedLazyListActivityStorage?.ownedCandidateBoundarySource != nil
+                || target.retainedLazyListActivityStorage?.ownedCandidateField != nil
+        else { return true }
+        guard let ownedLedger else { return true }
+        guard canContinueAdoption else { return false }
+        return ownedLedger.applyOwnedCandidateCatalog(from: source, to: target)
+    }
+
+    func applyOwnedCandidateDeferredCatalog(at parent: ViewNode) -> Bool {
+        guard let ownedLedger else { return true }
+        guard canContinueAdoption else { return false }
+        return ownedLedger.applyOwnedCandidateDeferredCatalog(at: parent)
+    }
+
+    func applyOriginalOwnedCandidateDeferredCatalogForDirectAdoption(at parent: ViewNode) -> Bool {
+        guard let ownedLedger else { return true }
+        switch ownedLedger.originalOwnedCandidateForDirectAdoption(at: parent) {
+        case .absent:
+            return true
+        case .ambiguous:
+            return false
+        case .unique(let original):
+            guard canContinueAdoption else { return false }
+            return ownedLedger.applyOriginalOwnedCandidateDeferredCatalog(original, at: parent)
+        }
     }
 }

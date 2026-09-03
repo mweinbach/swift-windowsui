@@ -1,5 +1,6 @@
 @_spi(Reflection) import Swift
 import SwiftWindowsCore
+import SwiftWindowsUI
 
 /// A property declaration within one mounted owner. Concrete payload types
 /// distinguish successive values stored in existential declarations.
@@ -64,29 +65,44 @@ enum DynamicPropertyInstaller {
     private static var fieldPlans: [ObjectIdentifier: Any] = [:]
     private static var hasValidatedMetadataCanary = false
 
-    static func install<Root>(_ source: Root, in owner: StateMountOwner) throws -> Root {
+    static func install<Root>(
+        _ source: Root, in owner: StateMountOwner,
+        candidateConstruction: RetainedOwnedCandidateConstruction? = nil
+    ) throws -> Root {
         let slot = StatePropertySlot(concreteTypes: [ObjectIdentifier(Root.self)])
         guard let epoch = owner.installationEpoch else {
             throw failure(.ownerUnavailable, type: Root.self, at: slot, "The owner has no active build epoch")
         }
-        let installation = Installation(owner: owner, epoch: epoch)
+        let installation = Installation(owner: owner, epoch: epoch, candidateConstruction: candidateConstruction)
         try requireActive(installation, at: slot, type: Root.self)
         try validateMetadataCanary()
         var owningSlots: Set<StatePropertySlot> = []
         let plan = try prepare(source, at: slot, owningSlots: &owningSlots)
         try requireActive(installation, at: slot, type: Root.self)
         if let attribution = epoch.lazyAttribution(for: owner) {
+            guard candidateConstruction == nil else {
+                throw failure(
+                    .ownerUnavailable, type: Root.self, at: slot,
+                    "An ordinary candidate construction cannot register a lazy owning property plan")
+            }
             guard epoch.recordLazyOwnedSlots(owningSlots, owner: owner, attribution: attribution) else {
                 throw failure(
                     .ownerUnavailable, type: Root.self, at: slot,
                     "The original lazy component left construction before its owning property plan was recorded")
             }
         } else if let attribution = epoch.descriptorAttribution(for: owner) {
-            guard epoch.recordDescriptorOwnedSlots(owningSlots, owner: owner, attribution: attribution) else {
+            guard
+                epoch.recordDescriptorOwnedSlots(
+                    owningSlots, owner: owner, attribution: attribution, candidateConstruction: candidateConstruction)
+            else {
                 throw failure(
                     .ownerUnavailable, type: Root.self, at: slot,
                     "The original descriptor component left construction before its owning property plan was recorded")
             }
+        } else if candidateConstruction != nil {
+            throw failure(
+                .ownerUnavailable, type: Root.self, at: slot,
+                "An ordinary candidate construction requires its descriptor owning property plan")
         }
         return try plan.apply(source, installation)
     }
@@ -94,6 +110,7 @@ enum DynamicPropertyInstaller {
     private struct Installation {
         let owner: StateMountOwner
         let epoch: StateMountEpoch
+        let candidateConstruction: RetainedOwnedCandidateConstruction?
     }
 
     private struct PreparedValue<Value> {
@@ -409,7 +426,9 @@ enum DynamicPropertyInstaller {
     }
 
     private static func requireActive(_ installation: Installation, at slot: StatePropertySlot, type: Any.Type) throws {
-        guard installation.owner.installationEpoch === installation.epoch else {
+        guard installation.owner.installationEpoch === installation.epoch,
+            installation.candidateConstruction?.canConstruct != false
+        else {
             throw failure(.ownerUnavailable, type: type, at: slot, "The owner closed, retired, or left its build epoch")
         }
     }

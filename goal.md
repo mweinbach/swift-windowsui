@@ -19867,3 +19867,160 @@ isolated failure remain historical evidence; this focused success does not
 qualify Full, native behavior, the Original155 gate or any original product
 completion gate. Private accessibility candidates remain outside the checkout
 during this validation. The nine original gates remain open and unchanged.
+
+### 2026-09-03: independently reconcile Swift Testing in the failed Full run
+
+The private offline Swift Testing verifier passed all fifty-five frozen Python
+fixtures in 0.532 seconds, without skips. Root read the complete verifier and
+fixture logic and verified all twenty-one manifest entries before and after
+execution. These pure checks launch no SwiftPM, native application or test
+workload. They validate exact suite/case matching, ordered shard attribution,
+retention of duplicates and incomplete observations, and rejection of unsupported
+event formats. They do not qualify the product or a Full result.
+
+Fixture evidence is `artifacts/swift-testing-verifier55-fixtures.log`, SHA256
+`7e15b967f4c28e982273f990197323a9b9dd5d735058878dc50a56dee9dedcce`.
+Verifier SHA256 is
+`df84a3d043c042d25cb130c01826044484d9e7ca947d0f69c75f6b34d15960fb`;
+fixture SHA256 is
+`805085645182d0c36223a595530b1879750a09a066b46086461c980337b139bb`.
+
+Applying that verifier to the already closed, hash-bound Full raw log at
+`a0d951bc35c7b243243a10f56fcf4d73255d20f5` found exactly eleven
+Swift Testing starts, passes and distinct methods in the thirty-five observed
+shards. These came from BitmapPNGTests and BorderSegmentsTests, separately from
+the previously recorded 679 XCTest passes and one failure. The verifier exited
+one with four expected completeness failures: the Core stage failed, lacked a
+successful terminal, stopped before all 475 shards and did not run all 138
+Swift Testing methods. It found no unsupported grammar or unexpected nonzero
+Core shard activity. No missing methods were inferred from expected totals.
+
+The result is `artifacts/full-a0d951b-swift-testing-results.json`, SHA256
+`e970f69d2d79975eba55358de7f3258ebf91a6f56f74864d92723d3156f3918a`.
+This adds precision to the preserved failed run; it does not turn it into a
+success or qualify the currently running successor. All original completion
+requirements remain unchanged.
+
+### 2026-09-03: freeze the current 9,082-method XCTest census
+
+The approved pure scanner/planner reconciliation against frozen source at
+`2b9b68bf666986ddaa59a72899771e096213a2f2` completed naturally with
+code zero in 279.763 seconds. It matched 9,082 source-discovered and generated
+XCTest identifiers exactly, with no missing, extra or uncovered identifiers.
+There are 713 XCTest targets, nine separate Swift Testing targets and 475
+shards. Sixteen previously recorded overlaps remain, giving 9,098 modeled
+XCTest executions; those modeled totals are not actual run outcomes. Source
+and generated-metadata capture endpoints matched their frozen copies. Static
+journal count/length limits fit; runtime serialization sizes remain separate.
+
+Root independently verified all thirty-one final manifest entries and compared
+all 475 plan records. Indexes, ordered targets and literal filters are unchanged.
+Only three accounting fields changed, all for shard 35: method count 25 to 26
+and the two expanded-filter character estimates 2,557 to 2,670. The only added
+identifier is the new Stepper runtime-expiry negative; no old identifier was
+removed. All nine Swift Testing source files and their 138 methods are unchanged.
+
+The frozen generated/discovered identifier SHA256 is
+`ecad1e9247870a1db4c74e3ce4513ae2792eafe362a166e37cd230b1b017ab93`;
+current plan SHA256 is
+`1e8f2fbc6a13820e598ac896c009b3e56b6202a040b01fbd61a61bc2849e4af0`.
+The private packet is
+`C:/Users/maxw6/AppData/Local/Temp/stock-scanner-reconcile-2b9b68b-20260903/`.
+Its reconciliation SHA256 is
+`82beaa7939637140f0b933cd1b377a74335fd3f6c64eb87319db9dd6895e9a81`;
+final manifest SHA256 is
+`5bd3f4dbb603e27ae7636b6fdb0dbb2ae66d4e9cbe957ef9b7ac91f8983e2ae9`.
+
+The explicit Swift Testing compatibility receipt, SHA256
+`dddc5b05a462e822b40a8d525ca11c6f6bc5ece8478de2372c47cbc4a20ed386`,
+binds the current plan to the validated verifier's unchanged header/filter and
+suite-source contract. The verifier itself need not change for inert accounting
+fields, but any successor result must carry this current-plan binding. The old
+9,081-method census remains historical. Neither this source-only reconciliation
+nor the running Full attempt closes an original completion gate.
+
+### 2026-09-03: fresh Full passes Stepper and stops at a demo action fixture
+
+The fresh stock Full attempt at
+`ac972348cdfcd6f579e8bf887ebe2688528060d3` exited naturally with code
+one after 1,289.859 seconds. The corrected twenty-six-method Chrome/Geometry
+shard passed. Full completed fifty-five shards and stopped after shard 56,
+DemoCommandPaletteAndTableWorkflowTests. Across the observed prefix, 1,090
+distinct XCTest methods had exact starts and terminals: 1,089 passed and the
+table-header action test failed. The remaining 7,992 distinct XCTest methods
+and 419 shards were unobserved. As before, twenty-two outer stages passed,
+including 84 portable XCTest passes; nine later stages did not run.
+
+The failed `testTableHeadersAreFocusableAndAnnounceSortDirection` left the
+sort column nil and direction ascending, then could not find the expected
+descending label. It drops the initial snapshot/runtime while retaining only
+the root node before invoking the published Button action. This is the same
+missing owner premise found in the Stepper fixture. A bounded independent
+audit and root review identified five such demo tests in three files. Their
+minimum ownership-only corrections are prepared privately; no original
+assertion or action is removed. A separate exact seven-method baseline run,
+including two existing runtime-expiry negatives, is required before applying
+that patch. Plain editor and standalone List cases have different ownership
+semantics and were deliberately left unchanged.
+
+The Full raw log and closure receipts are in
+`artifacts/full-owned-stepper-lifetime-5d696b63858a487d8788d04d30232f03/`,
+raw SHA256
+`b4c790034a11d77909c2cbe3dd5fbde32312f8f603ff51a54a379be1798ed931`.
+The independent XCTest reconciliation is
+`artifacts/full-ac97234-xctest-results.json`, SHA256
+`2548a3e567c9a1a123f2a96aaf2e1b77358cf328e060baed67217584edb7db15`.
+Root verified natural process exit, complete owned descendant/resource/signal
+closure, unchanged source/reference endpoints and no timeout, termination,
+uncertainty, cleanup error or required operator cleanup.
+
+The unchanged Swift Testing verifier, bound through the explicit current-plan
+compatibility receipt above, found sixteen exact starts/passes/distinct methods
+in three dedicated suites (BitmapPNG, BorderSegments and CPUBatchRenderer).
+Its result remains incomplete with the four expected Core-stage/coverage
+errors and no grammar errors. The result is
+`artifacts/full-ac97234-swift-testing-results.json`, SHA256
+`c4d1e254dc770b0f210e5622c3901def11b8545176bc679313b7cc8729e8e1fc`.
+These sixteen are separate from XCTest counts and do not establish 138-case
+Swift Testing completion.
+
+This run also exposed large debug snapshot-workload costs: the global command
+shortcut test passed in 126.151 seconds, the presented-palette construction
+test in 50.198 seconds, and sidebar/inspector snapshots in 107.955 seconds.
+The failed header test took 36.099 seconds. These are current diagnostic
+observations, not a controlled comparison or hardware qualification. A source
+trace rules out the held same-admission deduplication branch for this plain
+snapshot class: its unmanaged host/standalone List lease has no managed
+selected-row journal. The cause of the broader cost remains unproven and
+requires construction/layout/paint phase evidence before choosing a fix.
+No product gate, full-suite, visual or native qualification is claimed.
+
+### 2026-09-03: reproduce all five demo snapshot-owner failures
+
+At the unchanged `ac972348cdfcd6f579e8bf887ebe2688528060d3` checkpoint,
+the seven-method baseline produced exactly seven starts and terminals: all
+five suspected demo action tests failed, while the two existing runtime-expiry
+safety tests passed. The failures cover table-header sorting, gallery category
+selection, the workbench action, clearing an unmatched gallery search and
+opening Gallery from the dashboard tab. Their original assertions observed
+unchanged model state after the refused action, consistently with the missing
+snapshot/runtime owner found in source review.
+
+The owned run exited naturally with code one after 288.969 seconds, preserving
+source endpoints and complete process/descendant/resource/signal closure. No
+timeout, termination, acquisition uncertainty, pending signal or cleanup error
+occurred. The raw log is in
+`artifacts/demosnapshotlifetimeoriginal7-a23cd32d6b5c4db4b792e9a179b12e43/`,
+SHA256 `665013bc21ad62760ea322e632c140f35acec91c592ca558c94acaed45cd885e`.
+The independent aggregate is
+`artifacts/demo-snapshot-lifetime-original7-ac97234-results.json`, SHA256
+`b551ecd22747f43f83fd31c12b2d3756ddd590869a1e713a0f91891442e082c2`.
+
+The proposed fix adds an owning snapshot binding and explicit extended lifetime
+to those five tests only. Root verified every sealed payload and independently
+reversed those five substitutions to recover all three complete original
+files byte-for-byte. All original assertions/actions and both safety tests are
+unchanged. The baseline roster and proposed successor retain the same seven
+ordered identifiers; only the three fixture source hashes differ. No production
+code or original completion requirement is changed, and correction validation
+remains pending at this checkpoint.

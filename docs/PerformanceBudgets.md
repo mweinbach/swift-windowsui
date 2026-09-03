@@ -442,3 +442,26 @@ Budgets are ceilings, not targets. When a legitimate feature needs more
 primitives or a larger cache, raise the bound in the same commit as the
 feature and note the reason in the test comment. A bound that fails on a
 healthy tree is a regression signal — do not loosen it just to go green.
+
+## Original lazy-list operand lookup
+
+Layout now builds one local physical-node index for the immutable operands in
+its current layout scope. Selecting operands for P placements among C children
+uses O(C + P) identity lookup work instead of repeated O(P * C) searches.
+An empty placement plan creates no index. The map stores integer positions,
+preserves first-match selection, and does not retain extra nodes.
+
+An adoption candidate similarly indexes each original physical source root to
+its first record. Completion notifications select that original record without
+rescanning every record's node array. The candidate clears this integer map
+before releasing source payloads. This does not memoize validity: all existing
+scope, journal, activity, attachment and completion checks still run in their
+original order, including after callbacks. Neither index hashes authored IDs.
+
+These are structural lookup changes, not a measured frame-time result. Index
+construction has a cost, and the expensive completion/forest validation counted
+by the keyboard diagnostic is unchanged. New controls cover wide multi-leaf
+layout, selected physical boundaries, empty plans, source misses, whole-row
+completion, callback revocation and payload retirement. Their focused execution
+and any later controlled performance qualification are recorded separately in
+[goal.md](../goal.md).

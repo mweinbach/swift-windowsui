@@ -19489,3 +19489,42 @@ No assertion was removed after this failure. No pixel, image decoding, hardware,
 live rendering, Narrator or clean-machine acceptance claim follows. The separate
 policy-denied native acquisition route remains HELD and was not invoked. All
 nine original completion gates remain open without a scope change.
+
+### 2026-09-03: index original lazy-list operands without caching their validity
+
+Two independently reviewed lookup changes replace repeated physical-node scans.
+Layout constructs a local ObjectIdentifier-to-position map from the immutable
+scope's original children, retaining first-match order and skipping construction
+for an empty plan. Candidate adoption constructs a first-record index from the
+original source roots, including records without activity, and clears that map
+before source payload retirement. The latter helper copies the selected record
+at the same guard position as the former scan. The maps contain scalar positions,
+not extra node ownership or authored identity keys.
+
+Every original validity, journal, activity, completion and attachment check stays
+in place and in order. No successful check is cached or elided, and no callback
+boundary is crossed using remembered authority. Layout lookup alone changes from
+repeated O(P*C) search to O(C+P) construction and lookup. The candidate pays an
+up-front index cost. Neither change establishes an end-to-end speedup or reduces
+the completion-validation counts recorded in earlier diagnostics.
+
+The six additive tests were frozen before their implementations. Three cover
+wide multi-leaf placement, selected physical operands and an empty plan. Three
+cover foreign/descendant misses and complete-row acceptance, revocation between
+source completions, and reentrant payload retirement. Supported preparation
+already rejects overlapping roots, so first-match behavior for duplicate input
+is checked in source rather than through an invented Candidate constructor.
+The retirement oracle verifies lifetime/rejection, not direct access to the
+private scalar map. All preexisting test-file bytes were retained on integration.
+
+The four-file integration receipt is
+`artifacts/lazy-lookup-indices-integration.json`; original and pre-format copies
+are under `artifacts/lazy-lookup-indices-preformat/`. Architecture checks passed
+before integration. Toolchain lint initially requested wrapping only the newly
+added selected-content test expression; root formatted that file, then strict
+lint and contracts passed. No production logic or assertion was changed to
+satisfy lint. The planned union contains all prior 243 methods, the six new
+methods and six additional unchanged controls, including the original keyboard
+handoff already present in the prior cohort. The 255-method execution remains
+pending at this checkpoint; Original155 and full-suite results are unchanged.
+All nine original completion gates remain open.

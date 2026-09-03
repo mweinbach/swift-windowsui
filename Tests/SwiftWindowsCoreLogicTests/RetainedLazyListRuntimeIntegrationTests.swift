@@ -1089,3 +1089,98 @@ private final class LazyListRuntimeEpoch: RetainedBuildEpoch {
         onFinish?(self)
     }
 }
+
+/// Lookup regression controls use the existing retained-runtime fixture. The
+/// immutable layout scope still supplies every physical operand and proof.
+@MainActor
+final class LazyListOperandLookupTests: XCTestCase {
+    func testWideMultiLeafRosterKeepsPhysicalPlacementOrderAndSizes() async throws {
+        let values = Array(0..<16)
+        let probe = LazyListRuntimeProbe(heights: Dictionary(uniqueKeysWithValues: values.map { ($0, [13.0, 27.0]) }))
+        let fixture = try LazyListRuntimeFixture(
+            values: values, height: 640, estimate: 40, probe: probe, elementLimit: 32)
+        defer { fixture.close() }
+
+        _ = fixture.runtime.renderFrame()
+
+        let plan = try fixture.plan()
+        XCTAssertEqual(probe.factoryCalls, values)
+        XCTAssertEqual(plan.placements.count, 32)
+        XCTAssertEqual(fixture.list.children.count, 32)
+        XCTAssertEqual(plan.contentExtent, 640)
+        XCTAssertFalse(plan.requiresResolution)
+        for (index, placement) in plan.placements.enumerated() {
+            let row = index / 2
+            let leaf = index % 2
+            let expected = Rect(
+                x: 0, y: Double(row * 40 + (leaf == 0 ? 0 : 13)),
+                width: 120, height: leaf == 0 ? 13 : 27)
+            XCTAssertTrue(placement.node === fixture.list.children[index])
+            XCTAssertTrue(placement.node.parent === fixture.list)
+            XCTAssertEqual(placement.node.resolvedFrame, expected)
+            XCTAssertEqual(placement.originY, expected.origin.y)
+            XCTAssertEqual(placement.extent, expected.height)
+        }
+        let originalNodes = fixture.list.children
+        _ = fixture.runtime.renderFrame()
+        XCTAssertEqual(probe.factoryCalls, values)
+        XCTAssertTrue(zip(originalNodes, fixture.list.children).allSatisfy { $0 === $1 })
+        XCTAssertEqual(try fixture.plan().placements.count, 32)
+    }
+
+    func testNestedSelectedLeavesUseTheirPhysicalOperandKeys() async throws {
+        let values = Array(0..<8)
+        let fixture = try LazyListRuntimeFixture(values: values, height: 160)
+        defer { fixture.close() }
+        var factories: [Int] = []
+        XCTAssertTrue(
+            fixture.source.replaceData(
+                values, id: \.self, identityRoot: LazyListRuntimeFixture.identityRoot
+            ) { value, prefix in
+                factories.append(value)
+                let selected = ViewNode(preferredSize: Size(width: 80, height: 20))
+                let inner = ViewNode.selectedContentBoundary(role: .viewThatFits, child: selected)
+                let physical = ViewNode.selectedContentBoundary(role: .viewThatFits, child: inner)
+                physical.retainedViewIdentity = prefix.appending(.slot(0))
+                physical.dynamicContentIndex = value
+                return [physical]
+            })
+
+        _ = fixture.runtime.renderFrame()
+
+        let plan = try fixture.plan()
+        XCTAssertEqual(factories, values)
+        XCTAssertTrue(fixture.probe.factoryCalls.isEmpty)
+        XCTAssertEqual(plan.placements.count, 8)
+        XCTAssertFalse(plan.requiresResolution)
+        for (index, placement) in plan.placements.enumerated() {
+            let physical = try fixture.row(index)
+            let inner = try XCTUnwrap(physical.children.first)
+            let selected = try XCTUnwrap(inner.children.first)
+            XCTAssertTrue(placement.node === physical)
+            XCTAssertFalse(placement.node === selected)
+            XCTAssertTrue(fixture.adapter.mountedNodes(for: placement.token)?.first === physical)
+            XCTAssertEqual(physical.resolvedFrame, .zero)
+            XCTAssertEqual(inner.resolvedFrame, .zero)
+            XCTAssertEqual(selected.resolvedFrame, Rect(x: 0, y: Double(index * 20), width: 120, height: 20))
+            XCTAssertTrue(physical.parent === fixture.list)
+            XCTAssertTrue(selected.parent === inner)
+        }
+    }
+
+    func testEmptyPlanKeepsZeroPlacementsAndDoesNotBuildRows() async throws {
+        let fixture = try LazyListRuntimeFixture(values: [])
+        defer { fixture.close() }
+
+        _ = fixture.runtime.renderFrame()
+
+        let plan = try fixture.plan()
+        XCTAssertTrue(plan.placements.isEmpty)
+        XCTAssertTrue(fixture.list.children.isEmpty)
+        XCTAssertTrue(fixture.probe.factoryCalls.isEmpty)
+        XCTAssertEqual(plan.contentExtent, 0)
+        XCTAssertFalse(plan.requiresResolution)
+        XCTAssertEqual(fixture.adapter.mountedRecordCount, 0)
+        XCTAssertEqual(fixture.runtime.lastLazyListConsumedElements, 0)
+    }
+}

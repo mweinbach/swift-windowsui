@@ -11723,14 +11723,24 @@ public final class ViewNode {
             runtime.rejectLazyListLayoutVisit()
             return
         }
+        guard !plan.placements.isEmpty else { return }
+        // Index only the original operands already owned by this scope.
+        // Keep first-match behavior without caching any currentness result.
+        var operandIndices: [ObjectIdentifier: Int] = [:]
+        operandIndices.reserveCapacity(scope.children.count)
+        for (index, operand) in scope.children.enumerated() {
+            let identity = ObjectIdentifier(operand.physicalNode)
+            if operandIndices[identity] == nil { operandIndices[identity] = index }
+        }
         for placement in plan.placements {
             guard scope.isCurrent, placement.node.parent === self,
                 placement.node.runtime === runtime,
-                let operand = scope.children.first(where: { $0.physicalNode === placement.node })
+                let operandIndex = operandIndices[ObjectIdentifier(placement.node)]
             else {
                 runtime.rejectLazyListLayoutVisit()
                 return
             }
+            let operand = scope.children[operandIndex]
             if recordToken != placement.token {
                 recordToken = placement.token
                 recordOrigin = placement.originY

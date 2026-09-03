@@ -596,6 +596,7 @@ package final class RetainedLazyListRuntimeAdapter {
         /// teardown/transition semantics in Runtime.
         package let virtualizedDepartureRoots: Set<ObjectIdentifier>
         fileprivate private(set) var records: [Record]
+        private var sourceRecordIndices: [ObjectIdentifier: Int]
         fileprivate let requestProofs: [RetainedLazyListRowRequest]
         fileprivate let requestGenerationIndices: [Int]
         fileprivate let identityProofs: [RetainedLazyListViewIdentityProof]
@@ -639,6 +640,15 @@ package final class RetainedLazyListRuntimeAdapter {
             self.viewport = viewport
             self.records = records
             self.children = records.flatMap(\.nodes)
+            // Select only from the original physical roots; no currentness is cached.
+            var sourceRecordIndices: [ObjectIdentifier: Int] = [:]
+            for (recordIndex, record) in records.enumerated() {
+                for node in record.nodes {
+                    let identity = ObjectIdentifier(node)
+                    if sourceRecordIndices[identity] == nil { sourceRecordIndices[identity] = recordIndex }
+                }
+            }
+            self.sourceRecordIndices = sourceRecordIndices
             let requestProofs = records.filter { carriedRecordProofs[$0.request.token] == nil }.map(\.request)
             self.requestProofs = requestProofs
             requestGenerationIndices = RetainedLazyListRowRequest.distinctGenerationProofIndices(in: requestProofs)
@@ -697,6 +707,13 @@ package final class RetainedLazyListRuntimeAdapter {
             return true
         }
 
+        private func originalRecord(containing source: ViewNode) -> Record? {
+            guard let index = sourceRecordIndices[ObjectIdentifier(source)], records.indices.contains(index) else {
+                return nil
+            }
+            return records[index]
+        }
+
         /// Each notification follows checked completion of this exact source
         /// root, including its descendants. Other rows may still fail later.
         func recordCompletedSource(
@@ -704,7 +721,7 @@ package final class RetainedLazyListRuntimeAdapter {
             journal: RetainedLazyListAdoptionJournal
         ) {
             guard isCurrent, journal.canContinueAdoption,
-                let record = records.first(where: { record in record.nodes.contains(where: { $0 === source }) }),
+                let record = originalRecord(containing: source),
                 let activity = record.activity, activity.attempt === journal.attempt,
                 !completedRows.contains(ObjectIdentifier(activity)), actual.parent === container,
                 let completion = RetainedLazyListAdoptionCompletion(of: actual), completion.isCurrent
@@ -816,6 +833,7 @@ package final class RetainedLazyListRuntimeAdapter {
             var previousChildren = children
             var previousRecords = records
             var previousCompletedRoots = completedSourceRoots
+            sourceRecordIndices = [:]
             children = []
             records = []
             completedSourceRoots = [:]

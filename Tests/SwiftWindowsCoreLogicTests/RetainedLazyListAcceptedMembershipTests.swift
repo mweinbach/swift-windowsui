@@ -691,3 +691,250 @@ private final class EmptyMembershipFactoryCalls {
 private enum EmptyMembershipFixtureError: Error {
     case candidate, descriptorPublication
 }
+
+/// Uses the real selected-row setup above and checked reconciliation. Explicit
+/// notifications exercise only sources that must miss the original root table.
+@MainActor
+final class RetainedLazyListCandidateSourceLookupTests: XCTestCase {
+    func testPhysicalSourceHitsAndDescendantMissesCompleteOnlyTheirOwnWholeRows() async throws {
+        let fixture = try CandidateSourceLookupFixture()
+        defer { fixture.close() }
+        let attempt = fixture.attempt
+        try attempt.beginAdoption()
+        let sources = attempt.candidate.children
+        XCTAssertEqual(attempt.candidate.recordLeafCounts, [2, 2])
+        XCTAssertEqual(attempt.activity.rows.count, 2)
+        let first = attempt.activity.rows[0]
+        let second = attempt.activity.rows[1]
+        let foreign = ViewNode()
+        foreign.retainedViewIdentity = sources[0].retainedViewIdentity
+        let descendant = try XCTUnwrap(sources[0].children.first)
+        fixture.probe.hashCalls = 0
+        fixture.probe.equalCalls = 0
+
+        weak var departingActual = fixture.target.children.last
+        XCTAssertEqual(fixture.target.children.count, 5)
+        for source in [foreign, descendant] {
+            attempt.candidate.recordCompletedSource(
+                from: source, to: try XCTUnwrap(departingActual), in: fixture.target, journal: attempt.journal)
+        }
+        XCTAssertEqual(first.physical.state, .provisional)
+        XCTAssertEqual(second.physical.state, .provisional)
+        XCTAssertTrue(first.physical.actualAttachments.isEmpty)
+        XCTAssertTrue(second.physical.actualAttachments.isEmpty)
+
+        XCTAssertEqual(fixture.probe.hashCalls, 0)
+        XCTAssertEqual(fixture.probe.equalCalls, 0)
+        let result = fixture.reconcile()
+        XCTAssertTrue(result.completed)
+        XCTAssertEqual(result.children.map(ObjectIdentifier.init), fixture.actuals.map(ObjectIdentifier.init))
+        XCTAssertNil(departingActual, "Missed sources must not retain an unrelated departing actual node")
+        XCTAssertEqual(second.physical.state, .active)
+        XCTAssertEqual(second.physical.actualAttachments.count, 2)
+        XCTAssertEqual(first.physical.state, .active)
+        XCTAssertEqual(first.physical.actualAttachments.count, 2)
+        for (row, indices) in [(first, [0, 1]), (second, [2, 3])] {
+            XCTAssertEqual(
+                row.physical.actualAttachments.compactMap { $0.node.map(ObjectIdentifier.init) },
+                indices.map { ObjectIdentifier(fixture.actuals[$0]) })
+        }
+        // Repeating a physical source must not create another row acceptance.
+        fixture.probe.hashCalls = 0
+        fixture.probe.equalCalls = 0
+        attempt.candidate.recordCompletedSource(
+            from: sources[3], to: fixture.actuals[3], in: fixture.target, journal: attempt.journal)
+        XCTAssertEqual(fixture.probe.hashCalls, 0)
+        XCTAssertEqual(fixture.probe.equalCalls, 0)
+        let disposition = attempt.journal.seal()
+        XCTAssertEqual(disposition.acceptedRowMemberships.count, 2)
+        XCTAssertEqual(
+            Set(disposition.acceptedRowMemberships.map(ObjectIdentifier.init)),
+            Set([ObjectIdentifier(first.membership), ObjectIdentifier(second.membership)]))
+    }
+
+    func testReentrantRevocationBetweenSourceCompletionsDoesNotFinishAPartialRow() async throws {
+        let fixture = try CandidateSourceLookupFixture()
+        defer { fixture.close() }
+        let attempt = fixture.attempt
+        try attempt.beginAdoption()
+        let first = try XCTUnwrap(attempt.activity.rows.first)
+        XCTAssertEqual(first.physical.state, .provisional)
+        XCTAssertTrue(attempt.candidate.isCurrent)
+        var callbacks = 0
+        fixture.probe.onSecondUpdate = { [weak provider = fixture.provider] in
+            callbacks += 1
+            provider?.close()
+        }
+
+        let result = fixture.reconcile()
+
+        XCTAssertFalse(result.completed)
+        XCTAssertEqual(callbacks, 1)
+        XCTAssertFalse(attempt.candidate.isCurrent)
+        XCTAssertEqual(fixture.actuals[0].text, "source 0/0")
+        XCTAssertEqual(fixture.actuals[2].text, "old 1/0")
+        XCTAssertTrue(first.physical.actualAttachments.isEmpty)
+        XCTAssertTrue(attempt.journal.seal().acceptedRowMemberships.isEmpty)
+    }
+
+    func testDiscardReleasesSourcePayloadsBeforeReentrantCompletionCanReuseTheCandidate() async throws {
+        let fixture = try CandidateSourceLookupFixture(includePayload: true)
+        defer { fixture.close() }
+        let attempt = fixture.attempt
+        try attempt.beginAdoption()
+        let candidate = attempt.candidate
+        weak var originalSource = candidate.children.first
+        XCTAssertNotNil(originalSource)
+        XCTAssertNotNil(fixture.probe.payload)
+        let target = fixture.target
+        let actual = fixture.actuals[0]
+        let journal = attempt.journal
+        fixture.probe.onRelease = { [weak candidate, weak target, weak actual, weak journal] in
+            guard let candidate, let target, let actual, let journal else {
+                return XCTFail("The test keeps native owners alive through source retirement")
+            }
+            XCTAssertFalse(candidate.isCurrent)
+            XCTAssertTrue(candidate.children.isEmpty)
+            XCTAssertTrue(candidate.recordLeafCounts.isEmpty)
+            candidate.recordCompletedSource(from: ViewNode(), to: actual, in: target, journal: journal)
+        }
+
+        candidate.discardBuiltContent()
+
+        XCTAssertNil(originalSource)
+        XCTAssertNil(fixture.probe.payload)
+        XCTAssertEqual(fixture.probe.releaseCalls, 1)
+        XCTAssertFalse(candidate.isCurrent)
+        XCTAssertTrue(candidate.children.isEmpty)
+        XCTAssertTrue(candidate.recordLeafCounts.isEmpty)
+        XCTAssertTrue(attempt.journal.seal().acceptedRowMemberships.isEmpty)
+        candidate.discardBuiltContent()
+        XCTAssertEqual(fixture.probe.releaseCalls, 1)
+        fixture.probe.onRelease = nil
+    }
+}
+
+@MainActor
+private final class CandidateSourceLookupFixture {
+    let registry: StateMountRegistry
+    let target: ViewNode
+    let runtime: RetainedViewRuntime
+    let actuals: [ViewNode]
+    let provider: RetainedLazyListDataSource<Int, [ViewNode]>
+    let adapter: RetainedLazyListRuntimeAdapter
+    let attempt: EmptyMembershipAttempt
+    let probe: CandidateSourceLookupProbe
+    private let lease: EmptyMembershipBuildLease
+    private var isClosed = false
+
+    init(includePayload: Bool = false) throws {
+        let registry = StateMountRegistry()
+        let probe = CandidateSourceLookupProbe()
+        let lease = EmptyMembershipBuildLease()
+        let target = ViewNode(frame: Rect(x: 0, y: 0, width: 120, height: 40))
+        let actuals = (0..<4).map { _ in ViewNode() }
+        for actual in actuals { target.addChild(actual) }
+        target.addChild(ViewNode())
+        let runtime = RetainedViewRuntime(root: target)
+        let provider = RetainedLazyListDataSource<Int, [ViewNode]>()
+        XCTAssertTrue(
+            provider.replaceData(
+                [0, 1], id: \.self, identityRoot: RetainedViewIdentity(segments: [.role(.content)]),
+                rowContent: { value, prefix in
+                    (0..<2).map { index in
+                        let node = ViewNode()
+                        node.text = "source \(value)/\(index)"
+                        node.retainedViewIdentity = prefix.appending(
+                            .explicit(.init(CandidateSourceLookupKey(value: index, probe: probe))))
+                        let descendant = ViewNode()
+                        descendant.retainedViewIdentity = node.retainedViewIdentity?.appending(.slot(0))
+                        node.addChild(descendant)
+                        if value == 0, index == 1 {
+                            node.onUpdatePlatformView = { _ in probe.onSecondUpdate?() }
+                        }
+                        if includePayload, value == 0, index == 0 {
+                            let payload = CandidateSourceLookupRelease {
+                                probe.releaseCalls += 1
+                                probe.onRelease?()
+                            }
+                            probe.payload = payload
+                            node.onPointerEnter = { [payload] in withExtendedLifetime(payload) {} }
+                        }
+                        return node
+                    }
+                }))
+        for (value, row) in try XCTUnwrap(provider.metadata).rows.enumerated() {
+            let request = try XCTUnwrap(provider.request(for: row.token))
+            let prefix = try XCTUnwrap(provider.identityPrefix(for: request))
+            for index in 0..<2 {
+                let actual = actuals[value * 2 + index]
+                actual.retainedViewIdentity = prefix.appending(
+                    .explicit(.init(CandidateSourceLookupKey(value: index, probe: probe))))
+                actual.text = "old \(value)/\(index)"
+            }
+        }
+        let adapter = try XCTUnwrap(
+            RetainedLazyListRuntimeAdapter(
+                provider: provider, estimatedExtent: 20, prefetchExtent: 0,
+                maximumMountedRecords: 4, maximumMountedLeaves: 4, maximumProtectedRecords: 1))
+        self.target = target
+        self.runtime = runtime
+        self.actuals = actuals
+        self.provider = provider
+        self.adapter = adapter
+        self.registry = registry
+        self.probe = probe
+        self.lease = lease
+        attempt = try EmptyMembershipAttempt(
+            registry: registry, target: target, runtime: runtime, provider: provider,
+            adapter: adapter, lease: lease, existingBinding: nil, contentRevision: 0)
+    }
+
+    func reconcile() -> RetainedLazyListAdoptionResult {
+        ComponentHost.reconcileChildren(
+            of: target, oldChildren: target.children, newNodes: attempt.candidate.children,
+            admission: attempt.admission, lazyJournal: attempt.journal)
+    }
+
+    func close() {
+        guard !isClosed else { return }
+        isClosed = true
+        probe.onRelease = nil
+        probe.onSecondUpdate = nil
+        attempt.finish()
+        _ = adapter.releaseAttachment(from: target)
+        registry.close()
+        provider.close()
+    }
+}
+
+@MainActor
+private final class CandidateSourceLookupProbe {
+    var hashCalls = 0
+    var equalCalls = 0
+    var releaseCalls = 0
+    var onRelease: (@MainActor () -> Void)?
+    var onSecondUpdate: (@MainActor () -> Void)?
+    weak var payload: CandidateSourceLookupRelease?
+}
+
+private struct CandidateSourceLookupKey: Hashable {
+    let value: Int
+    let probe: CandidateSourceLookupProbe
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        MainActor.assumeIsolated { lhs.probe.equalCalls += 1 }
+        return lhs.value == rhs.value
+    }
+
+    func hash(into hasher: inout Hasher) {
+        MainActor.assumeIsolated { probe.hashCalls += 1 }
+        hasher.combine(value)
+    }
+}
+
+private final class CandidateSourceLookupRelease {
+    let action: @MainActor () -> Void
+    init(_ action: @escaping @MainActor () -> Void) { self.action = action }
+    deinit { MainActor.assumeIsolated { [action] in action() } }
+}

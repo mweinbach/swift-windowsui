@@ -21202,3 +21202,59 @@ do every original Frame77 method, all production sources and stack settings.
 The failed draft and raw evidence remain preserved. A fresh binding and rerun
 of the original Metadata selector are required; no previous result becomes a
 pass. The full original goal and all nine open gates remain unchanged.
+
+
+### 2026-09-03: close the modifier-stack regression and isolate final child publication
+
+At `1636b23161ab39ff12e69852f77bb645991d1585`, the original first Metadata
+regression passed unchanged, with one exact start and passing terminal. Its
+36 modifier layers and process stack setting are unchanged. The owned attempt
+exited naturally with complete process/resource closure; raw SHA256
+`e221216b715cd3a0aeebd93f8e9c09b3c411e980221bf084b8ec95283253104f` and
+aggregate `artifacts/metadata1-1636b23-results.json` preserve the result.
+
+The subsequent 109-method selection completed with 107 passes and two
+failures: all 77 original frame methods, eighteen earlier additions, and
+fourteen modifier-storage additions each had exactly one start and terminal.
+All Metadata and storage methods passed. The two unchanged selected-root
+composition methods failed to obtain their initial semantic request; there
+was no stack overflow or missing terminal. All six batches exited naturally
+with full owned closure, and all 56 source pins were unchanged. The complete
+result is `artifacts/frame109-1636b23-results.json`. This is a failed focused
+selection, not a full-suite pass or permission to skip its failing methods.
+
+An independent existing-state baseline then passed all 67 selected methods,
+covering property installation, local state, environment, object state and
+bindings. It used the separately frozen combined roster, not the wider
+collateral runner whose prerequisite still requires every frame test to pass.
+All four batches had exact starts and passing terminals, natural zero exits,
+complete owned closure and unchanged 67 source pins. The result is
+`artifacts/storage67-1636b23-results.json`. A later run on corrected sources
+overlaps this baseline; its counts must not be added as distinct coverage.
+
+The selected-root failure is a publication-order defect in standalone child
+replacement. Runtime assignment attempts frame publication before the final
+child table establishes selected membership. The existing unchanged-child
+fast path and accessibility getters must not become retry mechanisms. The
+correction must publish after final membership, preserve the existing checked
+reconciliation acceptance, and decline if cleanup invalidates the original
+parent or incoming attachment/identity. Selected-root endpoint zero remains
+the actual selected Button; this is distinct from a declared frame used as
+the actual runtime root, which keeps its neutral window endpoint separate.
+
+The reviewed correction is integrated with nine additive tests. Original weak
+parent witnesses precede callbacks, incoming-subtree witnesses precede the
+final displaced-payload release, and publication requires their continued
+validity plus exact final membership. The new boundary excludes all checked
+journal/task/source/completion/Button/chrome contexts. Detached and frame-free
+trees avoid new witness storage. Publication itself contains no authored
+callback payload. The source patch SHA256 is
+`a83faa6abfef65e8655303d475af3bbdfc012b60510b8647920319ca592f72e5`.
+All four changed Swift files passed strict lint without formatting changes,
+and the pre-change contracts passed. The next fixed-source run must retain
+the complete original 109 selectors and add the nine frozen methods; the
+earlier failed result remains unchanged. Behavioral validation is pending.
+
+The original goal text and all nine open completion gates remain unchanged.
+These focused results do not establish native UIA/Narrator, GPU presentation,
+visual parity, performance or full-suite qualification.

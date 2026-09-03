@@ -10112,6 +10112,12 @@ public final class ViewNode {
             })
         else { return }
 
+        let publishesStandaloneFrames =
+            runtime != nil && lazyJournal == nil && taskAdoption == nil && sourceParent == nil
+            && completionSources == nil && buttonActions == nil && textInputChrome == nil
+            && hasDeclaredAccessibilityFramePublication(in: nextChildren)
+        let frameParentAttachment = publishesStandaloneFrames ? captureLazyListAttachmentProof() : nil
+        let frameParentIdentity = publishesStandaloneFrames ? captureLazyListIdentityProof() : nil
         let interactionRuntime = runtime
         var groupTaskCleanup: [RetainedLazyListAcceptedTaskCleanup] = []
         var taskDeparture: RetainedTaskPhysicalDeparture?
@@ -10241,6 +10247,10 @@ public final class ViewNode {
             finalChildrenCutWasRefused = true
             return
         }
+        // Capture only weak native witnesses before the displaced child array
+        // releases its payload. Membership itself becomes final in the next write.
+        let framePublications =
+            publishesStandaloneFrames ? nextChildren.map { RetainedLazyListAdoptionCompletion(of: $0) } : []
         let finalTaskWrite = selectedTaskAdoption?.prepareTargetChildrenWrite(nextChildren, isFinal: true)
         writeFinalChildren(nextChildren)
         selectedTaskAdoption?.didWrite(finalTaskWrite)
@@ -10249,6 +10259,15 @@ public final class ViewNode {
         guard buttonActions?.recordInsertion(in: nextChildren) != false else { return }
         if recordsDeclaration, let sourceParent {
             lazyJournal?.recordAcceptedOwnedStructuralDeclaration(from: sourceParent, to: self)
+        }
+        // Runtime assignment preceded final membership. Publish only the
+        // original standalone insertion, before registration releases payloads.
+        // Checked reconciliation retains its separate final frame acceptance.
+        if let frameParentAttachment, let frameParentIdentity,
+            frameParentAttachment.isCurrent, frameParentIdentity.isCurrent, runtime === interactionRuntime,
+            isChildListUnchanged(nextChildren), framePublications.allSatisfy({ $0?.isCurrent == true })
+        {
+            for child in nextChildren { child.publishAccessibilityFrameSubtree() }
         }
         for child in nextChildren { runtime?.registerLazyListAttachments(in: child) }
         if buttonActions == nil { RetainedButtonActionTree.publishStandalone(in: nextChildren) }

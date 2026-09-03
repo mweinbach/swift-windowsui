@@ -410,6 +410,17 @@ extension ViewNode {
         return owner
     }
 
+    /// Presence only: avoid allocating publication witnesses for a plain tree.
+    /// Finish this temporary native walk before any attachment cleanup can run.
+    @inline(never)
+    func hasDeclaredAccessibilityFramePublication(in roots: [ViewNode]) -> Bool {
+        let owner = highestDeclaredAccessibilityFrameOwner()
+        if owner.accessibilityFrameContentStorage != nil || owner.accessibilitySemanticElement != nil { return true }
+        return RetainedButtonActionTree.nodes(in: roots).contains {
+            $0.accessibilityFrameContentStorage != nil || $0.accessibilitySemanticElement != nil
+        }
+    }
+
     /// A native attachment/accepted reconciliation publication, never a getter.
     /// Walk only explicit declarations; physical layout and parentage stay intact.
     func publishAccessibilityFrameSubtree() {

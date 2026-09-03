@@ -86,9 +86,31 @@ local state and installation diagnostics. Their first build at `397ff91` stopped
 before execution: the new storage fixture omitted three required canvas
 providers and used an effectful Never body inside the inherited result builder.
 A separate fixture correction preserves its assertions and the original
-Metadata regression; behavioral verification is still pending. The change adds one allocation per modifier;
-it does not remove recursion or establish performance qualification. No fixture
-depth or stack-size setting has changed.
+Metadata regression. At `1636b23`, that unchanged regression passed, followed
+by all eleven Metadata methods and all fourteen storage additions in the
+109-method frame selection. The selection completed with 107 passes and two
+failures, each with an exact start and terminal. There was no stack overflow.
+The change adds one allocation per modifier; it does not remove recursion or
+establish performance qualification. No fixture depth or stack-size setting
+has changed.
+
+The two remaining failures are the original selected-root composition tests.
+Standalone `setChildren` assigns the runtime before writing the final child
+table, so its early publication cannot yet validate selected membership.
+The integrated correction publishes after that final write, using original
+weak parent and incoming-subtree witnesses to reject cleanup changes. It
+preserves the real selected Button at endpoint zero, the unchanged-child
+no-op, and existing checked reconciliation acceptance. Detached and frame-free
+trees avoid the new witness allocation. Nine additive tests cover the boundary,
+including identity changes followed by restoration and an existing frame
+ancestor over a bare selected child. Their execution remains pending; all
+109 earlier selectors and assertions remain unchanged.
+
+Separately, 67 existing property-installation, state, environment, object and
+binding methods passed at the same commit. All completed batches in these
+focused runs exited naturally with full owned process/resource closure and
+unchanged source pins. The independent state baseline does not turn the
+failed frame selection into a pass or qualify the full suite.
 
 Precise scrolling after framed Realize still conservatively refuses an
 unchanged, previously admitted frontmost sibling-modal stack. Existing

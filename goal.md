@@ -21175,3 +21175,30 @@ pending; the original first Metadata method must pass unchanged before the
 stack correction can be claimed. One new content allocation per modifier is
 an explicit performance cost still to measure. All nine original gates and
 the unrelated sibling-modal continuation requirement remain open.
+
+
+### 2026-09-03: retain the storage test build failure and correct its fixture
+
+The unchanged first Metadata regression was selected at
+`397ff91a4b6ab93d5d232ef013e0dd616433a1f1`, but compilation of the new
+ModifiedViewContentStorageTests file failed before any test started. Three
+ViewBuildContext constructions omitted the required canvas-size provider;
+one resulting identity expression could not infer its key path. Separately,
+an effectful Never body was interpreted by the inherited view result builder
+as a tuple of its counter mutation and fatal error. Root and the independent
+source reviews missed these fixture compilation requirements.
+
+The attempt exited naturally with wrapper status one in 179.219 owned seconds,
+with full owned process/resource closure and no timeout or termination.
+Raw SHA256 `f28a9d4cf349fd053dcebbedb117927223e11f7586e0c15d1f88c0b8ae7721f3`;
+aggregate `artifacts/metadata1-397ff91-compile-results.json`. All 54 source pins
+remained unchanged. Zero starts and terminals do not validate the stack fix.
+
+A separate fixture correction supplies the same explicit 180-by-80 canvas
+already used by the local-state host and puts the unchanged counter increment
+and fatal error in an ordinary Never-returning helper outside the view builder.
+All fourteen new methods, assertions and modifier depths remain unchanged, as
+do every original Frame77 method, all production sources and stack settings.
+The failed draft and raw evidence remain preserved. A fresh binding and rerun
+of the original Metadata selector are required; no previous result becomes a
+pass. The full original goal and all nine open gates remain unchanged.

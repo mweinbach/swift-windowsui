@@ -22,7 +22,8 @@ final class ModifiedViewContentStorageTests: XCTestCase {
         XCTAssertEqual(inlineSize(thirtyTwo), inlineSize(one))
         let runtime = RetainedViewRuntime(root: ViewNode())
         defer { storageClose(runtime) }
-        let context = ViewBuildContext(invalidateHandler: {})
+        let context = ViewBuildContext(
+            canvasSizeProvider: { Size(width: 180, height: 80) }, invalidateHandler: {})
         let node = thirtyTwo.makeComponent(context: context).makeNode(runtime: runtime)
         XCTAssertEqual(node.text, "Seed")
     }
@@ -76,7 +77,9 @@ final class ModifiedViewContentStorageTests: XCTestCase {
         probe.events.removeAll()
         probe.tag = "Before component construction"
 
-        _ = wrapped.makeComponent(context: ViewBuildContext(invalidateHandler: {}))
+        _ = wrapped.makeComponent(
+            context: ViewBuildContext(
+                canvasSizeProvider: { Size(width: 180, height: 80) }, invalidateHandler: {}))
 
         XCTAssertEqual(probe.events, metadataOrder + ["transform"])
         XCTAssertEqual(erased.selectionTag, AnyHashable("Before first erasure"))
@@ -93,7 +96,8 @@ final class ModifiedViewContentStorageTests: XCTestCase {
         }
         let explicit = RetainedViewIdentity.Key("stable")
         wrapped.explicitViewIdentity = explicit
-        let context = ViewBuildContext(invalidateHandler: {})
+        let context = ViewBuildContext(
+            canvasSizeProvider: { Size(width: 180, height: 80) }, invalidateHandler: {})
         let wrapperPath = RetainedViewIdentity(segments: [.view(ObjectIdentifier(type(of: wrapped)))])
         let explicitPath = wrapperPath.appending(.explicit(explicit))
         let contentPath = explicitPath.appending(contentsOf: [
@@ -185,6 +189,10 @@ private struct StorageMetadataLeaf: View, TaggedViewMetadata, SwipeActionMetadat
     typealias Body = Never
     let probe: StorageMetadataProbe
     var body: Never {
+        unevaluatedMetadataBody()
+    }
+
+    private func unevaluatedMetadataBody() -> Never {
         probe.bodyCalls += 1
         fatalError("Metadata inspection must not evaluate the body")
     }

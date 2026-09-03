@@ -82,8 +82,11 @@ and identity. A framework-only field projection preserves the original
 read-only DynamicProperty declaration after complete physical-field coverage;
 it does not relax installation checks or write installed state into the box.
 Fourteen additive tests cover size, copies, metadata timing, identity, lifetime,
-local state and installation diagnostics. They and the unchanged original
-Metadata regression await execution. The change adds one allocation per modifier;
+local state and installation diagnostics. Their first build at `397ff91` stopped
+before execution: the new storage fixture omitted three required canvas
+providers and used an effectful Never body inside the inherited result builder.
+A separate fixture correction preserves its assertions and the original
+Metadata regression; behavioral verification is still pending. The change adds one allocation per modifier;
 it does not remove recursion or establish performance qualification. No fixture
 depth or stack-size setting has changed.
 

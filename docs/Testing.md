@@ -1145,7 +1145,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   separately exercise the actual legacy `FillRectCommand` kernel rather than
   only the frame-to-scene bridge. Their strict WARP composition swap chain
   draws without an HWND or Present and does not establish native/display
-  qualification. These definitions are not a recorded execution result.
+  qualification. Focused `Blend49` validation at `8b54e8e` passed all 49 selected
+  methods (40 new and nine existing) in three serial batches of 23, 24 and two.
+  Each selected method had exactly one start and one passing terminal outcome;
+  there were no skips or timeouts, and all batches exited naturally with verified
+  owned descendant closure. CPU reference checks, offscreen D3D11 batch WARP
+  execution and actual legacy WARP execution remain separate from full-suite,
+  physical-GPU, native/display, native-reference and performance qualification.
+  The aggregate is `artifacts/blend49-8b54e8e-results.json`; raw batch evidence is
+  under `artifacts/blend49-5005f9b647fc40cab3e417cb7c509b78/`.
+  A separate clear-only control checks D3D11's permitted UNORM conversion before
+  exact outside-quad pixel preservation; the blend equations, input constants
+  and existing comparison tolerances are unchanged. This result does not
+  qualify the separate material-dependent content-blur packet as a whole.
   Additive/plusLighter correctness, material-plus-blend combinations, other
   primitive families and remaining public modes, and complete View/group
   semantics remain open.

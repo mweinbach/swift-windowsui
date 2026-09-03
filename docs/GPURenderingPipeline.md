@@ -2336,7 +2336,7 @@ and physical-GPU performance qualification remain incomplete. Independent
 filter isolation does not implicitly import an enclosing backdrop; the new
 material-dependent content-blur input is a separate contract below.
 
-**Blend modes.** The source implementation interprets multiply, screen and
+**Blend modes.** The implementation interprets multiply, screen and
 overlay for ordinary `QuadPrimitive` and legacy `FillRectCommand` drawing
 across CPU and both D3D11 paths. Ordinary quads recognize exactly selectors
 1, 2 and 3; normal and additive retain their existing source-over behavior.
@@ -2359,10 +2359,12 @@ The larger scissor copy is not a performance qualification.
 
 `CPUGPUBlendModeContractTests` remains: its assertions now distinguish these
 three modes while preserving mode transport and normal/additive behavior.
-Focused CPU, batch and genuine legacy tests define additional coverage; their
-presence is not a recorded pass. See [Testing.md](Testing.md). The legacy WARP
-composition-swapchain seam draws without an HWND or Present; it does not
-replace separate native/display qualification.
+Focused Blend49 validation at `8b54e8e` passed all 49 selected regressions,
+covering CPU reference behavior, offscreen D3D11 batch WARP and the actual
+legacy WARP kernel, together with mode transport and retained-modifier checks.
+The legacy composition-swapchain seam draws without an HWND or Present.
+This does not establish full-suite, physical-GPU, native/display,
+native-reference or performance qualification. See [Testing.md](Testing.md).
 
 Materials and dependent-image replacement keep their separate coverage
 operations. Material-plus-blend combinations, other primitive families,

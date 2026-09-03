@@ -18262,3 +18262,40 @@ Root and independent review completed. Architecture checks before and after,
 plus strict lint on both changed Swift files, passed. The prior 48/49 result
 remains the runtime evidence until a fresh unchanged-roster run finishes; this
 correction does not itself establish a pass or close a goal requirement.
+
+### 2026-09-03 — Pass Blend49 and narrow the calendar publication failure
+
+At clean `8b54e8e3cea28d01e004ab56c41798cd5f632533`, the unchanged Blend49
+roster passed all 49 methods in three serial batches (23, 24, two). Every
+method had exactly one start and passing terminal; all processes ended
+naturally with complete owned cleanup, no skips or timeouts, and unchanged
+source. `artifacts/blend49-8b54e8e-results.json` reconciles the raw logs in
+`artifacts/blend49-5005f9b647fc40cab3e417cb7c509b78/`. This verifies the
+reviewed clear control and the selected CPU, offscreen batch WARP and legacy
+WARP behavior. It does not qualify unrelated content-blur work as a whole,
+complete View/group blending, additive modes, hardware presentation or pacing.
+
+A separate temporary publication diagnostic then ran the unchanged graphical
+candidate method once. It reproduced the failure naturally in 1.718 seconds;
+no pass is claimed. The 86-event trace shows completed retained reconciliation
+at sequence 63, followed by an uncompleted deferred group with eight required
+facts and four outputs at sequence 64. Only two child-attachment facts are
+missing (69 and 70); no node-completion fact is missing. The trace does not
+show an activation refusal for that group. The next investigation is the
+insertion path that should acknowledge those actual attachments.
+
+Diagnostic evidence is under
+`artifacts/calendar-publication-diagnostic-0c87a789b337431e826d7365a10db4ed/`:
+raw log SHA256 `25476ba51152302a745b6bf17f6d02431374d6913ce5b8a1a6b22e00d55bb9c8`,
+trace SHA256 `4ebb3f47819fb82ab1081a9c9ed28f9f8f27f11583bd17dfe25dac3c70dadc36`.
+`artifacts/calendar-publication-8b54e8e-reconciled.json` records exact case and
+trace reconciliation. Source/index/HEAD snapshots matched, and the owned
+process tree closed completely without timeout. Both instrumented files were
+restored from their exact raw preimages; the checkout was clean and contracts
+passed afterward. The restoration receipt is under
+`artifacts/calendar-publication-source-4d2aab903bb04c179d751736ef83e522/`.
+
+The three calendar regression failures remain open. This diagnostic does not
+replace an unchanged normal test run after a production fix. Full validation,
+retained gallery review, original-gate and native qualification remain pending;
+none of the nine original completion requirements has been narrowed or closed.

@@ -337,7 +337,7 @@ private final class AccessibilityActionScope {
         let projection: AccessibilityElementProjection?
         if hasRuntime {
             guard let runtime = invocationRuntime, runtime.root === root, runtime.permitsRetainedActionInvocation,
-                runtime.resolvedLayoutFrame(of: root) != nil,
+                runtime.prepareProjectedAccessibilityActionLayout(),
                 runtime.permitsRetainedActionInvocation, case .settled = runtime.layoutSettlementStatus,
                 runtime.hasCurrentAccessibilityPrepaint,
                 selectedPathIsCurrent(invocationPath, for: node, in: runtime)

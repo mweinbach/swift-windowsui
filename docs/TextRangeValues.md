@@ -98,8 +98,9 @@ not retain the view or runtime, authorize a later provider call, or supply
 selection or geometry. Selected-content projection must still expose the
 actual text child; wrapper metadata is not substitute document text.
 
-The plain-text request and its selected-content integration have not run.
-The earlier value-only results above do not validate this seam. No native
+On 2026-09-03 at `cdef928`, all 19 plain-text request and selected-content
+snapshot tests passed. These are retained in-process ownership and content
+checks, separate from the earlier value-only results above. No native
 TextPattern is advertised, and no COM, Narrator, editor, or IME qualification
 follows from the internal copy.
 

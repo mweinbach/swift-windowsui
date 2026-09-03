@@ -17887,3 +17887,39 @@ the first log SHA-256 is
 `e152c39f9507eb7213edcbfae416411214aef0eb4be168f1fe7eba455f4566dc`.
 The same full selection will now rerun from the corrected commit. Original
 completion requirements and the separate original 155-method gate are unchanged.
+
+### 2026-09-03 — Observe every Calendar/Text method and correct accessibility preflight
+
+At `cdef928`, all 155 selected methods completed exactly once across three
+serial invocations at unchanged source: 144 passed and 11 failed. All eight
+batches exited naturally and completed owned cleanup; none timed out. This
+is a complete set of method outcomes, not a passing selection or a full-suite
+result. The aggregate is `artifacts/calendar-text-cdef-results.json`, with
+per-batch raw hashes and records from the three `calendar-text-selected`
+directories named there. The 19 internal text snapshot methods all passed.
+
+Failures are the saved lazy UIA selection-ABA request; reentrant catalog
+acceptance; settled explicit and implicit projected-root action repeats;
+ZStack fill-axis and grouped-form metadata through selected boundaries;
+nested deferred facade and recursive namespace lifetime; and the unchanged
+graphical DatePicker, its separate diagnostic, and MultiDatePicker rejected-
+candidate cases. All original assertions remain in place. Later batches ran
+after test failures only after exact method terminals, natural exit and complete
+owned cleanup were verified; this did not turn the earlier failures into passes.
+
+Two narrow accessibility corrections now address three of those methods.
+A prepared lazy UIA request checks its original reserved phase's selected
+geometry paths before any fresh query. Invalidating that original selection
+does not allow falling back to a new paid query under replacement authority.
+Ordinary optimization-certificate invalidation still retains its prior paid
+fallback, and request budgets, callbacks and phase-consumption rules are unchanged.
+
+Projected retained actions now reuse already-current layout settlement and
+prepaint instead of re-delivering layout callbacks solely because a layout-only
+query leaves render dirty flags intact. Stale state still follows the ordinary
+query. The helper retains the invocation's unused-provider-phase revocation,
+rejects a hidden or foreign root, and leaves target, selected-path, modal,
+post-query and handler checks unchanged. Contract checks and strict lint passed;
+runtime revalidation follows separately.
+The catalog, container, deferred namespace and historical picker failures remain
+open, as do all nine original completion gates.

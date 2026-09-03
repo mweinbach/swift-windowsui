@@ -189,11 +189,14 @@ accepted ownership before cleanup can call application code; stale attempts
 cannot borrow a replacement merely because its identity matches. This policy
 does not make other layout containers retain inactive content.
 
-These Calendar changes have source review only and have not run. The original
-graphical DatePicker and MultiDatePicker rejected-candidate regressions remain
-required validation, not resolved failures. Broader Task and lifecycle behavior,
-paint-cache replay, installed-source handling, and native SwiftUI lifetime
-parity remain unqualified.
+On 2026-09-03 at `cdef928`, the focused Calendar selection completed with 125
+passing methods and 11 failing methods; the adjacent 19 internal text snapshot
+tests passed. The original graphical DatePicker and MultiDatePicker
+rejected-candidate regressions still fail. Additional failures cover selected
+UIA phase revocation, repeated action layout, catalog reentry, container
+metadata, and deferred reader state. These results do not qualify broader Task
+and lifecycle behavior, paint-cache replay, installed-source handling, or
+native SwiftUI lifetime parity.
 
 OutlineGroup uses
 typed hierarchical row identities and parent-local duplicate ordinals, but

@@ -24125,6 +24125,17 @@ public final class RetainedViewRuntime {
         return true
     }
 
+    /// A layout query leaves render dirty flags intact. An unchanged action
+    /// may reuse its current settlement and prepaint without delivering those
+    /// layout callbacks again. Invocation still revokes any unused UIA phase.
+    func prepareProjectedAccessibilityActionLayout() -> Bool {
+        revokeUnenteredLazyListUIAProviderPhase()
+        if case .settled = layoutSettlementStatus, hasCurrentAccessibilityPrepaint {
+            return root.runtime === self && !root.isHidden
+        }
+        return resolvedLayoutFrame(of: root) != nil
+    }
+
     /// Callers choose a bounded query point, then recheck their original target
     /// and handler witnesses. A successful query does not authorize a new node.
     @inline(never)
@@ -30031,7 +30042,15 @@ extension RetainedViewRuntime {
     }
 
     private func isLazyListUIARequestCurrent(_ request: RetainedLazyListUIARequest) -> Bool {
-        request.runtime === self && lazyListUIARequest === request && request.phase != .finished
+        if let phase = unusedLazyListUIAProviderPhase, phase.request === request, phase.stage == .reserved {
+            // Losing an optimization certificate may use ordinary paid work,
+            // but losing its original selected-content authority may not. An
+            // away-and-back selection cannot let this prepared request query
+            // again under a replacement path before the phase is consumed.
+            guard phase.geometry.allSatisfy({ selectedLazyListGeometryIsCurrent($0, among: phase.geometry) })
+            else { return false }
+        }
+        return request.runtime === self && lazyListUIARequest === request && request.phase != .finished
             && lazyListResolutionBudget === request.budget
             && isLazyListAccessibilityPreparationCurrent(request.preparation)
             && isLazyListUIAConstructionCurrent(request.preparation)

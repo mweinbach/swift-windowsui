@@ -20841,3 +20841,36 @@ a concrete inventory omission: its new frame metadata/storage fields were not
 included in the chrome helper's closed-payload check. That composition remains
 unintegrated while a separate narrow amendment and regression tests are
 prepared. Original frame tests and original completion gates remain unchanged.
+
+
+### 2026-09-03: freeze real-field Unicode adoption checks through CPU output
+
+Two additive methods run four ordinary-adoption cases, direct and nested,
+using a real TextField/controller with a synchronous UIA value setter. They
+require accepted Unicode caret or selection chrome before rendering, incoming
+font/style values, no adoption-time getter/layout effects, and the same mounted
+chrome identities after rendering. Literal expected text segments, frames,
+glyph destinations, selection colors and caret on/off interior pixels form an
+independent oracle; expectations are not copied from the actual child tree.
+Strong fixture ownership and weak post-scope release assertions cover runtime,
+field, incoming source and chrome lifetimes.
+
+The public field, retained adoption, layout, scene lowering, atlas and CPU
+rasterizer are production code. Only native glyph metrics and masks are
+deterministic test seams. This does not qualify native fonts, antialiasing,
+D3D11, checked adoption, IME or Narrator. Before execution, independent review
+caught a false full-opacity assumption at AA corners in the first private
+draft. That draft and HOLD review remain preserved. The frozen second draft
+checks interior pixels and separately pins exact fill geometry; it passed a
+full independent source review and root's complete-file review.
+
+Root verified all 22 packet payloads. Strict lint requested only
+two wrapping changes; a separate derivative preserves every non-whitespace
+byte and both methods, and its complete diff was reviewed. Original frozen
+test SHA256 `3ea8d8ee52b1432f1d10b63373b4de70b44ba9fe8ad2a6a76f05018978563807`; tracked test SHA256 `9f25912120d4ebbe78b0300b9981cb39a82c4146e7f03c92f166f64e792e9b3b`.
+The selection `artifacts/field-chrome-cpu-after2.json` has SHA256
+`ca3b8238cb45ffe69edce5b2b91944e60c7dfea25ed12f3393345535568de61d` and 49 bound source pins. Integration receipt
+`artifacts/field-chrome-cpu-test-integration.json` has SHA256 `dcfd8f80032e33cf05c8c1083a097f3bfdbfc02496a6c69b18c07ed3a827406e`.
+All existing tests and production sources remain unchanged. Compilation and
+the two new methods' first execution are pending; no passing claim follows
+from adding these tests.

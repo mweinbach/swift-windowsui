@@ -17029,3 +17029,32 @@ exact selection, source preservation and complete owned cleanup were verified.
 The unused target-phase work and close-time payload retention remain under
 investigation. No budget, assertion, frame limit, original requirement or
 completion gate is relaxed. All nine completion gates remain open.
+
+### 2026-09-02 — Use the original target round's still-unentered provider phase
+
+The public pending-replacement rejection trace identifies an avoidable debit:
+measurement changes extents in round three, invalidating the old layout visit.
+The provider cannot use that old visit, but the correcting layout pass occurred
+only afterward. Round four then pays to enter the provider work that round
+three never performed. The resulting measured target has no round left for its
+required final viewport query. Increasing the default budget is not the fix.
+
+The target query now shares the existing tightly checked measurement-correction
+mechanism with initial preparation. It may perform its one owed layout pass
+before that round's still-unentered reader/provider phases. The original
+request, construction hint, query sequence and budget must remain identical;
+no target certificate may already exist, any saved initial phase must already
+be spent, and the target attempt is sticky and single-use. The complete existing
+weak tree, list, reader, attachment, layout-input and counter checks still guard
+the pass. A changed input revokes the original preparation instead of replacing
+its proof. This does not add or refund a round, repeat a provider, save another
+phase, refresh target authority, or change final measurement/coverage checks.
+
+Four separate public-API regression tests exercise the expected phase order and
+rejection after same-value authored scrolling, restored physical attachment,
+or a restored reader body during that exact correction. Original test methods
+remain unchanged. Source review, contracts, strict lint and whitespace checks
+pass. Behavioral validation is pending, including whether the corrected target
+schedule leaves enough of the original budget for final settlement. No claim
+of a passing combined gate follows from this source change. All original
+requirements and nine completion gates remain unchanged and open.

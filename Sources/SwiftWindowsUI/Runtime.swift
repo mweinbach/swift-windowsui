@@ -13670,6 +13670,7 @@ package final class RetainedLazyListUIARequest {
     fileprivate var querySequence: UInt64?
     fileprivate var queryStartingRounds = 0
     fileprivate var queryIsSealed = true
+    fileprivate var hasAttemptedTargetMeasurementCorrection = false
     fileprivate var originalTarget: RetainedAccessibilityTarget?
     fileprivate var originalTargetIdentity: RetainedLazyListViewIdentityProof?
     fileprivate var queryLayoutProofs: [RetainedLazyListLocalLayoutProof] = []
@@ -15121,6 +15122,12 @@ public final class RetainedViewRuntime {
             let scrollIntent: RetainedLazyListAttachmentIdentity
         }
 
+        struct Target {
+            weak var request: RetainedLazyListUIARequest?
+            weak var hint: RetainedLazyListRuntimeAdapter.UIAConstructionHint?
+        }
+
+        let target: Target?
         weak var root: ViewNode?
         weak var preparation: RetainedLazyListAccessibilityPreparation?
         weak var budget: RetainedLazyListWorkBudget?
@@ -22027,6 +22034,7 @@ public final class RetainedViewRuntime {
 
     private func convergeResolvedSubtrees() {
         let uiaPreparation = lazyListUIAConstructionPreparation
+        let uiaRequest = lazyListUIARequest
         let keyboardPreparation = activeLazyListKeyboardPreparation
         var legacyRounds = 0
         while true {
@@ -22061,8 +22069,8 @@ public final class RetainedViewRuntime {
                 recordLazyListUIAPhase(.measurementPhase)
                 changed = recordResolvedLazyListMeasurements()
                 if changed, let chargedBudget, let preparation = uiaPreparation {
-                    switch correctInitialLazyListUIAMeasurements(
-                        for: preparation, chargedTo: chargedBudget, during: resolutionSequence)
+                    switch correctLazyListUIAMeasurements(
+                        for: preparation, request: uiaRequest, chargedTo: chargedBudget, during: resolutionSequence)
                     {
                     case .ineligible:
                         break
@@ -26342,19 +26350,29 @@ extension RetainedViewRuntime {
 
     /// Build this value in a separate scope so no traversal temporary, body,
     /// lease, old prepaint, or actual row remains strongly held across layout.
-    private func captureInitialLazyListUIAMeasurementCorrection(
-        for preparation: RetainedLazyListAccessibilityPreparation,
+    private func captureLazyListUIAMeasurementCorrection(
+        for preparation: RetainedLazyListAccessibilityPreparation, request: RetainedLazyListUIARequest?,
         chargedTo budget: RetainedLazyListWorkBudget, during resolutionSequence: UInt64
     ) -> LazyListUIAMeasurementCorrection? {
+        let target = request.map { LazyListUIAMeasurementCorrection.Target(request: $0, hint: $0.hint) }
+        if let target {
+            guard
+                isLazyListUIATargetMeasurementCorrectionCurrent(
+                    target, for: preparation, chargedTo: budget, during: resolutionSequence, attempted: false)
+            else { return nil }
+        } else {
+            guard !preparation.hasAttemptedInitialMeasurementCorrection, !preparation.hasIssuedUnusedProviderPhase,
+                lazyListUIARequest == nil, unusedLazyListUIAProviderPhase == nil
+            else { return nil }
+        }
         let nextPass = layoutPassID.addingReportingOverflow(1)
         guard lazyListUIAConstructionPreparation === preparation,
             layoutSettlementResolutionSequence == resolutionSequence,
-            !preparation.hasAttemptedInitialMeasurementCorrection, !preparation.hasIssuedUnusedProviderPhase,
-            isLazyListUIAConstructionCurrent(preparation), lazyListUIARequest == nil,
-            unusedLazyListUIAProviderPhase == nil, lazyListResolutionBudget === budget, budget.remainingRounds > 0,
+            isLazyListUIAConstructionCurrent(preparation),
+            lazyListResolutionBudget === budget, budget.remainingRounds > 0,
             isResolvingLayoutFrame, isUpdatingResolvedLayout, isResolvingLayoutSettlement,
             !isRendering, !isLayoutInProgress, lazyListResolutionDepth == 1, lazyListScrollWorkDepth > 1,
-            !isResolvingLazyListLogicalTarget, !hasPendingLazyListUIACallbackWork,
+            isResolvingLazyListLogicalTarget == (target != nil), !hasPendingLazyListUIACallbackWork,
             scrollPresentedTweens.isEmpty, let scroll = preparation.scroll, isQuietLazyListUIAScroll(scroll),
             !nextPass.overflow, oldUIAPrepaintNodesRemainTreeOwned(),
             !pendingLazyListOrder.isEmpty, pendingLazyListOrder.count == pendingLazyListVisits.count,
@@ -26407,7 +26425,7 @@ extension RetainedViewRuntime {
             }), actualTree.isCurrent, inputs.allSatisfy({ $0.isCurrent })
         else { return nil }
         return LazyListUIAMeasurementCorrection(
-            root: root, preparation: preparation, budget: budget, reservation: reservation,
+            target: target, root: root, preparation: preparation, budget: budget, reservation: reservation,
             expectedPassID: nextPass.partialValue,
             displayScale: displayScale, displayScaleIdentity: displayScaleIdentity,
             scrollIntent: preparation.scrollIntent, prepaintGeneration: prepaintState.generation,
@@ -26417,13 +26435,24 @@ extension RetainedViewRuntime {
             inputs: inputs, actualTree: actualTree)
     }
 
-    private func initialLazyListUIAMeasurementCorrectionIsCurrent(
+    private func lazyListUIAMeasurementCorrectionIsCurrent(
         _ correction: LazyListUIAMeasurementCorrection
     ) -> Bool {
-        guard correction.root === root, let preparation = correction.preparation, let budget = correction.budget,
+        guard let preparation = correction.preparation, let budget = correction.budget else { return false }
+        if let target = correction.target {
+            guard
+                isLazyListUIATargetMeasurementCorrectionCurrent(
+                    target, for: preparation, chargedTo: budget,
+                    during: correction.reservation.originalResolutionSequence, attempted: true)
+            else { return false }
+        } else {
+            guard preparation.hasAttemptedInitialMeasurementCorrection, !preparation.hasIssuedUnusedProviderPhase,
+                lazyListUIARequest == nil, unusedLazyListUIAProviderPhase == nil
+            else { return false }
+        }
+        guard correction.root === root,
             lazyListUIAConstructionPreparation === preparation, isLazyListUIAConstructionCurrent(preparation),
-            preparation.hasAttemptedInitialMeasurementCorrection, !preparation.hasIssuedUnusedProviderPhase,
-            lazyListUIARequest == nil, unusedLazyListUIAProviderPhase == nil, lazyListResolutionBudget === budget,
+            lazyListResolutionBudget === budget,
             budget.remainingElements == correction.remainingElements,
             budget.remainingRounds == correction.remainingRounds,
             layoutPassID == correction.expectedPassID,
@@ -26438,7 +26467,8 @@ extension RetainedViewRuntime {
             ViewNode.traversalDepthOverflowCount == correction.traversalOverflowCount,
             isResolvingLayoutFrame, isUpdatingResolvedLayout, isResolvingLayoutSettlement,
             !isRendering, !isLayoutInProgress, lazyListResolutionDepth == 1,
-            lazyListScrollWorkDepth == correction.scrollWorkDepth, !isResolvingLazyListLogicalTarget,
+            lazyListScrollWorkDepth == correction.scrollWorkDepth,
+            isResolvingLazyListLogicalTarget == (correction.target != nil),
             !lazyListUnsupportedThisPass, pendingLazyListAnchorClamps.isEmpty, !lazyListAnchorNeedsLayout,
             !lazyListScrollSearchNeedsMoreWork, !isProbingLazyListScrollTarget,
             retainedBuildCoordinatorStorage?.hasPendingNativeWork != true,
@@ -26471,23 +26501,55 @@ extension RetainedViewRuntime {
         return true
     }
 
-    private func correctInitialLazyListUIAMeasurements(
+    /// The original target query may move its one owed correction ahead of
+    /// this round's still-unentered reader/provider phases. The original hint,
+    /// query, budget and full weak input proof remain required across the pass;
+    /// no target certificate, measurement or continuation is refreshed here.
+    private func isLazyListUIATargetMeasurementCorrectionCurrent(
+        _ target: LazyListUIAMeasurementCorrection.Target,
         for preparation: RetainedLazyListAccessibilityPreparation,
+        chargedTo budget: RetainedLazyListWorkBudget, during sequence: UInt64, attempted: Bool
+    ) -> Bool {
+        guard let request = target.request, let hint = target.hint,
+            lazyListUIARequest === request, request.preparation === preparation,
+            request.budget === budget, request.phase == .targetQuery, !request.queryIsSealed,
+            request.querySequence == sequence, request.queryStartingRounds > budget.remainingRounds,
+            request.hasAttemptedTargetMeasurementCorrection == attempted,
+            request.beganResolution, request.targetPass == nil,
+            request.originalTarget == nil, request.originalTargetIdentity == nil,
+            request.hint === hint, hint.isCurrent, isLazyListUIARequestCurrent(request)
+        else { return false }
+        // The initial query may already have spent its saved phase. Never
+        // reuse an unentered, refused or different preparation's continuation.
+        if let unused = unusedLazyListUIAProviderPhase {
+            guard unused.state == .consumed, unused.stage == .spent,
+                unused.request === request, unused.preparation === preparation
+            else { return false }
+        }
+        return true
+    }
+
+    private func correctLazyListUIAMeasurements(
+        for preparation: RetainedLazyListAccessibilityPreparation, request: RetainedLazyListUIARequest?,
         chargedTo budget: RetainedLazyListWorkBudget, during resolutionSequence: UInt64
     ) -> LazyListUIAMeasurementCorrectionOutcome {
         guard
-            let correction = captureInitialLazyListUIAMeasurementCorrection(
-                for: preparation, chargedTo: budget, during: resolutionSequence)
+            let correction = captureLazyListUIAMeasurementCorrection(
+                for: preparation, request: request, chargedTo: budget, during: resolutionSequence)
         else { return .ineligible }
-        correction.preparation?.hasAttemptedInitialMeasurementCorrection = true
+        if let target = correction.target {
+            target.request?.hasAttemptedTargetMeasurementCorrection = true
+        } else {
+            correction.preparation?.hasAttemptedInitialMeasurementCorrection = true
+        }
         runLayoutPass()
-        guard initialLazyListUIAMeasurementCorrectionIsCurrent(correction) else {
+        guard lazyListUIAMeasurementCorrectionIsCurrent(correction) else {
             // Only this original preparation is failed. Query epilogues and
             // already-owed build/lifetime cleanup remain in their normal scopes.
             correction.preparation?.isActive = false
             return .invalidated
         }
-        if saveUnusedLazyListUIAProviderPhase(chargedTo: budget) { return .saved }
+        if correction.target == nil, saveUnusedLazyListUIAProviderPhase(chargedTo: budget) { return .saved }
         // No proof is refreshed and no phase is retried. A changed output slot
         // or a newly needed provider reaches this iteration's ordinary phases.
         return .remainingPhases

@@ -16781,3 +16781,16 @@ and all 19 new SceneStorage/AppFailure tests. The trace adds no query, callback,
 or authority and must be removed before final uninstrumented validation. The original
 focus assertions, 128-element/four-round budgets, goal scope, and nine open gates remain
 unchanged; compilation and results for this combined source are pending.
+
+### 2026-09-02 — Qualify the failure event's Foundation UUID
+
+The 20-test selection at `4ec8751` stopped during compilation, before any test ran:
+`AppFailure.Window.id: UUID` was ambiguous between Foundation's UUID and WinSDK's
+RPC UUID, which also prevented synthesized Equatable conformance. The property now
+explicitly uses `Foundation.UUID`; no behavior, event fields, test, or selector changes.
+Contract checks, strict file lint, and whitespace checks pass. The failed run's owned
+process tree exited naturally with status 1 and verified cleanup and preserved source
+(`artifacts/cold-and-lifetime-tests-c9bd2efb71ad4698849b7f7c36bd73c8`).
+The same 19 lifetime/failure tests and original cold navigation case must be rerun;
+no test result or anchor-cause conclusion was produced by this compile failure.
+Original requirements, budgets, and completion gates remain unchanged.

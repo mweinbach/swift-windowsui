@@ -21,7 +21,7 @@ public struct AppFailure: Equatable, Sendable {
 
     /// A copied identity, never an HWND, runtime, model or window action.
     public struct Window: Equatable, Sendable {
-        public let id: UUID
+        public let id: Foundation.UUID
         public let sceneID: String?
         public let title: String
     }

@@ -171,6 +171,8 @@ final class DeferredListKeyboardNavigation {
         }
         if let runtime {
             runtime.withLazyListResolutionBudget {
+                let diagnosticStarted = request.receipt.beginKeyboardFocusDiagnostic()
+                defer { if diagnosticStarted { request.receipt.endKeyboardFocusDiagnostic() } }
                 continueInCurrentBudget(request)
             }
         } else {
@@ -326,6 +328,7 @@ final class DeferredListKeyboardNavigation {
                 return
             }
             if let preparation = request.keyboardPreparation, !request.requiresRevealBeforeFocus {
+                request.receipt.traceKeyboardFocus("branch.warm-handoff")
                 guard isCurrent(request), let runtime, let item = request.item,
                     runtime.canResumeOrdinaryLazyListKeyboardTarget(item, using: preparation)
                 else {
@@ -340,6 +343,8 @@ final class DeferredListKeyboardNavigation {
                 finishKeyboardPreparation(request)
                 continue
             }
+            request.receipt.traceKeyboardFocus(
+                request.keyboardPreparation == nil ? "branch.ordinary" : "branch.cold")
             guard isCurrent(request),
                 request.receipt.prepareTarget(owner, requiresRevealBeforeFocus: request.requiresRevealBeforeFocus),
                 isCurrent(request)
@@ -373,27 +378,33 @@ final class DeferredListKeyboardNavigation {
 
     private func finishWrittenRequest(_ request: Request) {
         guard isCurrent(request) else {
+            request.receipt.traceKeyboardFocus("written.obsolete")
             cancel(request)
             return
         }
         if let runtime, !runtime.canPrepareLayoutSettlement {
+            request.receipt.traceKeyboardFocus("written.layout-blocked")
             schedule(request, afterLayout: false)
             return
         }
         withTransaction(request.transaction) {
             switch request.receipt.settlePreparedTarget() {
             case .ready:
+                request.receipt.traceKeyboardFocus("settle.ready")
                 guard isCurrent(request) else {
                     cancel(request)
                     return
                 }
                 self.request = nil
-                request.receipt.finishNavigation()
+                let finished = request.receipt.finishNavigation()
+                request.receipt.traceKeyboardFocus(finished ? "finish.true" : "finish.false")
                 finishKeyboardPreparation(request)
                 releaseItem(request)
             case .pending:
+                request.receipt.traceKeyboardFocus("settle.pending")
                 schedule(request)
             case .obsolete:
+                request.receipt.traceKeyboardFocus("settle.obsolete")
                 cancel(request)
             }
         }
@@ -545,6 +556,7 @@ final class DeferredListKeyboardNavigation {
         // remaining budget. Pending ordinary work cannot create a later replay;
         // any already accepted binding write still keeps its normal cleanup.
         guard request.ordinaryDestinationLeaf == nil else {
+            request.receipt.traceKeyboardFocus("schedule.warm-refused")
             cancel(request)
             return
         }

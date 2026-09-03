@@ -244,7 +244,7 @@ final class LazyListKeyboardPreparationTests: XCTestCase {
         defer { fixture.close() }
         fixture.probe.selected = 899
         let originalSource = try fixture.row(0)
-        let originalOwner = try XCTUnwrap(originalSource.listNavigationOwner)
+        let originalScope = try XCTUnwrap(fixture.scroll.listNavigationOwner)
         var replacements = 0
         fixture.probe.onFactory = { [weak fixture] ordinal in
             guard let fixture, ordinal == 899, replacements == 0 else { return }
@@ -258,7 +258,7 @@ final class LazyListKeyboardPreparationTests: XCTestCase {
         XCTAssertEqual(replacements, 1)
         XCTAssertEqual(fixture.host.events.rootCompletions, completed + 1)
         XCTAssertTrue(fixture.findRow(0) === originalSource)
-        XCTAssertFalse(originalSource.listNavigationOwner === originalOwner)
+        XCTAssertFalse(fixture.scroll.listNavigationOwner === originalScope)
         XCTAssertTrue(fixture.probe.writes.isEmpty)
         XCTAssertEqual(fixture.probe.selected, 899)
         XCTAssertEqual(fixture.scroll.scrollOffset, 0)
@@ -855,6 +855,154 @@ final class LazyListKeyboardPreparationTests: XCTestCase {
         let payload = KeyboardPreparationPayload { lifetime.releases += 1 }
         lifetime.payload = payload
         return try KeyboardPreparationFixture(bindingPayload: payload)
+    }
+}
+
+/// Root descriptor adoption retires the old List scope immediately; row
+/// declarations refresh only when ordinary bounded construction rebuilds them.
+@MainActor
+final class LazyListKeyboardReplacementContinuationTests: XCTestCase {
+    private static let down = KeyboardEvent(keyCode: KeyboardKey.downArrow.rawValue)
+
+    func testRootReplacementRejectsEscapedHandlerBeforeAndAfterSettlementAndKeepsFreshNavigationUsable() async throws {
+        let fixture = try KeyboardPreparationFixture()
+        defer { fixture.close() }
+        fixture.probe.selected = 899
+        let originalSource = try fixture.row(0)
+        let originalOwner = try XCTUnwrap(originalSource.listNavigationOwner)
+        let originalScope = try XCTUnwrap(fixture.scroll.listNavigationOwner)
+        let oldHandler = try XCTUnwrap(originalSource.onKeyDown)
+        var replacements = 0
+        fixture.probe.onFactory = { [weak fixture] ordinal in
+            guard let fixture, ordinal == 899, replacements == 0 else { return }
+            replacements += 1
+            fixture.host.reload()
+        }
+        let completed = fixture.host.events.rootCompletions
+
+        fixture.beginTrace()
+        oldHandler(Self.down)
+        fixture.endTrace()
+        XCTAssertEqual(replacements, 1)
+        XCTAssertEqual(fixture.host.events.rootCompletions, completed + 1)
+        XCTAssertTrue(fixture.findRow(0) === originalSource)
+        XCTAssertFalse(fixture.scroll.listNavigationOwner === originalScope)
+        XCTAssertTrue(fixture.probe.writes.isEmpty)
+        XCTAssertEqual(fixture.probe.selected, 899)
+        XCTAssertNil(fixture.runtime.focusedNode)
+        XCTAssertEqual(fixture.scroll.scrollOffset, 0)
+        assertDefaultBudget(fixture)
+        assertNoEffects(from: oldHandler, in: fixture)
+
+        // This is a separate ordinary layout opportunity, not another key or
+        // target query for the rejected original preparation.
+        let factoriesBeforeSettlement = fixture.probe.factories.count
+        for _ in 0..<16 {
+            let factoriesBeforeFrame = fixture.probe.factories.count
+            fixture.host.render()
+            XCTAssertLessThanOrEqual(fixture.probe.factories.count - factoriesBeforeFrame, 128)
+            XCTAssertLessThanOrEqual(fixture.runtime.lastLazyListConsumedElements, 128)
+            XCTAssertLessThanOrEqual(fixture.runtime.lastLazyListConsumedRounds, 4)
+            if !fixture.runtime.isDirty { break }
+        }
+        XCTAssertFalse(fixture.runtime.isDirty)
+        XCTAssertFalse(fixture.adapter.hasUnresolvedWork)
+        guard case .settled(let settlement) = fixture.runtime.layoutSettlementStatus else {
+            return XCTFail("Ordinary frames must settle the accepted replacement before its fresh action")
+        }
+        XCTAssertTrue(fixture.runtime.isLayoutSettlementReceiptCurrent(settlement))
+        XCTAssertFalse(fixture.runtime.hasActiveRetainedBuild)
+        XCTAssertNil(fixture.adapter.keyboardPreparation)
+        XCTAssertEqual(fixture.runtime.lazyListResolutionBudgetConfiguration.elementLimit, 128)
+        XCTAssertEqual(fixture.runtime.lazyListResolutionBudgetConfiguration.roundLimit, 4)
+        let refreshedSource = try fixture.row(0)
+        XCTAssertTrue(refreshedSource === originalSource)
+        XCTAssertTrue(fixture.probe.factories.dropFirst(factoriesBeforeSettlement).contains(0))
+        XCTAssertFalse(refreshedSource.listNavigationOwner === originalOwner)
+        XCTAssertTrue(fixture.probe.writes.isEmpty)
+        XCTAssertEqual(fixture.probe.selected, 899)
+        XCTAssertNil(fixture.runtime.focusedNode)
+        XCTAssertEqual(fixture.scroll.scrollOffset, 0)
+        assertNoEffects(from: oldHandler, in: fixture)
+
+        // A distinct current warm selection checks the replacement declaration,
+        // without retrying the rejected far-row request or borrowing its budget.
+        fixture.probe.selected = 0
+        let freshHandler = try XCTUnwrap(refreshedSource.onKeyDown)
+        fixture.beginTrace()
+        freshHandler(Self.down)
+        fixture.endTrace()
+        assertDefaultBudget(fixture)
+        XCTAssertEqual(fixture.probe.writes, [1])
+        XCTAssertEqual(fixture.probe.selected, 1)
+        // The existing warm route may finish its accepted setter's geometry
+        // in ordinary frames. This sends no second key and repeats no setter.
+        for _ in 0..<4 where fixture.runtime.focusedNode !== fixture.findRow(1) || fixture.findRow(1) == nil {
+            let factoriesBeforeFrame = fixture.probe.factories.count
+            fixture.host.render()
+            XCTAssertEqual(fixture.probe.writes, [1])
+            XCTAssertLessThanOrEqual(fixture.probe.factories.count - factoriesBeforeFrame, 128)
+            XCTAssertLessThanOrEqual(fixture.runtime.lastLazyListConsumedElements, 128)
+            XCTAssertLessThanOrEqual(fixture.runtime.lastLazyListConsumedRounds, 4)
+        }
+        let destination = try fixture.row(1)
+        XCTAssertTrue(fixture.runtime.focusedNode === destination)
+        XCTAssertEqual(fixture.focusedOrdinals, [1])
+        XCTAssertFalse(destination.isLayoutDeferredByVirtualization)
+        XCTAssertTrue(destination.parent === fixture.content)
+        XCTAssertEqual(fixture.scroll.scrollOffset, 0)
+        assertNoEffects(from: oldHandler, in: fixture)
+    }
+
+    private func assertNoEffects(
+        from handler: (KeyboardEvent) -> Void, in fixture: KeyboardPreparationFixture,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        let reads = fixture.probe.reads
+        let factories = fixture.probe.factories
+        let writes = fixture.probe.writes
+        let selected = fixture.probe.selected
+        let focus = fixture.runtime.focusedNode
+        let focusedOrdinals = fixture.focusedOrdinals
+        let offset = fixture.scroll.scrollOffset
+        let completions = fixture.host.events.rootCompletions
+        let resolutions = fixture.runtime.lazyListResolveCount
+        handler(Self.down)
+        XCTAssertEqual(fixture.probe.reads, reads, file: file, line: line)
+        XCTAssertEqual(fixture.probe.factories, factories, file: file, line: line)
+        XCTAssertEqual(fixture.probe.writes, writes, file: file, line: line)
+        XCTAssertEqual(fixture.probe.selected, selected, file: file, line: line)
+        XCTAssertTrue(fixture.runtime.focusedNode === focus, file: file, line: line)
+        XCTAssertEqual(fixture.focusedOrdinals, focusedOrdinals, file: file, line: line)
+        XCTAssertEqual(fixture.scroll.scrollOffset, offset, file: file, line: line)
+        XCTAssertEqual(fixture.host.events.rootCompletions, completions, file: file, line: line)
+        XCTAssertEqual(fixture.runtime.lazyListResolveCount, resolutions, file: file, line: line)
+    }
+
+    private func assertDefaultBudget(
+        _ fixture: KeyboardPreparationFixture, file: StaticString = #filePath, line: UInt = #line
+    ) {
+        let phases = fixture.phases
+        XCTAssertFalse(phases.isEmpty, file: file, line: line)
+        XCTAssertLessThan(phases.count, 512, file: file, line: line)
+        XCTAssertEqual(phases.first?.remainingRounds, 4, file: file, line: line)
+        XCTAssertEqual(phases.first?.remainingElements, 128, file: file, line: line)
+        XCTAssertLessThanOrEqual(fixture.runtime.lastLazyListConsumedRounds, 4, file: file, line: line)
+        XCTAssertLessThanOrEqual(fixture.runtime.lastLazyListConsumedElements, 128, file: file, line: line)
+        XCTAssertLessThanOrEqual(fixture.tracedFactories.count, 128, file: file, line: line)
+        for (first, second) in zip(phases, phases.dropFirst()) {
+            XCTAssertGreaterThanOrEqual(first.remainingRounds, second.remainingRounds, file: file, line: line)
+            XCTAssertGreaterThanOrEqual(first.remainingElements, second.remainingElements, file: file, line: line)
+            XCTAssertLessThanOrEqual(first.consumedRounds, second.consumedRounds, file: file, line: line)
+        }
+        let debits = phases.filter { $0.kind == .roundDebit }
+        XCTAssertEqual(debits.count, fixture.runtime.lastLazyListConsumedRounds, file: file, line: line)
+        for debit in debits {
+            let work = phases.filter { $0.consumedRounds == debit.consumedRounds }
+            XCTAssertLessThanOrEqual(work.filter { $0.kind == .measurementPhase }.count, 1, file: file, line: line)
+            XCTAssertLessThanOrEqual(work.filter { $0.kind == .readerPhase }.count, 1, file: file, line: line)
+            XCTAssertLessThanOrEqual(work.filter { $0.kind == .providerPhase }.count, 1, file: file, line: line)
+        }
     }
 }
 

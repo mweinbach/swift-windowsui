@@ -16666,3 +16666,35 @@ Root and independent source review, contract checks, strict lint of both changed
 files, and whitespace checks passed. Compilation, these ten tests, and the same keyboard
 timing case are the next validation step; no speedup is claimed for this second change yet.
 The observed keyboard focus failures and full 155-test rerun remain unresolved.
+
+### 2026-09-02 — Attachment checks pass; preserve keyboard behavior while isolating focus refusal
+
+At `fb3911b`, the normal script completed all ten new attachment membership tests and
+the unchanged keyboard eligibility case with zero failures (11 tests total). The latter
+took 12.521 seconds, essentially unchanged from the preceding 12.601-second observation;
+no additional timing benefit is established. The owned tree exited naturally with zero
+status, verified empty Job, closed resources, restored handlers, and preserved source
+(`artifacts/membership-regressions-63ab7f66e47d40609538cf74d1fbdcc6`).
+
+The root-replacement test now observes immediate replacement of the List declaration
+scope, not immediate replacement of a mounted row's declaration. Existing descriptor
+adoption deliberately keeps mounted rows without running new factories; the row owner
+refreshes when ordinary construction actually rebuilds that row. Only this capture and
+assertion change in the original 23 methods; their IDs, other assertions, and budgets
+remain unchanged. A separate `LazyListKeyboardReplacementContinuationTests` case checks
+that the escaped handler remains inactive before and after ordinary settlement, the
+same physical row receives its actual successor declaration, and fresh navigation still
+performs one write and focuses the correct row. It uses the existing 128-element/four-round
+limits per operation, up to 16 ordinary replacement frames and the existing four-frame
+warm continuation limit. This is an additional gate outside the original 155-test roster,
+not a replacement for a failing test or a larger original operation budget.
+
+A temporary opt-in trace now records existing keyboard branch, settlement result,
+finish result/stage, stored settlement state, and separately labeled original/current
+budget scalars. `SWIFT_WINDOWSUI_DIAGNOSTIC_LIST_KEYBOARD_FOCUS=1` enables at most 128
+lines per runtime; it adds no layout query, authored callback, retry, or budget. Root and
+independent source reviews, contract checks, and strict four-file lint passed after a
+format-only line wrap. The next focused run retains both original focus-failure tests,
+the corrected original replacement test, and the new continuation gate. Execution is
+pending. Remove the temporary trace once it identifies the concrete fix. The full original
+goal, all nine completion gates, and the required 155-test rerun remain open and unchanged.

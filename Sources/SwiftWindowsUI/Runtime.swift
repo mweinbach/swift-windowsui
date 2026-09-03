@@ -14901,6 +14901,33 @@ public final class RetainedViewRuntime {
         let activePhysicalActivityIDs: [ObjectIdentifier]?
     }
 
+    static let tracesListKeyboardFocus =
+        ProcessInfo.processInfo.environment[
+            "SWIFT_WINDOWSUI_DIAGNOSTIC_LIST_KEYBOARD_FOCUS"] == "1"
+    private var listKeyboardFocusTraceCount = 0
+
+    // Temporary passive trace: no authority, query, or budget is retained.
+    func traceListKeyboardFocus(
+        _ stage: StaticString, originalRemaining: inout (Int, Int)?, originalIsActive: Bool
+    ) {
+        guard Self.tracesListKeyboardFocus, listKeyboardFocusTraceCount < 128 else { return }
+        listKeyboardFocusTraceCount += 1
+        let elements = lazyListResolutionBudget?.remainingElements ?? -1
+        let rounds = lazyListResolutionBudget?.remainingRounds ?? -1
+        if originalIsActive { originalRemaining = (elements, rounds) }
+        let recorded: StaticString
+        switch recordedLayoutSettlement {
+        case .settled: recorded = "settled"
+        case .unsettled: recorded = "unsettled"
+        case .unavailable: recorded = "unavailable"
+        }
+        print(
+            "list-keyboard-focus stage=\(stage) originalActive=\(originalIsActive)"
+                + " originalElements=\(originalRemaining?.0 ?? -1) originalRounds=\(originalRemaining?.1 ?? -1)"
+                + " currentElements=\(elements) currentRounds=\(rounds) recorded=\(recorded)"
+                + " geometry=\(layoutSettlementGeometryRevision) sequence=\(layoutSettlementResolutionSequence)")
+    }
+
     internal var recordsLazyListUIAPhasesForTesting = false {
         didSet {
             if recordsLazyListUIAPhasesForTesting { lazyListUIAPhasesForTesting.removeAll(keepingCapacity: true) }

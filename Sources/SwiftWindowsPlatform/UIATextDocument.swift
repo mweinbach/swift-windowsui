@@ -10,6 +10,21 @@ package protocol UIATextDocumentSource: UIAElementTreeSource {
 @MainActor
 package protocol UIATextDocumentAuthority: AnyObject {
     func isCurrent() -> Bool
+    func matchesOriginalDocument(_ other: any UIATextDocumentAuthority) -> Bool
+}
+
+extension UIATextDocumentAuthority {
+    package func matchesOriginalDocument(_ other: any UIATextDocumentAuthority) -> Bool {
+        self === other
+    }
+}
+
+/// Internal peer operations distinguish a stale origin from a different one.
+/// Values are equality (0/1) or endpoint ordering (-1/0/1), never text units.
+package enum UIATextRangePeerResult: Equatable, Sendable {
+    case unavailable
+    case incompatible
+    case value(Int32)
 }
 
 /// An immutable text copy with independently revocable original authority.
@@ -56,6 +71,27 @@ package final class UIATextDocument: Equatable {
 
     fileprivate func isOwned(by owner: UIAProviderBridge) -> Bool {
         hasProviderOwner && providerOwner === owner
+    }
+
+    /// Callback-free terminal observation only, never fresh read authority.
+    fileprivate var hasObservedInvalidation: Bool { isInvalidated }
+
+    /// nil means stale; false means two current but different original owners.
+    /// Object equality remains unchanged: compatibility is an explicit operation.
+    fileprivate func isCompatible(with other: UIATextDocument) -> Bool? {
+        guard isCurrent, other.isCurrent, isCurrent, !isInvalidated, !other.isInvalidated else { return nil }
+        let compatible =
+            hasSameProviderOwner(as: other)
+            && snapshot.text.utf16.elementsEqual(other.snapshot.text.utf16)
+            && authority.matchesOriginalDocument(other.authority)
+            && other.authority.matchesOriginalDocument(authority)
+        guard isCurrent, other.isCurrent, isCurrent, !isInvalidated, !other.isInvalidated else { return nil }
+        return compatible
+    }
+
+    @inline(never)
+    private func hasSameProviderOwner(as other: UIATextDocument) -> Bool {
+        hasProviderOwner == other.hasProviderOwner && providerOwner === other.providerOwner
     }
 
     package func documentRange() -> UIATextRange? {
@@ -107,6 +143,28 @@ package final class UIATextRange: Equatable {
     ) -> Int? {
         guard document === other.document, isCurrent else { return nil }
         return span.compareEndpoint(endpoint, to: other.span, endpoint: otherEndpoint)
+    }
+
+    package func compareOriginalRange(to other: UIATextRange) -> UIATextRangePeerResult {
+        guard let compatible = document.isCompatible(with: other.document) else { return .unavailable }
+        guard compatible else { return .incompatible }
+        return .value(span == other.span ? 1 : 0)
+    }
+
+    /// Only denies a result after paired authority callbacks. It does not
+    /// replace either range's currentness or the native call/session checks.
+    package func hasNoObservedInvalidation(with other: UIATextRange) -> Bool {
+        !document.hasObservedInvalidation && !other.document.hasObservedInvalidation
+    }
+
+    package func compareOriginalEndpoint(
+        _ endpoint: TextRangeEndpoint, to other: UIATextRange, endpoint otherEndpoint: TextRangeEndpoint
+    ) -> UIATextRangePeerResult {
+        guard let compatible = document.isCompatible(with: other.document) else { return .unavailable }
+        guard compatible,
+            let distance = span.compareEndpoint(endpoint, to: other.span, endpoint: otherEndpoint)
+        else { return .incompatible }
+        return .value(distance < 0 ? -1 : distance > 0 ? 1 : 0)
     }
 
     /// Uses the value helper's explicit local policy: -1 is unlimited,

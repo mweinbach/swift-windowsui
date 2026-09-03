@@ -181,3 +181,46 @@ because its COM method has the same name. The values neither mask secure text
 nor attach lifetimes to snapshots; callers must not disclose a stale or
 unauthorized snapshot through future providers. No completion requirement in
 `goal.md` is narrowed by this dependency.
+
+A private follow-on candidate adds internal held-handle clone, equality and
+endpoint-order queries. It still exposes no native text pattern or text range
+interface. A clone has an independent ticket and range record while sharing the
+original document authority. Peer operations revalidate both original documents,
+their weak provider ownership, and exact immutable UTF16 contents. Runtime
+documents from separate acquisitions are compatible only when their original
+weak source, runtime and physical node, content token, attachment and selected
+path still agree. Equal text or automation IDs do not establish compatibility.
+Existing object equality and the original same-document endpoint method keep
+their earlier semantics; the new compatibility operation is explicit.
+
+The new paired checks finish with callback-free reads of both documents'
+terminal invalidation flags, so a final callback cannot hide an already observed
+peer refusal. These flags do not establish simultaneous freshness for arbitrary
+custom package authorities that silently mutate each other. The concrete Runtime
+path reads stored eligibility/attachment/installed-selection state and projects
+metadata without invoking authored getters, actions or layout; projected actions
+retain weak nodes/scopes rather than authored handlers. This source audit does
+not turn the generic authority protocol into an atomic multi-document validator.
+
+Native peers are resolved through a private IUnknown identity interface before
+the actor looks up their original tickets in the same context's store. This is
+an interoperability check, not new request admission. Complete-call/session
+validation, synchronous registration rollback, numeric retirement and the final
+status-load publication boundary remain unchanged. Foreign origins are
+E_INVALIDARG; stale origins are UIA_E_ELEMENTNOTAVAILABLE. Comparisons return
+only equality or -1/0/1 ordering, without claiming native text-unit distances.
+The separate optional operations table preserves the existing callback layouts,
+old factories and typed Invoke result. All tests for this follow-on remain
+source-only until the parent performs serial compilation and execution.
+
+This prerequisite does not complete Microsoft's
+[TextPattern contracts](https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-implementingtextandtextrange).
+Plain-label layout currently discards fragment source mappings after wrapping
+and truncation; editor geometry preserves a different whitespace policy and
+cannot substitute for the rendered label's geometry. Actual visible ranges,
+point/range mapping, rectangles, reveal, attributes, embedded children and text
+events remain open. Character and Document units are required by the
+[TextPattern overview](https://learn.microsoft.com/en-us/dotnet/framework/ui-automation/ui-automation-textpattern-overview);
+fallback to Document alone is insufficient. No-selection plain text may report
+SupportedTextSelection_None, but that does not excuse missing nonselection
+methods. The native/display harness remains outside this candidate's scope.

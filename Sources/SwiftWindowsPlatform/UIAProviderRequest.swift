@@ -15,6 +15,9 @@ package enum UIAProviderRequest: Equatable, Sendable {
     /// Internal native read tickets; neither exposes a UIA text pattern.
     case acquireTextRead(element: UInt64, ticket: UInt64)
     case readTextRead(ticket: UInt64, maximumUTF16Length: Int32)
+    case cloneTextRead(source: UInt64, ticket: UInt64)
+    case compareTextReads(left: UInt64, right: UInt64)
+    case compareTextReadEndpoints(left: UInt64, endpoint: Int32, right: UInt64, otherEndpoint: Int32)
     case controlType(element: UInt64)
     case boolProperty(element: UInt64, property: Int32)
     case hasInvokeAction(element: UInt64)
@@ -44,6 +47,7 @@ package enum UIAProviderReply: Equatable, Sendable {
     case bounds(Rect)
     case string(String?)
     case textDocument(UIATextDocument?)
+    case textRangePeer(UIATextRangePeerResult)
     case integer(Int32)
     case selection([UInt64]?)
     case itemLookup(UIAItemContainerResult)

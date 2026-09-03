@@ -1048,6 +1048,25 @@ extension RuntimeUIAElementTreeSource: UIATextDocumentSource {
             return originalWitnessesAreCurrent()
         }
 
+        func matchesOriginalDocument(_ other: any UIATextDocumentAuthority) -> Bool {
+            guard let other = other as? TextDocumentAuthority,
+                isCurrent(), other.isCurrent(), matchesOriginalWitnesses(other)
+            else { return false }
+            // No strong source/runtime/node capture from the comparison frame
+            // survives this final validation of both original weak paths.
+            return isCurrent() && other.isCurrent() && isCurrent()
+        }
+
+        @inline(never)
+        private func matchesOriginalWitnesses(_ other: TextDocumentAuthority) -> Bool {
+            guard let source, let otherSource = other.source, source === otherSource,
+                let runtime, let otherRuntime = other.runtime, runtime === otherRuntime,
+                let node = target.node, let otherNode = other.target.node, node === otherNode,
+                contentIdentity === other.contentIdentity
+            else { return false }
+            return true
+        }
+
         private func originalWitnessesAreCurrent() -> Bool {
             guard let source, let runtime, source.runtime === runtime,
                 source.logicalIdentitiesByID[elementID] == nil,

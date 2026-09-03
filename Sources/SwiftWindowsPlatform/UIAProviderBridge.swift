@@ -867,6 +867,40 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
             return try replyForNativeRequest(
                 .textRangeContent(range: range, maximumUTF16Length: Int(maximumUTF16Length)),
                 geometry: geometry, isAvailable: isAvailable)
+        case .cloneTextRead(let sourceTicket, let ticket):
+            guard ticket != 0, isAvailable(), permitsHeldTextReads,
+                let original = nativeTextReads.range(for: sourceTicket), original.isOwned(by: self),
+                let clone = original.clone(), isAvailable(), clone.isCurrent
+            else { return .integer(0) }
+            return .integer(nativeTextReads.register(clone, ticket: ticket) ? 1 : 0)
+        case .compareTextReads(let leftTicket, let rightTicket):
+            guard isAvailable(), permitsHeldTextReads,
+                let left = nativeTextReads.range(for: leftTicket), let right = nativeTextReads.range(for: rightTicket),
+                left.isOwned(by: self), right.isOwned(by: self)
+            else { return .textRangePeer(.unavailable) }
+            let result = left.compareOriginalRange(to: right)
+            guard isAvailable(), left.isCurrent, right.isCurrent, left.isCurrent,
+                left.hasNoObservedInvalidation(with: right)
+            else {
+                return .textRangePeer(.unavailable)
+            }
+            return .textRangePeer(result)
+        case .compareTextReadEndpoints(let leftTicket, let endpoint, let rightTicket, let otherEndpoint):
+            guard endpoint == 0 || endpoint == 1, otherEndpoint == 0 || otherEndpoint == 1 else {
+                return .textRangePeer(.incompatible)
+            }
+            guard isAvailable(), permitsHeldTextReads,
+                let left = nativeTextReads.range(for: leftTicket), let right = nativeTextReads.range(for: rightTicket),
+                left.isOwned(by: self), right.isOwned(by: self)
+            else { return .textRangePeer(.unavailable) }
+            let result = left.compareOriginalEndpoint(
+                endpoint == 0 ? .start : .end, to: right, endpoint: otherEndpoint == 0 ? .start : .end)
+            guard isAvailable(), left.isCurrent, right.isCurrent, left.isCurrent,
+                left.hasNoObservedInvalidation(with: right)
+            else {
+                return .textRangePeer(.unavailable)
+            }
+            return .textRangePeer(result)
         case .controlType(let element):
             return .integer(try nativeQuerySnapshot(geometry).controlType(element))
         case .boolProperty(let element, let property):

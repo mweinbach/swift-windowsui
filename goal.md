@@ -19047,3 +19047,61 @@ physical-membership hint. Any optimization must preserve fresh authority,
 callback ordering, reentry, retirement and all original assertions, followed by
 new uninstrumented tests. The full original155 gate, broader validation and
 all nine original completion gates remain open.
+
+### 2026-09-03: current gallery unchanged; internal native text-range operations integrated
+
+The normal gallery comparison completed on clean `f315efb7924d0b5b3d3d6d24d1b63daca81c77af`
+with **85 PASS / 0 FAIL**. Its report is
+`artifacts/gallery-compare-f315efb-validation/report.json`; the independent
+`artifacts/gallery-f315efb-review.json` records all 85 PNG hashes. Every current
+retained-runtime PNG is byte-identical to the previously reviewed `2903c93`
+render. No baseline changed. The existing within-threshold differences from
+baselines remain canvas-path-gradient (0.175%, max channel delta 20) and
+state-toggle-hover (0%, max delta 8), not an all-zero comparison. Font provenance
+remains unqualified; this is CPU/reference gallery evidence, not hardware,
+native presentation, macOS parity, or full-suite qualification.
+
+The next text-accessibility prerequisite adds internal clone, compare, and
+endpoint-comparison operations to held native text-read handles. All actor values
+remain in the original bridge's numeric-ticket store. A clone receives its own
+handle identity and ticket; a failed unpublished clone retires only its own
+ticket. Independent acquisitions can compare only when their original source,
+runtime, physical node, exact content token/UTF-16, and original attachment and
+selected-path authorities agree. Equal automation IDs or string contents cannot
+borrow another node's or source's authority. Existing object equality and the
+same-document endpoint API remain unchanged.
+
+The optional C callback table and factory leave the old table layouts and factory
+bodies intact. Peer operations pin both handles, query a private interop identity,
+reject foreign contexts before actor entry, check status around foreign COM
+callouts, and separate HRESULT failure from zero/one or negative/zero/positive
+primitive results. The private IID is an interoperability contract, not a
+security boundary against a malicious in-process implementation. Both original
+range authorities are rechecked; callback-free terminal refusal flags prevent
+an observed late refusal from being lost. This is not atomic freshness for
+arbitrary package authorities that silently mutate each other. The existing
+final native status-load publication limit also remains explicit.
+
+The final private candidate was independently reviewed, then all ten pinned
+afterimages were integrated against exact current base hashes. The original
+`docs/TextRangeValues.md` byte prefix was retained. The integration receipt and
+preformat copies are in `artifacts/native-text-range80-integration.json` and
+`artifacts/native-text-range80-preformat/`. Strict lint initially rejected
+formatting only; after toolchain formatting, strict lint and contracts passed
+(`artifacts/native-text-range80-lint-formatted.log`). No prior test source was
+modified. Twelve new headless native-handle tests retain the preimplementation
+oracles, with separately reviewed fixture cleanup changes and formatting.
+
+The selected validation is **80 methods: 12 new plus 68 unchanged collateral**,
+from the sealed `selection-union80.json` roster (SHA-256
+`ca2ecd268e03b72b32e62b65641f4abbedbebbeaa016118fc6c4e0f0dc412396`).
+Compilation and execution of this integrated slice are still pending at this
+entry; no pass is inferred from source review or the earlier 68-method run.
+
+No native TextPattern or ITextRangeProvider is advertised by this prerequisite.
+Character/document units, ordinary-text source-mapped geometry, visible/point
+queries, attributes, search, reveal, notifications, installed UIA clients and
+Narrator flows remain open. All nine original completion gates, the original
+155-method keyboard gate, live performance qualification and the held native
+display harness remain open. The destination and acceptance thresholds are
+unchanged; the gallery and internal range slice close no complete product gate.

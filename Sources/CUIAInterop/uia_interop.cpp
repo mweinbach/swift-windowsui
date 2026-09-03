@@ -78,6 +78,7 @@ struct SWUUIAProviderContext {
     int32_t (*const invokeDefaultActionResult)(void *, uint64_t);
     int32_t (*const callInvokeDefaultActionResult)(SWUUIACall *, uint64_t);
     const SWUUIATextReadCallbacks textReadCallbacks{};
+    const SWUUIATextRangeCallbacks textRangeCallbacks{};
 
     SWUUIAProviderContext(
         const SWUUIACallbacks &value, void (*release)(void *),
@@ -104,6 +105,20 @@ struct SWUUIAProviderContext {
     bool hasTextReadCallbacks() const {
         return usesExplicitCalls && textReadCallbacks.acquire != nullptr &&
             textReadCallbacks.copyText != nullptr && textReadCallbacks.retire != nullptr;
+    }
+
+    SWUUIAProviderContext(
+        const SWUUIACallCallbacks &value, void (*release)(void *), const SWUUIADrainWake &wake,
+        int32_t (*invokeResult)(SWUUIACall *, uint64_t), const SWUUIATextReadCallbacks &textRead,
+        const SWUUIATextRangeCallbacks &textRanges)
+        : callbacks(makeCallAdapters(value)), callCallbacks(value), usesExplicitCalls(true),
+          releaseContext(release), drainWake(wake),
+          invokeDefaultActionResult(invokeResult != nullptr ? invokeCallResult : nullptr),
+          callInvokeDefaultActionResult(invokeResult), textReadCallbacks(textRead), textRangeCallbacks(textRanges) {}
+
+    bool hasTextRangeCallbacks() const {
+        return hasTextReadCallbacks() && textRangeCallbacks.clone != nullptr &&
+            textRangeCallbacks.compare != nullptr && textRangeCallbacks.compareEndpoints != nullptr;
     }
 
     HRESULT issueTextReadTicket(uint64_t *result) {
@@ -1398,9 +1413,19 @@ IRawElementProviderFragmentRoot *asRoot(void *provider) {
     return static_cast<IRawElementProviderFragmentRoot *>(asProvider(provider));
 }
 
+// Private interoperability identity only. It never grants call admission or
+// proves actor document compatibility, and remains available after revocation.
+const IID IID_SWUTextReadIdentity = {
+    0x64fa648d, 0x0c79, 0x4b03, {0x99, 0x0f, 0x6c, 0x91, 0xc8, 0x61, 0x91, 0x5d}};
+
+struct ISWUTextReadIdentity : IUnknown {
+    virtual HRESULT STDMETHODCALLTYPE GetTextReadIdentity(
+        SWUUIAProviderContext *context, uint64_t *ticket) = 0;
+};
+
 // No text COM interface is exposed. An eventual range provider can own this
 // capability, but may not bypass its original context and full-call admission.
-class SWUTextReadHandle final : public IUnknown {
+class SWUTextReadHandle final : public ISWUTextReadIdentity {
 public:
     SWUTextReadHandle(SWUUIAProviderContext *context, uint64_t ticket)
         : context_(context), ticket_(ticket) { context_->retain(); }
@@ -1408,8 +1433,13 @@ public:
     IFACEMETHODIMP QueryInterface(REFIID riid, void **result) override {
         if (result == nullptr) return E_POINTER;
         *result = nullptr;
-        if (riid != IID_IUnknown) return E_NOINTERFACE;
-        *result = static_cast<IUnknown *>(this);
+        if (riid == IID_IUnknown) {
+            *result = static_cast<IUnknown *>(this);
+        } else if (riid == IID_SWUTextReadIdentity) {
+            *result = static_cast<ISWUTextReadIdentity *>(this);
+        } else {
+            return E_NOINTERFACE;
+        }
         AddRef();
         return S_OK;
     }
@@ -1426,6 +1456,14 @@ public:
 
     SWUUIAProviderContext *context() const { return context_; }
     uint64_t ticket() const { return ticket_; }
+
+    IFACEMETHODIMP GetTextReadIdentity(SWUUIAProviderContext *context, uint64_t *ticket) override {
+        if (ticket == nullptr) return E_POINTER;
+        *ticket = 0;
+        if (context != context_) return E_INVALIDARG;
+        *ticket = ticket_;
+        return S_OK;
+    }
 
 private:
     ~SWUTextReadHandle() {
@@ -1467,6 +1505,87 @@ HRESULT acquireTextRead(void *provider, void **result, bool refuseAllocation) {
     if (registered != S_OK) return FAILED(registered) ? registered : E_UNEXPECTED;
     // Permission linearizes at the status load above, not at the pointer store.
     *result = handle.release();
+    return S_OK;
+}
+
+HRESULT cloneTextRead(void *handle, void **result) {
+    if (result == nullptr) return E_POINTER;
+    *result = nullptr;
+    if (handle == nullptr) return E_POINTER;
+    auto *original = static_cast<SWUTextReadHandle *>(handle);
+    auto *context = original->context();
+    ProviderCall call(original, context);
+    HRESULT status = call.status();
+    if (FAILED(status)) return status;
+    if (!context->hasTextRangeCallbacks()) return E_NOINTERFACE;
+    uint64_t ticket = 0;
+    status = context->issueTextReadTicket(&ticket);
+    if (FAILED(status)) return status;
+    COMOwned<SWUTextReadHandle> clone(new (std::nothrow) SWUTextReadHandle(context, ticket));
+    status = call.status();
+    if (FAILED(status)) return status;
+    if (!clone) return E_OUTOFMEMORY;
+    const HRESULT registered = context->textRangeCallbacks.clone(
+        static_cast<SWUUIACall *>(call.callbackContext()), original->ticket(), ticket);
+    // Synchronous registration finishes before the unpublished guard retires.
+    status = call.status();
+    if (FAILED(status)) return status;
+    if (registered != S_OK) return FAILED(registered) ? registered : E_UNEXPECTED;
+    *result = clone.release();
+    return S_OK;
+}
+
+HRESULT compareTextReads(void *handle, void *peer, bool endpoints,
+                         int32_t endpoint, int32_t otherEndpoint, int32_t *result) {
+    if (result == nullptr) return E_POINTER;
+    *result = 0;
+    if (handle == nullptr || peer == nullptr) return E_POINTER;
+    auto *original = static_cast<SWUTextReadHandle *>(handle);
+    auto *context = original->context();
+    ProviderCall call(original, context);
+    HRESULT status = call.status();
+    if (FAILED(status)) return status;
+    if (endpoints && ((endpoint != 0 && endpoint != 1) || (otherEndpoint != 0 && otherEndpoint != 1))) {
+        return E_INVALIDARG;
+    }
+    if (!context->hasTextRangeCallbacks()) return E_NOINTERFACE;
+    auto *other = static_cast<IUnknown *>(peer);
+    COMCallPin peerPin(other);
+    status = call.status();
+    if (FAILED(status)) return status;
+    ISWUTextReadIdentity *raw = nullptr;
+    const HRESULT queried = other->QueryInterface(IID_SWUTextReadIdentity, reinterpret_cast<void **>(&raw));
+    COMOwned<ISWUTextReadIdentity> identity(raw);
+    status = call.status();
+    if (FAILED(status) || queried != S_OK || !identity) {
+        identity.reset();
+        status = call.status();
+        if (FAILED(status)) return status;
+        return SUCCEEDED(queried) && queried != S_OK ? E_UNEXPECTED : E_INVALIDARG;
+    }
+    uint64_t ticket = 0;
+    const HRESULT identified = identity->GetTextReadIdentity(context, &ticket);
+    status = call.status();
+    // Foreign Release may reenter. Dispose before the final check while the
+    // separate right IUnknown pin still owns the peer through publication.
+    identity.reset();
+    const HRESULT afterRelease = call.status();
+    if (FAILED(afterRelease)) return afterRelease;
+    if (FAILED(status)) return status;
+    if (identified != S_OK) return FAILED(identified) ? E_INVALIDARG : E_UNEXPECTED;
+    if (ticket == 0) return E_INVALIDARG;
+    int32_t value = 0;
+    auto *token = static_cast<SWUUIACall *>(call.callbackContext());
+    const HRESULT compared = endpoints
+        ? context->textRangeCallbacks.compareEndpoints(token, original->ticket(), endpoint, ticket, otherEndpoint, &value)
+        : context->textRangeCallbacks.compare(token, original->ticket(), ticket, &value);
+    status = call.status();
+    if (FAILED(status)) return status;
+    if (compared != S_OK) return FAILED(compared) ? compared : E_UNEXPECTED;
+    if (endpoints ? (value < -1 || value > 1) : (value != 0 && value != 1)) return E_UNEXPECTED;
+    // Permission linearizes at the status load above. The final right-pin
+    // Release can revoke after publication; it still precedes full-call drain.
+    *result = value;
     return S_OK;
 }
 
@@ -1611,6 +1730,17 @@ SWUUIAProviderContext *SWU_UIACreateProviderContextWithCallsAndTextRead(
         invokeResult, textRead != nullptr ? *textRead : SWUUIATextReadCallbacks{});
 }
 
+SWUUIAProviderContext *SWU_UIACreateProviderContextWithCallsAndTextRanges(
+    const SWUUIACallCallbacks *callbacks, void (*releaseContext)(void *), const SWUUIADrainWake *drainWake,
+    int32_t (*invokeResult)(SWUUIACall *, uint64_t), const SWUUIATextReadCallbacks *textRead,
+    const SWUUIATextRangeCallbacks *textRanges) {
+    if (callbacks == nullptr) return nullptr;
+    return new (std::nothrow) SWUUIAProviderContext(
+        *callbacks, releaseContext, drainWake != nullptr ? *drainWake : SWUUIADrainWake{}, invokeResult,
+        textRead != nullptr ? *textRead : SWUUIATextReadCallbacks{},
+        textRanges != nullptr ? *textRanges : SWUUIATextRangeCallbacks{});
+}
+
 int32_t SWU_UIAProviderAcquireTextRead(void *provider, void **result) {
     return acquireTextRead(provider, result, false);
 }
@@ -1646,6 +1776,19 @@ int32_t SWU_UIATextReadGetText(void *handle, int32_t maximumUTF16Length, uint16_
 
 void SWU_UIATextReadRetain(void *handle) {
     if (handle != nullptr) static_cast<SWUTextReadHandle *>(handle)->AddRef();
+}
+
+int32_t SWU_UIATextReadClone(void *handle, void **result) {
+    return cloneTextRead(handle, result);
+}
+
+int32_t SWU_UIATextReadCompare(void *handle, void *peer, int32_t *result) {
+    return compareTextReads(handle, peer, false, 0, 0, result);
+}
+
+int32_t SWU_UIATextReadCompareEndpoints(
+    void *handle, int32_t endpoint, void *peer, int32_t otherEndpoint, int32_t *result) {
+    return compareTextReads(handle, peer, true, endpoint, otherEndpoint, result);
 }
 
 void SWU_UIATextReadRelease(void *handle) {

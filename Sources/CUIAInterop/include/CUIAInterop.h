@@ -265,12 +265,35 @@ SWUUIAProviderContext *SWU_UIACreateProviderContextWithCallsAndTextRead(
     const SWUUIADrainWake *drainWake,
     int32_t (*invokeResult)(SWUUIACall *, uint64_t), const SWUUIATextReadCallbacks *textRead);
 
-// These handles implement IUnknown ONLY, not ITextProvider/ITextRangeProvider.
+// Optional internal peer operations. Shares the SAME context/release hook;
+// existing tables and factories retain their previous layouts and behavior.
+// clone registers a separate ticket before returning exactly S_OK. Comparisons
+// return HRESULT separately from equality (0/1) or endpoint ordering (-1/0/1).
+typedef struct SWUUIATextRangeCallbacks {
+    int32_t (*clone)(SWUUIACall *call, uint64_t source, uint64_t ticket);
+    int32_t (*compare)(SWUUIACall *call, uint64_t left, uint64_t right, int32_t *result);
+    int32_t (*compareEndpoints)(SWUUIACall *call, uint64_t left, int32_t endpoint,
+                                uint64_t right, int32_t otherEndpoint, int32_t *result);
+} SWUUIATextRangeCallbacks;
+SWUUIAProviderContext *SWU_UIACreateProviderContextWithCallsAndTextRanges(
+    const SWUUIACallCallbacks *callbacks, void (*releaseContext)(void *), const SWUUIADrainWake *drainWake,
+    int32_t (*invokeResult)(SWUUIACall *, uint64_t), const SWUUIATextReadCallbacks *textRead,
+    const SWUUIATextRangeCallbacks *textRanges);
+
+// These handles expose IUnknown plus a private identity, never public
+// ITextProvider/ITextRangeProvider interfaces or a TextPattern advertisement.
 // They retain the original context and ticket, never a permanent call lease.
 // A revoked context refuses acquire/read; QI/retain/release remain valid.
 // Use ONLY these handle helpers, never SWUProvider's downcasting helpers.
 int32_t SWU_UIAProviderAcquireTextRead(void *provider, void **result);
 int32_t SWU_UIATextReadGetText(void *handle, int32_t maximumUTF16Length, uint16_t **result);
+// Peers must be valid caller-owned IUnknown objects, not SWUProvider casts.
+// Foreign contexts/origins are E_INVALIDARG; stale tickets are unavailable.
+// Endpoint 0 is start; 1 is end. No text unit/distance is promised.
+int32_t SWU_UIATextReadClone(void *handle, void **result);
+int32_t SWU_UIATextReadCompare(void *handle, void *peer, int32_t *result);
+int32_t SWU_UIATextReadCompareEndpoints(
+    void *handle, int32_t endpoint, void *peer, int32_t otherEndpoint, int32_t *result);
 void SWU_UIATextReadRetain(void *handle);
 void SWU_UIATextReadRelease(void *handle);
 int32_t SWU_UIATextReadQueryInterfaceResult(void *handle, int32_t interfaceKind, void **result);

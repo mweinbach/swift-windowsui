@@ -20024,3 +20024,29 @@ unchanged. The baseline roster and proposed successor retain the same seven
 ordered identifiers; only the three fixture source hashes differ. No production
 code or original completion requirement is changed, and correction validation
 remains pending at this checkpoint.
+
+### 2026-09-03: retain demo snapshots through their published button actions
+
+The five reproduced action failures now have fixture-only corrections in
+`DemoCommandPaletteAndTableWorkflowTests`, `DemoGalleryResponsiveTests` and
+`DemoShowcaseNavigationTests`. Each affected test retains its initial snapshot
+with an explicit extended lifetime until the interaction and assertions finish.
+The table sort, category selection, workbench action, search recovery and
+dashboard Gallery action remain identical, as do every original assertion and
+both existing runtime-expiry safety controls. No production behavior changes.
+
+The reviewed patch is SHA256
+`040e5519c273020986aabf48e2da0e1ae078176e8e284a9e0e85f0c2858cbda8`.
+Root verified all 26 sealed payloads and reversed the five substitutions to
+recover all three complete original files byte-for-byte. Strict lint for each
+changed Swift file and architecture contracts passed after application. These
+checks establish source integrity, not successful test execution.
+
+The next fixed-source run uses exactly the same seven ordered identifiers as
+the failed baseline, including both unchanged expiry safety controls. Its
+afterimage roster SHA256 is
+`9dd0974b8e27b480f05055d2aab0501980ae981ad570bbf402303d267ce99492`.
+Compilation and behavioral results remain pending at this checkpoint. Both
+failed stock Full attempts and the original five failures remain evidence;
+none is replaced by this fixture correction. All nine original completion
+gates remain open and retain their original requirements.

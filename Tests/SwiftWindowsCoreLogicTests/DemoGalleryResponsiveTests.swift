@@ -281,7 +281,9 @@ final class DemoGalleryResponsiveTests: XCTestCase {
 
     func testDesktopGalleryContainsRenderingAndPresentationExamples() async {
         let model = galleryModel()
-        let root = snapshot(model: model).runtime.root
+        let initialSnapshot = snapshot(model: model)
+        defer { withExtendedLifetime(initialSnapshot) {} }
+        let root = initialSnapshot.runtime.root
 
         for title in [
             "Actions & feedback",
@@ -366,7 +368,9 @@ final class DemoGalleryResponsiveTests: XCTestCase {
         XCTAssertFalse(DemoGalleryCategory.visuals.matches(query: "sheet"))
 
         let model = galleryModel()
-        let initial = snapshot(model: model).runtime.root
+        let initialSnapshot = snapshot(model: model)
+        defer { withExtendedLifetime(initialSnapshot) {} }
+        let initial = initialSnapshot.runtime.root
 
         for category in DemoGalleryCategory.allCases {
             let label = "Show \(category.label) examples"
@@ -393,7 +397,9 @@ final class DemoGalleryResponsiveTests: XCTestCase {
         model.selectedGalleryCategory = .visuals
         model.galleryQuery = "no gallery example could match this phrase"
 
-        let filtered = snapshot(model: model).runtime.root
+        let filteredSnapshot = snapshot(model: model)
+        defer { withExtendedLifetime(filteredSnapshot) {} }
+        let filtered = filteredSnapshot.runtime.root
         XCTAssertNotNil(textNode(in: filtered, "No matching examples"))
 
         guard let clear = activatingNode(in: filtered, label: "Clear search") else {

@@ -75,7 +75,9 @@ final class DemoShowcaseNavigationTests: XCTestCase {
 
     func testGalleryTabIsVisibleAndActivatesFromTheDashboard() async {
         let model = DemoDashboardModel()
-        let root = snapshot(model: model).runtime.root
+        let initialSnapshot = snapshot(model: model)
+        defer { withExtendedLifetime(initialSnapshot) {} }
+        let root = initialSnapshot.runtime.root
 
         guard let label = firstNode(in: root, matching: { $0.text == "Gallery" }) else {
             return XCTFail("the dashboard tab bar must expose the Gallery destination")

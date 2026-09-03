@@ -354,7 +354,9 @@ final class DemoCommandPaletteAndTableWorkflowTests: XCTestCase {
     func testTableHeadersAreFocusableAndAnnounceSortDirection() async {
         let model = DemoDashboardModel()
         model.selectedScreen = .data
-        let root = snapshot(model: model).runtime.root
+        let initialSnapshot = snapshot(model: model)
+        defer { withExtendedLifetime(initialSnapshot) {} }
+        let root = initialSnapshot.runtime.root
 
         guard
             let loadHeader = firstNode(

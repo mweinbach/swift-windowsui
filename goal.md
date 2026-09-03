@@ -18182,3 +18182,58 @@ architecture checks (session 31567, completion 5153f4, exit 0).
 The correction preserves all test methods and assertions. No compilation or
 runtime result is inferred from formatting, and all nine original goal gates
 remain open. This append records the error without replacing earlier evidence.
+
+### 2026-09-03 — Execute the integrated lifetime, calendar and blend selections
+
+All runs below used the clean, fixed source at
+`85ddfe8d1a66ded7ea20d802f385ec2e51033bb3`. SwiftPM execution was serial.
+Every selected method started and reached exactly one terminal result, with no
+skips, timeouts or uncertain cleanup. Each owned process tree closed naturally
+within the existing 900-second execution and 10-second cleanup policy; source
+and index checks remained unchanged. The selections overlap and are not a
+combined unique-method count or a replacement for the original 155-method gate.
+
+| Selection | Fresh result | Reconciled evidence under `artifacts/` |
+| --- | --- | --- |
+| FocusedFoundation40 | 40 passed | `focusedfoundation40-85ddfe8-results.json` |
+| CatalogFixture26 | 26 passed | `catalogfixture26-85ddfe8-results.json` |
+| AccessibilityCollateral71 | 71 passed | `accessibility-collateral-85ddfe8-results.json` |
+| CalendarText155 | 152 passed, 3 failed | `calendar-text-85ddfe8-results.json` |
+| CalendarPublicActions2 | 2 passed | `calendar-public-actions2-85ddfe8-results.json` |
+| Blend49 | 48 passed, 1 failed | `blend49-85ddfe8-results.json` |
+
+FocusedFoundation40 includes all 16 held-text methods, the new descriptor
+membership method, seven existing group-deduplication methods, and all 16
+measurement-correction methods. Both corrected 30-point fixtures and the added
+24-point counterexample passed; no original assertion or round budget was
+removed. CatalogFixture26 passed the storage-versus-physical-source correction
+and its mounted attachment controls. The separate existing 71-method
+accessibility roster now passes in full, up from 69 passed and two failed at
+`5a8e828`; it does not include the added 24-point method.
+
+CalendarText155 improved from 150 passed and five failed to 152 passed and
+three failed. The corrected catalog fixture and unchanged recursive deferred
+namespace test now pass, as do all 19 text snapshot methods. The remaining
+failures are the graphical DatePicker candidate diagnostic and mounted
+rejected-candidate method, plus MultiDatePicker's rejected-candidate/hidden
+ancestor method. Each still loses its calendar surface after replacement. The
+reader-owned lifetime change therefore fixes the recursive namespace failure
+but does not by itself fix these three calendar failures.
+
+The 155-method roster does not include the two public calendar control methods
+that failed at `63fd6dd`. Those were subsequently run separately and both
+passed: `MultiDatePickerAccessibleLabelTests`' visible accessible-name/action
+case and `MultiDatePickerControlTests`' full-date/selected-state default-action
+case. This is not a fresh pass for either entire control class.
+
+Blend49 compiled and completed all methods. Its one failed method reported
+nine exact untouched-pixel comparisons of blue 76 versus 77 at the same clear
+rounding boundary. No blend implementation is changed or qualified by that
+observation alone; the next correction must retain an independent blend oracle
+and exact preservation outside the drawn quad. Offscreen WARP execution is
+separate from hardware presentation, native windows and frame-pacing evidence.
+
+The aggregate records identify each raw log, its SHA256, exact method outcomes
+and supervised closure. These focused results do not constitute Quick, Full,
+gallery, native-reference, Narrator or original-gate completion. All nine
+original completion gates and their requirements remain open.

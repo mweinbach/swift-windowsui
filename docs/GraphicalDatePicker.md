@@ -138,10 +138,36 @@ All 175 selected XCTest cases passed on private commit
 `9f56ad97bab11979643e1e6425e945fa2b45ffe8`: the 49 additions and 126 preservation
 cases, with no selected failures or skips. The complete 5,472-entry XCTest
 registration was reconciled, but only the 175 selected cases ran. No Swift
-Testing cases were selected. This source is now joined to the newer main
-checkout; that combination still needs fresh execution, retained screenshots,
-broader validation, and native comparison. The private result does not transfer
-to the combined checkout.
+Testing cases were selected. This result predates joining the source to the
+newer main checkout; the private result does not transfer to that combination.
+
+The combined checkout has fresh focused evidence at
+`85ddfe8d1a66ded7ea20d802f385ec2e51033bb3`. The separate `CalendarText155`
+selection ran 155 cases across 42 classes in eight naturally completed batches:
+152 passed, three failed, and none skipped. The graphical mounted class passed
+seven of eight cases; its candidate diagnostic failed. The MultiDatePicker
+mounted class passed ten of eleven. All 19 UIA text-snapshot cases passed,
+but those results do not qualify calendar behavior.
+
+`GraphicalDatePickerMountedTests.testRejectedCandidateAndRemovalDoNotKeepProvisionalMonthState`
+and the same-named `GraphicalDatePickerCandidateDiagnosticsTests` method still
+fail while looking up required `ViewNode` values. The MultiDatePicker candidate
+case also fails to find its calendar surface. The current record does not prove
+the cause of those missing nodes or convert the earlier wrong-month observation
+into a passing result. The two public MultiDatePicker accessibility-action cases
+that failed at `63fd6dd` were not selected in this run. They both passed in the
+separate `CalendarPublicActions2` selection at the same commit, as recorded in
+[MultiDatePicker](MultiDatePicker.md); that does not establish full control
+coverage or make the three candidate cases pass.
+
+The result summary is `artifacts/calendar-text-85ddfe8-results.json`
+(19,522 bytes; SHA-256
+`a2fc0cbd17664e4f4eb770b11eef2a85e4cde6ea3a9b05b2be06dffc83670369`).
+Its eight raw logs are under
+`artifacts/calendar-text-selected-af8ea23bf6d94258875f419383a108d7/`.
+This selection does not rerun the complete original 175-case roster or all 35
+calendar cases. Broader validation, retained screenshots, and native comparison
+remain outstanding.
 
 The reference capture is `swiftui-macos-26.5-xcode-26.6`, exported from Xcode
 26.6 (17F113), macOS SDK 26.5 (25F70), using Apple Swift 6.3.3. It declares

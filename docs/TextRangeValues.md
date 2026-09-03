@@ -111,8 +111,12 @@ checks that original authority; an observed refusal permanently invalidates the
 document. Exact UTF16 text changes retire a separate content token, so changing
 A to B and back to A cannot revive an old range. Assigning identical code units
 keeps it valid. Ranges are immutable, and comparisons currently require the same
-document object. Sixteen added tests cover these local rules but are not yet
-compiled or executed on the integrated source.
+document object. All sixteen `UIAHeldTextDocumentTests` compiled and passed on
+2026-09-03 at `85ddfe8` in `FocusedFoundation40`, with zero failures in the
+[held-test output](../artifacts/focusedfoundation40-b3c716977aae48c0a352e0f1adadfa9b/batch-01.log).
+The [aggregate result](../artifacts/focusedfoundation40-85ddfe8-results.json)
+records all 40 selected tests passing. These are local in-process actor-side
+contract checks, not a full-suite or native qualification result.
 
 Owner checks here describe actor-side ownership, not native readiness. Native
 attachment quiescence can revoke its session before the actor callback context

@@ -1,13 +1,14 @@
 # MultiDatePicker
 
 The existing unbounded `MultiDatePicker` initializers now use retained month
-browsing and day buttons. At `63fd6dd`, the internal alias-array correction
-compiled and all 70 selected calendar tests completed without the earlier fatal
-`DateComponents` set error: 65 passed and five failed. Both new alias-storage
-tests and all seven selection tests passed. Accessibility activation and
-rejected-candidate month reconstruction still fail. This remains an unqualified
+browsing and day buttons. At `85ddfe8`, the fresh `CalendarText155` selection
+completed all 155 cases: 152 passed and three failed. Ten of eleven
+MultiDatePicker mounted tests passed; the rejected-candidate surface case still
+fails. The two public accessibility-action cases that failed at `63fd6dd` both
+passed in a separate two-method run at `85ddfe8`. This remains an unqualified
 partial Windows implementation. The policies below describe the intended
-behavior; the validation section records what was and was not established.
+behavior; the validation section preserves the earlier attempts and distinguishes
+the two fresh selections.
 Its presence in WinSwiftUI does not establish availability in the pinned macOS
 SwiftUI API or qualify a shared-source example on that platform.
 
@@ -133,6 +134,50 @@ The complete raw log is
 `d39e30f2d3ae6932e12f8ff7f6cdd29bc21e39e36e30f6017e6ae048e8a5af63`).
 `artifacts/goal-ninth-calendar70-63fd6dd-reconciled-v1.json` records all selected
 IDs and terminal outcomes; the earlier partial attempt remains separate history.
+
+At `85ddfe8d1a66ded7ea20d802f385ec2e51033bb3`, the separate `CalendarText155`
+selection completed 155 cases across 42 classes: 152 passed, three failed, and
+none skipped. All eight batches ended naturally. Its calendar coverage was:
+
+| Selected class | Passed | Failed |
+| --- | ---: | ---: |
+| `GraphicalDatePickerMountedTests` | 7 | 1 |
+| `GraphicalDatePickerCandidateDiagnosticsTests` | 0 | 1 |
+| `MultiDatePickerMountedTests` | 10 | 1 |
+
+The failing MultiDatePicker method remains
+`testRejectedCandidatesAndHiddenAncestorsDoNotAdmitActions`; its failures now
+report a missing calendar surface. The graphical mounted method
+`testRejectedCandidateAndRemovalDoNotKeepProvisionalMonthState` and its
+same-named diagnostic also fail at required node lookups. These observations
+do not establish the cause of the missing surfaces or prove that the earlier
+month reconstruction problem is resolved.
+
+All 16 `UIATextSnapshotRequestTests` and three
+`UIATextSnapshotSelectedContentTests` passed in the same selection. They are
+text-snapshot evidence, not additional calendar or native accessibility coverage.
+The original control, accessible-label, selection, alias-storage, and calendar
+model classes were not selected in CalendarText155. A separate
+`CalendarPublicActions2` run at the same commit selected exactly
+`MultiDatePickerAccessibleLabelTests.testHiddenAndIgnoredLabelSubtreesCannotOverrideTheVisibleAccessibleName`
+and `MultiDatePickerControlTests.testAccessibleDefaultActionsPublishFullDateAndSelectedState`.
+Both passed, and the owned run ended naturally with exit zero. This is fresh
+recovery evidence for those two unchanged methods, not a pass for the full
+`MultiDatePickerControlTests` class, the candidate cases, or native accessibility
+validation.
+
+`artifacts/calendar-text-85ddfe8-results.json` records the 155-case result
+(19,522 bytes; SHA-256
+`a2fc0cbd17664e4f4eb770b11eef2a85e4cde6ea3a9b05b2be06dffc83670369`).
+The eight raw logs are under
+`artifacts/calendar-text-selected-af8ea23bf6d94258875f419383a108d7/`.
+This does not replace either the earlier 67/70-case attempts or the separate
+full-suite and native validation requirements.
+
+The two-method recovery is recorded separately in
+`artifacts/calendar-public-actions2-85ddfe8-results.json`. Its raw log is
+`artifacts/calendarpublicactions2-41083a8bde0d4f1aba8e30cb4c33ae38/batch-01.log`
+(SHA-256 `6d9b9636b3eb49b8e34cc3ba97aea697ceecc2cdf90d8e8f1156844b068540c0`).
 
 Range overloads, unrestricted alias normalization, native calendar focus and
 style behavior, complete action localization, platform API availability,

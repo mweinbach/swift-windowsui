@@ -20226,3 +20226,38 @@ are still pending at this checkpoint. Headless COM coverage is not an HWND,
 Narrator, TextPattern, native display, complete accessibility or full-suite
 qualification. The separate generic-frame candidate remains private. No
 original completion requirement or gate is changed.
+
+
+### 2026-09-03: retain the secure-value roster's four unchanged chrome failures
+
+The focused 232-method run at `f43635e733290014d2e0f7892d3c62cdb6dc7f0e`
+compiled and completed eight of ten planned batches. It observed exactly 186
+starts and terminals: 182 passed and four failed. All nineteen newly added
+secure-value methods passed. The runner stopped on the first failed batch;
+the remaining 46 methods were not started and have no result from this run.
+
+The four failures are unchanged `UIAFieldChromeAdoptionTests` methods:
+`testConsecutiveUnicodeEmptyAndEqualValuesPrepareFocusedChromeWithoutRendering`,
+`testSynchronousSetterAdoptionReadsOnlyTheOriginalGetterAfterTheSetterReturns`,
+`testAuthoredUnicodeSelectionAndCaretProduceMatchingChromeWithoutSelectionWrites`,
+and `testIncomingFontColorAndPlaceholderStyleAreUsedBeforeAnotherFrame`.
+Their original caret/selection chrome assertions observed missing children.
+No cause is established at this checkpoint. No assertion has been changed,
+and the new privacy coverage does not resolve these collateral failures.
+
+The attempt directory is
+`artifacts/nativesecurevalue232-3821a1d3b6c347cc94676d36af327031/`.
+Every completed batch has exact selected starts and terminals, natural exit,
+closed direct child and owned descendants, and restored resources/signals.
+There was no timeout, termination, acquisition uncertainty or supervisor error.
+The checkout and all pinned source files remained unchanged. Batch eight's
+raw log SHA256 is
+`71a687fc50190347bc73e8a588b59ac1b2086f51e4a197f58d0134396cd11f56`.
+The aggregate is `artifacts/secure-value232-f43635e-partial-results.json`,
+SHA256 `5c2311384a60dd9434a7bab30fd30e7ed2c75ca75a5a3a967e0ca8fe123d8f9a`.
+
+Next, isolate all eight original field-chrome controls at the same production
+source state and establish the failing path before any correction. Other
+production candidates remain private. This is neither a complete 232-method
+pass nor full-suite/native-display qualification. All nine original completion
+gates and the existing unresolved stock Full failures remain open.

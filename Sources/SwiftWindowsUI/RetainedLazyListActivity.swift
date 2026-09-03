@@ -5347,9 +5347,14 @@ final class RetainedDescriptorConstructionLedger {
                         coherent = false
                         break
                     }
-                    if !actuals.contains(where: {
-                        $0.target === first.actual.target && $0.attachment === first.actual.attachment
-                    }) {
+                    // Descendant outputs still qualify group completion, but a
+                    // deferred reader's lifetime belongs to its own source.
+                    // Rebuilding a nested reader must not retire this lease.
+                    if (record.kind != .deferredSubtree || output.constructionComponent === record.component)
+                        && !actuals.contains(where: {
+                            $0.target === first.actual.target && $0.attachment === first.actual.attachment
+                        })
+                    {
                         actuals.append(first.actual)
                     }
                 }
@@ -5358,7 +5363,9 @@ final class RetainedDescriptorConstructionLedger {
                 record.kind == .scopedTask
                 ? record.required.compactMap { acceptedByFacet[ObjectIdentifier($0.id)] }
                 : facts.filter { fact in
-                    guard let output = record.outputs.first(where: { $0.payload === fact.source }) else { return false }
+                    guard let output = record.outputs.first(where: { $0.payload === fact.source }),
+                        record.kind != .deferredSubtree || output.constructionComponent === record.component
+                    else { return false }
                     switch fact.nativeField {
                     case .nodeProperty: return output.retirementProperties.contains(fact.nativeField.key)
                     case .childAttachment, .nodeCompletion: return true
@@ -5377,7 +5384,7 @@ final class RetainedDescriptorConstructionLedger {
                     actual.node?.lazyListActivityStorage().descriptorDeferredSubtreeAnchor =
                         RetainedDescriptorDeferredSubtreeAnchor(contribution: record.receipt, actual: actual)
                     for output in record.outputs {
-                        guard let source = output.node,
+                        guard output.constructionComponent === record.component, let source = output.node,
                             facts.contains(where: {
                                 $0.source === output.payload && $0.actual.target === actual.target
                                     && $0.actual.attachment === actual.attachment

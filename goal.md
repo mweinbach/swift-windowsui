@@ -18114,3 +18114,28 @@ after integration and strict lint on all 15 changed Swift files passed.
 Compilation and runtime tests have not yet executed on this integrated source.
 No gallery baseline, live GPU result, native-reference comparison, hardware
 performance result or completion gate is claimed from source review alone.
+
+### 2026-09-03 — Keep a deferred reader alive when its nested reader rebuilds
+
+The temporary recursive trace showed that B's initial local rebuild retired
+A's inherited descriptor contribution. A's next root refresh consequently
+lacked its original accepted physical catalog target and refused at trace
+sequence 166. This was not initially a missing B catalog or an anchor-overwrite
+problem: both original reader catalog records had been published.
+
+Descriptor completion now retains lifetime attachments and facets for a
+deferred group only from the reader output constructed by that group's own
+component. Rebuilding an independently owned child no longer retires the
+ancestor reader's contribution merely because child outputs were propagated
+into the ancestor's group. All propagated outputs still require coherent
+successful facts for initial completion and remain in accepted-group evidence.
+Other contribution kinds and source propagation are unchanged. Candidate reader
+acceptance and native anchor installation likewise use the direct reader output.
+The change prevents an incorrect retirement; it does not revive stale receipts.
+
+Root reviewed and integrated the three completion hunks. Architecture checks
+before and after, and strict lint, passed. The unchanged recursive test and
+the broader descriptor/state controls still need runtime validation; this
+source correction is not a pass or native lifetime qualification. The separate
+graphical outer-reader missing-contribution failure remains under investigation.
+All original goal requirements remain in force.

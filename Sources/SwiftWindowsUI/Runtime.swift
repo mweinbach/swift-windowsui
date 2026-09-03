@@ -16207,7 +16207,7 @@ public final class ViewNode {
     /// full-relayout exit used to drop both deltas, so a `.layout`
     /// invalidation arriving mid rubber-band snapped the content back to the
     /// clamped offset for a frame and then jumped out again on the next tick.
-    fileprivate var effectiveScrollOffset: Double {
+    internal var effectiveScrollOffset: Double {
         let composed = clampedScrollOffset(for: scrollOffset) + scrollOvershoot + scrollPresentedDelta
         return composed.isFinite ? composed : 0
     }

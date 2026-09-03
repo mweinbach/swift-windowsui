@@ -20933,3 +20933,38 @@ termination. Raw SHA256 `81327b1ae0e68696d9087d4119ac4de2e0b2817889fbdddaad0989a
 aggregate `artifacts/field-chrome-cpu2-8cee4a0-results.json`. This verifies the one-line fixture correction
 and CPU adoption pixels under deterministic font metrics/masks; it does not
 retroactively change the first failed run or qualify native font/GPU output.
+
+
+### 2026-09-03: preserve Frame77 compiler failure and correct fixture access
+
+The first Frame77 attempt at `893c46c686350c510f8a0f5e905410a212a7cd61` stopped during compilation,
+before any test started. Twelve unique diagnostics identify one explicit return
+inside the List result builder, four resulting inference diagnostics, three
+reads of a fileprivate lifecycle flag, and four diagnosed reads of a fileprivate
+effective-scroll getter. The source contains five effective-scroll observations;
+all remain intact. The first planned batch selected 22 methods; zero of the
+77 methods executed, and no later batch started.
+
+Attempt `artifacts/framechromeafter77-e9cc285f2b964660b7894935845315ba/`
+closed naturally with status one after 193.203 owned seconds, with full owned
+process/resource closure and no timeout or termination. Raw SHA256
+`d79407e9017ea44cfc41d0a8b8a0149471b47d90e191456da1b9286dbdfde0e4`;
+aggregate `artifacts/frame77-893c46c-compile-results.json`, SHA256
+`900819b89802814eaa187df952e66fcc8d025677a8af27a692b7bb200e63ad01`.
+
+A separate reviewed three-file correction moves the unchanged row factory into
+an ordinary closure called once from the builder, preserving append-before-view
+construction. Three lifecycle assertions read the existing exact package alias
+`permitsRetainedActionInvocation`; it returns only the original flag. The
+read-only effective-scroll getter becomes internal instead of fileprivate,
+with its body and all five actual-getter observations unchanged. No public API,
+setter, production calculation, expected value or method is added or relaxed.
+Root and independent source review passed; strict lint and contracts passed on
+the exact after-images without another formatter derivative.
+
+All fourteen correction payloads were verified. Manifest SHA256
+`b55e330e0c6ac73b700b3b75782d5419c61f63a817009597a0d4a93f28252c28`. The original source packet, first failure
+and pre-correction collateral roster packet remain preserved. The same 77
+selectors now have a separate 48-pin roster,
+`artifacts/frame77-after-compile-correction.json`, SHA256 `85abf7f449405006f53c42702a736034de6612c8cd20fd12d15321a99315d935`.
+Fresh execution is pending. All original completion criteria remain unchanged.

@@ -29,9 +29,12 @@ real controller and password authority across callbacks.
 The integrated candidate has 77 frozen regression methods: 72 original frame
 methods plus five inventory tests. These include a real framed TextField whose
 setter synchronously rebuilds the host and must publish both chrome and frame
-metadata. Source and formatting reviews are clear, but compilation and the
-first focused execution of this combination are pending. Earlier passing
-chrome and controller tests do not validate the new combination.
+metadata. The first build stopped on test-fixture result-builder and access
+errors before any method ran. A separate correction preserves all expectations,
+uses an existing exact lifecycle alias, and exposes the unchanged effective-scroll
+getter internally. Source review and strict lint passed; fresh compilation and
+focused execution are pending. Earlier passing chrome and controller tests do
+not validate the new combination.
 
 Precise scrolling after framed Realize still conservatively refuses an
 unchanged, previously admitted frontmost sibling-modal stack. Existing

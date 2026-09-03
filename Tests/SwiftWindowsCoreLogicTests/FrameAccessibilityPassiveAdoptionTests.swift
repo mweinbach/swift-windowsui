@@ -67,7 +67,7 @@ final class FrameAccessibilityPassiveAdoptionTests: XCTestCase {
 
         XCTAssertEqual(cleanups, 1, "The action payload must retire during this adoption")
         XCTAssertFalse(result.completed)
-        XCTAssertTrue(runtime.permitsRenderLifecycleCallbacks)
+        XCTAssertTrue(runtime.permitsRetainedActionInvocation)
         XCTAssertTrue(runtime.root.children.first === original)
         XCTAssertTrue(original.children.first === image)
         XCTAssertTrue(image.parent === original)
@@ -146,7 +146,7 @@ final class FrameAccessibilityPassiveAdoptionTests: XCTestCase {
 
         XCTAssertEqual(cleanups, 1, "The matched child's action payload must retire during reconciliation")
         XCTAssertFalse(result.completed)
-        XCTAssertTrue(runtime.permitsRenderLifecycleCallbacks)
+        XCTAssertTrue(runtime.permitsRetainedActionInvocation)
         XCTAssertTrue(runtime.root.children.first === original)
         XCTAssertTrue(original.children.first === image)
         XCTAssertTrue(image.parent === original)

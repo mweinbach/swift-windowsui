@@ -641,13 +641,16 @@ final class FrameAccessibilityForwardingProposalTests: XCTestCase {
 
     func testFramedListPreservesItsInnerContainerWithoutBorrowingTheAdapter() async throws {
         let model = FrameAXModel()
+        let rowContent: (Int) -> AnyView = { index in
+            model.factories.append(index)
+            return AnyView(
+                Button("Row \(index)") { model.rowActivations.append(index) }
+                    .frame(height: 24).accessibilityIdentifier("row-\(index)"))
+        }
         let host = FrameAXHost(size: Size(width: 220, height: 80)) {
             AnyView(
                 List(Array(0..<64), id: \.self) { index in
-                    model.factories.append(index)
-                    return AnyView(
-                        Button("Row \(index)") { model.rowActivations.append(index) }
-                            .frame(height: 24).accessibilityIdentifier("row-\(index)"))
+                    rowContent(index)
                 }.listStyle(.plain).frame(width: 220, height: 80)
                     .accessibilityLabel("Framed list").accessibilityIdentifier("subject"))
         }
@@ -909,7 +912,7 @@ final class FrameAccessibilityForwardingProposalTests: XCTestCase {
         let result = ComponentHost.adopt(source: candidate, into: original)
         XCTAssertEqual(retirements, 1, "The callback must actually exercise the checked adoption")
         XCTAssertFalse(result.completed)
-        XCTAssertTrue(runtime.permitsRenderLifecycleCallbacks)
+        XCTAssertTrue(runtime.permitsRetainedActionInvocation)
         XCTAssertFalse(source.uiaInvokeDefaultAction(elementID: oldID))
         XCTAssertFalse(
             source.uiaElementSnapshots().contains { $0.automationID == "subject" },

@@ -1856,8 +1856,10 @@ The roster binds 48 source files. Root must verify those hashes and a clean
 integration commit separately before using the generic focused runner; the
 runner does not validate the roster's source-hash map itself.
 
-The reviewed formatter derivative preserves all methods and assertions.
-Compilation and execution are pending. Follow with existing chrome, secure-value,
+The reviewed formatter derivative preserves all methods and assertions. The
+first compile failed before any test ran; the separate fixture/access correction
+retains all 77 selectors in `artifacts/frame77-after-compile-correction.json`.
+Fresh compilation and execution are pending. Follow with existing chrome, secure-value,
 Button, paint and CPU selections after the combination passes. These overlapping
 focused selections do not replace stock Full validation or the separate native
 GPUWorkbench journey. See [FrameAccessibility.md](FrameAccessibility.md) for

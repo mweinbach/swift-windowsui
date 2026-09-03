@@ -1923,7 +1923,8 @@ public final class ComponentHost {
         uiaAuthority: RetainedLazyListUIAContinuationAuthority? = nil
     ) -> RetainedLazyListAdoptionResult {
         let textInputChrome = RetainedTextInputChromeAdoptionScope(retainedRoots: [parent], sourceRoots: newNodes)
-        let frameAccessibility = RetainedFrameAccessibilityAdoption(retainedRoots: [parent], sourceRoots: newNodes)
+        let frameAccessibility = RetainedFrameAccessibilityAdoption(
+            retainedRoots: oldChildren, sourceRoots: newNodes, publicationRoot: parent)
         let buttonActions = RetainedButtonActionAdoption(
             retainedRoots: [parent], sourceRoots: newNodes, requiresNativeTreeWitnesses: frameAccessibility != nil)
         let check = NodeReconcileAdmission(

@@ -95,7 +95,7 @@ final class GroupedFormColumnScope {
 @MainActor
 func groupedFormRowNode(
     label: ViewNode, originalLabelScope: RetainedSelectedContentMutationScope,
-    content: ViewNode, isHitTestVisible: Bool = false
+    content: ViewNode, isHitTestVisible: Bool = false, forwardsAccessibilityToContent: Bool = false
 ) -> ViewNode {
     // Several controls raise their label's layout priority so a squeezed row
     // sacrifices the control before the words. Inside the column that
@@ -136,6 +136,12 @@ func groupedFormRowNode(
     )
     row.layoutFillAxes = .horizontalOnly
     row.formRowLabelChildIndex = 0
+    if forwardsAccessibilityToContent {
+        // Only a control factory that names this exact operand opts in.
+        // The label column remains an independent accessibility subtree.
+        valueColumn.declareAccessibilityFrameContent(content)
+        row.declareAccessibilityFrameContent(valueColumn)
+    }
     return row
 }
 
@@ -18876,13 +18882,18 @@ public struct Toggle: View {
         toggleNode.accessibilityLabel = firstRetainedText(in: labelNode)
         guard !context.isInsideGroupedForm else {
             return groupedFormRowNode(
-                label: labelNode, originalLabelScope: labelScope, content: toggleNode)
+                label: labelNode, originalLabelScope: labelScope, content: toggleNode,
+                forwardsAccessibilityToContent: true)
         }
-        return Controls.stackPanel(
+        let row = Controls.stackPanel(
             stackLayout: .horizontal(spacing: 10, alignment: .center),
             isHitTestVisible: false,
             children: [labelNode, toggleNode]
         )
+        // Keep the factory-owned switch as the semantic/action owner;
+        // this layout row does not acquire a copied activation handler.
+        row.declareAccessibilityFrameContent(toggleNode)
+        return row
     }
 
     private static func checkboxNode(

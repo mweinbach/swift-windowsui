@@ -40,14 +40,27 @@ caller has not yet been identified. These are incomplete focused results, not
 a full-suite result. Earlier passing chrome and controller tests do not
 validate the new combination.
 
-Source review has identified three independent behavioral gaps: children-only
-frame adoption suspends List ancestor metadata that its own admission still
-needs; default labeled Toggle rows do not explicitly nominate their actual
-switch as semantic content; and direct child attachment attempts publication
-before the parent has appended that child. Corrections are in progress with
-the original failed assertions preserved. The stack overflow is being
-diagnosed separately, without reducing fixture depth or enlarging the stack
-as a claimed behavioral fix.
+Three reviewed corrections are now integrated but await focused execution.
+Children-only reconciliation suspends the copied child subtrees and their
+actual forwarding owners, keeping the untouched List container available to
+its original admission. A separate weak parent anchor publishes newly inserted
+frames only after the existing completion checks. Standalone child attachment
+publishes after parent membership is established and before registration can
+release a staged transaction payload; checked panel assembly is unchanged.
+
+Default labeled Toggle rows now explicitly nominate the actual switch. Grouped
+Toggle rows declare both physical edges through their value column. Labels
+remain independent siblings, and other grouped control factories are unchanged.
+No control role, action handler or descendant-search heuristic moves onto a
+layout row. Full-runtime projection preserves label descendants; directly
+projecting an installed declared row as a subtree returns its semantic switch.
+A declared row used as the actual runtime root retains the neutral window
+endpoint zero and a separate actionable switch endpoint.
+
+Eighteen additive methods cover these corrections, while all 77 original
+methods remain unchanged. The metadata stack overflow is diagnosed separately,
+without reducing fixture depth or enlarging the stack as a claimed fix.
+The current crash evidence does not establish its Swift caller.
 
 Precise scrolling after framed Realize still conservatively refuses an
 unchanged, previously admitted frontmost sibling-modal stack. Existing

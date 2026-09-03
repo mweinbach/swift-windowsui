@@ -21022,3 +21022,71 @@ from crash diagnosis. All original criteria, thresholds and nine open gates
 remain intact. The GPUWorkbench consumer has not been rebuilt or qualified
 against this candidate, and no full, native, visual or performance pass is
 claimed.
+
+
+### 2026-09-03: integrate bounded frame corrections and retain diagnostic limits
+
+Three independently reviewed source corrections are integrated on the unchanged
+production/test base of `87f8735`, after the documentation-only `e8ec3a8` commit.
+They preserve every original Frame77 test byte and expectation. Children-only
+reconciliation now suspends old/new child subtrees and only their actual
+declared-frame/selected-content forwarding owners. It stops at ordinary
+semantic terminals, so untouched List container metadata remains available to
+the original admission. A separate weak parent anchor publishes new inserted
+rows only after the original parent, journal, completion and Button cleanup
+checks. No eligibility check is removed or replaced by a permissive fallback.
+
+Default labeled Toggle factories explicitly declare their actual switch as
+semantic content. Grouped Toggle rows declare the two exact physical edges
+through their value column. Label siblings stay independent; no label action
+is borrowed, no control handler or role is copied onto the row, and no other
+grouped control factory opts in. Standalone `addChild` publishes frame semantics
+after its child-array membership write and before registration can release a
+staged transaction payload. Existing panel assembly and reconciliation update
+stamps retain their authority; attachment cannot revive old provider identity.
+
+Five child-scope, eight Toggle and five direct-attachment methods are additive.
+The first Toggle test draft is retained; a separate pre-execution correction
+uses `XCTUnwrap` instead of unsafe child indexing while retaining all assertions.
+Root reviewed the complete changes and verified all 56 payloads across the
+three sealed packets. Strict lint on all seven proposed source/test files and
+architecture contracts passed with no formatter derivative. Integration receipt:
+`artifacts/frame77-behavior-integration.json`. The original 77-method roster is
+`artifacts/frame77-after-behavior-corrections.json` (SHA256
+`66cc45d6137221c84cd87ebedeb066ec7e6c74dc66fadecc06a70f878b1d809e`);
+the separate 18-method roster has SHA256
+`72f4db9b4eaec6ead919e9ba7903739dc97c1eed776272460a65fcabd43f5c8b`.
+Both bind 51 source/test files. Compilation and behavioral execution of these
+corrections are pending. Source review and lint are not runtime qualification.
+
+Crash diagnosis remains separate. An unchanged executable and the exact first
+Metadata selector reproduced a first-chance stack overflow under CDB. The
+capture ended by an explicit debugger quit, with owned process/resource closure
+in 2.047 seconds and no supervisor timeout. It is not a passing test or natural
+test exit. Raw SHA256 `1ce2ec4c516946a2f85eabbf70d5cdd6a6633fd23214a150eaa462245d38d382`.
+A separate LLDB live attempt failed before the test launched with parameter
+error 87; wrapper status one and full closure were observed in 13.062 seconds.
+Raw SHA256 `20b938b0d6eb257c31f02470518388556ea4410a175f99bba899e0b5ec1d36ab`.
+
+A later CDB first-chance capture wrote a 1,094,541-byte minidump. Its command
+parser removed unescaped backslashes from the intended filename, so the saved
+result's `dumpExists: false` applies to the intended path. The actual generated
+file remains under that owned artifact directory with SHA256
+`694e935e4a8c9be6c2723cf0434d25c25beda67fe67f5f2ad8f0009b54efd800`;
+no file or earlier result was renamed or rewritten. Capture raw SHA256
+`f64b3113ef8b66d79b0ccff1cea1d129dca1dc9fb91bfce377d44322357888ff`,
+1.859 owned seconds with explicit debugger termination and full closure.
+Offline LLDB read that exact dump without launching a target; its RIP, RSP and
+RBP match the CDB exception context. It closed in 8.625 seconds, but recovered
+only the fault frame, not a Swift caller. Raw SHA256
+`d887ebb5566745133de946bac61753bca7d3e8d9973ba2b9e52577aa93363c1d`.
+
+A proposed third LLDB live setup was blocked by policy before its private
+file-write process was created. That route is HELD: no payload or debugger
+launch occurred, and it will not be retried or repackaged for equivalent
+execution. Read-only analysis of existing evidence and ordinary source/test
+work remain distinct. No stack-size increase, fixture simplification, fake
+caller attribution or claim that these three fixes solve the crash is made.
+All nine original goal gates and the separate sibling-modal continuation
+requirement remain open. No Full, native, GPU, visual, performance or
+GPUWorkbench checkpoint qualification follows from this integration.

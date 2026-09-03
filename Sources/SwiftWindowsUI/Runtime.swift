@@ -9612,6 +9612,9 @@ public final class ViewNode {
         if panelAssembly != nil, childrenWrite == nil { return }
         children.append(child)
         panelAssembly?.didWrite(childrenWrite)
+        // Runtime assignment precedes membership on this standalone path.
+        // Publish before registration can release a staged transaction payload.
+        if panelAssembly == nil { child.publishAccessibilityFrameSubtree() }
         runtime?.registerLazyListAttachments(in: child)
         RetainedButtonActionTree.publishStandalone(in: [child])
         invalidateRuntime(.children)

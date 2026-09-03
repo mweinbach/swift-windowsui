@@ -31,24 +31,33 @@ final class RetainedFrameAccessibilityAdoption {
     private var isValid = true
     private var isFinished = false
 
-    init?(retainedRoots: [ViewNode], sourceRoots: [ViewNode]) {
+    init?(retainedRoots: [ViewNode], sourceRoots: [ViewNode], publicationRoot: ViewNode? = nil) {
         guard let retained = Self.nodes(in: retainedRoots), let sources = Self.nodes(in: sourceRoots) else {
             isValid = false
             return
         }
-        // An inner direct adoption also suspends the frame that declares it.
-        // These ancestors retain their original declaration unless they are an
-        // explicit source/target pair in this reconciliation.
+        // Suspend only forwarding owners of the actual copied subtree. An
+        // ordinary semantic terminal ends that chain: changing its children
+        // does not copy its metadata or an outer frame's metadata.
         var ancestors: [ViewNode] = []
         var seenAncestors = Set<ObjectIdentifier>()
         for root in retainedRoots + sourceRoots {
-            var ancestor = root.parent
+            var current = root
             var depth = 0
-            while let node = ancestor, depth < ViewNode.maximumTraversalDepth,
-                seenAncestors.insert(ObjectIdentifier(node)).inserted
-            {
-                if node.accessibilityDeclaredFrameContent != nil { ancestors.append(node) }
-                ancestor = node.parent
+            while let node = current.parent, depth < ViewNode.maximumTraversalDepth {
+                if node.accessibilityDeclaredFrameContent === current, !node.hasAccessibilityFrameBoundary {
+                    // The original factory declaration owns this exact child.
+                } else if node.selectedContentRole != nil, let runtime = node.retainedLazyListRuntime,
+                    let path = node.captureSelectedContentPath(in: runtime), path.isInstalled(in: runtime),
+                    path.nextPhysicalChild === current
+                {
+                    // Preserve the existing declared selected-content bridge.
+                } else {
+                    break
+                }
+                guard seenAncestors.insert(ObjectIdentifier(node)).inserted else { break }
+                ancestors.append(node)
+                current = node
                 depth += 1
             }
         }
@@ -67,6 +76,12 @@ final class RetainedFrameAccessibilityAdoption {
         var rootIDs = Set<ObjectIdentifier>()
         for node in retainedRoots + ancestors where rootIDs.insert(ObjectIdentifier(node)).inserted {
             if let witness = witnesses[ObjectIdentifier(node)] { publicationRoots.append(witness) }
+        }
+        // Children-only reconciliation does not copy the parent. Keep it weak
+        // and outside the suspended cohort, but publish fresh inserted roots
+        // from its accepted child table after the original completion checks.
+        if let publicationRoot, rootIDs.insert(ObjectIdentifier(publicationRoot)).inserted {
+            publicationRoots.append(Witness(publicationRoot))
         }
         // No callback or payload release occurs between capturing the original
         // declarations and installing this scope on the whole affected cohort.

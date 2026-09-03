@@ -58,6 +58,56 @@ final class RetainedButtonActionAdoption {
         case consumedSource
     }
 
+    /// Captured child IDs only; this value never owns nodes or caches validity.
+    private enum ChildTable {
+        case empty
+        case single(ObjectIdentifier)
+        case multiple([ObjectIdentifier])
+
+        init(capturing children: [ViewNode]) {
+            switch children.count {
+            case 0:
+                self = .empty
+            case 1:
+                self = .single(ObjectIdentifier(children[0]))
+            default:
+                self = .multiple(children.map(ObjectIdentifier.init))
+            }
+        }
+
+        var count: Int {
+            switch self {
+            case .empty: return 0
+            case .single: return 1
+            case .multiple(let identities): return identities.count
+            }
+        }
+
+        /// The caller keeps its original count guard before this array read.
+        func matchesChildrenHavingSameCount(_ children: [ViewNode]) -> Bool {
+            switch self {
+            case .empty:
+                return true
+            case .single(let identity):
+                return ObjectIdentifier(children[0]) == identity
+            case .multiple(let identities):
+                return zip(children, identities).allSatisfy { pair in ObjectIdentifier(pair.0) == pair.1 }
+            }
+        }
+
+        /// Preserve the identity-write guard's existing mapped-array boundary.
+        static func == (lhs: ChildTable, rhs: [ObjectIdentifier]) -> Bool {
+            switch lhs {
+            case .empty:
+                return rhs.isEmpty
+            case .single(let identity):
+                return rhs.count == 1 && rhs[0] == identity
+            case .multiple(let identities):
+                return identities == rhs
+            }
+        }
+    }
+
     @MainActor
     private final class Witness {
         weak var node: ViewNode?
@@ -76,7 +126,7 @@ final class RetainedButtonActionAdoption {
         var ownerWasRetired: Bool
         var attachment: RetainedLazyListAttachmentProof
         var identity: RetainedLazyListViewIdentityProof
-        var children: [ObjectIdentifier]
+        var children: ChildTable
         var phase = Phase.stable
 
         init(_ node: ViewNode, participatesInPayloadCohort: Bool = true) {
@@ -88,7 +138,7 @@ final class RetainedButtonActionAdoption {
             ownerWasRetired = node.buttonActionOwner?.isRetired == true
             attachment = node.captureLazyListAttachmentProof()
             identity = node.captureLazyListIdentityProof()
-            children = node.children.map(ObjectIdentifier.init)
+            children = ChildTable(capturing: node.children)
         }
 
         func matchesCurrent(exceptAttachment: Bool = false, exceptChildren: Bool = false) -> Bool {
@@ -100,7 +150,7 @@ final class RetainedButtonActionAdoption {
                 return (exceptAttachment || attachment.isCurrent) && identity.isCurrent
                     && (exceptChildren
                         || (children.count == node.children.count
-                            && zip(node.children, children).allSatisfy { pair in ObjectIdentifier(pair.0) == pair.1 }))
+                            && children.matchesChildrenHavingSameCount(node.children)))
                     && node.buttonActionOwner === owner
                     && (owner?.isRetired == true) == ownerWasRetired
             }
@@ -260,7 +310,7 @@ final class RetainedButtonActionAdoption {
             isValid = false
             return false
         }
-        changed.children = node.children.map(ObjectIdentifier.init)
+        changed.children = ChildTable(capturing: node.children)
         if !isCurrent { isValid = false }
         return isValid
     }
@@ -281,7 +331,7 @@ final class RetainedButtonActionAdoption {
             return false
         }
         changed.attachment = node.captureLazyListAttachmentProof()
-        if let parent, let parentWitness { parentWitness.children = parent.children.map(ObjectIdentifier.init) }
+        if let parent, let parentWitness { parentWitness.children = ChildTable(capturing: parent.children) }
         if !isCurrent { isValid = false }
         return isValid
     }

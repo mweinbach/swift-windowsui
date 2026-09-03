@@ -20383,3 +20383,62 @@ copied-query privacy protections and the still-reproducing chrome transport
 defect. It distinguishes nineteen passing new privacy tests from the failed
 larger roster and the separately passing 46 controls. No claim of a full suite,
 hardware performance, native accessibility or completed original gate is made.
+
+
+### 2026-09-03: specialize captured child tables without omitting validation
+
+After the original implementation passed all 125 frozen controls, one production
+file now stores empty child tables directly, single child identities inline,
+and multiple identities in the original ordered array. The original count guard
+still precedes the second child-array read. Multiple-child comparison remains
+the same ordered zip predicate; identity-refresh retains its original mapped
+array expression through a private equality overload with independent bounds
+checks. No node, owner, runtime, callback, weak reference or cached validity is
+added to the representation.
+
+All currentness calls, first-refusal behavior, witness iteration, diagnostic
+counters, phase transitions, attachment/identity receipts, action flights and
+payload cleanup remain unchanged. Root independently removed the enum and
+reversed the five approved substitutions to recover the complete original
+source text. Root also verified all nineteen payloads across the frozen test
+and implementation packets. The source-only manifest SHA256 is
+`2adf073667f913804603e578bfc86411aed4c184e981d615645e1b4f14d80ccb`;
+the applied source SHA256 is
+`5b9bef321ff5fa41f1102e7931229c92268593f507291a3d0e9cf80149bc4719`.
+Strict lint and architecture checks passed before and after applying the exact
+reviewed source. No test assertion changed. The after roster preserves all 125
+ordered selectors and changes only the intervention's source hash, plus its
+descriptive provenance: `artifacts/button-child-table-after125.json`, SHA256
+`54e38a96d138200a6d43333435dc87bd300af7c756f20ec94fa5908d537a08eb`.
+
+Before this production change, the unchanged compact Data snapshot passed at
+`7348acb4d344fa5f5907f737be946093fddba3ac` in 17.434 test seconds.
+The attempt is
+`artifacts/compactdatasnapshotphases-6b32170ced5e4a149cfe0a762deec527/`,
+with raw log SHA256
+`f250bb0a4b775fc25ee83bc2c6588d715e6dd4ae0fbd2afb6a5a853145296a0e`
+and raw trace SHA256
+`4512ad13693eb7c54fd5c42a97d1d9cc81473d5612f37e203a9a15cfdef692c4`.
+Its aggregate SHA256 is
+`7fe72512d80b745d053e338f05a4cac1b79149186d4ced552c2f1b8a0d1f4aec`
+at `artifacts/compact-data-child-table-baseline-7348acb-results.json`.
+The exact singleton completed naturally with full owned-process closure and
+unchanged sources. All 22 required measured phase boundaries paired; no partial
+marker or parser validation error occurred. It remains an instrumented debug
+snapshot observation without a whole-trace footer, not hardware timing evidence.
+
+The paired diagnostic bindings leave the original runner, parser, flags, exact
+workload, 900-second execution and ten-second cleanup allowance unchanged.
+Root independently verified the byte-identical prefix/suffix around SOURCE_PINS
+and all 44 original ordered source pins. Each binding adds only a 45th pin for
+the actual baseline or reviewed after-image of the intervention file. Both sets
+of 34 unchanged parser controls passed. The initial root loader attempt lacked
+an explicit module alias and stopped before running tests; its failed log and
+helper are preserved, and only that root loader was corrected. No frozen parser,
+control, workload or runner logic changed.
+
+The same 125 controls and the post-change compact snapshot remain pending at
+this checkpoint. No speedup, allocation reduction, exact ARC equivalence,
+hardware performance or full-suite pass is claimed. The separate field-chrome
+transport correction remains under private design review, and its four original
+failures and all nine original completion gates remain open.
